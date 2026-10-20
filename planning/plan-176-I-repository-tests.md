@@ -41,9 +41,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-H is complete and archived | `ls planning/plan-176-H-* planning/completed/plan-176-H-*` → only `planning/completed/…` | NOT MET (2026-10-18) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-18: `tests/guards/file_size_budget.rs` does not exist) |
-| I's files have no uncommitted changes | `git status --porcelain -- repository/src` → empty | MET (2026-10-18) |
+| plan-176-H is complete and archived | `ls planning/plan-176-H-* planning/completed/plan-176-H-*` → only `planning/completed/…` | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| I's files have no uncommitted changes | `git status --porcelain -- repository/src` → empty | MET (2026-10-19) |
 
 Everything below is written against the world where these hold.
 
@@ -754,21 +754,30 @@ measurements):
 
 ### Phase 1 — Six self-contained hosts
 
-- [ ] Move `repository/src/abi.rs`'s tests to `abi/tests/mod.rs` per §4.1 (`vendor_ref_for_hash`
+- [x] Move `repository/src/abi.rs`'s tests to `abi/tests/mod.rs` per §4.1 (`vendor_ref_for_hash`
       stays in the host).
-- [ ] Move `repository/src/backfill.rs`'s tests to `backfill/tests/mod.rs` per §4.2.
-- [ ] Move `repository/src/blobstore.rs`'s tests to `blobstore/tests/mod.rs` per §4.3.
-- [ ] Move `repository/src/gc.rs`'s tests to `gc/tests/mod.rs` per §4.4.
-- [ ] Move `repository/src/package.rs`'s `mod tests` to `package/tests/mod.rs` per §4.7
+- [x] Move `repository/src/backfill.rs`'s tests to `backfill/tests/mod.rs` per §4.2.
+- [x] Move `repository/src/blobstore.rs`'s tests to `blobstore/tests/mod.rs` per §4.3.
+- [x] Move `repository/src/gc.rs`'s tests to `gc/tests/mod.rs` per §4.4.
+- [x] Move `repository/src/package.rs`'s `mod tests` to `package/tests/mod.rs` per §4.7
       (`test_support` stays inline).
-- [ ] Move `repository/src/web/mod.rs`'s tests to `web/tests/mod.rs` per §4.9.
-- [ ] G4: tighten the ceilings for the six files.
+- [x] Move `repository/src/web/mod.rs`'s tests to `web/tests/mod.rs` per §4.9.
+      Done (all six): `python3 -I target/p176/inline1.py` → 31, 9, 21, 17, 17, 23 tests; motion → only the module
+      lines differ.
+- [x] G4: tighten the ceilings for the six files.
+      Done: → 6 TIGHTEN `inline` rows (14, 2, 2, 2, 53, 2); tighten drops exactly those; re-run → 0.
 
 Acceptance: the six hosts' tests run from `tests/mod.rs` files and the counts did not move.
   Check: G1 → equal; G2 `cargo test -p mfb_repository --lib -- abi:: backfill:: blobstore:: gc:: package:: web::`
   → 0 failed, and `cargo test -p mfb_repository --lib -- --list 2>/dev/null | grep -cE '^(abi|backfill|blobstore|gc|package|web)::tests::'`
   → 31+9+21+17+17+23 = 118; G3; G4; G5; G6 over the 6 new files (largest `abi/tests/mod.rs`
   761) and the 6 hosts (est. 10 min).
+  Verified 2026-10-19: G1 (`bash target/p176/ig.sh check`, full name lists in `target/p176/i0/`) → lib 450 = 450,
+  bin 24 = 24, leaves SAME, clippy 21 = 21; G2 → `ok. 118 passed`; list count → 118; G3 + landing tier
+  `bash scripts/test-fast.sh` → `test-fast: ok` (mfb unit `4998 passed`, which includes `spec_citations_resolve`;
+  `mfb_repository` lib `450 passed`; `mfb-repo` `24 passed`); G4 → 0; G5 `cargo fmt --all --check` and
+  `cargo fmt --all --check --manifest-path repository/Cargo.toml` → clean; G6 → new files 760, 543, 316, 606, 380,
+  581; hosts inline 14, 2, 2, 2, 53, 2.
 Commit: —
 
 ### Phase 2 — `local`, `trust` and the binary's tests
@@ -900,6 +909,10 @@ Commit: —
   fold into `tests/mod.rs`, removing all 53 `pub(super)` edits; new files 121 → 29; test
   count unchanged (455); the writer test's part is now `store/tests/accounts.rs`. Store inline
   LOC re-taken with the census at `ce7a995ca` (3468, was 3476 in `groups.json`).
+- 2026-10-19 (execution): `/tmp` is wiped by session restarts here, so G0 keeps the full sorted
+  `--list` names and the clippy count in `target/p176/i0/` (ignored by the repository); G1
+  compares counts and leaf names. Per the owner, G2/G3 also run the landing tier
+  (`bash scripts/test-fast.sh`, 2026-10-18), on macOS only (2026-10-19).
 
 ## Summary
 

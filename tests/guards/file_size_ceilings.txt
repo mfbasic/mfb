@@ -1,21 +1,15 @@
 # tests/guards/file_size_ceilings.txt — plan-176. Limits (non-comment, non-blank LOC):
 #   code 1000, inline 250 (inline tests in a code file), test 1000 (test-only file).
 # ceiling <code|inline|test> <n> <path>  an over-limit file may not grow past n; MFB_LOC_TIGHTEN=1 lowers n.
-ceiling inline 776 repository/src/abi.rs
-ceiling inline 546 repository/src/backfill.rs
-ceiling inline 319 repository/src/blobstore.rs
 ceiling code 1445 repository/src/client.rs
 ceiling inline 2838 repository/src/client.rs
-ceiling inline 610 repository/src/gc.rs
 ceiling inline 457 repository/src/local.rs
 ceiling inline 637 repository/src/main.rs
-ceiling inline 434 repository/src/package.rs
 ceiling code 3056 repository/src/server.rs
 ceiling inline 7487 repository/src/server.rs
 ceiling code 3431 repository/src/store.rs
 ceiling inline 3468 repository/src/store.rs
 ceiling inline 523 repository/src/trust.rs
-ceiling inline 584 repository/src/web/mod.rs
 ceiling code 1202 src/arch/aarch64/decode/vector.rs
 ceiling code 1133 src/arch/aarch64/encode/emitter.rs
 ceiling test 1251 src/arch/aarch64/encode/tests.rs
