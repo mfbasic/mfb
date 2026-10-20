@@ -1,0 +1,145 @@
+' ---------------------------------------------------------------------------
+' Tests: the namespace and uniqueness rules, which the reader and the writer
+' share (names.mfb), the attribute node budget, and the element-nesting bound
+' on every operation that walks a tree.
+'
+' Each rule is asserted from both sides: the reader refuses a document that
+' breaks it, and the writer refuses to produce one.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' `depth` nested elements: <d><d>...</d></d>.
+PRIVATE FUNC nestedTags(depth AS Integer) AS String
+  RETURN strings::repeat("<d>", depth) & strings::repeat("</d>", depth)
+END FUNC
+
+' `levels` elements nested in one another, with text at the bottom.
+PRIVATE FUNC deepTree(levels AS Integer) AS Node
+  MUT n AS Node = text("x")
+  MUT i AS Integer = 0
+  DO WHILE i < levels
+    LET kids AS List OF Node = [n]
+    n = element("e", [], kids)
+    i = i + 1
+  LOOP
+  RETURN n
+END FUNC
+
+' An element with `count` attributes, a0 to a(count-1), each with its own value.
+' When `repeatFirst` is TRUE, a0 is written again at the end.
+PRIVATE FUNC wideElement(count AS Integer, repeatFirst AS Boolean) AS String
+  MUT out AS String = "<w"
+  MUT i AS Integer = 0
+  DO WHILE i < count
+    out = out & " a" & toString(i) & "=\"" & toString(i) & "\""
+    i = i + 1
+  LOOP
+  IF repeatFirst THEN out = out & " a0=\"again\""
+  RETURN out & "/>"
+END FUNC
+
+TESTING
+  TGROUP "the reader: namespace declarations"
+    TCASE "a prefix declared in scope is accepted, on the element or an attribute"
+      expectNTrap(parse("<a:x xmlns:a=\"urn:a\"/>"))
+      expectNTrap(parse("<r xmlns:a=\"urn:a\"><a:x a:y=\"1\"/></r>"))
+    END TCASE
+
+    TCASE "two prefixes bound to one URI may not give two attributes one expanded name"
+      expectTrap(parse("<a xmlns:p=\"urn:u\" xmlns:q=\"urn:u\" p:x=\"1\" q:x=\"2\"/>"), 77050003)
+    END TCASE
+
+    TCASE "two prefixes bound to different URIs may give attributes the same local name"
+      expectNTrap(parse("<a xmlns:p=\"urn:one\" xmlns:q=\"urn:two\" p:x=\"1\" q:x=\"2\"/>"))
+    END TCASE
+
+    TCASE "a declaration that binds a prefix to an empty URI is refused"
+      expectTrap(parse("<a xmlns:p=\"\"/>"), 77050003)
+    END TCASE
+
+    TCASE "a duplicate attribute is ErrAlreadyExists, wherever it sits"
+      expectTrap(parse("<a x=\"1\" y=\"2\" x=\"3\"/>"), 77050005)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the reader: the attribute budget"
+    TCASE "each attribute counts as a node, so a tag can exceed the budget"
+      ' <a x="1" y="2"/> is three nodes: the element and its two attributes.
+      expectNTrap(parseWithLimits("<a x=\"1\" y=\"2\"/>", 3))
+      expectTrap(parseWithLimits("<a x=\"1\" y=\"2\"/>", 2), 93140001)
+    END TCASE
+
+    TCASE "a tag with thousands of attributes parses, and a duplicate among them is found"
+      expectNTrap(parse(wideElement(3000, FALSE)))
+      expectTrap(parse(wideElement(3000, TRUE)), 77050005)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the writer refuses what the reader would refuse"
+    TCASE "a prefix must be declared in scope in a document"
+      expectTrap(stringify(document([element("a:x", [], [])])), 77050002)
+    END TCASE
+
+    TCASE "a prefix declared by an ancestor is in scope"
+      LET inner AS List OF Node = [element("a:x", [], [])]
+      LET attrs AS List OF Attribute = [Attribute["xmlns:a", "urn:a"]]
+      expectString(stringify(document([element("a", attrs, inner)])), "<?xml version=\"1.0\" encoding=\"UTF-8\"?><a xmlns:a=\"urn:a\"><a:x/></a>")
+    END TCASE
+
+    TCASE "a fragment is written for embedding, so its undeclared prefixes are not checked"
+      LET fragment AS Node = element("a:x", [], [])
+      expectString(stringify(fragment), "<a:x/>")
+    END TCASE
+
+    TCASE "an illegal declaration is refused"
+      expectTrap(stringify(document([element("a", [Attribute["xmlns:p", ""]], [])])), 77050002)
+      expectTrap(stringify(document([element("a", [Attribute["xmlns:xml", "urn:other"]], [])])), 77050002)
+    END TCASE
+
+    TCASE "two attributes with one expanded name are refused"
+      LET attrs AS List OF Attribute = [Attribute["xmlns:p", "urn:u"], Attribute["xmlns:q", "urn:u"], Attribute["p:x", "1"], Attribute["q:x", "2"]]
+      expectTrap(stringify(document([element("a", attrs, [])])), 77050002)
+    END TCASE
+
+    TCASE "a duplicate attribute name is refused"
+      LET attrs AS List OF Attribute = [Attribute["x", "1"], Attribute["x", "2"]]
+      expectTrap(stringify(document([element("a", attrs, [])])), 77050002)
+    END TCASE
+
+    TCASE "a processing-instruction target may not hold a colon, as the reader requires"
+      expectTrap(stringify(document([pi("a:b", "x"), element("r", [], [])])), 77050002)
+      expectTrap(parse("<?a:b x?><r/>"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the element-nesting bound holds for every operation that walks a tree"
+    TCASE "a tree nested exactly to the limit reads back through the writer"
+      LET doc AS Document = parse(nestedTags(DEPTH_LIMIT))
+      expectNTrap(parse(stringify(doc)))
+      expectNTrap(parse(stringify(doc, 2)))
+    END TCASE
+
+    TCASE "text at the bottom of a tree at the limit is still text the writer can write"
+      LET deep AS String = strings::repeat("<d>", DEPTH_LIMIT) & "x" & strings::repeat("</d>", DEPTH_LIMIT)
+      LET doc AS Document = parse(deep)
+      LET top AS Node = root(doc)
+      expectString(textOf(top), "x")
+      expectNTrap(parse(stringify(doc)))
+    END TCASE
+
+    TCASE "a hand-built tree one level past the limit is refused by every walk"
+      LET tall AS Document = document([deepTree(DEPTH_LIMIT + 1)])
+      expectTrap(stringify(tall), 77050024)
+      expectTrap(stringify(tall, 2), 77050024)
+      expectTrap(evaluate(tall, "//e"), 77050024)
+      expectTrap(contentKey(tall), 77050024)
+    END TCASE
+
+    TCASE "textOf refuses a hand-built tree past the limit rather than exhausting the stack"
+      expectTrap(textOf(deepTree(DEPTH_LIMIT + 1)), 77050024)
+      expectString(textOf(deepTree(DEPTH_LIMIT)), "x")
+    END TCASE
+  END TGROUP
+END TESTING

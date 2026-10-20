@@ -284,8 +284,8 @@ TESTING
 
     TCASE "findFrom and matchAt locate the run delimiters"
       LET input AS List OF Byte = strings::toBytes("<!-- c -->rest")
-      expectInteger(findFrom(input, "-->", 0), 7)
-      expectInteger(findFrom(input, "]]>", 0), -1)
+      expectInteger(findFrom(input, "-->", 0, len(input)), 7)
+      expectInteger(findFrom(input, "]]>", 0, len(input)), -1)
       expectEqual(matchAt(input, 0, "<!--"), TRUE)
       expectEqual(matchAt(input, 1, "<!--"), FALSE)
     END TCASE

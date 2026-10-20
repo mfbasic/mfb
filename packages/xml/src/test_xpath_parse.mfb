@@ -56,20 +56,20 @@ PRIVATE FUNC renderSteps(steps AS List OF PathStep) AS String
   FOR EACH entry IN steps
     MUT rendered AS String = axisName(entry.axis) & ":" & testName(entry)
     FOR EACH predicate IN entry.predicates
-      rendered = rendered & "[" & render(predicate) & "]"
+      rendered = rendered & "[" & renderExpr(predicate) & "]"
     NEXT
     parts = collections::append(parts, rendered)
   NEXT
   RETURN strings::join(parts, "/")
 END FUNC
 
-PRIVATE FUNC render(e AS Expr) AS String
+PRIVATE FUNC renderExpr(e AS Expr) AS String
   MUT out AS String = ""
   MATCH e
-    CASE Binary(b)
-      out = "(" & render(b.left) & " " & opName(b.op) & " " & render(b.right) & ")"
-    CASE Unary(u)
-      out = "-(" & render(u.operand) & ")"
+    CASE BinaryExpr(b)
+      out = "(" & renderExpr(b.left) & " " & opName(b.op) & " " & renderExpr(b.right) & ")"
+    CASE UnaryExpr(u)
+      out = "-(" & renderExpr(u.operand) & ")"
     CASE Literal(l)
       out = "'" & l.value & "'"
     CASE Numeric(n)
@@ -77,7 +77,7 @@ PRIVATE FUNC render(e AS Expr) AS String
     CASE Call(c)
       MUT args AS List OF String = []
       FOR EACH argument IN c.args
-        args = collections::append(args, render(argument))
+        args = collections::append(args, renderExpr(argument))
       NEXT
       out = c.name & "(" & strings::join(args, ",") & ")"
     CASE Path(p)
@@ -85,9 +85,9 @@ PRIVATE FUNC render(e AS Expr) AS String
       IF p.absolute THEN prefix = "abs "
       out = "{" & prefix & renderSteps(p.steps) & "}"
     CASE Filter(f)
-      MUT rendered AS String = "filter(" & render(f.base) & ")"
+      MUT rendered AS String = "filter(" & renderExpr(f.base) & ")"
       FOR EACH predicate IN f.predicates
-        rendered = rendered & "[" & render(predicate) & "]"
+        rendered = rendered & "[" & renderExpr(predicate) & "]"
       NEXT
       IF len(f.steps) > 0 THEN
         rendered = rendered & "/" & renderSteps(f.steps)
@@ -98,7 +98,7 @@ PRIVATE FUNC render(e AS Expr) AS String
 END FUNC
 
 PRIVATE FUNC parsed(expression AS String) AS String
-  RETURN render(parseXPath(expression))
+  RETURN renderExpr(parseXPath(expression))
 END FUNC
 
 TESTING
@@ -254,7 +254,7 @@ TESTING
       expectTrap(parseXPath("$x"), 77050007)
       expectTrap(parseXPath("id('x')"), 77050007)
       expectTrap(parseXPath("lang('en')"), 77050007)
-      expectTrap(parseXPath("substring('abc',1)"), 77050007)
+      expectTrap(parseXPath("namespace-uri(//a)"), 77050007)
     END TCASE
   END TGROUP
 END TESTING

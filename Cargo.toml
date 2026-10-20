@@ -576,6 +576,10 @@ name = "timezones_package"
 path = "tests/gate/timezones_package.rs"
 
 [[test]]
+name = "xml_package"
+path = "tests/gate/xml_package.rs"
+
+[[test]]
 name = "script_selftests"
 path = "tests/gate/script_selftests.rs"
 

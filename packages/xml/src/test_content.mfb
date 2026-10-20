@@ -1,0 +1,26 @@
+' ---------------------------------------------------------------------------
+' Tests: the content key, which the round-trip tests compare. A key that two
+' different trees can share would let those tests pass on a wrong read, so the
+' key's delimiters must not occur unescaped in names, values or text.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+TESTING
+  TGROUP "distinct trees keep distinct keys"
+    TCASE "an attribute value holding the attribute separator is not two attributes"
+      ' Unescaped, `x="1|y=2"` and `x="1" y="2"` would both key as `x=1|y=2`.
+      expectEqual(contentKey(parse("<a x=\"1|y=2\"/>")) = contentKey(parse("<a x=\"1\" y=\"2\"/>")), FALSE)
+    END TCASE
+
+    TCASE "a value holding a key delimiter is not confused with a child"
+      expectEqual(contentKey(parse("<a x=\"]\"/>")) = contentKey(parse("<a x=\"\"/>")), FALSE)
+      expectEqual(contentKey(parse("<a>t(x)</a>")) = contentKey(parse("<a>t(x</a>")), FALSE)
+    END TCASE
+
+    TCASE "a backslash in a value is escaped, so it cannot escape the next delimiter"
+      expectEqual(contentKey(parse("<a x=\"\\\"/>")) = contentKey(parse("<a x=\"\"/>")), FALSE)
+    END TCASE
+  END TGROUP
+END TESTING

@@ -1,0 +1,107 @@
+' ---------------------------------------------------------------------------
+' Tests: the XPath 1.0 core function library (§4.2) -- the string functions,
+' their edge cases, and the arity and type rules every function applies.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC fnDoc() AS Document
+  RETURN parse("<r><a>1</a><b>2</b></r>")
+END FUNC
+
+TESTING
+  TGROUP "substring"
+    TCASE "a start and a length count from one"
+      expectString(valueOf(fnDoc(), "substring('12345', 2, 3)"), "234")
+      expectString(valueOf(fnDoc(), "substring('12345', 2)"), "2345")
+      expectString(valueOf(fnDoc(), "substring('12345', 6)"), "")
+    END TCASE
+
+    TCASE "fractional bounds are rounded first"
+      ' round(1.5) is 2 and round(2.6) is 3, so the window is positions 2 to 4.
+      expectString(valueOf(fnDoc(), "substring('12345', 1.5, 2.6)"), "234")
+    END TCASE
+
+    TCASE "a start at or before the first character, and an infinite length, are unbounded"
+      expectString(valueOf(fnDoc(), "substring('12345', 0)"), "12345")
+      expectString(valueOf(fnDoc(), "substring('12345', -42, 1 div 0)"), "12345")
+    END TCASE
+
+    TCASE "a NaN bound selects nothing"
+      expectString(valueOf(fnDoc(), "substring('12345', 0 div 0, 3)"), "")
+      expectString(valueOf(fnDoc(), "substring('12345', 1, 0 div 0)"), "")
+    END TCASE
+
+    TCASE "the bounds count characters, not bytes"
+      expectString(valueOf(fnDoc(), "substring('été', 2)"), "té")
+    END TCASE
+  END TGROUP
+
+  TGROUP "substring-before and substring-after"
+    TCASE "each splits at the first occurrence"
+      expectString(valueOf(fnDoc(), "substring-before('1999/04/01', '/')"), "1999")
+      expectString(valueOf(fnDoc(), "substring-after('1999/04/01', '/')"), "04/01")
+    END TCASE
+
+    TCASE "a missing needle gives the empty string"
+      expectString(valueOf(fnDoc(), "substring-before('abc', 'x')"), "")
+      expectString(valueOf(fnDoc(), "substring-after('abc', 'x')"), "")
+    END TCASE
+
+    TCASE "an empty needle is found at the start"
+      expectString(valueOf(fnDoc(), "substring-before('abc', '')"), "")
+      expectString(valueOf(fnDoc(), "substring-after('abc', '')"), "abc")
+    END TCASE
+  END TGROUP
+
+  TGROUP "translate"
+    TCASE "each character maps to its counterpart"
+      expectString(valueOf(fnDoc(), "translate('bar', 'abc', 'ABC')"), "BAr")
+    END TCASE
+
+    TCASE "a character with no counterpart is removed"
+      expectString(valueOf(fnDoc(), "translate('--aaa--', 'abc-', 'ABC')"), "AAA")
+      expectString(valueOf(fnDoc(), "translate('abc', 'ab', '')"), "c")
+    END TCASE
+
+    TCASE "where the source names a character twice, the first occurrence decides"
+      expectString(valueOf(fnDoc(), "translate('abc', 'aa', 'xy')"), "xbc")
+    END TCASE
+  END TGROUP
+
+  TGROUP "string functions on characters"
+    TCASE "normalize-space trims and collapses any XML whitespace"
+      expectString(valueOf(fnDoc(), "normalize-space('" & " a \t b\n c " & "')"), "a b c")
+    END TCASE
+
+    TCASE "string-length counts characters"
+      expectString(valueOf(fnDoc(), "string-length('été')"), "3")
+    END TCASE
+  END TGROUP
+
+  TGROUP "arity is checked when the expression is parsed"
+    TCASE "too few or too many arguments is ErrInvalidFormat"
+      expectTrap(parseXPath("substring('a')"), 77050003)
+      expectTrap(parseXPath("substring('a', 1, 2, 3)"), 77050003)
+      expectTrap(parseXPath("translate('a', 'b')"), 77050003)
+      expectTrap(parseXPath("round()"), 77050003)
+      expectTrap(parseXPath("round(1, 2)"), 77050003)
+      expectTrap(parseXPath("position(1)"), 77050003)
+      expectTrap(parseXPath("concat('a')"), 77050003)
+    END TCASE
+
+    TCASE "the optional arguments may be left out"
+      expectString(valueOf(fnDoc(), "string()"), "12")
+      expectString(valueOf(fnDoc(), "string-length()"), "2")
+    END TCASE
+  END TGROUP
+
+  TGROUP "functions outside the subset"
+    TCASE "the namespace and DTD functions are ErrUnsupported"
+      expectTrap(parseXPath("namespace-uri(//a)"), 77050007)
+      expectTrap(parseXPath("lang('en')"), 77050007)
+      expectTrap(parseXPath("id('x')"), 77050007)
+    END TCASE
+  END TGROUP
+END TESTING

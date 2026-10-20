@@ -1,5 +1,5 @@
 ' ---------------------------------------------------------------------------
-' Tests: the reader, refusing side — one case per refusal cell of the plan's
+' Tests: the reader, refusing side — one case per refusal of the
 ' grammar table, asserting the ERROR CODE, not merely that it failed.
 '
 ' These are the cases that make the package trustworthy: every one of them is a
@@ -286,6 +286,17 @@ TESTING
       ' Handed the same bytes directly, the scanner refuses them as a format
       ' error, which is what parse would report if such a String existed.
       expectTrap(requireScalar(badBytes, 3), 77050003)
+    END TCASE
+  END TGROUP
+  TGROUP "a literal ampersand"
+    TCASE "is refused, and the message points at the ampersand"
+      ' `<a>AT&T</a>`: the `&` is the sixth character, in column 6 of line 1.
+      MUT message AS String = ""
+      LET refused AS Document = parse("<a>AT&T</a>") TRAP(e)
+        message = e.message
+        RECOVER parse("<a/>")
+      END TRAP
+      expectEqual(strings::contains(message, "column 6"), TRUE)
     END TCASE
   END TGROUP
 END TESTING
