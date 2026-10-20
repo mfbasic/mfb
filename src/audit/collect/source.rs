@@ -1003,7 +1003,7 @@ fn is_fallible_call(
     // inline-`TRAP` census reads (spec 8 rule 11), so the two cannot disagree
     // (bug-811). Every member's declaration is checked against what it raises:
     // native lowerings by `declared_errors_all.rs`, `Body::Mfb` and `Body::Rewrite`
-    // bodies by `mfb_body_declared_errors.rs` (bug-814), the `general` members by
+    // bodies by `mfb_body_declared_errors/` (bug-814), the `general` members by
     // `general_declared_errors.rs`. That is what retired the hand-written package
     // and member lists that used to follow here.
     if let Some(declares) = builtin_declares_error(callee) {

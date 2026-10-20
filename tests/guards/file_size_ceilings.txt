@@ -75,8 +75,6 @@ ceiling code 1567 src/codegen/builtins/net/gen_ping.rs
 ceiling code 1134 src/codegen/builtins/process/gen_unix.rs
 ceiling code 1191 src/codegen/builtins/process/gen_windows.rs
 ceiling code 1003 src/codegen/builtins/regex/mod.rs
-ceiling test 1856 src/codegen/builtins/tests/mfb_body_declared_errors.rs
-ceiling test 1088 src/codegen/builtins/tests/platform_failure.rs
 ceiling code 2034 src/codegen/builtins/tls/gen_macos/client.rs
 ceiling code 2050 src/codegen/builtins/tls/gen_macos/server.rs
 ceiling code 2997 src/codegen/builtins/tls/gen_openssl.rs

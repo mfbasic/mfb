@@ -410,7 +410,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             // Beyond the raw poll's two: `overID` builds the scene's geometry on this
             // thread (`helper_hit.rs:__canvas_hitBuild`), and those builders call the
             // checked conversions and the `math` members the renderer's do. The
-            // sweep in `tests/mfb_body_declared_errors.rs` reads the set off the
+            // sweep in `tests/mfb_body_declared_errors/` reads the set off the
             // source; nothing here was chosen by hand.
             errors: vec![
                 "ErrWrongMode",

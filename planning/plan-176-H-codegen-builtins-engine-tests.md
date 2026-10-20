@@ -50,9 +50,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-G is complete and archived | `ls planning/plan-176-G-* planning/completed/plan-176-G-*` → only `planning/completed/…` | NOT MET (2026-10-18) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-18): `tests/guards/file_size_budget.rs` does not exist |
-| H's files and the docs/guards H edits have no uncommitted changes | `git status --porcelain -- src/codegen/builtins src/codegen/registry src/codegen/engine src/audit/collect/source.rs src/docs/spec/app/06_canvas.md src/docs/spec/language/18_builtin-functions.md src/docs/spec/tooling/04_audit-format.md src/docs/spec/stdlib/02_datetime.md .ai/man-content.md tests/guards/architecture_guards.rs` → empty | MET (2026-10-18) |
+| plan-176-G is complete and archived | `ls planning/plan-176-G-* planning/completed/plan-176-G-*` → only `planning/completed/…` | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| H's files and the docs/guards H edits have no uncommitted changes | `git status --porcelain -- src/codegen/builtins src/codegen/registry src/codegen/engine src/audit/collect/source.rs src/docs/spec/app/06_canvas.md src/docs/spec/language/18_builtin-functions.md src/docs/spec/tooling/04_audit-format.md src/docs/spec/stdlib/02_datetime.md .ai/man-content.md tests/guards/architecture_guards.rs` → empty | MET (2026-10-19) |
 
 Everything below is written against the world where these hold.
 
@@ -749,14 +749,21 @@ measurements.
 
 ### Phase 1 — The two over-limit `builtins_codegen` suites
 
-- [ ] Split `src/codegen/builtins/tests/mfb_body_declared_errors.rs` →
+- [x] Split `src/codegen/builtins/tests/mfb_body_declared_errors.rs` →
       `mfb_body_declared_errors/{mod,source_scan,exception_tables}.rs` per §4.2 (16 visibility
       edits). Repoint `src/docs/spec/tooling/04_audit-format.md:311` to
       `mfb_body_declared_errors/mod.rs:rewrite_sweep`, and the four prose mentions to
       `mfb_body_declared_errors/`.
-- [ ] Split `src/codegen/builtins/tests/platform_failure.rs` →
+      Done: `git mv` to `…/mod.rs`, then `items.py extract` → `source_scan.rs` 26 items, `exception_tables.rs` 4 (no
+      `use` line); the 16 `pub(super)` edits are exactly §4.2's (the compiler asked for each); motion → only those
+      prefixes and the 4 `mod`/`use` lines differ. The spec cite and the 4 prose mentions are repointed
+      (`general_declared_errors.rs` :8 :39, `canvas/func_poll_mouse.rs` :413, `audit/collect/source.rs` :1006).
+- [x] Split `src/codegen/builtins/tests/platform_failure.rs` →
       `platform_failure/{mod,forwarding}.rs` per §4.3.
-- [ ] G4: tighten the ceilings for the two files.
+      Done: `forwarding.rs` holds the one impl; no visibility edit; motion → only `mod forwarding;` added.
+- [x] G4: tighten the ceilings for the two files.
+      Done: → two STALE rows (`mfb_body_declared_errors.rs` 1856, `platform_failure.rs` 1088); tighten drops exactly
+      those; re-run → 0.
 
 Acceptance: both suites run from their directory modules, their test paths and counts did not
 move, and no part is over 900. Check:
@@ -769,6 +776,12 @@ move, and no part is over 900. Check:
   → second fields 597, 845, 419, 223, 867 (each ≤ 900, ±5 for formatting).
 - `grep -rn "mfb_body_declared_errors\.rs" src .ai tests scripts` → no output.
 - G3, G4, G5 (est. 10 min).
+
+Verified 2026-10-19: G1 (`bash target/p176/g1.sh`, full name list vs `target/p176/g0/`) → 5017 = 5017, leaves SAME,
+warnings 0; G2 → `ok. 3 passed`; list count → 3; census → 594, 845, 422, 223, 867; the `mfb_body_declared_errors\.rs`
+grep → only the ceiling row (now removed); G3 `bash scripts/test-fast.sh --test architecture_guards --test no_type_strings
+--test no_operator_strings` → `test-fast: ok` (unit `4998 passed; 2 ignored`, which includes `spec_citations_resolve`;
+guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
 
 Commit: —
 
@@ -957,6 +970,11 @@ Commit: —
     bug-863).
   - Added a prose sweep the earlier design missed: 4 comments name
     `mfb_body_declared_errors.rs`.
+- 2026-10-19 (execution): `/tmp` is wiped by session restarts here, so G0 is the full sorted
+  `--list` kept in `target/p176/g0/` (ignored by the repository), and G1 compares the count and
+  the leaf names. Per the owner, G2/G3 run through `bash scripts/test-fast.sh` (2026-10-18) and
+  every check runs on macOS only (2026-10-19). No clippy count was taken at Phase 1's G0, so the
+  final gate checks clippy per path instead.
 
 ## Summary
 

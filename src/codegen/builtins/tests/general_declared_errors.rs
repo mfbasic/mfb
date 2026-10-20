@@ -5,7 +5,7 @@
 //! lowering — codegen is the builder's own bare-name dispatch
 //! (`builder_conversions.rs`, `builder_strings.rs`) — so neither
 //! `declared_errors_all.rs` (which lowers `AbiFunction`/`AbiInline` bodies) nor
-//! `mfb_body_declared_errors.rs` (which scans `Body::Mfb` source) could see
+//! `mfb_body_declared_errors/` (which scans `Body::Mfb` source) could see
 //! them, and `toString`/`toInt` declared no errors while raising four.
 //!
 //! So this guard compiles a real program per OVERLOAD — one `probe` function
@@ -36,7 +36,7 @@ use super::declared_errors_sweep::codes_by_value;
 /// `(member, argument types, return type, codes that overload raises)` — one
 /// row per overload `general/mod.rs:resolve_call` accepts that a program can
 /// spell. The rows are the per-overload evidence each member's prose states,
-/// and `mfb_body_declared_errors.rs` reads them to know what a bare call in a
+/// and `mfb_body_declared_errors/` reads them to know what a bare call in a
 /// package body can raise once it knows the argument's type.
 ///
 /// An argument type is spelled as a program writes it; `Color` stands for any

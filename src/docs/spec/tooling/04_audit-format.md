@@ -308,7 +308,7 @@ are held to what it raises by the compiler's own test sweeps: native lowerings,
 MFBASIC-source bodies (`Body::Mfb` and `Body::Rewrite` members alike) and the
 per-overload `general` conversions. So a total member in an otherwise fallible
 package — `io::isBuffered`, `thread::isCancelled` — is reported total.
-[[src/codegen/builtins/tests/mfb_body_declared_errors.rs:rewrite_sweep]]
+[[src/codegen/builtins/tests/mfb_body_declared_errors/mod.rs:rewrite_sweep]]
 
 `toInt` of a provably enum-valued argument is treated as total. The collector
 tracks declared enum types, enum parameters and enum-valued local bindings for
