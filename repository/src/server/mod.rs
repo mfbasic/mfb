@@ -180,7 +180,11 @@ fn not_found(message: String) -> (StatusCode, Json<ErrorResponse>) {
     )
 }
 
+/// 500 with the standard error shape. Every internal failure is also written to
+/// stderr: the response goes only to the caller, so without this line the
+/// operator's log has no record of the failure at all.
 fn internal(message: String) -> (StatusCode, Json<ErrorResponse>) {
+    eprintln!("internal error: {message}");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ErrorResponse { error: message }),
