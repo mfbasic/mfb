@@ -144,7 +144,7 @@ name; valid programs compile to identical IR.
   Check: `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180b '*-unknown-invalid'`
   → pass; `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180b 'exit-loop-invalid'
   'continue-loop-invalid' 'control-flow-*'` → pass unchanged (est. 3 min).
-Commit: —
+Commit: 0db5cd302
 
 ## Validation Plan
 

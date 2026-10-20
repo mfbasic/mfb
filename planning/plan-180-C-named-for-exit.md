@@ -29,8 +29,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-180-B complete | `grep -c "Commit: —" planning/plan-180-B-exit-continue-unknown.md` → 0 (or the file is in `planning/completed/`) | NOT MET (2026-10-19) |
-| `ExitTarget` is gone (AST `Exit` carries `LoopKind`) | `grep -rn "ExitTarget" src` → no matches | NOT MET (2026-10-19) |
+| plan-180-B complete | `grep -c "Commit: —" planning/completed/plan-180-B-exit-continue-unknown.md` → 0 (archived) | MET (2026-10-20: archived; its one stale Commit line filled with 0db5cd302) |
+| `ExitTarget` is gone (AST `Exit` carries `LoopKind`) | `grep -rn "ExitTarget" src` → no matches | MET (2026-10-20: 0 matches) |
 
 If plan-180-B is not complete, this plan cannot start, full stop.
 
@@ -255,7 +255,7 @@ Commit: f6d51bc3d
 - [x] `src/docs/spec/language/10_control-flow.md`: the named form, its resolution rule,
       `UNKNOWN_FOR_IDENTIFIER`; `mfb man flow` guide topic gets one example
       (`src/docs/man/flow/`).
-- [ ] Rebuild the committed `.mfp` files per the `cfd159f10` procedure
+- [x] Rebuild the committed `.mfp` files per the `cfd159f10` procedure
       (`bash scripts/sync-package-mfp.sh target/release/mfb`, then the five crafted security
       vectors and the vendored libsnd/sqlite3 copies with their original manifests), in its
       own commit.
@@ -264,7 +264,7 @@ Acceptance: the named-exit program prints the expected pairs and leaks nothing o
 target and level.
   Check: `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180c 'exit-for-named-rt'`
   → pass; the leak test binary → pass (est. 5 min host; remote per box).
-Commit: —
+Commit: ff9bf0875 (fixture, leak test, man), db6a86d34 (`.mfp` rebuild; tool fix 2926aaca1)
 
 ## Validation Plan
 
@@ -366,6 +366,25 @@ Commit: —
   note at the `<pkg>.run` marker); the program's output is compared through `golden/build.log`.
 - **Phase 4 man topic.** `src/docs/man/flow/for.md` gained the named form and one example. The example was
   built and run from `/tmp/p180/manex`: output `1,1 1,2 1,3 2,1`.
+
+- **Phase 4 `.mfp` rebuild: the procedure needed two steps the sync script does not do (measured).**
+  `scripts/sync-package-mfp.sh target/release/mfb` → `updated 148, unchanged 0, frozen 1
+  (build-failed/skipped 9, no committed copy 21)`. Its 9 build-failed fixtures hold no committed `.mfp`
+  (`git ls-files | grep "\.mfp$"` against their paths → nothing). Not covered by the sync, done by hand:
+  the five crafted vectors (`python3 tools/security-package-sources/<pkg>/generate.py`); the three
+  libsnd copies and the sqlite3 copy, built from `packages/` with the manifest each copy was last built
+  from (libsnd 1.5.0 from `git show b4114b039^:packages/libsnd/project.json`, sqlite3 from
+  `git show f8eb67b0b^:packages/sqlite3/project.json`), with `config` renamed `options` (the compiler's
+  `PROJECT_JSON_CONFIG_MOVED_OPTION` names exactly that rename).
+- **The security generators did not run: `mfp_craft.py` read `src/ir/binary.rs`** (`FileNotFoundError`,
+  stale since the file-size split made it `src/ir/binary/mod.rs`). Fixed in `2926aaca1`, its own commit.
+- **Not regenerated: `pkg-01`, `pkg-04`, `pkg-05`, `pkg-06`, `pkg-08`.** The precedent named only the five
+  hand-encoded vectors. `pkg-01`'s generator also re-derives an `identKey` that the consumer `project.json`
+  pins, so regenerating it can change a pin, not just bytes. Their committed copies still pass their
+  goldens: `scripts/test-accept.sh target/release/mfb <dir> 'pkg-0*' 'allocator-04*'
+  'native-link-import-sqlite*' 'libsnd-*'` → `acceptance tests passed (16 test(s) ran)`.
+- **Repository pin.** `cargo test --manifest-path repository/Cargo.toml a_real_compiler_produced_package_still_parses`
+  → ok. The pin asserts seven vendor locators, which is the 1.5.0 manifest's count; the rebuilt copy keeps it.
 
 ## Summary
 
