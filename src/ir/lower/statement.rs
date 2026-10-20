@@ -390,6 +390,15 @@ fn lower_statement_inner(
                     return lower_statement_block(&expanded, locals, context, trap_name);
                 }
             }
+            // plan-180-A: a bare `os::exit(code)` statement is the program-exit op
+            // (what `EXIT PROGRAM` lowered to). Every other position stays an
+            // ordinary call and reaches the `os::exit` rewrite helper.
+            if let Some(code) = os_exit_statement_code(expression, context) {
+                return vec![IrOp::ExitProgram {
+                    code: lower_expression(code, locals, context),
+                    loc,
+                }];
+            }
             if let HirExpression::Trapped {
                 expression: inner,
                 binding,
@@ -663,6 +672,29 @@ pub(in crate::ir) fn collection_iteration_type(type_: &ParameterType) -> Option<
 
 /// A collection element with its `RES ` ownership marker removed, if it carries
 /// one — the structural form of the `strip_prefix("RES ")` this replaced.
+/// plan-180-A: the `code` argument of a bare `os::exit(code)` call statement
+/// (positional or `code :=`), or `None` for any other expression. Only a plain
+/// `Call` matches: a `TRAP`'d call is a `Trapped` expression and keeps its trap.
+fn os_exit_statement_code<'a>(
+    expression: &'a HirExpression,
+    context: &LowerContext<'_>,
+) -> Option<&'a HirExpression> {
+    let HirExpression::Call {
+        callee, arguments, ..
+    } = expression
+    else {
+        return None;
+    };
+    if canonical_import_name(callee, context) != "os.exit" {
+        return None;
+    }
+    match arguments.as_slice() {
+        [HirCallArg::Positional(code)] => Some(code),
+        [HirCallArg::Named { name, value, .. }] if name == "code" => Some(value),
+        _ => None,
+    }
+}
+
 fn strip_res(type_: &ParameterType) -> ParameterType {
     match type_ {
         ParameterType::Res(inner) => (**inner).clone(),

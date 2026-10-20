@@ -46,6 +46,7 @@ mod func_args;
 mod func_cpu_count;
 mod func_environ;
 mod func_executable_path;
+mod func_exit;
 mod func_get_config_or;
 mod func_get_env;
 mod func_get_env_or;
@@ -146,6 +147,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_uptime::register(&mut pkg);
     func_is_admin::register(&mut pkg);
     func_sleep::register(&mut pkg);
+    func_exit::register(&mut pkg);
 
     r.add_package(pkg);
 }

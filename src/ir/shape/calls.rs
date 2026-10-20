@@ -686,6 +686,26 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// plan-180-A: `os::exit(code)` with a constant `code` outside `0..=255`. The
+    /// `code` argument is positional or `code :=`; a negated literal counts. Only
+    /// user files reach it, beside [`Self::check_config_call_literals`].
+    pub(super) fn check_exit_code_literal(&mut self, arguments: &[HirCallArg], line: usize) {
+        let code = match arguments {
+            [HirCallArg::Positional(code)] => code,
+            [HirCallArg::Named { name, value, .. }] if name == "code" => value,
+            _ => return,
+        };
+        if let Some(value) = integer_literal_value(code) {
+            if !(0..=255).contains(&value) {
+                self.emit(
+                    "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
+                    "os::exit constant exit code must be in the host range 0..255.".to_string(),
+                    line,
+                );
+            }
+        }
+    }
+
     fn report_unknown_name(&mut self, callee: &str, name: &str, line: usize) {
         self.emit(
             "TYPE_UNKNOWN_ARGUMENT_NAME",
@@ -734,5 +754,18 @@ impl<'a> Walker<'a> {
             path: self.project_dir.join(&self.file),
             line,
         });
+    }
+}
+
+/// The value of an integer literal (a `Number`, or a negated one), if it is one.
+fn integer_literal_value(expression: &HirExpression) -> Option<i128> {
+    match expression {
+        HirExpression::Number(text) => text.parse::<i128>().ok(),
+        HirExpression::Unary {
+            operator: UnaryOp::Negate,
+            operand,
+            ..
+        } => integer_literal_value(operand).map(|n| -n),
+        _ => None,
     }
 }

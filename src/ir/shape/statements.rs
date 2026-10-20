@@ -109,6 +109,13 @@ impl<'a> Walker<'a> {
                     Flow::FallsThrough
                 }
             }
+            // plan-180-A: a bare `os::exit(...)` statement never returns, like
+            // `EXIT PROGRAM` did. It is not an "erased exit": statements after it
+            // get no UNREACHABLE_AFTER_EXIT (as after `RETURN`).
+            HirStatement::Expression {
+                expression: HirExpression::Call { callee, .. },
+                ..
+            } if self.canonical_callee(callee) == "os.exit" => Flow::AlwaysReturns,
             _ => Flow::FallsThrough,
         }
     }
