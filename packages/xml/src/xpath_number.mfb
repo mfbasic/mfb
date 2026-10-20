@@ -1,0 +1,446 @@
+' ---------------------------------------------------------------------------
+' xml/xpath_number.mfb — XPath 1.0 numbers: their values, their text, and their
+' arithmetic (§3.5, §4.2, §4.4).
+'
+' An XPath number is an IEEE 754 double with NaN and the two infinities as
+' ordinary values: `1 div 0` is Infinity, `0 div 0` is NaN, `number('x')` is
+' NaN, and every comparison involving NaN is false. MFBASIC cannot hold any of
+' those in a Float -- the runtime raises instead -- so a Num carries the special
+' value as a tag beside the value, and every operation here propagates it.
+'
+' Text follows §4.2: the shortest decimal that reads back as the same double, with
+' no exponent. `0.1` is "0.1", `1 div 3` is "0.3333333333333333", and 1e22 is
+' "10000000000000000000000". MFBASIC's own toString(Float) prints two decimals, so
+' the digits are worked out here from the exact binary value, with big::Int doing
+' the arithmetic a double cannot hold exactly.
+' ---------------------------------------------------------------------------
+
+IMPORT big
+IMPORT math
+IMPORT strings
+
+PUBLIC LET NUM_NORMAL AS Integer = 0
+PUBLIC LET NUM_NAN AS Integer = 1
+PUBLIC LET NUM_POSITIVE_INFINITY AS Integer = 2
+PUBLIC LET NUM_NEGATIVE_INFINITY AS Integer = 3
+
+PUBLIC TYPE Num
+  value AS Float
+  special AS Integer
+END TYPE
+
+PUBLIC FUNC plainNumber(value AS Float) AS Num
+  RETURN Num[value, NUM_NORMAL]
+END FUNC
+
+PUBLIC FUNC nanNumber() AS Num
+  RETURN Num[0.0, NUM_NAN]
+END FUNC
+
+PUBLIC FUNC infiniteNumber(positive AS Boolean) AS Num
+  IF positive THEN RETURN Num[0.0, NUM_POSITIVE_INFINITY]
+  RETURN Num[0.0, NUM_NEGATIVE_INFINITY]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Decimal text.
+' ---------------------------------------------------------------------------
+
+' A finite, non-zero double written exactly as mantissa * 2^exponent, with the
+' mantissa an Integer below 2^53. Scaling by two is exact for every finite double,
+' so the loops find the decomposition without rounding.
+PRIVATE TYPE Float64Parts
+  mantissa AS Integer
+  exponent AS Integer
+END TYPE
+
+PRIVATE FUNC binaryOf(x AS Float) AS Float64Parts
+  MUT t AS Float = math::abs(x)
+  MUT e AS Integer = 0
+  DO WHILE t >= 9007199254740992.0
+    t = t / 2.0
+    e = e + 1
+  LOOP
+  DO WHILE t < 4503599627370496.0
+    t = t * 2.0
+    e = e - 1
+  LOOP
+  RETURN Float64Parts[toInt(t), e]
+END FUNC
+
+' A decimal `digits * 10^exponent`, with the digits held as text.
+PRIVATE TYPE DecimalText
+  digits AS String
+  exponent AS Integer
+END TYPE
+
+' The exact decimal value of a finite, non-zero double. A non-negative exponent
+' shifts the mantissa left. A negative one uses m * 2^-k = m * 5^k / 10^k, so the
+' digits are an integer and only the exponent of ten is negative.
+PRIVATE FUNC exactDecimal(b AS Float64Parts) AS DecimalText
+  IF b.exponent >= 0 THEN
+    LET shifted AS big::Int = big::shiftLeft(big::fromInteger(b.mantissa), b.exponent)
+    RETURN DecimalText[big::toString(shifted), 0]
+  END IF
+  LET scaled AS big::Int = big::multiply(big::fromInteger(b.mantissa), big::pow(big::fromInteger(5), -b.exponent))
+  RETURN DecimalText[big::toString(scaled), b.exponent]
+END FUNC
+
+' The digit at offset `i` of `digits`, as a number from 0 to 9.
+PRIVATE FUNC digitAt(bytes AS List OF Byte, i AS Integer) AS Integer
+  RETURN byteAt(bytes, i) - 48
+END FUNC
+
+' `d` rounded to `places` significant digits, ties going to the even digit. A
+' carry can add one digit (999 becomes 1000); that is the same value, so the
+' result is left as it is and the caller trims it.
+PRIVATE FUNC roundTo(d AS DecimalText, places AS Integer) AS DecimalText
+  LET n AS Integer = len(d.digits)
+  IF n <= places THEN RETURN d
+  LET bytes AS List OF Byte = strings::toBytes(d.digits)
+  LET dropped AS Integer = digitAt(bytes, places)
+  MUT restNonZero AS Boolean = FALSE
+  MUT i AS Integer = places + 1
+  DO WHILE i < n
+    IF digitAt(bytes, i) <> 0 THEN restNonZero = TRUE
+    i = i + 1
+  LOOP
+  LET lastKept AS Integer = digitAt(bytes, places - 1)
+  LET odd AS Boolean = lastKept = 1 OR lastKept = 3 OR lastKept = 5 OR lastKept = 7 OR lastKept = 9
+  LET roundUp AS Boolean = dropped > 5 OR (dropped = 5 AND (restNonZero OR odd))
+  LET head AS String = strings::left(d.digits, places)
+  MUT kept AS String = head
+  IF roundUp THEN kept = toString(toInt(head) + 1)
+  RETURN DecimalText[kept, d.exponent + (n - places)]
+END FUNC
+
+' `d` without trailing zeros in its digits: each one dropped moves into the exponent.
+PRIVATE FUNC trimmed(d AS DecimalText) AS DecimalText
+  MUT digits AS String = d.digits
+  MUT exponent AS Integer = d.exponent
+  DO WHILE len(digits) > 1 AND strings::endsWith(digits, "0")
+    digits = strings::left(digits, len(digits) - 1)
+    exponent = exponent + 1
+  LOOP
+  RETURN DecimalText[digits, exponent]
+END FUNC
+
+' Whether `d` reads back as exactly `x`. A candidate beyond the Float range raises
+' when it is read, and is then simply not a reading of `x`.
+PRIVATE FUNC readsBack(d AS DecimalText, x AS Float) AS Boolean
+  LET text AS String = d.digits & "e" & toString(d.exponent)
+  MUT overflowed AS Boolean = FALSE
+  LET value AS Float = toFloat(text) TRAP(e)
+    overflowed = TRUE
+    RECOVER 0.0
+  END TRAP
+  IF overflowed THEN RETURN FALSE
+  RETURN value = x
+END FUNC
+
+' The shortest decimal that reads back as `x`, for a finite, non-zero x. Each
+' precision from 1 to 16 is tried in turn with the exact value rounded to that
+' many significant digits. The first that reads back is the shortest, and the
+' nearest such decimal, which is the one §4.2 asks for. Seventeen digits always
+' read back, so the search ends there.
+PRIVATE FUNC shortestDecimal(x AS Float) AS DecimalText
+  LET exact AS DecimalText = exactDecimal(binaryOf(x))
+  MUT places AS Integer = 1
+  DO WHILE places < 17
+    LET candidate AS DecimalText = roundTo(exact, places)
+    IF readsBack(candidate, x) THEN RETURN trimmed(candidate)
+    places = places + 1
+  LOOP
+  RETURN trimmed(roundTo(exact, 17))
+END FUNC
+
+' Write a trimmed decimal of a positive value without an exponent.
+PRIVATE FUNC plainDigits(d AS DecimalText) AS String
+  LET n AS Integer = len(d.digits)
+  IF d.exponent >= 0 THEN RETURN d.digits & strings::repeat("0", d.exponent)
+  LET point AS Integer = n + d.exponent
+  IF point > 0 THEN
+    RETURN strings::left(d.digits, point) & "." & strings::mid(d.digits, point, n - point)
+  END IF
+  RETURN "0." & strings::repeat("0", -point) & d.digits
+END FUNC
+
+' §4.2: the string value of a number. NaN and the infinities have their own
+' spellings; an integral value has no point; any other is the shortest decimal
+' that reads back as the same double.
+PUBLIC FUNC numberToString(number AS Num) AS String
+  IF number.special = NUM_NAN THEN RETURN "NaN"
+  IF number.special = NUM_POSITIVE_INFINITY THEN RETURN "Infinity"
+  IF number.special = NUM_NEGATIVE_INFINITY THEN RETURN "-Infinity"
+  IF number.value = 0.0 THEN RETURN "0"
+  LET text AS String = plainDigits(shortestDecimal(math::abs(number.value)))
+  IF number.value < 0.0 THEN RETURN "-" & text
+  RETURN text
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Parsing (§4.4, the `number()` function).
+' ---------------------------------------------------------------------------
+
+' XML whitespace, which is all XPath counts as white space: space, tab, CR and LF.
+PRIVATE FUNC trimXmlSpace(text AS String) AS String
+  LET bytes AS List OF Byte = strings::toBytes(text)
+  MUT from AS Integer = 0
+  MUT stop AS Integer = len(bytes)
+  DO WHILE from < stop AND isSpace(byteAt(bytes, from))
+    from = from + 1
+  LOOP
+  DO WHILE stop > from AND isSpace(byteAt(bytes, stop - 1))
+    stop = stop - 1
+  LOOP
+  RETURN sliceText(bytes, from, stop)
+END FUNC
+
+PRIVATE FUNC isDigitByte(b AS Integer) AS Boolean
+  RETURN b >= 48 AND b <= 57
+END FUNC
+
+' The number a string denotes under the XPath Number grammar (§3.5): an optional
+' minus sign, then digits with an optional point, or a point with digits. Nothing
+' else is a number to XPath -- no `+`, no exponent, no `Infinity` -- so each of
+' those is NaN. A value too large for a Float is an infinity, not an error.
+PUBLIC FUNC stringToNumber(text AS String) AS Num
+  LET trimmedText AS String = trimXmlSpace(text)
+  LET bytes AS List OF Byte = strings::toBytes(trimmedText)
+  LET total AS Integer = len(bytes)
+  MUT negative AS Boolean = FALSE
+  MUT i AS Integer = 0
+  IF byteAt(bytes, 0) = 45 THEN
+    negative = TRUE
+    i = 1
+  END IF
+  LET unsignedStart AS Integer = i
+  MUT digits AS Integer = 0
+  DO WHILE i < total AND isDigitByte(byteAt(bytes, i))
+    i = i + 1
+    digits = digits + 1
+  LOOP
+  IF i < total AND byteAt(bytes, i) = 46 THEN
+    i = i + 1
+    DO WHILE i < total AND isDigitByte(byteAt(bytes, i))
+      i = i + 1
+      digits = digits + 1
+    LOOP
+  END IF
+  IF i <> total OR digits = 0 THEN RETURN nanNumber()
+  MUT overflowed AS Boolean = FALSE
+  LET magnitude AS Float = toFloat(sliceText(bytes, unsignedStart, total)) TRAP(e)
+    overflowed = TRUE
+    RECOVER 0.0
+  END TRAP
+  IF overflowed THEN RETURN infiniteNumber(NOT negative)
+  IF negative THEN RETURN plainNumber(0.0 - magnitude)
+  RETURN plainNumber(magnitude)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Arithmetic, with the special values propagated.
+'
+' The raw operations are their own functions because an inline `TRAP` wraps a
+' CALL, not an expression -- and they must be trapped, since MFBASIC raises
+' ErrFloatOverflow where XPath wants an infinity.
+' ---------------------------------------------------------------------------
+
+PRIVATE FUNC rawAdd(left AS Float, right AS Float) AS Float
+  RETURN left + right
+END FUNC
+
+PRIVATE FUNC rawMultiply(left AS Float, right AS Float) AS Float
+  RETURN left * right
+END FUNC
+
+PRIVATE FUNC rawDivide(left AS Float, right AS Float) AS Float
+  RETURN left / right
+END FUNC
+
+' -1 for a negative value or -Infinity, 1 otherwise.
+PRIVATE FUNC signOf(number AS Num) AS Integer
+  IF number.special = NUM_NEGATIVE_INFINITY THEN RETURN -1
+  IF number.special = NUM_NORMAL AND number.value < 0.0 THEN RETURN -1
+  RETURN 1
+END FUNC
+
+PUBLIC FUNC addNumbers(left AS Num, right AS Num) AS Num
+  IF left.special = NUM_NAN OR right.special = NUM_NAN THEN RETURN nanNumber()
+  IF left.special <> NUM_NORMAL OR right.special <> NUM_NORMAL THEN
+    IF left.special = NUM_NORMAL THEN RETURN right
+    IF right.special = NUM_NORMAL THEN RETURN left
+    IF left.special = right.special THEN RETURN left
+    RETURN nanNumber()
+  END IF
+  MUT overflowed AS Boolean = FALSE
+  LET total AS Float = rawAdd(left.value, right.value) TRAP(e)
+    overflowed = TRUE
+    RECOVER 0.0
+  END TRAP
+  IF overflowed THEN
+    ' Two finite values can only overflow away from zero, and only when they
+    ' share a sign, so either one gives the direction.
+    RETURN infiniteNumber(left.value > 0.0)
+  END IF
+  RETURN plainNumber(total)
+END FUNC
+
+PUBLIC FUNC negateNumber(number AS Num) AS Num
+  IF number.special = NUM_NAN THEN RETURN number
+  IF number.special = NUM_POSITIVE_INFINITY THEN RETURN infiniteNumber(FALSE)
+  IF number.special = NUM_NEGATIVE_INFINITY THEN RETURN infiniteNumber(TRUE)
+  RETURN plainNumber(0.0 - number.value)
+END FUNC
+
+PUBLIC FUNC subtractNumbers(left AS Num, right AS Num) AS Num
+  RETURN addNumbers(left, negateNumber(right))
+END FUNC
+
+PUBLIC FUNC multiplyNumbers(left AS Num, right AS Num) AS Num
+  IF left.special = NUM_NAN OR right.special = NUM_NAN THEN RETURN nanNumber()
+  IF left.special <> NUM_NORMAL OR right.special <> NUM_NORMAL THEN
+    ' Infinity times zero is NaN; otherwise the sign decides.
+    IF left.special = NUM_NORMAL AND left.value = 0.0 THEN RETURN nanNumber()
+    IF right.special = NUM_NORMAL AND right.value = 0.0 THEN RETURN nanNumber()
+    LET negative AS Boolean = signOf(left) <> signOf(right)
+    RETURN infiniteNumber(NOT negative)
+  END IF
+  MUT overflowed AS Boolean = FALSE
+  LET product AS Float = rawMultiply(left.value, right.value) TRAP(e)
+    overflowed = TRUE
+    RECOVER 0.0
+  END TRAP
+  IF overflowed THEN
+    RETURN infiniteNumber(signOf(left) = signOf(right))
+  END IF
+  RETURN plainNumber(product)
+END FUNC
+
+PUBLIC FUNC divideNumbers(left AS Num, right AS Num) AS Num
+  IF left.special = NUM_NAN OR right.special = NUM_NAN THEN RETURN nanNumber()
+  IF left.special <> NUM_NORMAL AND right.special <> NUM_NORMAL THEN RETURN nanNumber()
+  IF left.special <> NUM_NORMAL THEN
+    ' Infinity divided by a finite number stays infinite.
+    RETURN infiniteNumber(signOf(left) = signOf(right))
+  END IF
+  IF right.special <> NUM_NORMAL THEN RETURN plainNumber(0.0)
+  IF right.value = 0.0 THEN
+    ' MFBASIC raises on a division by zero rather than producing a value, so the
+    ' answer is given directly.
+    IF left.value = 0.0 THEN RETURN nanNumber()
+    RETURN infiniteNumber(left.value > 0.0)
+  END IF
+  MUT overflowed AS Boolean = FALSE
+  LET quotient AS Float = rawDivide(left.value, right.value) TRAP(e)
+    overflowed = TRUE
+    RECOVER 0.0
+  END TRAP
+  IF overflowed THEN
+    RETURN infiniteNumber(signOf(left) = signOf(right))
+  END IF
+  RETURN plainNumber(quotient)
+END FUNC
+
+' `2^k` times `x`, by repeated doubling or halving, which is exact while the
+' result is representable.
+PRIVATE FUNC scaleByTwo(x AS Float, k AS Integer) AS Float
+  MUT value AS Float = x
+  MUT n AS Integer = k
+  DO WHILE n > 0
+    value = value * 2.0
+    n = n - 1
+  LOOP
+  DO WHILE n < 0
+    value = value / 2.0
+    n = n + 1
+  LOOP
+  RETURN value
+END FUNC
+
+' §4.4 `mod`: the remainder that takes the sign of the dividend, as C's fmod
+' computes it. The remainder is exact, so it is taken in big::Int arithmetic:
+' the quotient of two doubles can be far beyond an Integer, while the remainder
+' itself always fits a double.
+PUBLIC FUNC moduloNumbers(left AS Num, right AS Num) AS Num
+  IF left.special <> NUM_NORMAL OR right.special = NUM_NAN THEN RETURN nanNumber()
+  IF right.special <> NUM_NORMAL THEN RETURN left
+  IF right.value = 0.0 THEN RETURN nanNumber()
+  IF left.value = 0.0 THEN RETURN plainNumber(0.0)
+  LET a AS Float64Parts = binaryOf(left.value)
+  LET b AS Float64Parts = binaryOf(right.value)
+  MUT common AS Integer = a.exponent
+  IF b.exponent < common THEN common = b.exponent
+  LET dividend AS big::Int = big::shiftLeft(big::fromInteger(a.mantissa), a.exponent - common)
+  LET divisor AS big::Int = big::shiftLeft(big::fromInteger(b.mantissa), b.exponent - common)
+  LET rest AS big::Int = big::remainder(dividend, divisor)
+  LET magnitude AS Float = scaleByTwo(toFloat(big::toString(big::abs(rest))), common)
+  IF left.value < 0.0 THEN RETURN plainNumber(0.0 - magnitude)
+  RETURN plainNumber(magnitude)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Comparison (§3.4), with the infinities ordered by rank: -Infinity sits below
+' every finite value and +Infinity above it.
+' ---------------------------------------------------------------------------
+
+' -1 for -Infinity, 1 for +Infinity, 0 for an ordinary number.
+PRIVATE FUNC rankOf(number AS Num) AS Integer
+  IF number.special = NUM_POSITIVE_INFINITY THEN RETURN 1
+  IF number.special = NUM_NEGATIVE_INFINITY THEN RETURN -1
+  RETURN 0
+END FUNC
+
+' Every comparison involving NaN is false, including `NaN != NaN`.
+PUBLIC FUNC compareNumbers(op AS Integer, left AS Num, right AS Num) AS Boolean
+  IF left.special = NUM_NAN OR right.special = NUM_NAN THEN RETURN FALSE
+  LET leftRank AS Integer = rankOf(left)
+  LET rightRank AS Integer = rankOf(right)
+  IF leftRank <> 0 OR rightRank <> 0 THEN
+    IF leftRank = rightRank THEN
+      IF op = OP_EQ OR op = OP_LE OR op = OP_GE THEN RETURN TRUE
+      RETURN FALSE
+    END IF
+    IF op = OP_EQ THEN RETURN FALSE
+    IF op = OP_NE THEN RETURN TRUE
+    IF op = OP_LT OR op = OP_LE THEN RETURN leftRank < rightRank
+    RETURN leftRank > rightRank
+  END IF
+  IF op = OP_EQ THEN RETURN left.value = right.value
+  IF op = OP_NE THEN RETURN left.value <> right.value
+  IF op = OP_LT THEN RETURN left.value < right.value
+  IF op = OP_LE THEN RETURN left.value <= right.value
+  IF op = OP_GT THEN RETURN left.value > right.value
+  RETURN left.value >= right.value
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Rounding (§4.4 floor, ceiling and round).
+' ---------------------------------------------------------------------------
+
+' The greatest whole number at or below a finite `x`. A Float this large is
+' already whole, and below that the truncating conversion is exact.
+PRIVATE FUNC floorOf(x AS Float) AS Float
+  IF math::abs(x) >= 4503599627370496.0 THEN RETURN x
+  LET whole AS Float = toFloat(toInt(x))
+  IF whole > x THEN RETURN whole - 1.0
+  RETURN whole
+END FUNC
+
+PUBLIC FUNC floorNumber(number AS Num) AS Num
+  IF number.special <> NUM_NORMAL THEN RETURN number
+  RETURN plainNumber(floorOf(number.value))
+END FUNC
+
+PUBLIC FUNC ceilingNumber(number AS Num) AS Num
+  IF number.special <> NUM_NORMAL THEN RETURN number
+  RETURN plainNumber(0.0 - floorOf(0.0 - number.value))
+END FUNC
+
+' Round to the nearest whole number, a half going toward positive infinity.
+PUBLIC FUNC roundNumber(number AS Num) AS Num
+  IF number.special <> NUM_NORMAL THEN RETURN number
+  LET floor AS Float = floorOf(number.value)
+  IF number.value - floor >= 0.5 THEN RETURN plainNumber(floor + 1.0)
+  RETURN plainNumber(floor)
+END FUNC

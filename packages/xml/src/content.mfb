@@ -1,6 +1,5 @@
 ' ---------------------------------------------------------------------------
-' xml/content.mfb — the content projection of plan-138-A §4, as one canonical
-' string.
+' xml/content.mfb — the content projection, as one canonical string.
 '
 ' CONTENT is what must survive every read, write and pretty-print, and what the
 ' Node and Rust oracles must agree on. FORMATTING may change freely. The
@@ -18,8 +17,11 @@
 '
 ' This is package-internal: it exists so the round-trip tests can assert
 ' `contentKey(parse(stringify(d))) = contentKey(d)` rather than comparing
-' formatted output, which would pin formatting the plan deliberately leaves
-' free.
+' formatted output, which would pin formatting the projection leaves free.
+'
+' The key is a bracketed encoding, so every name, value and text is escaped
+' first: without it, an attribute value containing `|` or `=` could read as two
+' attributes, and two different trees would share a key.
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
@@ -81,37 +83,55 @@ PRIVATE FUNC contentChildren(children AS List OF Node) AS List OF Node
   RETURN out
 END FUNC
 
+' `s` with each delimiter of the key encoding preceded by a backslash.
+PRIVATE FUNC escapeKey(s AS String) AS String
+  MUT parts AS List OF String = []
+  FOR EACH sc IN strings::toScalars(s)
+    LET code AS Integer = toInt(sc)
+    IF code = 92 OR code = 124 OR code = 61 OR code = 40 OR code = 41 OR code = 91 OR code = 93 THEN
+      parts = collections::append(parts, "\\")
+    END IF
+    parts = collections::append(parts, toString(sc))
+  NEXT
+  RETURN strings::join(parts, "")
+END FUNC
+
 ' Attributes as a set: sorted by name, then by value.
 PRIVATE FUNC sortedAttributes(attributes AS List OF Attribute) AS List OF String
   MUT keys AS List OF String = []
   FOR EACH a IN attributes
-    keys = collections::append(keys, a.name & "=" & a.value)
+    keys = collections::append(keys, escapeKey(a.name) & "=" & escapeKey(a.value))
   NEXT
   RETURN collections::sort(keys)
 END FUNC
 
-' The canonical content string of one node.
-PUBLIC FUNC contentKeyOf(n AS Node) AS String
+' The canonical content string of one node, at `level` levels of element nesting.
+' The bound is the reader's, so a hand-built tree too deep to be read back is
+' refused here rather than exhausting the stack.
+PRIVATE FUNC contentKeyAt(n AS Node, level AS Integer) AS String
   MUT out AS String = ""
   MATCH n
     CASE Element(e)
+      IF level > DEPTH_LIMIT THEN
+        FAIL error(ERR_DEPTH, "xml: the tree nests more than " & toString(DEPTH_LIMIT) & " levels deep")
+      END IF
       MUT parts AS List OF String = []
-      parts = collections::append(parts, "e(" & e.name)
+      parts = collections::append(parts, "e(" & escapeKey(e.name))
       FOR EACH key IN sortedAttributes(e.attributes)
         parts = collections::append(parts, "|" & key)
       NEXT
       parts = collections::append(parts, "[")
       FOR EACH k IN contentChildren(e.children)
-        parts = collections::append(parts, contentKeyOf(k))
+        parts = collections::append(parts, contentKeyAt(k, level + 1))
       NEXT
       parts = collections::append(parts, "])")
       out = strings::join(parts, "")
     CASE Text(t)
-      out = "t(" & t.text & ")"
+      out = "t(" & escapeKey(t.text) & ")"
     CASE ELSE
-      ' Unreachable: contentChildren removes comments and PIs before this is
-      ' ever called on one, and a document's own children are filtered too.
-      out = ""
+      ' contentChildren removes comments and PIs before this is called on one, and
+      ' a document's own children are filtered too, so this is an internal error.
+      FAIL error(ERR_FORMAT, "xml: internal: a comment or processing instruction reached the content key")
   END MATCH
   RETURN out
 END FUNC
@@ -121,7 +141,7 @@ END FUNC
 PUBLIC FUNC contentKey(doc AS Document) AS String
   MUT parts AS List OF String = []
   FOR EACH n IN contentChildren(doc.children)
-    parts = collections::append(parts, contentKeyOf(n))
+    parts = collections::append(parts, contentKeyAt(n, 1))
   NEXT
   RETURN strings::join(parts, "")
 END FUNC

@@ -13,8 +13,8 @@
 ' deeper than typical YAML configuration, so yaml's 100 would be too low.
 PUBLIC LET DEPTH_LIMIT AS Integer = 256
 
-' Maximum number of nodes (elements, text, comments and processing
-' instructions) one document may hold.
+' Maximum number of nodes one document may hold. Each element, text, comment,
+' processing instruction and attribute is one node, as it is in XPath and the DOM.
 PUBLIC LET NODE_LIMIT AS Integer = 1000000
 
 ' ---------------------------------------------------------------------------
