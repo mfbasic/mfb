@@ -7,12 +7,17 @@ The rules come from the `tzdata` wheel pinned in requirements.txt, never from
 the host: the search path is emptied before the first lookup, and the wheel's
 release must equal the one tools/tzdb/gen_timezones_data.py vendors.
 
-  offset <name> <s>          ->  <utoff> <abbreviation>
-  civil <name> Y M D h m s   ->  <utcSeconds> <utoff> <abbreviation> <wall>
+  offset <name> <s>                      ->  <utoff> <abbreviation>
+  civil <name> Y M D h m s               ->  <utcSeconds> <utoff> <abbreviation> <wall>
+  disambiguation <name> Y M D h m s <how>
+                                         ->  the same, or `error 77050002`
 
-A civil reading is resolved with fold=0, the RFC 9557 "compatible" rule. Its
-utoff, abbreviation and wall (YYYY-MM-DDTHH:MM:SS) are those of the resulting
-instant, so a skipped reading reports the later wall clock it became.
+A civil reading is resolved with fold=0, the RFC 9557 "compatible" rule. PEP 495
+gives the other choice as fold=1. A reading that a clock change skips or repeats
+is the one case where the two folds name different instants, so `how` maps as:
+compatible and earlier -> fold=0, later -> fold=1, reject -> an error whenever the
+folds differ. Its utoff, abbreviation and wall (YYYY-MM-DDTHH:MM:SS) are those of
+the resulting instant, so a skipped reading reports the wall clock it became.
 """
 
 import os
@@ -50,14 +55,30 @@ class Oracle:
         local = (EPOCH + timedelta(seconds=seconds)).astimezone(self.zone(name))
         return "%d %s" % (int(local.utcoffset().total_seconds()), local.tzname())
 
-    def civil(self, name, fields):
+    def civil(self, name, fields, fold=0):
+        return self.answer(name, self.instant(name, fields, fold))
+
+    def instant(self, name, fields, fold):
+        reading = datetime(*fields, tzinfo=self.zone(name), fold=fold)
+        return (reading - EPOCH) // timedelta(seconds=1)
+
+    def answer(self, name, seconds):
         zone = self.zone(name)
-        reading = datetime(*fields, tzinfo=zone, fold=0)
-        seconds = (reading - EPOCH) // timedelta(seconds=1)
         local = (EPOCH + timedelta(seconds=seconds)).astimezone(zone)
         return "%d %d %s %04d-%02d-%02dT%02d:%02d:%02d" % (
             seconds, int(local.utcoffset().total_seconds()), local.tzname(),
             local.year, local.month, local.day, local.hour, local.minute, local.second)
+
+    def disambiguation(self, name, fields, how):
+        # fold=0 and fold=1 name the same instant unless a change skips or
+        # repeats the reading, so they differ exactly in the ambiguous cases.
+        earlier = self.instant(name, fields, 0)
+        later = self.instant(name, fields, 1)
+        if how == "later":
+            return self.answer(name, later)
+        if how == "reject" and earlier != later:
+            return "error 77050002"
+        return self.answer(name, earlier)
 
 
 def main():
@@ -77,6 +98,8 @@ def main():
                 out.append(oracle.offset(fields[1], int(fields[2])))
             elif fields[0] == "civil":
                 out.append(oracle.civil(fields[1], [int(v) for v in fields[2:8]]))
+            elif fields[0] == "disambiguation":
+                out.append(oracle.disambiguation(fields[1], [int(v) for v in fields[2:8]], fields[8]))
             elif fields[0] == "roundtrip":
                 # Probe-only (plan-135-D section 4.4): the expected answer is
                 # an exact round trip.
