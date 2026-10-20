@@ -872,7 +872,7 @@ Acceptance: every builtin call resolves and lowers byte-identically.
   Final gate (Validation Plan): `bash scripts/artifact-gate.sh target/release/mfb all` → `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`;
   `test-accept.sh … '*invalid*'` → `acceptance tests passed (611 test(s) ran)`, no golden changed; G1, G3, G4 as above; `file_size_budget` → 0 rows; no ceiling row names
   an M file (old or new path).
-Commit: —
+Commit: 1b7bb1a21
 
 ## Validation Plan
 
