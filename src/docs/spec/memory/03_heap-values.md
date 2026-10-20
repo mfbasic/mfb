@@ -42,7 +42,7 @@ block larger than `byteLength + 9`, with the spare bytes recorded beside the
 binding so its drop frees the block at its real size. The spare capacity never
 escapes — every copy, return and transfer reads `byteLength` bytes and produces
 the tight form above — so no reader of a `String` ever sees it.
-[[src/codegen/collection/assign/string_self_update.rs:emit_string_set_len]]
+[[src/codegen/collection/assign/string_self_update/mod.rs:emit_string_set_len]]
 
 ## Record
 

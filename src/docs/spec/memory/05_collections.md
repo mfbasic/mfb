@@ -730,7 +730,7 @@ into `s`'s own block:
   `strings::replace`, `fs::pathNormalize`: the result is built in the function's
   self-update scratch (a writer would otherwise overtake the reader — `ß`
   uppercases to `SS`) and copied back.
-  [[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_window_assign]]
+  [[src/codegen/collection/assign/string_self_update/window.rs:try_inplace_string_window_assign]]
 
 `fs::readText`, `fs::canonicalPath`, `io::input`, `os::getEnv`, `os::getEnvOr`,
 the `encoding` codecs, `net::percentDecode` and `regex::replace` have no in-place
@@ -743,7 +743,7 @@ bytes it gave up as **spare capacity**, tracked by the compiler beside the
 binding — in a frame slot for a local, a hidden global beside a global, and, for a
 `MUT` captured by reference, in the OWNER's slot, whose address the closure
 environment carries so the lambda and its creator always agree.
-[[src/codegen/collection/assign/string_self_update.rs:string_shadow_captures]]
+[[src/codegen/collection/assign/string_self_update/mod.rs:string_shadow_captures]]
 The spare capacity is never observable: `len` and every copy, return and transfer
 read `byteLength` bytes and hand on the tight form.
 
@@ -820,7 +820,7 @@ read `byteLength` bytes and hand on the tight form.
   - A `String` window costs the bytes it gives up plus the bytes it moves: none
     move when the window already starts at the block start. `trimEnd` and the
     end of `trim` step back over the trailing whitespace only.
-    [[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_window_assign]]
+    [[src/codegen/collection/assign/string_self_update/window.rs:try_inplace_string_window_assign]]
     [[src/codegen/builtins/strings/gen_trim.rs:lower_strings_trim_window]]
   - Dead bytes left by an in-place removal cost nothing until the list's data
     region next grows: every in-place grow of a variable-width list first totals

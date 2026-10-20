@@ -621,20 +621,25 @@ Acceptance: both modules are split with byte-identical codegen.
   Verified 2026-10-19: G2 collections, strings → 0 diffs; `codegen::collection` → 58 passed, list 5018; check warnings
   0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → only the fixture; budget → two STALE rows
   (1027, 1262) before, none after; census → setmap 522/236/277, assign 815/453.
-Commit: —
+Commit: 349382e1f
 
 ### Phase 3: string self-update
 
-- [ ] `src/codegen/collection/assign/string_self_update.rs` → `string_self_update/{mod,grow,host_path,rewrite,window}.rs`
+- [x] `src/codegen/collection/assign/string_self_update.rs` → `string_self_update/{mod,grow,host_path,rewrite,window}.rs`
       per §4.6, with the 2 `pub(super)` edits. The inline `mod tests` stays in mod.rs.
-- [ ] Repoint the 10 spec citations.
-- [ ] `.ai/collections.md:100` → `collection/assign/string_self_update/`.
+      Done: `items.py split` → 8, 3, 5, 4 methods; exactly the 2 `pub(super)`; `motion.py` → wiring and impl wrappers.
+- [x] Repoint the 10 spec citations.
+      Done: `citesweep.py` → 10.
+- [x] `.ai/collections.md:100` → `collection/assign/string_self_update/`.
 
 Acceptance: the module is split with byte-identical codegen, and its 2 inline tests still pass at
 the same paths.
   Check: the Q gate, plus `cargo test -p mfb --bin mfb string_self_update::tests` → 2 passed.
   Sweep grep: `grep -rn "string_self_update\.rs" src tests scripts .ai AGENTS.md tools` → no hit.
   File-size grep path: `string_self_update` (est. 15 min).
+  Verified 2026-10-19: G2 collections, strings → 0 diffs; `string_self_update::tests` → 2 passed; `codegen::collection`
+  → 58 passed; check warnings 0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → 0; budget →
+  one STALE row (1805) before, none after; census → 644/133 + 591/203/212/171.
 Commit: —
 
 ### Phase 4: self-update dispatch

@@ -406,7 +406,7 @@ The ordinary call uses arena blocks. An eligible self-assignment uses the same
 `lower_out` algorithm with `StringOut::Scratch`, reserving a combined scalar and
 output workspace; the assignment publishes the result into the destination.
 The all-ASCII self-assignment needs no normalization rewrite.
-[[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_rewrite_assign]]
+[[src/codegen/collection/assign/string_self_update/rewrite.rs:try_inplace_string_rewrite_assign]]
 [[src/codegen/builtins/strings/func_normalize_nfc.rs:lower_out]]
 
 ## Runtime algorithm: case folding and upper/lower casing

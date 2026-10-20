@@ -97,7 +97,7 @@ any nested path, and every arm serves it (see "Field sites" below). The seam is
   (`tests/runtime/rt_inplace_failure_atomic.rs`). Per-element state lives in the
   function's self-update scratch (`emit_reserve_self_update_scratch`), not in a
   per-statement allocation.
-* **The `String` half** (plan-146, `collection/assign/string_self_update.rs`) is a
+* **The `String` half** (plan-146, `collection/assign/string_self_update/`) is a
   second resolver, `resolve_string_self_update`: plan-142's gates on a
   `CollectionTypeLayout` (G10), which no `String` has. Four arms —
   `StrIdentity` (`toString`), `StrWindow` (13 rows whose result is a run of `s`'s

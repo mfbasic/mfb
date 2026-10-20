@@ -5,8 +5,8 @@ each. A `String` is a UTF-8-encoded value. Eligible self-assignments can reuse
 and mutate destination storage while preserving independent values; string
 immutability is not a storage invariant. The value model and byte layout are
 owned by `./mfb spec memory heap-values`.
-[[src/codegen/collection/assign/string_self_update.rs:resolve_string_self_update]]
-[[src/codegen/collection/assign/string_self_update.rs:try_inplace_string_window_assign]]
+[[src/codegen/collection/assign/string_self_update/mod.rs:resolve_string_self_update]]
+[[src/codegen/collection/assign/string_self_update/window.rs:try_inplace_string_window_assign]]
 
 Each builtin has a fixed indexing unit.
 
@@ -77,7 +77,7 @@ the widths of the input and pad separately; it does not remeasure the concatenat
 result, whose grapheme boundaries can change at the joins.
 [[src/codegen/builtins/strings/helper_pad_to_width.rs:__strings_padToWidthCopies]]
 [[src/codegen/builtins/term/func_measure_text.rs:scalar_width_of]]
-[[src/codegen/collection/assign/string_self_update.rs:emit_pad_to_width_measure]]
+[[src/codegen/collection/assign/string_self_update/grow.rs:emit_pad_to_width_measure]]
 
 ## Scalar / byte mapping
 
