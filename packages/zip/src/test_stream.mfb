@@ -1,0 +1,110 @@
+' ---------------------------------------------------------------------------
+' Tests: the streaming writer.
+'
+' The one property that matters is that a Writer and a Builder given the same
+' calls produce the same bytes, so the streaming path is checked against the
+' in-memory path rather than against itself. The rest are the refusals that must
+' hold before anything reaches the file.
+' ---------------------------------------------------------------------------
+
+IMPORT fs
+IMPORT collections
+IMPORT errorCode
+IMPORT strings
+
+PRIVATE FUNC sameBytesS(a AS List OF Byte, b AS List OF Byte) AS Boolean
+  IF len(a) <> len(b) THEN
+    RETURN FALSE
+  END IF
+  FOR i = 0 TO len(a) - 1
+    IF collections::get(a, i) <> collections::get(b, i) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+PRIVATE FUNC incompressibleS() AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR i = 0 TO 255
+    out = collections::append(out, toByte(i))
+  NEXT
+  RETURN out
+END FUNC
+
+' The archive the in-memory builder makes from the calls `sampleStreamed` makes.
+PRIVATE FUNC sampleBuilt() AS List OF Byte
+  MUT b AS Builder = create()
+  b = addText(b, "hello.txt", "Hello, world!")
+  b = addFile(b, "raw.bin", incompressibleS())
+  b = addText(b, "squish.txt", strings::repeat("a", 48))
+  b = addDirectory(b, "sub")
+  RETURN finish(b, "written by the zip package")
+END FUNC
+
+' The same calls, written to `file` as they are made.
+PRIVATE FUNC sampleStreamed(file AS fs::File) AS Nothing
+  MUT w AS Writer = openWriter(file)
+  w = writeText(w, "hello.txt", "Hello, world!")
+  w = writeFile(w, "raw.bin", incompressibleS())
+  w = writeText(w, "squish.txt", strings::repeat("a", 48))
+  w = writeDirectory(w, "sub")
+  finishWriter(w, "written by the zip package")
+END FUNC
+
+TESTING
+  TGROUP "stream writer"
+    TCASE "a Writer produces the same bytes as a Builder for the same calls"
+      RES f AS fs::File = fs::createTempFile()
+      sampleStreamed(f)
+      LET streamed AS List OF Byte = fs::readBytesAt(f, 0, fs::size(f))
+      expectEqual(sameBytesS(streamed, sampleBuilt()), TRUE)
+    END TCASE
+
+    TCASE "the streamed archive reads back through the file overload"
+      RES f AS fs::File = fs::createTempFile()
+      sampleStreamed(f)
+      LET archive AS Archive = open(f)
+      expectInteger(len(entries(archive)), 4)
+      expectString(comment(archive), "written by the zip package")
+      expectString(readText(archive, find(archive, "hello.txt")), "Hello, world!")
+      expectEqual(find(archive, "sub/").isDirectory, TRUE)
+    END TCASE
+
+    TCASE "a Writer refuses a file that already holds bytes, and writes nothing"
+      RES f AS fs::File = fs::createTempFile()
+      fs::writeAllBytes(f, [toByte(1)])
+      fs::flush(f)
+      expectTrap(openWriter(f), errorCode::ErrInvalidArgument)
+      expectInteger(fs::size(f), 1)
+    END TCASE
+
+    TCASE "an unsafe name is refused before the file is touched"
+      RES f AS fs::File = fs::createTempFile()
+      MUT w AS Writer = openWriter(f)
+      expectTrap(writeText(w, "../escape.txt", "x"), errorCode::ErrInvalidPath)
+      expectTrap(writeText(w, "a//b.txt", "x"), errorCode::ErrInvalidPath)
+      expectInteger(fs::size(f), 0)
+    END TCASE
+
+    TCASE "an over-long comment is refused by finishWriter"
+      RES f AS fs::File = fs::createTempFile()
+      MUT w AS Writer = openWriter(f)
+      w = writeText(w, "x.txt", "x")
+      LET huge AS String = strings::repeat("c", 65536)
+      expectTrap(finishWriter(w, huge), errorCode::ErrTooLarge)
+    END TCASE
+
+    TCASE "a writer archive of 65536 entries emits ZIP64 and reads back"
+      RES f AS fs::File = fs::createTempFile()
+      MUT w AS Writer = openWriter(f)
+      FOR i = 1 TO 65536
+        w = writeText(w, "e" & toString(i) & ".txt", "x")
+      NEXT
+      finishWriter(w)
+      LET archive AS Archive = open(f)
+      expectInteger(len(entries(archive)), 65536)
+      expectString(find(archive, "e65536.txt").name, "e65536.txt")
+    END TCASE
+  END TGROUP
+END TESTING

@@ -1,5 +1,5 @@
 ' ---------------------------------------------------------------------------
-' zip/entry.mfb — reading one entry's bytes.
+' zip/entry.mfb — validating an entry's local header, and reading its bytes.
 '
 ' The sizes and the CRC come from the central directory, which `open` has
 ' already parsed, so this never needs the data descriptor that follows an entry
@@ -8,11 +8,10 @@
 ' data, and scanning is what "read one entry without reading the file" rules
 ' out.
 '
-' Only the local header's name and extra lengths are trusted from the local
-' header itself, and only to work out where the data starts. Everything else --
-' sizes, CRC, method -- is the central directory's, because the central
-' directory is the authoritative copy and a mismatch between the two is a
-' standard corruption a reader should not have to adjudicate.
+' The local header is read for two things only: to check that it agrees with the
+' central directory (see `localDataOffset`), and to find where the data starts.
+' `localDataOffset` is the ONE place that check lives. `read` and `extractTo`
+' both call it, so the two cannot disagree about which entries are sound.
 '
 ' The limit is applied BEFORE any data is read, so an entry that claims to be
 ' larger than `maxBytes` costs nothing to refuse.
@@ -22,96 +21,127 @@ IMPORT compress
 IMPORT encoding
 IMPORT errorCode
 
-PRIVATE LET LOCAL_FIXED AS Integer = 30
-
-' Read one entry's uncompressed bytes.
+' Where an entry's data begins, after checking that its local header is sound.
 '
-' `maxBytes` caps the decompressed size; an entry larger than it raises
-' `errorCode::ErrTooLarge` before anything is read.
-FUNC readEntry(archive AS Archive, entry AS Entry, maxBytes AS Integer) AS List OF Byte
-  IF entry.size > maxBytes THEN
-    FAIL error(errorCode::ErrTooLarge, "zip: entry \"" & entry.name & "\" is " & toString(entry.size) & " bytes, over the " & toString(maxBytes) & "-byte limit")
+' The local header must agree with the central directory on everything the two
+' copies share -- the name, the method, the flags -- and the entry's data must lie
+' wholly inside the archive. Any disagreement is refused, because two copies that
+' say different things are ambiguous, and an archive that is ambiguous is refused
+' rather than resolved in one reader's favour.
+'
+' Raises `errorCode::ErrUnsupported` for an encrypted entry, a compression method
+' other than stored or deflate, or a flag that changes what the data is.
+FUNC localDataOffset(source AS Source, entry AS Entry) AS Integer
+  IF entry.method <> 0 AND entry.method <> 8 THEN
+    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" uses compression method " & toString(entry.method))
   END IF
-  IF entry.isDirectory THEN
-    RETURN []
-  END IF
-
-  LET total AS Integer = sizeOf(archive.source)
-  LET header AS List OF Byte = readAt(archive.source, entry.headerOffset, LOCAL_FIXED)
+  LET header AS List OF Byte = readAt(source, entry.headerOffset, LOCAL_HEADER_SIZE)
   IF u32le(header, 0) <> 67324752 THEN
     FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" has no local header signature")
   END IF
 
-  ' Encryption and unknown methods are refused rather than guessed at. Both
-  ' checks read the LOCAL header's flags/method, which is where a reader that
-  ' is about to decompress must look.
-  ' An entry's general-purpose flags are recorded TWICE -- in the central
-  ' directory and in the local header -- and the two can disagree. Taking the
-  ' union is the conservative reading: if either copy says the data is
-  ' encrypted or patched, this reader cannot return its contents, and picking
-  ' the copy that happens to say otherwise is how a reader ends up handing back
-  ' bytes that are not the entry.
+  ' An entry's general-purpose flags are recorded TWICE, in the central directory
+  ' and in the local header, and the two can disagree. The union is the
+  ' conservative reading: if either copy says the data is encrypted or patched,
+  ' its contents cannot be returned, and picking the copy that says otherwise is
+  ' how a reader ends up returning bytes that are not the entry.
   LET localFlags AS Integer = u16le(header, 6)
   LET flags AS Integer = unionFlags(localFlags, entry.flags)
-  IF flags MOD 2 = 1 THEN
-    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" is encrypted")
+  requireSupportedFlags(flags, entry.name)
+
+  IF u16le(header, 8) <> entry.method THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" has method " & toString(entry.method) & " in the central directory but " & toString(u16le(header, 8)) & " in its local header")
   END IF
-  ' Three more general-purpose flags change what the data IS, not merely how it
-  ' is described (APPNOTE.TXT §4.4.4): bit 5 marks compressed patched data, bit
-  ' 6 strong encryption, and bit 13 a masked local header whose real values live
-  ' in an encrypted central directory. None is implemented here, and inflating
-  ' the bytes anyway would return something that is not the entry's contents.
-  IF (flags / 32) MOD 2 = 1 THEN
-    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" is compressed patched data")
-  END IF
-  IF (flags / 64) MOD 2 = 1 THEN
-    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" uses strong encryption")
-  END IF
-  IF (flags / 8192) MOD 2 = 1 THEN
-    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" has masked local header values")
-  END IF
-  IF entry.method <> 0 AND entry.method <> 8 THEN
-    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" uses compression method " & toString(entry.method))
+
+  ' The sizes are copies too. When the data descriptor (bit 3) is in use the local
+  ' copies are zero and carry no information, so they are compared only otherwise. A
+  ' ZIP64 sentinel means the real value is in the local ZIP64 field, which this
+  ' reader does not need, so it is not compared either.
+  IF (flags / 8) MOD 2 = 0 THEN
+    LET localCompressed AS Integer = u32le(header, 18)
+    LET localSize AS Integer = u32le(header, 22)
+    IF localCompressed <> 4294967295 AND localCompressed <> entry.compressedSize THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" has " & toString(entry.compressedSize) & " compressed bytes in the central directory but " & toString(localCompressed) & " in its local header")
+    END IF
+    IF localSize <> 4294967295 AND localSize <> entry.size THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" has size " & toString(entry.size) & " in the central directory but " & toString(localSize) & " in its local header")
+    END IF
   END IF
 
   LET nameLength AS Integer = u16le(header, 26)
   LET extraLength AS Integer = u16le(header, 28)
 
-  ' The local header carries its own copy of the name, and an archive where the
-  ' two copies disagree is not merely damaged -- it is ambiguous. A tool that
-  ' lists the central directory would report one name while a tool that
-  ' extracts by walking local headers writes another, which is precisely how a
-  ' scanner and an extractor come to disagree about what an archive contains.
-  ' There is no safe way to pick a winner, so the entry is refused.
-  LET localName AS String = decodeName(readAt(archive.source, entry.headerOffset + LOCAL_FIXED, nameLength), flags)
+  ' The local header carries its own copy of the name. An archive where the two
+  ' copies disagree is not merely damaged: a tool that lists the central directory
+  ' would report one name while a tool that extracts by walking local headers
+  ' writes another. That is how a scanner and an extractor come to disagree about
+  ' what an archive contains, so the entry is refused.
+  LET localName AS String = decodeName(readAt(source, entry.headerOffset + LOCAL_HEADER_SIZE, nameLength), localFlags)
   IF localName <> entry.name THEN
     FAIL error(errorCode::ErrInvalidFormat, "zip: entry is named \"" & entry.name & "\" in the central directory but \"" & localName & "\" in its local header")
   END IF
 
-  LET dataOffset AS Integer = entry.headerOffset + LOCAL_FIXED + nameLength + extraLength
-  IF dataOffset + entry.compressedSize > total THEN
-    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" claims " & toString(entry.compressedSize) & " bytes at " & toString(dataOffset) & ", past the end of a " & toString(total) & "-byte archive")
+  LET dataOffset AS Integer = entry.headerOffset + LOCAL_HEADER_SIZE + nameLength + extraLength
+  IF NOT fitsIn(dataOffset, entry.compressedSize, sizeOf(source)) THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" claims " & toString(entry.compressedSize) & " bytes at " & toString(dataOffset) & ", past the end of the archive")
   END IF
+  IF entry.method = 0 AND entry.compressedSize <> entry.size THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: stored entry \"" & entry.name & "\" has " & toString(entry.compressedSize) & " bytes for a size of " & toString(entry.size))
+  END IF
+  ' A directory holds no bytes, so its recorded size, compressed size and CRC must all be
+  ' zero. Python refuses a directory whose CRC is not zero, and reading one must not be
+  ' the one place this reader lets it pass.
+  IF entry.isDirectory AND (entry.size <> 0 OR entry.compressedSize <> 0 OR entry.crc <> 0) THEN
+    FAIL error(errorCode::ErrInvalidFormat, "zip: directory \"" & entry.name & "\" records data it cannot hold")
+  END IF
+  RETURN dataOffset
+END FUNC
 
-  ' A DEFLATE stream cannot expand by more than its block framing, so a
-  ' compressed size far beyond that bound is a corrupt field, not a real entry,
-  ' and is refused before the bytes are read rather than after inflating them.
-  IF entry.method = 8 THEN
-    LET ceiling AS Integer = maxBytes + 5 * (maxBytes / 65535 + 1)
-    IF entry.compressedSize > ceiling THEN
-      FAIL error(errorCode::ErrTooLarge, "zip: entry \"" & entry.name & "\" has " & toString(entry.compressedSize) & " compressed bytes, more than any valid deflate of " & toString(maxBytes) & " bytes")
-    END IF
+' Refuse the general-purpose flags that change what the data IS.
+'
+' Bit 0 is encryption. Bits 5, 6 and 13 mark patched data, strong encryption and a
+' masked local header (APPNOTE.TXT §4.4.4). None is implemented, and inflating the
+' bytes anyway would return something that is not the entry's contents.
+PRIVATE FUNC requireSupportedFlags(flags AS Integer, name AS String) AS Nothing
+  IF flags MOD 2 = 1 THEN
+    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & name & "\" is encrypted")
+  END IF
+  IF (flags / 32) MOD 2 = 1 THEN
+    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & name & "\" is compressed patched data")
+  END IF
+  IF (flags / 64) MOD 2 = 1 THEN
+    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & name & "\" uses strong encryption")
+  END IF
+  IF (flags / 8192) MOD 2 = 1 THEN
+    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & name & "\" has masked local header values")
+  END IF
+END FUNC
+
+' Read one entry's uncompressed bytes.
+'
+' `maxBytes` caps the decompressed size; an entry larger than it raises
+' `errorCode::ErrTooLarge` before anything is read. A directory reads as [].
+FUNC readEntry(archive AS Archive, entry AS Entry, maxBytes AS Integer) AS List OF Byte
+  IF entry.size > maxBytes THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: entry \"" & entry.name & "\" is " & toString(entry.size) & " bytes, over the " & toString(maxBytes) & "-byte limit")
+  END IF
+  ' A directory's local header is checked like any other, so a directory whose two
+  ' copies disagree is refused too; it has no data to read.
+  LET dataOffset AS Integer = localDataOffset(archive.source, entry)
+  IF entry.isDirectory THEN
+    RETURN []
   END IF
 
   LET raw AS List OF Byte = readAt(archive.source, dataOffset, entry.compressedSize)
-  MUT data AS List OF Byte = []
-  IF entry.method = 0 THEN
-    IF entry.compressedSize <> entry.size THEN
-      FAIL error(errorCode::ErrInvalidFormat, "zip: stored entry \"" & entry.name & "\" has " & toString(entry.compressedSize) & " bytes for a size of " & toString(entry.size))
-    END IF
-    data = raw
-  ELSE
-    data = compress::inflate(raw, maxBytes)
+  MUT data AS List OF Byte = raw
+  IF entry.method = 8 THEN
+    ' The output is bounded by the size the archive declares, not by the caller's limit,
+    ' so an entry that inflates past its declared size is refused the same way whatever
+    ' limit the caller passed: the archive is inconsistent, not too large for the caller.
+    LET inflated AS List OF Byte = compress::inflate(raw, entry.size) TRAP(e)
+      FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" does not inflate to its recorded " & toString(entry.size) & " bytes")
+    END TRAP
+    data = inflated
     IF len(data) <> entry.size THEN
       FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" inflated to " & toString(len(data)) & " bytes, not the " & toString(entry.size) & " recorded")
     END IF

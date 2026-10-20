@@ -1,0 +1,110 @@
+' ---------------------------------------------------------------------------
+' zip/stream.mfb — writing an archive to a file as it is built.
+'
+' `Builder` holds the whole archive in memory until `finish`. A `Writer` does not:
+' each `writeFile` writes that entry's local header and bytes to the file at once.
+' The central directory must wait for `finishWriter`, but it is only a header per
+' entry -- about 50 bytes plus the name -- so it is kept in a spool, not with the
+' data. An archive whose contents are far larger than memory can be written this
+' way; the memory it needs grows with the number of entries, not with their size.
+'
+' The spool is an `fs::openData` file, which lives in memory and is released when it
+' is closed, so nothing is left in a directory. It is written in order, so each entry
+' costs the same however many came before it. A Builder cannot do that: its value
+' semantics mean the caller's copy must stay unchanged, so each add copies its list.
+'
+' The bytes are the same as a `Builder` produces for the same calls, because both
+' lay out entries through headers.mfb.
+'
+' A Writer is a value like a Builder: each `writeFile`, `writeText` and
+' `writeDirectory` returns the updated writer, and the file is the same underneath.
+' Use the writer you get back. The one you passed in refers to the same file at an
+' earlier position, so writing to it again would corrupt the archive.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT fs
+
+' How much of the spool is copied to the file at a time in `finishWriter`.
+PRIVATE LET SPOOL_CHUNK AS Integer = 1048576
+
+' An archive being written to a file.
+'
+' `sink` is the caller's file, which this package never closes. `spool` holds the
+' central directory headers, in entry order, until `finishWriter` copies them out.
+' `offset` is how many bytes have been written to `sink`, which is where the next
+' entry's local header goes. `count` is how many entries have been written.
+EXPORT TYPE Writer
+  sink AS RES fs::File
+  spool AS RES fs::File
+  offset AS Integer
+  count AS Integer
+END TYPE
+
+' Start an archive in `file`.
+'
+' The file must be empty. Offsets in a zip are counted from the start of the file, so
+' an archive written after existing bytes would point at the wrong places; that is
+' refused rather than written.
+FUNC openWriterFile(file AS fs::File) AS Writer
+  LET existing AS Integer = fs::size(file)
+  IF existing <> 0 THEN
+    FAIL error(errorCode::ErrInvalidArgument, "zip: a Writer needs an empty file, but this one already holds " & toString(existing) & " bytes")
+  END IF
+  RES spool AS fs::File = fs::openData([], "readWrite")
+  RETURN Writer[file, spool, 0, 0]
+END FUNC
+
+' Write a file entry holding `data`, with the Unix permission bits `mode`.
+FUNC addFileToWriter(writer AS Writer, name AS String, data AS List OF Byte, store AS Boolean, modifiedSeconds AS Integer, mode AS Integer) AS Writer
+  LET record AS Pending = filePending(name, data, store, modifiedSeconds, mode)
+  RETURN placeEntry(writer, WITH record { headerOffset := writer.offset })
+END FUNC
+
+' Write a directory entry, with the Unix permission bits `mode`.
+FUNC addDirectoryToWriter(writer AS Writer, name AS String, modifiedSeconds AS Integer, mode AS Integer) AS Writer
+  LET record AS Pending = directoryPending(name, modifiedSeconds, mode)
+  RETURN placeEntry(writer, WITH record { headerOffset := writer.offset })
+END FUNC
+
+' Write one placed entry's local header and bytes to the file, and its central
+' directory header to the spool.
+PRIVATE FUNC placeEntry(writer AS Writer, entry AS Pending) AS Writer
+  LET header AS List OF Byte = localHeader(entry)
+  fs::writeAllBytes(writer.sink, header)
+  fs::writeAllBytes(writer.sink, entry.payload)
+  fs::writeAllBytes(writer.spool, centralHeader(entry))
+  LET written AS Integer = writer.offset + len(header) + len(entry.payload)
+  RETURN WITH writer { offset := written, count := writer.count + 1 }
+END FUNC
+
+' Write the central directory and the archive's tail, then flush the file.
+'
+' After this the archive is complete and the file holds it. Flushing surfaces a write
+' error here rather than leaving it to be lost when the file closes.
+FUNC writeCentralDirectory(writer AS Writer, comment AS String) AS Nothing
+  LET commentBytes AS List OF Byte = encoding::utf8Encode(comment)
+  IF len(commentBytes) > U16_MAX THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: archive comment of " & toString(len(commentBytes)) & " bytes exceeds the 65535-byte field")
+  END IF
+  LET centralSize AS Integer = fs::size(writer.spool)
+  copySpool(writer, centralSize)
+  fs::writeAllBytes(writer.sink, endOfArchive(writer.count, centralSize, writer.offset, commentBytes))
+  fs::flush(writer.sink)
+END FUNC
+
+' Copy the spooled central directory to the file, a chunk at a time, so the copy holds
+' one chunk rather than the whole directory.
+PRIVATE FUNC copySpool(writer AS Writer, centralSize AS Integer) AS Nothing
+  MUT at AS Integer = 0
+  WHILE at < centralSize
+    MUT chunk AS Integer = SPOOL_CHUNK
+    IF centralSize - at < chunk THEN
+      chunk = centralSize - at
+    END IF
+    fs::writeAllBytes(writer.sink, fs::readBytesAt(writer.spool, at, chunk))
+    at = at + chunk
+  END WHILE
+END FUNC

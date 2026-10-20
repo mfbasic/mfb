@@ -1,0 +1,29 @@
+{
+  "name": "zipwriter",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Writes archives with packages/zip, through both writers, for diff.py roundtrip to check with Python zipfile.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "name": "zip",
+      "version": "=0.1.0",
+      "source": "file:packages/zip.mfp",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}

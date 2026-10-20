@@ -5,6 +5,9 @@
 ' archive describing what `packages/zip` makes of it. `diff.py` runs Python over
 ' the same paths and compares.
 '
+' With `extract <job> <work-dir>` it extracts each archive instead (see Extract mode
+' below), into a fresh directory under <work-dir>.
+'
 ' Every archive is opened TWICE: once from a `List OF Byte` and once from an
 ' `fs::File`. The two descriptions must be identical, and `sourcesAgree` reports
 ' whether they were. That field is the one thing `diff.py` treats as a hard
@@ -20,6 +23,7 @@
 IMPORT zip
 IMPORT collections
 IMPORT compress
+IMPORT errorCode
 IMPORT fs
 IMPORT io
 IMPORT os
@@ -43,15 +47,14 @@ FUNC describe(archive AS zip::Archive) AS String
   FOR EACH entry IN zip::entries(archive)
     MUT digest AS String = "null"
     MUT readError AS String = "null"
-    IF NOT entry.isDirectory THEN
-      LET crc AS Integer = contentCrc(archive, entry)
-      IF crc < 0 THEN
-        readError = "\"read:" & toString(0 - crc) & "\""
-      ELSE
-        digest = toString(crc)
-      END IF
+    ' Directories are read too: `read` checks a directory's local header, and
+    ' the extractor relies on the same check, so the read path must be compared
+    ' for every entry. A directory's contents are empty, so its CRC is 0.
+    LET crc AS Integer = contentCrc(archive, entry)
+    IF crc < 0 THEN
+      readError = "\"read:" & toString(0 - crc) & "\""
     ELSE
-      digest = "0"
+      digest = toString(crc)
     END IF
     rows = collections::append(rows, "{\"name\":" & quoted(entry.name) _
       & ",\"isDirectory\":" & boolText(entry.isDirectory) _
@@ -68,8 +71,12 @@ END FUNC
 ' The CRC-32 of an entry's contents, or the negated error code when reading it
 ' fails. A per-entry failure is data for the comparison, not a reason to abandon
 ' the archive: Python may fail on the same entry, and that is agreement.
+' The read uses the same 1 TiB cap as extraction (see EXTRACT_CAP): the reader's
+' default 64 MiB limit is checked before the local header, so it would otherwise
+' decide which refusal the read path reports, and the comparison would be against
+' the cap rather than against the archive.
 FUNC contentCrc(archive AS zip::Archive, entry AS zip::Entry) AS Integer
-  LET crc AS Integer = compress::crc32(zip::read(archive, entry)) TRAP(e)
+  LET crc AS Integer = compress::crc32(zip::read(archive, entry, EXTRACT_CAP)) TRAP(e)
     RECOVER 0 - e.code
   END TRAP
   RETURN crc
@@ -137,15 +144,33 @@ FUNC main AS Integer
   LET args AS List OF String = os::args()
   IF len(args) < 1 THEN
     io::print("usage: zipprobe <job-file>")
+    io::print("       zipprobe extract <job-file> <work-directory>")
     RETURN 2
   END IF
-  LET job AS String = collections::get(args, 0)
-  FOR EACH path IN strings::split(strings::trim(fs::readText(job)), "\n")
-    IF len(strings::trim(path)) > 0 THEN
-      emit(strings::trim(path))
+  IF collections::get(args, 0) = "extract" THEN
+    IF len(args) < 3 THEN
+      io::print("usage: zipprobe extract <job-file> <work-directory>")
+      RETURN 2
     END IF
+    extractEach(collections::get(args, 1), collections::get(args, 2))
+    RETURN 0
+  END IF
+  LET job AS String = collections::get(args, 0)
+  FOR EACH path IN jobPaths(job)
+    emit(path)
   NEXT
   RETURN 0
+END FUNC
+
+' The archive paths in a job file, one per line, blank lines skipped.
+FUNC jobPaths(job AS String) AS List OF String
+  MUT out AS List OF String = []
+  FOR EACH line IN strings::split(strings::trim(fs::readText(job)), "\n")
+    IF len(strings::trim(line)) > 0 THEN
+      out = collections::append(out, strings::trim(line))
+    END IF
+  NEXT
+  RETURN out
 END FUNC
 
 FUNC emit(path AS String) AS Nothing
@@ -180,4 +205,122 @@ FUNC emit(path AS String) AS Nothing
     END IF
   END IF
   io::print(line & "}")
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Extract mode.
+'
+' Each archive is extracted with zip::extractTo into its own directory under the
+' work directory, which is created empty first. One JSON line per archive, in job
+' order:
+'
+'   {"path":..., "written":N, "files":[{"path":..,"crc":..,"size":..}, ...]}
+'   {"path":..., "refused":"ErrName", "code":N, "stage":"open"|"extract", "leftover":[...]}
+'
+' `files` is what is ON DISK afterwards, walked from the directory, sorted, with
+' each file's CRC-32 and size -- not what the call says it wrote. `leftover` is
+' what remains on disk after a refusal, which the package promises is nothing.
+' ---------------------------------------------------------------------------
+
+FUNC extractEach(job AS String, work AS String) AS Nothing
+  LET paths AS List OF String = jobPaths(job)
+  FOR i = 0 TO len(paths) - 1
+    LET target AS String = fs::pathJoin([work, "x" & toString(i)])
+    fs::createDirectories(target)
+    io::print(extractOne(collections::get(paths, i), target))
+  NEXT
+END FUNC
+
+' Reads the central directory and returns the entry count; raises when the
+' archive is refused at open.
+FUNC openEntryCount(path AS String) AS Integer
+  RES f AS fs::File = fs::openFile(path)
+  RETURN len(zip::entries(zip::open(f)))
+END FUNC
+
+' 1 TiB, in bytes.
+LET EXTRACT_CAP AS Integer = 1099511627776
+
+FUNC extractFile(path AS String, target AS String) AS Integer
+  RES f AS fs::File = fs::openFile(path)
+  ' The default cap is 1 GiB. A larger total is refused by the cap, not by any
+  ' property of the archive, so the probe passes 1 TiB and the cap never decides
+  ' the comparison.
+  RETURN zip::extractTo(zip::open(f), target, EXTRACT_CAP)
+END FUNC
+
+FUNC extractOne(path AS String, target AS String) AS String
+  MUT stage AS String = "open"
+  MUT code AS Integer = 0
+  MUT written AS Integer = 0
+  MUT ignored AS Integer = 0
+  ignored = openEntryCount(path) TRAP(e)
+    code = e.code
+    RECOVER 0
+  END TRAP
+  IF code = 0 THEN
+    stage = "extract"
+    written = extractFile(path, target) TRAP(e)
+      code = e.code
+      RECOVER 0
+    END TRAP
+  END IF
+  IF code <> 0 THEN
+    RETURN "{\"path\":" & quoted(path) & ",\"refused\":" & quoted(errorName(code)) & ",\"code\":" & toString(code) _
+      & ",\"stage\":" & quoted(stage) & ",\"leftover\":" & jsonList(walkTree(target, "")) & "}"
+  END IF
+  RETURN "{\"path\":" & quoted(path) & ",\"written\":" & toString(written) _
+    & ",\"files\":" & filesJson(target) & "}"
+END FUNC
+
+' Every entry under `dir`, relative to it. A directory's name ends in "/".
+' `prefix` is the path of `dir` relative to the root being walked.
+FUNC walkTree(dir AS String, prefix AS String) AS List OF String
+  MUT found AS List OF String = []
+  FOR EACH name IN fs::listDirectory(dir)
+    LET full AS String = fs::pathJoin([dir, name])
+    LET rel AS String = prefix & name
+    IF fs::directoryExists(full) THEN
+      found = collections::append(found, rel & "/")
+      FOR EACH inner IN walkTree(full, rel & "/")
+        found = collections::append(found, inner)
+      NEXT
+    ELSE
+      found = collections::append(found, rel)
+    END IF
+  NEXT
+  RETURN found
+END FUNC
+
+FUNC filesJson(target AS String) AS String
+  MUT rows AS List OF String = []
+  FOR EACH rel IN collections::sort(walkTree(target, ""))
+    IF NOT strings::endsWith(rel, "/") THEN
+      LET bytes AS List OF Byte = fs::readBytes(fs::pathJoin([target, rel]))
+      rows = collections::append(rows, "{\"path\":" & quoted(rel) & ",\"crc\":" _
+        & toString(compress::crc32(bytes)) & ",\"size\":" & toString(len(bytes)) & "}")
+    END IF
+  NEXT
+  RETURN "[" & strings::join(rows, ",") & "]"
+END FUNC
+
+FUNC jsonList(items AS List OF String) AS String
+  MUT rows AS List OF String = []
+  FOR EACH item IN collections::sort(items)
+    rows = collections::append(rows, quoted(item))
+  NEXT
+  RETURN "[" & strings::join(rows, ",") & "]"
+END FUNC
+
+' The name of a runtime or package error code, as errorCode spells it. An
+' unknown code is reported by number so the diff shows it rather than hides it.
+FUNC errorName(code AS Integer) AS String
+  LET codes AS List OF Integer = [errorCode::ErrUnknown, errorCode::ErrIndexOutOfRange, errorCode::ErrInvalidArgument, errorCode::ErrInvalidFormat, errorCode::ErrNotFound, errorCode::ErrAlreadyExists, errorCode::ErrPermissionDenied, errorCode::ErrUnsupported, errorCode::ErrTimeout, errorCode::ErrInterrupted, errorCode::ErrOutOfMemory, errorCode::ErrStackOverflow, errorCode::ErrPathNotFound, errorCode::ErrInvalidPath, errorCode::ErrAccessDenied, errorCode::ErrReadFailed, errorCode::ErrWriteFailed, errorCode::ErrEndOfFile, errorCode::ErrResourceClosed, errorCode::ErrResourceBusy, errorCode::ErrEncoding, errorCode::ErrInputFailed, errorCode::ErrCloseFailed, errorCode::ErrOverflow, errorCode::ErrUnderflow, errorCode::ErrTooLarge, errorCode::ErrResourceMoved, errorCode::ErrWrapped, zip::ErrorChecksum]
+  LET names AS List OF String = ["ErrUnknown", "ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNotFound", "ErrAlreadyExists", "ErrPermissionDenied", "ErrUnsupported", "ErrTimeout", "ErrInterrupted", "ErrOutOfMemory", "ErrStackOverflow", "ErrPathNotFound", "ErrInvalidPath", "ErrAccessDenied", "ErrReadFailed", "ErrWriteFailed", "ErrEndOfFile", "ErrResourceClosed", "ErrResourceBusy", "ErrEncoding", "ErrInputFailed", "ErrCloseFailed", "ErrOverflow", "ErrUnderflow", "ErrTooLarge", "ErrResourceMoved", "ErrWrapped", "ErrorChecksum"]
+  FOR i = 0 TO len(codes) - 1
+    IF collections::get(codes, i) = code THEN
+      RETURN collections::get(names, i)
+    END IF
+  NEXT
+  RETURN "code:" & toString(code)
 END FUNC

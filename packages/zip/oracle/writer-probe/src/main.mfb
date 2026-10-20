@@ -1,0 +1,104 @@
+' ---------------------------------------------------------------------------
+' zip writer probe.
+'
+' Writes the archives that `diff.py roundtrip` reads back with Python zipfile,
+' into the directory named on the command line. Where it can, each archive is
+' written twice -- once by the in-memory Builder and once by the streaming
+' Writer -- so diff.py can also check that the two produce the same bytes.
+'
+' The names, contents, times, modes and comment below MUST match the
+' ROUNDTRIP_SPECS table in diff.py. diff.py is what Python checks against; a
+' drift between the two shows up as a failed check, never as a silent pass.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT os
+IMPORT zip
+
+' DOS time keeps two-second resolution; the extended-timestamp field keeps the
+' exact second. The odd value is the case that tells the two apart.
+LET T_EVEN AS Integer = 1789000000
+LET T_ODD AS Integer = 1789000001
+
+LET COMMENT AS String = "built by the zip writer probe, é"
+
+' Text that deflate shrinks a great deal.
+FUNC compressible() AS String
+  MUT out AS String = ""
+  FOR i = 1 TO 100
+    out = out & "deflate me "
+  NEXT
+  RETURN out
+END FUNC
+
+' 256 distinct bytes, each once: deflate cannot make them smaller.
+FUNC incompressible() AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR i = 0 TO 255
+    out = collections::append(out, toByte(i))
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC buildMixed() AS List OF Byte
+  MUT b AS zip::Builder = zip::create()
+  b = zip::addText(b, "stored.txt", "stored text\n", TRUE, T_EVEN, 0)
+  b = zip::addText(b, "deflated.txt", compressible(), FALSE, T_EVEN, 0)
+  b = zip::addText(b, "empty.txt", "", FALSE, T_EVEN, 0)
+  b = zip::addFile(b, "incompressible.bin", incompressible(), FALSE, T_EVEN, 0)
+  b = zip::addDirectory(b, "dir", T_EVEN, 488)
+  b = zip::addText(b, "dir/ünïcode-名前.txt", "naïve\n", FALSE, T_EVEN, 0)
+  b = zip::addText(b, "odd-time.txt", "odd", FALSE, T_ODD, 384)
+  b = zip::addText(b, "even-time.txt", "even", FALSE, T_EVEN, 0)
+  b = zip::addText(b, "tool.sh", "#!/bin/sh\necho hi\n", FALSE, T_EVEN, 493)
+  RETURN zip::finish(b, COMMENT)
+END FUNC
+
+FUNC writeMixed(path AS String) AS Nothing
+  RES out AS fs::File = fs::open(path, "write")
+  MUT w AS zip::Writer = zip::openWriter(out)
+  w = zip::writeText(w, "stored.txt", "stored text\n", TRUE, T_EVEN, 0)
+  w = zip::writeText(w, "deflated.txt", compressible(), FALSE, T_EVEN, 0)
+  w = zip::writeText(w, "empty.txt", "", FALSE, T_EVEN, 0)
+  w = zip::writeFile(w, "incompressible.bin", incompressible(), FALSE, T_EVEN, 0)
+  w = zip::writeDirectory(w, "dir", T_EVEN, 488)
+  w = zip::writeText(w, "dir/ünïcode-名前.txt", "naïve\n", FALSE, T_EVEN, 0)
+  w = zip::writeText(w, "odd-time.txt", "odd", FALSE, T_ODD, 384)
+  w = zip::writeText(w, "even-time.txt", "even", FALSE, T_EVEN, 0)
+  w = zip::writeText(w, "tool.sh", "#!/bin/sh\necho hi\n", FALSE, T_EVEN, 493)
+  zip::finishWriter(w, COMMENT)
+END FUNC
+
+' Sixty-five thousand five hundred and thirty-six entries: one more than the
+' classic 16-bit entry count can hold, so the archive needs ZIP64 records.
+FUNC writeEntryCount(path AS String) AS Nothing
+  RES out AS fs::File = fs::open(path, "write")
+  MUT w AS zip::Writer = zip::openWriter(out)
+  FOR i = 0 TO 65535
+    w = zip::writeText(w, "n" & toString(i) & ".txt", "entry " & toString(i), FALSE, 0, 0)
+  NEXT
+  zip::finishWriter(w, "")
+END FUNC
+
+FUNC writeEmpty(path AS String) AS Nothing
+  RES out AS fs::File = fs::open(path, "write")
+  MUT w AS zip::Writer = zip::openWriter(out)
+  zip::finishWriter(w, "")
+END FUNC
+
+FUNC main AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) < 1 THEN
+    io::print("usage: zipwriter <output-directory>")
+    RETURN 2
+  END IF
+  LET dir AS String = collections::get(args, 0)
+  fs::writeBytes(fs::pathJoin([dir, "builder-mixed.zip"]), buildMixed())
+  writeMixed(fs::pathJoin([dir, "stream-mixed.zip"]))
+  fs::writeBytes(fs::pathJoin([dir, "builder-empty.zip"]), zip::finish(zip::create(), ""))
+  writeEmpty(fs::pathJoin([dir, "stream-empty.zip"]))
+  writeEntryCount(fs::pathJoin([dir, "entry-count-65536.zip"]))
+  RETURN 0
+END FUNC

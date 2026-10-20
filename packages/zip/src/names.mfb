@@ -1,0 +1,102 @@
+' ---------------------------------------------------------------------------
+' zip/names.mfb — the rules for an entry name, shared by the writer and the
+' extractor.
+'
+' A name is the only thing that says where an entry goes when it is extracted,
+' so the writer and the extractor apply the SAME rules. A package that could
+' write a name its own extractor refuses would be building hostile archives.
+'
+' Two levels:
+'
+'   checkName      what makes a name unsafe. Refused on every path.
+'   relPathOf      the canonical relative path a safe name names. Empty and "."
+'                  components are dropped, so "./a//b.txt" and "a/b.txt" are the
+'                  same entry for extraction and for collision checks.
+'
+' The writer also refuses empty and "." components (see `strictName`), so the
+' names it writes are already canonical.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT strings
+
+' Refuse a name that could write outside the directory it is extracted into, or
+' that names nothing.
+'
+' Refused: empty; containing a backslash; absolute (leading "/"); containing a
+' NUL; beginning with a Windows drive ("C:"); or having a ".." component
+' anywhere, including one that a path normaliser would have resolved away.
+FUNC checkName(name AS String) AS Nothing
+  IF len(name) = 0 OR strings::contains(name, "\\") OR strings::startsWith(name, "/") OR hasNul(name) OR hasDriveLetter(name) THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+  END IF
+  FOR EACH part IN strings::split(name, "/")
+    IF part = ".." THEN
+      FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+    END IF
+  NEXT
+END FUNC
+
+' The name the writer accepts: `checkName`, plus no empty or "." components.
+'
+' A directory name may end in one "/", which `addDirectory` adds when it is
+' missing; anything else with an empty component is refused, so "a//b" never
+' reaches an archive.
+FUNC strictName(name AS String, isDirectory AS Boolean) AS Nothing
+  LET encoded AS List OF Byte = encoding::utf8Encode(name)
+  IF len(encoded) > 65535 THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: entry name of " & toString(len(encoded)) & " bytes exceeds the 65535-byte field")
+  END IF
+  MUT base AS String = name
+  IF isDirectory THEN
+    base = strings::stripSuffix(name, "/")
+  END IF
+  checkName(base)
+  FOR EACH part IN strings::split(base, "/")
+    IF part = "" OR part = "." THEN
+      FAIL error(errorCode::ErrInvalidPath, "zip: entry name \"" & name & "\" has an empty or \".\" component")
+    END IF
+  NEXT
+END FUNC
+
+' The canonical relative path a name denotes: its components joined with "/",
+' with empty and "." components dropped. "" when the name denotes the root.
+'
+' Calls `checkName` first, so an unsafe name never yields a path.
+FUNC relPathOf(name AS String) AS String
+  checkName(name)
+  MUT kept AS List OF String = []
+  FOR EACH part IN strings::split(name, "/")
+    IF part <> "" AND part <> "." THEN
+      kept = collections::append(kept, part)
+    END IF
+  NEXT
+  RETURN strings::join(kept, "/")
+END FUNC
+
+' Whether the name contains a NUL byte.
+'
+' A zip name is a counted field, so a NUL inside one is not a terminator; it is
+' a byte no filesystem accepts. Readers disagree about it, so it is refused.
+FUNC hasNul(name AS String) AS Boolean
+  FOR EACH scalar IN strings::toScalars(name)
+    IF toInt(scalar) = 0 THEN
+      RETURN TRUE
+    END IF
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' `X:` at the start, which Windows reads as a drive-relative path.
+FUNC hasDriveLetter(name AS String) AS Boolean
+  LET scalars AS List OF Scalar = strings::toScalars(name)
+  IF len(scalars) < 2 THEN
+    RETURN FALSE
+  END IF
+  IF toInt(collections::get(scalars, 1)) <> 58 THEN
+    RETURN FALSE
+  END IF
+  RETURN strings::isLetter(collections::get(scalars, 0))
+END FUNC

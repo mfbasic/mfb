@@ -140,11 +140,27 @@ TESTING
       expectInteger(find(archive, "stamped.txt").modifiedSeconds, 1789821000)
     END TCASE
 
-    TCASE "an odd second rounds down to the format's two-second grain"
+    TCASE "an odd second is kept exactly, by the extended-timestamp field"
+      ' The DOS fields round to two seconds; the extended timestamp carries the exact
+      ' second, and a reader that knows it (ours does) gets the exact time back.
       MUT b AS Builder = create()
       b = addText(b, "stamped.txt", "x", FALSE, 1789821001)
       LET archive AS Archive = open(finish(b))
-      expectInteger(find(archive, "stamped.txt").modifiedSeconds, 1789821000)
+      expectInteger(find(archive, "stamped.txt").modifiedSeconds, 1789821001)
+    END TCASE
+
+    TCASE "a mode is recorded as the Unix st_mode, with the file type added"
+      MUT b AS Builder = create()
+      b = addText(b, "private.txt", "x", FALSE, 0, 384)
+      b = addDirectory(b, "locked", 0, 448)
+      LET archive AS Archive = open(finish(b))
+      expectInteger(find(archive, "private.txt").mode, 33152)
+      expectInteger(find(archive, "locked/").mode, 16832)
+    END TCASE
+
+    TCASE "the default modes are 0o644 for a file and 0o755 for a directory"
+      expectInteger(modeOf(0, FALSE), 33188)
+      expectInteger(modeOf(0, TRUE), 16877)
     END TCASE
 
     TCASE "a file entry records a regular-file mode and a directory a directory mode"
@@ -159,6 +175,13 @@ TESTING
       b = addText(b, "café/naïve.txt", "unicode")
       LET archive AS Archive = open(finish(b))
       expectString(readText(archive, find(archive, "café/naïve.txt")), "unicode")
+    END TCASE
+
+    TCASE "a modification time of zero writes the earliest DOS time, which reads back as 1980"
+      MUT b AS Builder = create()
+      b = addText(b, "untimed.txt", "x")
+      LET archive AS Archive = open(finish(b))
+      expectInteger(find(archive, "untimed.txt").modifiedSeconds, 315532800)
     END TCASE
 
     TCASE "a duplicate name is allowed and find returns the first"
@@ -193,6 +216,31 @@ TESTING
       expectTrap(addFile(b, "looks-like-a-dir/", [], TRUE), errorCode::ErrInvalidPath)
     END TCASE
 
+    TCASE "a mode the format cannot record is refused"
+      MUT b AS Builder = create()
+      expectTrap(addText(b, "x.txt", "x", FALSE, 0, 4096), errorCode::ErrInvalidArgument)
+      expectTrap(addText(b, "x.txt", "x", FALSE, 0, -1), errorCode::ErrInvalidArgument)
+    END TCASE
+
+    TCASE "a time the format cannot record is refused"
+      MUT b AS Builder = create()
+      expectTrap(addText(b, "x.txt", "x", FALSE, -1), errorCode::ErrInvalidArgument)
+      expectTrap(addText(b, "x.txt", "x", FALSE, 4294967296), errorCode::ErrInvalidArgument)
+    END TCASE
+
+    TCASE "a name with an empty or dot component is refused, so it is never written"
+      MUT b AS Builder = create()
+      expectTrap(addText(b, "a//b.txt", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "./a.txt", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addText(b, "a/./b.txt", "x"), errorCode::ErrInvalidPath)
+      expectTrap(addDirectory(b, "a//"), errorCode::ErrInvalidPath)
+    END TCASE
+
+    TCASE "a name longer than 65535 bytes is refused when it is added"
+      MUT b AS Builder = create()
+      expectTrap(addText(b, strings::repeat("n", 70000), "x"), errorCode::ErrTooLarge)
+    END TCASE
+
     TCASE "an over-long comment is refused"
       MUT b AS Builder = create()
       b = addText(b, "x.txt", "x")
@@ -220,9 +268,21 @@ END TESTING
 PRIVATE FUNC manyEntryArchive(count AS Integer) AS List OF Byte
   MUT records AS List OF Pending = []
   FOR i = 1 TO count
-    records = collections::append(records, Pending["e" & toString(i) & ".txt", FALSE, 0, 0, 0, [], 0, 33188])
+    records = collections::append(records, Pending["e" & toString(i) & ".txt", FALSE, 0, 0, 0, 0, [], 0, 33188, 0])
   NEXT
   RETURN finishBuilder(Builder[records], "")
+END FUNC
+
+' Whether the ZIP64 locator signature lies in the last 64 bytes. The locator sits
+' just before the end-of-central-directory record, which is 22 bytes long.
+PRIVATE FUNC hasLocatorNear(raw AS List OF Byte) AS Boolean
+  LET tail AS List OF Byte = collections::mid(raw, len(raw) - 64, 64)
+  FOR i = 0 TO len(tail) - 4
+    IF u32le(tail, i) = 117853008 THEN
+      RETURN TRUE
+    END IF
+  NEXT
+  RETURN FALSE
 END FUNC
 
 TESTING
@@ -235,21 +295,33 @@ TESTING
       expectString(find(archive, "e65536.txt").name, "e65536.txt")
     END TCASE
 
-    TCASE "65535 entries still fits a classic zip, with no ZIP64 record"
-      ' One below the threshold: the EOCD count field holds it exactly, so no
-      ' ZIP64 record is emitted and the archive stays a classic zip.
+    TCASE "a local header that needs ZIP64 carries both sizes in the ZIP64 field"
+      ' Sizes past 4 GiB are metadata here: the header is built, not the data.
+      LET big AS Pending = Pending["big.bin", FALSE, 0, 5368709120, 5368709120, 0, [], 0, 33188, 0]
+      LET header AS List OF Byte = localHeader(big)
+      expectInteger(u16le(header, 4), 45)
+      expectInteger(u32le(header, 18), 4294967295)
+      expectInteger(u32le(header, 22), 4294967295)
+      ' The name is 7 bytes, so the extra field starts at 37: id, size, then both sizes.
+      expectInteger(u16le(header, 37), 1)
+      expectInteger(u64le(header, 41), 5368709120)
+      expectInteger(u64le(header, 49), 5368709120)
+    END TCASE
+
+    TCASE "65534 entries still fits a classic zip, with no ZIP64 record"
+      ' One below the threshold. 65535 is the value the EOCD uses to say "see ZIP64", so
+      ' a count of 65535 needs the ZIP64 record, as the next case checks.
+      LET raw AS List OF Byte = manyEntryArchive(65534)
+      LET archive AS Archive = open(raw)
+      expectInteger(len(entries(archive)), 65534)
+      expectEqual(hasLocatorNear(raw), FALSE)
+    END TCASE
+
+    TCASE "65535 entries is the first count that needs the ZIP64 record"
       LET raw AS List OF Byte = manyEntryArchive(65535)
       LET archive AS Archive = open(raw)
       expectInteger(len(entries(archive)), 65535)
-      ' The ZIP64 locator signature must NOT appear in the last 40 bytes.
-      LET tail AS List OF Byte = collections::mid(raw, len(raw) - 40, 40)
-      MUT sawLocator AS Boolean = FALSE
-      FOR i = 0 TO len(tail) - 4
-        IF u32le(tail, i) = 117853008 THEN
-          sawLocator = TRUE
-        END IF
-      NEXT
-      expectEqual(sawLocator, FALSE)
+      expectEqual(hasLocatorNear(raw), TRUE)
     END TCASE
   END TGROUP
 END TESTING

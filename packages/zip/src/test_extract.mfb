@@ -14,6 +14,7 @@
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
+IMPORT compress
 IMPORT datetime
 IMPORT encoding
 IMPORT errorCode
@@ -87,6 +88,28 @@ PRIVATE FUNC goodArchive() AS List OF Byte
   RETURN finish(b)
 END FUNC
 
+' Overwrite the bytes of `raw` starting at `at` with `wanted`.
+PRIVATE FUNC patchAt(raw AS List OF Byte, at AS Integer, wanted AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = raw
+  FOR i = 0 TO len(wanted) - 1
+    out = collections::set(out, at + i, collections::get(wanted, i))
+  NEXT
+  RETURN out
+END FUNC
+
+' An archive holding one stored entry, named `name`, with the data "payload".
+PRIVATE FUNC singleEntry(name AS String) AS List OF Byte
+  MUT b AS Builder = create()
+  b = addText(b, name, "payload", TRUE)
+  RETURN finish(b)
+END FUNC
+
+' Where the central directory begins, in an archive `finish` wrote with no comment.
+PRIVATE FUNC centralAtOf(raw AS List OF Byte) AS Integer
+  RETURN u32le(raw, len(raw) - 22 + 16)
+END FUNC
+
+
 TESTING
   TGROUP "extractTo"
     TCASE "files and directories are written, and the file count returned"
@@ -119,10 +142,21 @@ TESTING
       removeTree(into)
     END TCASE
 
-    TCASE "a missing target directory is refused"
-      LET absent AS String = fs::pathJoin([fs::tempDirectory(), "ziptest-does-not-exist-xyz"])
-      LET raw AS List OF Byte = goodArchive()
-      expectTrap(extractTo(open(raw), absent), errorCode::ErrNotFound)
+    TCASE "a missing target directory is created, with its parents"
+      LET parent AS String = freshDirectory("parent")
+      LET target AS String = fs::pathJoin([parent, "child", "deeper"])
+      expectInteger(extractTo(open(goodArchive()), target), 3)
+      expectEqual(fs::directoryExists(fs::pathJoin([target, "docs"])), TRUE)
+      expectString(fs::readText(fs::pathJoin([target, "top.txt"])), "at the top")
+      removeTree(parent)
+    END TCASE
+
+    TCASE "a target that is a file is refused"
+      LET parent AS String = freshDirectory("filetarget")
+      LET target AS String = fs::pathJoin([parent, "plain"])
+      fs::writeText(target, "not a directory")
+      expectTrap(extractTo(open(goodArchive()), target), errorCode::ErrAlreadyExists)
+      removeTree(parent)
     END TCASE
   END TGROUP
 
@@ -215,6 +249,239 @@ TESTING
       LET broken AS List OF Byte = collections::set(raw, dataAt, toByte((was + 1) MOD 256))
       expectTrap(extractTo(open(broken), into), ErrorChecksum)
       ' The partial file was deleted, so the directory is empty again.
+      expectInteger(countEntriesIn(into), 0)
+      removeTree(into)
+    END TCASE
+  END TGROUP
+END TESTING
+
+TESTING
+  TGROUP "extractTo never overwrites or merges"
+    TCASE "an existing file is never overwritten"
+      LET into AS String = freshDirectory("overwrite")
+      fs::writeText(fs::pathJoin([into, "top.txt"]), "old")
+      expectTrap(extractTo(open(goodArchive()), into), errorCode::ErrAlreadyExists)
+      expectString(fs::readText(fs::pathJoin([into, "top.txt"])), "old")
+      ' Nothing else was written: the archive is refused before the first byte.
+      expectInteger(countEntriesIn(into), 1)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a directory entry where a file already exists is refused"
+      LET into AS String = freshDirectory("dirfile")
+      fs::writeText(fs::pathJoin([into, "docs"]), "a file")
+      expectTrap(extractTo(open(goodArchive()), into), errorCode::ErrAlreadyExists)
+      expectInteger(countEntriesIn(into), 1)
+      removeTree(into)
+    END TCASE
+
+    TCASE "two entries that extract to one path are refused and nothing is written"
+      LET into AS String = freshDirectory("twice")
+      MUT b AS Builder = create()
+      b = addText(b, "same.txt", "first")
+      b = addText(b, "same.txt", "second")
+      expectTrap(extractTo(open(finish(b)), into), errorCode::ErrInvalidFormat)
+      expectInteger(countEntriesIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a file and a directory that need the same name are refused"
+      LET into AS String = freshDirectory("collide")
+      MUT b AS Builder = create()
+      b = addText(b, "a", "file")
+      b = addText(b, "a/b.txt", "inside")
+      expectTrap(extractTo(open(finish(b)), into), errorCode::ErrInvalidFormat)
+      expectInteger(countEntriesIn(into), 0)
+      removeTree(into)
+    END TCASE
+  END TGROUP
+
+  TGROUP "extractTo name rules agree with the rest of the package"
+    TCASE "a parent component hidden by normalisation is refused"
+      LET into AS String = freshDirectory("hidden")
+      ' "aaa/bbb.txt" -> "a/../bb.txt": the same length, and it normalises inside.
+      LET raw AS List OF Byte = archiveWithName("aaa/bbb.txt", "a/../bb.txt")
+      expectTrap(extractTo(open(raw), into), errorCode::ErrInvalidPath)
+      expectInteger(countEntriesIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a dot component is dropped and the file lands at its canonical path"
+      LET into AS String = freshDirectory("dot")
+      LET raw AS List OF Byte = archiveWithName("dir/f.t", "./a.txt")
+      expectInteger(extractTo(open(raw), into), 1)
+      expectString(fs::readText(fs::pathJoin([into, "a.txt"])), "payload")
+      removeTree(into)
+    END TCASE
+
+    TCASE "a local header that names another file is refused, as read refuses it"
+      LET into AS String = freshDirectory("localname")
+      ' Patch only the LOCAL name; the central directory still says "aa.txt".
+      LET raw AS List OF Byte = patchAt(singleEntry("aa.txt"), 30, encoding::utf8Encode("bb.txt"))
+      expectTrap(extractTo(open(raw), into), errorCode::ErrInvalidFormat)
+      expectInteger(countEntriesIn(into), 0)
+      LET archive AS Archive = open(raw)
+      expectTrap(read(archive, find(archive, "aa.txt")), errorCode::ErrInvalidFormat)
+      removeTree(into)
+    END TCASE
+
+    TCASE "an encryption flag set only in the central directory is refused"
+      LET into AS String = freshDirectory("encflag")
+      LET raw AS List OF Byte = singleEntry("a.txt")
+      ' Central flags are at +8; 2048 (UTF-8) becomes 2049, which sets bit 0.
+      LET broken AS List OF Byte = patchAt(raw, centralAtOf(raw) + 8, [toByte(1)])
+      expectTrap(extractTo(open(broken), into), errorCode::ErrUnsupported)
+      expectInteger(countEntriesIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "an unsupported compression method is refused before anything is written"
+      LET into AS String = freshDirectory("method")
+      LET raw AS List OF Byte = singleEntry("a.txt")
+      ' Central method is at +10.
+      LET broken AS List OF Byte = patchAt(raw, centralAtOf(raw) + 10, [toByte(9)])
+      expectTrap(extractTo(open(broken), into), errorCode::ErrUnsupported)
+      expectInteger(countEntriesIn(into), 0)
+      removeTree(into)
+    END TCASE
+  END TGROUP
+
+  TGROUP "extractTo failure leaves nothing behind"
+    TCASE "a failure partway removes the files and directories this call created"
+      LET into AS String = freshDirectory("rollback")
+      MUT b AS Builder = create()
+      b = addText(b, "newdir/a.txt", "first", TRUE)
+      b = addText(b, "newdir/sub/b.txt", "second", TRUE)
+      LET raw AS List OF Byte = finish(b)
+      LET archive AS Archive = open(raw)
+      ' Corrupt the second entry's stored bytes; the first is already on disk.
+      LET nameBytes AS List OF Byte = encoding::utf8Encode("newdir/sub/b.txt")
+      LET dataAt AS Integer = find(archive, "newdir/sub/b.txt").headerOffset + 30 + len(nameBytes)
+      LET was AS Integer = toInt(collections::get(raw, dataAt))
+      LET broken AS List OF Byte = patchAt(raw, dataAt, [toByte((was + 1) MOD 256)])
+      expectTrap(extractTo(open(broken), into), ErrorChecksum)
+      expectInteger(countEntriesIn(into), 0)
+      expectEqual(fs::directoryExists(fs::pathJoin([into, "newdir"])), FALSE)
+      removeTree(into)
+    END TCASE
+
+    TCASE "the target directory itself is removed when this call created it"
+      LET parent AS String = freshDirectory("rootgone")
+      LET target AS String = fs::pathJoin([parent, "made", "here"])
+      LET raw AS List OF Byte = singleEntry("a.txt")
+      ' The name "a.txt" is 5 bytes, so the stored "payload" starts at 35; zeroing its
+      ' first byte breaks the CRC after the directories have been created.
+      LET broken AS List OF Byte = patchAt(raw, 35, [toByte(0)])
+      expectTrap(extractTo(open(broken), target), ErrorChecksum)
+      expectEqual(fs::directoryExists(fs::pathJoin([parent, "made"])), FALSE)
+      removeTree(parent)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' A list of Integers as the bytes they name.
+PRIVATE FUNC bytesOf(values AS List OF Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR EACH v IN values
+    out = collections::append(out, toByte(v))
+  NEXT
+  RETURN out
+END FUNC
+
+' The raw DEFLATE stream of 100 bytes, fixed-Huffman encoded so that it is 114 bytes,
+' longer than the 105 a stored block would take. Its decoded bytes are 144 + (i * 37)
+' MOD 112 for i in 0 to 99. No byte repeats, so no match is needed.
+PRIVATE FUNC fixedHuffmanStream() AS List OF Integer
+  RETURN [155, 176, 245, 214, 255, 45, 55, 255, 109, 190, 241, 119, 211, 245, 63, 27, 175, 253, 222, 112, 245, 215, 250, 43, 63, 215, 93, 254, 177, 246, 210, 247, 53, 23, 191, 173, 190, 240, 117, 213, 249, 47, 43, 207, 125, 94, 113, 246, 211, 242, 51, 31, 151, 157, 254, 176, 244, 212, 251, 37, 39, 223, 45, 62, 241, 118, 209, 241, 55, 11, 143, 189, 94, 112, 244, 213, 252, 35, 47, 231, 29, 126, 49, 247, 208, 243, 57, 7, 159, 205, 62, 240, 116, 214, 254, 39, 51, 247, 61, 158, 177, 247, 209, 244, 61, 15, 167, 237, 126, 48, 117, 215, 125, 0]
+END FUNC
+
+TESTING
+  TGROUP "local headers agree with the central directory, for extraction as for read"
+    TCASE "a local size that disagrees with the central record is refused by both"
+      LET into AS String = freshDirectory("localsize")
+      ' The local compressed size is at +18; set it to 99 where the central says 7.
+      LET raw AS List OF Byte = patchAt(singleEntry("a.txt"), 18, bytesOf([99, 0, 0, 0]))
+      expectTrap(extractTo(open(raw), into), errorCode::ErrInvalidFormat)
+      expectInteger(countEntriesIn(into), 0)
+      LET archive AS Archive = open(raw)
+      expectTrap(read(archive, find(archive, "a.txt")), errorCode::ErrInvalidFormat)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a directory whose local name disagrees is refused"
+      LET into AS String = freshDirectory("dirname")
+      MUT b AS Builder = create()
+      b = addDirectory(b, "dd")
+      LET raw AS List OF Byte = patchAt(finish(b), 30, encoding::utf8Encode("zz/"))
+      expectTrap(extractTo(open(raw), into), errorCode::ErrInvalidFormat)
+      expectInteger(countEntriesIn(into), 0)
+      removeTree(into)
+    END TCASE
+  END TGROUP
+
+  TGROUP "deflate framing"
+    TCASE "a valid deflate stream longer than a stored block is extracted and read"
+      LET into AS String = freshDirectory("deflate")
+      MUT plain AS List OF Byte = []
+      FOR i = 0 TO 99
+        plain = collections::append(plain, toByte(144 + (i * 37) MOD 112))
+      NEXT
+      MUT records AS List OF Pending = []
+      records = collections::append(records, Pending["n.bin", FALSE, 8, 100, 114, compress::crc32(plain), bytesOf(fixedHuffmanStream()), 0, 33188, 0])
+      LET raw AS List OF Byte = finishBuilder(Builder[records], "")
+      LET archive AS Archive = open(raw)
+      expectInteger(len(read(archive, find(archive, "n.bin"))), 100)
+      expectInteger(extractTo(archive, into), 1)
+      expectInteger(len(read(archive, find(archive, "n.bin"))), 100)
+      removeTree(into)
+    END TCASE
+  END TGROUP
+
+  TGROUP "names that differ only in case"
+    TCASE "two names differing only in case are both written, or the second is refused as an existing file"
+      LET into AS String = freshDirectory("case")
+      fs::writeText(fs::pathJoin([into, "probe"]), "x")
+      LET folds AS Boolean = fs::exists(fs::pathJoin([into, "PROBE"]))
+      fs::deleteFile(fs::pathJoin([into, "probe"]))
+      MUT b AS Builder = create()
+      b = addText(b, "Readme.txt", "first", TRUE)
+      b = addText(b, "readme.txt", "second", TRUE)
+      LET archive AS Archive = open(finish(b))
+      IF folds THEN
+        expectTrap(extractTo(archive, into), errorCode::ErrAlreadyExists)
+        expectInteger(countEntriesIn(into), 0)
+      ELSE
+        expectInteger(extractTo(archive, into), 2)
+        expectString(fs::readText(fs::pathJoin([into, "Readme.txt"])), "first")
+        expectString(fs::readText(fs::pathJoin([into, "readme.txt"])), "second")
+      END IF
+      removeTree(into)
+    END TCASE
+  END TGROUP
+  TGROUP "a directory and a deflated entry are checked as strictly as a file"
+    TCASE "a directory whose recorded CRC is not zero is refused by read and by extractTo"
+      LET into AS String = freshDirectory("dircrc")
+      MUT b AS Builder = create()
+      b = addDirectory(b, "dd")
+      LET raw AS List OF Byte = finish(b)
+      LET broken AS List OF Byte = patchAt(raw, centralAtOf(raw) + 16, [toByte(1)])
+      LET archive AS Archive = open(broken)
+      expectTrap(read(archive, find(archive, "dd/")), errorCode::ErrInvalidFormat)
+      expectTrap(extractTo(archive, into), errorCode::ErrInvalidFormat)
+      expectInteger(countEntriesIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a deflated entry that inflates past its declared size is refused the same way by read and extractTo"
+      LET into AS String = freshDirectory("overrun")
+      MUT records AS List OF Pending = []
+      ' The 114-byte stream inflates to 100 bytes, but the record declares 50.
+      records = collections::append(records, Pending["n.bin", FALSE, 8, 50, 114, 0, bytesOf(fixedHuffmanStream()), 0, 33188, 0])
+      LET raw AS List OF Byte = finishBuilder(Builder[records], "")
+      LET archive AS Archive = open(raw)
+      expectTrap(read(archive, find(archive, "n.bin")), errorCode::ErrInvalidFormat)
+      expectTrap(read(archive, find(archive, "n.bin"), 1000), errorCode::ErrInvalidFormat)
+      expectTrap(extractTo(archive, into), errorCode::ErrInvalidFormat)
       expectInteger(countEntriesIn(into), 0)
       removeTree(into)
     END TCASE

@@ -14,6 +14,7 @@
 IMPORT fs
 IMPORT collections
 IMPORT errorCode
+IMPORT strings
 
 ' The `simple` fixture has no archive comment, so its end-of-central-directory
 ' record is exactly the last 22 bytes. The damage cases below index from there.
@@ -312,6 +313,76 @@ TESTING
       ' Byte 3 of the first central header's name: "hello.txt" -> "hel\0o.txt".
       LET broken AS List OF Byte = collections::set(raw, cdAt + 46 + 3, toByte(0))
       expectTrap(open(broken), errorCode::ErrInvalidFormat)
+    END TCASE
+  END TGROUP
+END TESTING
+
+' ---------------------------------------------------------------------------
+' Write an archive whose two entries sit 2 GiB and more into a sparse file, so the
+' overlap check is exercised past the 32-bit offsets the older checks could hold.
+'
+' The first entry's data runs over [0, 2^31 + 30). The second entry's local header
+' is at `secondAt`. Only the central directory is written; the bytes between are a
+' hole, which is exactly what `open` never reads.
+' ---------------------------------------------------------------------------
+PRIVATE FUNC writeLargeArchive(f AS fs::File, secondAt AS Integer) AS Nothing
+  LET cdAt AS Integer = 3221225472 - 1000
+  LET first AS Pending = Pending["a", FALSE, 0, 2147483678, 2147483678, 0, [], 0, 33188, 0]
+  LET second AS Pending = Pending["b", FALSE, 0, 0, 0, 0, [], 0, 33188, secondAt]
+  LET h1 AS List OF Byte = centralHeader(first)
+  LET h2 AS List OF Byte = centralHeader(second)
+  LET tail AS List OF Byte = endOfArchive(2, len(h1) + len(h2), cdAt, [])
+  fs::seek(f, cdAt)
+  fs::writeAllBytes(f, collections::flatten([h1, h2, tail]))
+  fs::flush(f)
+END FUNC
+
+TESTING
+  TGROUP "entry extents"
+    TCASE "an overlap past 2 GiB is refused"
+      RES f AS fs::File = fs::createTempFile()
+      ' Entry "b" starts 100 bytes before the end of entry "a"'s data.
+      writeLargeArchive(f, 2147483548)
+      expectTrap(open(f), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "two entries that do not overlap past 2 GiB are accepted"
+      RES f AS fs::File = fs::createTempFile()
+      writeLargeArchive(f, 2147483748)
+      expectInteger(len(entries(open(f))), 2)
+    END TCASE
+
+    TCASE "an entry whose header lies inside another entry's data is refused"
+      ' A's local header and name occupy [0, 80) and its data [80, 180). B's local header
+      ' at 130 lies inside A's data. A's footprint must include its name to see this.
+      LET first AS Pending = Pending[strings::repeat("a", 50), FALSE, 0, 100, 100, 0, [], 0, 33188, 0]
+      LET second AS Pending = Pending["b", FALSE, 0, 19, 19, 0, [], 0, 33188, 130]
+      MUT pad AS List OF Byte = []
+      FOR i = 1 TO 180
+        pad = collections::append(pad, toByte(0))
+      NEXT
+      LET h1 AS List OF Byte = centralHeader(first)
+      LET h2 AS List OF Byte = centralHeader(second)
+      LET raw AS List OF Byte = collections::flatten([pad, h1, h2, endOfArchive(2, len(h1) + len(h2), 180, [])])
+      expectTrap(open(raw), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "an entry that starts exactly where the other's data ends is accepted"
+      LET first AS Pending = Pending[strings::repeat("a", 50), FALSE, 0, 100, 100, 0, [], 0, 33188, 0]
+      LET second AS Pending = Pending["b", FALSE, 0, 19, 19, 0, [], 0, 33188, 180]
+      MUT pad AS List OF Byte = []
+      FOR i = 1 TO 180
+        pad = collections::append(pad, toByte(0))
+      NEXT
+      LET h1 AS List OF Byte = centralHeader(first)
+      LET h2 AS List OF Byte = centralHeader(second)
+      LET raw AS List OF Byte = collections::flatten([pad, h1, h2, endOfArchive(2, len(h1) + len(h2), 180, [])])
+      expectInteger(len(entries(open(raw))), 2)
+    END TCASE
+
+    TCASE "an empty directory that declares bytes is refused"
+      LET raw AS List OF Byte = finish(create())
+      expectTrap(open(pokeU32(raw, len(raw) - 22 + 12, 10)), errorCode::ErrInvalidFormat)
     END TCASE
   END TGROUP
 END TESTING

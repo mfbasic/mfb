@@ -1,0 +1,36 @@
+' ---------------------------------------------------------------------------
+' Tests: entry names -- the canonical relative path a name denotes, and what makes
+' a name unsafe. The writer and the extractor both use these rules, so these cases
+' are the contract both are held to.
+' ---------------------------------------------------------------------------
+
+IMPORT errorCode
+IMPORT strings
+
+TESTING
+  TGROUP "relative paths"
+    TCASE "empty and dot components are dropped"
+      expectString(relPathOf("./a//b.txt"), "a/b.txt")
+      expectString(relPathOf("a/./b"), "a/b")
+    END TCASE
+    TCASE "a name that denotes the root has an empty relative path"
+      expectString(relPathOf("./"), "")
+    END TCASE
+  END TGROUP
+
+  TGROUP "unsafe names"
+    TCASE "a parent component is refused even when it would normalise away"
+      expectTrap(relPathOf("a/../b.txt"), errorCode::ErrInvalidPath)
+    END TCASE
+
+    TCASE "an absolute name and a drive are refused"
+      expectTrap(relPathOf("/etc/passwd"), errorCode::ErrInvalidPath)
+      expectTrap(relPathOf("C:evil.txt"), errorCode::ErrInvalidPath)
+    END TCASE
+
+    TCASE "a name with a backslash or a NUL is refused"
+      expectTrap(relPathOf("a\\b"), errorCode::ErrInvalidPath)
+      expectTrap(relPathOf(strings::fromScalars([toScalar(97), toScalar(0), toScalar(98)])), errorCode::ErrInvalidPath)
+    END TCASE
+  END TGROUP
+END TESTING

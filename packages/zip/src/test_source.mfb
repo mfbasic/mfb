@@ -32,11 +32,11 @@ END FUNC
 PRIVATE FUNC fileSourceOf(handle AS fs::File, bytes AS List OF Byte) AS Source
   fs::writeAllBytes(handle, bytes)
   fs::flush(handle)
-  RETURN FileSource[handle]
+  RETURN fileSource(handle)
 END FUNC
 
 PRIVATE FUNC memorySourceOf(bytes AS List OF Byte) AS Source
-  RETURN MemorySource[bytes]
+  RETURN memorySource(bytes)
 END FUNC
 
 ' Lists are not comparable with `=`, so byte equality is spelled out. Comparing
@@ -65,7 +65,7 @@ PRIVATE FUNC readAfterClose() AS Integer
   RES f AS fs::File = fs::createTempFile()
   fs::writeAllBytes(f, sampleBytes())
   fs::flush(f)
-  LET source AS Source = FileSource[f]
+  LET source AS Source = fileSource(f)
   closeHandle(f)
   RETURN len(readAt(source, 0, 4))
 END FUNC
@@ -173,6 +173,15 @@ TESTING
       expectTrap(u32le(b, 0), errorCode::ErrInvalidFormat)
       expectTrap(u64le(b, 0), errorCode::ErrInvalidFormat)
       expectTrap(u16le(b, -1), errorCode::ErrInvalidFormat)
+    END TCASE
+  END TGROUP
+  TGROUP "bounds"
+    TCASE "a window that would wrap past the largest Integer is refused"
+      ' offset + count wraps negative here, so a sum-based check would accept it.
+      expectEqual(fitsIn(9223372036854775797, 20, 9223372036854775807), FALSE)
+      expectEqual(fitsIn(10, 20, 100), TRUE)
+      expectEqual(fitsIn(90, 20, 100), FALSE)
+      expectEqual(fitsIn(-1, 0, 100), FALSE)
     END TCASE
   END TGROUP
 END TESTING

@@ -5,20 +5,28 @@
 ' the caller, who decides what to do with them; this one creates files, and an
 ' archive is untrusted input. The attack is decades old and still works against
 ' careless extractors: an entry named `../../etc/authorized_keys`, or one whose
-' path runs through a symlink the archive itself just created, writes outside
-' the directory the user named.
+' path runs through a symlink already on disk, writes outside the directory the
+' caller named.
 '
-' Two rules answer it.
+' Three rules answer it.
 '
-' First, EVERY entry is validated before ANY byte is written. A hostile archive
-' therefore leaves the target directory exactly as it found it, rather than
-' half-extracting and then refusing -- which would hand an attacker a partial
-' write and a plausible error message.
+' 1. EVERY entry is checked before ANY byte is written. A name must be safe, the
+'    entries must not collide with each other or with a file already on disk,
+'    and each entry's local header must agree with its central record. A hostile
+'    archive therefore leaves the directory exactly as it was, rather than
+'    half-extracting and then refusing.
 '
-' Second, the check is made against the DISK, not only against the name. A name
-' can look harmless and still resolve outside the directory, because a symlink
-' already on disk redirects it. `fs::isWithin` resolves `.`, `..` and symlinks
-' for real, so it catches what string inspection cannot.
+' 2. Containment is enforced where the file is OPENED. A name can look harmless and
+'    still resolve outside the directory because a symlink on disk redirects it.
+'    Checking a path and then opening it is a race: the symlink can be swapped in
+'    between. Files are therefore opened with `fs::openWithin`, which refuses any
+'    symlink or escape at open time, so there is no window to exploit.
+'
+' 3. Nothing is left half-written. If any entry fails after writing has started --
+'    a CRC mismatch, an I/O error, a file that vanished -- every file and directory
+'    THIS call created is removed, and the original error is raised. A file that
+'    already existed is never overwritten, which is what makes that removal safe:
+'    every file that exists afterwards was written by this call.
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
@@ -27,68 +35,212 @@ IMPORT errorCode
 IMPORT fs
 IMPORT strings
 
-' How much of an entry is held in memory at once when copying a stored entry.
+' How much of a stored entry is held in memory at once while it is copied.
 PRIVATE LET COPY_CHUNK AS Integer = 1048576
+
+' The file entries and directories an extraction will touch, from the name pass.
+PRIVATE TYPE Names
+  files AS List OF String
+  dirs AS List OF String
+END TYPE
+
+' Everything an extraction will do, worked out before the first byte is written.
+'
+' `files` are the relative paths of the file entries, in archive order. `dirs` are
+' the relative directories this call will create, parents before children, so each
+' one's parent is made before it. `rootChain` is the directories above the target that
+' this call creates, deepest first.
+PRIVATE TYPE Plan
+  root AS String
+  files AS List OF String
+  dirs AS List OF String
+  rootChain AS List OF String
+END TYPE
 
 ' Extract every entry into `directory`, returning the number of files written.
 '
-' Directories are created but not counted.
-FUNC extractArchive(archive AS Archive, directory AS String, maxTotalBytes AS Integer) AS Integer
-  IF NOT fs::directoryExists(directory) THEN
-    FAIL error(errorCode::ErrNotFound, "zip: no directory named \"" & directory & "\"")
-  END IF
+' `directory` is created, with any missing parents, if it does not exist. Directories
+' in the archive are created but not counted.
+PUBLIC FUNC extractArchive(archive AS Archive, directory AS String, maxTotalBytes AS Integer) AS Integer
+  LET plan AS Plan = planExtraction(archive, directory, maxTotalBytes)
+  writeArchive(archive, plan) TRAP(e)
+    unwind(plan)
+    FAIL e
+  END TRAP
+  RETURN len(plan.files)
+END FUNC
 
-  ' Pre-pass: validate everything, and total the sizes, before writing anything.
+' Check every entry and work out what the extraction will create.
+'
+' Nothing is written here. Only the names, the sizes, the local headers and the
+' state of the disk are examined.
+PRIVATE FUNC planExtraction(archive AS Archive, directory AS String, maxTotalBytes AS Integer) AS Plan
+  IF fs::fileExists(directory) THEN
+    FAIL error(errorCode::ErrAlreadyExists, "zip: \"" & directory & "\" exists and is not a directory")
+  END IF
+  LET rootExists AS Boolean = fs::directoryExists(directory)
+  LET names AS Names = collectNames(archive, maxTotalBytes)
+  requireNoCollisions(names)
+  LET dirs AS List OF String = newDirectories(directory, names, rootExists)
+  IF rootExists THEN
+    requireFreeTargets(directory, names)
+  END IF
+  RETURN Plan[directory, names.files, dirs, missingChain(directory)]
+END FUNC
+
+' Validate each entry on its own, and total the names it will create.
+'
+' A file's local header is checked here, not when it is written, so an archive
+' whose headers disagree is refused before anything is created.
+PRIVATE FUNC collectNames(archive AS Archive, maxTotalBytes AS Integer) AS Names
+  MUT files AS List OF String = []
+  MUT dirs AS List OF String = []
   MUT total AS Integer = 0
   FOR EACH entry IN archive.entries
-    requireExtractableName(entry.name, directory)
-    total = total + entry.size
-    IF total > maxTotalBytes THEN
-      FAIL error(errorCode::ErrTooLarge, "zip: extracting would write more than the " & toString(maxTotalBytes) & "-byte limit")
-    END IF
-  NEXT
-
-  MUT written AS Integer = 0
-  FOR EACH entry IN archive.entries
-    LET target AS String = fs::pathJoin([directory, entry.name])
+    LET rel AS String = relPathOf(entry.name)
+    ' A directory's local header is checked like a file's, though it has no data.
+    localDataOffset(archive.source, entry)
     IF entry.isDirectory THEN
-      fs::createDirectories(target)
+      IF rel <> "" THEN
+        dirs = collections::append(dirs, rel)
+        FOR EACH ancestor IN ancestorsOf(rel)
+          dirs = collections::append(dirs, ancestor)
+        NEXT
+      END IF
     ELSE
-      LET parent AS String = fs::pathDirName(target)
-      fs::createDirectories(parent)
-      ' Re-check after creating the parent: a symlink already on disk could
-      ' make a name that passed the pre-pass resolve somewhere else now.
-      IF NOT fs::isWithin(directory, deepestExisting(parent)) THEN
+      IF rel = "" THEN
         FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & entry.name & "\"")
       END IF
-      writeEntry(archive, entry, target)
-      written = written + 1
+      ' Stated this way so the total cannot wrap past the largest Integer.
+      IF entry.size > maxTotalBytes - total THEN
+        FAIL error(errorCode::ErrTooLarge, "zip: extracting would write more than the " & toString(maxTotalBytes) & "-byte limit")
+      END IF
+      total = total + entry.size
+      files = collections::append(files, rel)
+      FOR EACH ancestor IN ancestorsOf(rel)
+        dirs = collections::append(dirs, ancestor)
+      NEXT
     END IF
   NEXT
-  RETURN written
+  RETURN Names[files, dirs]
 END FUNC
 
-' Write one entry's contents to `target`.
+' Refuse entries that collide: two files with one path, or a file where another
+' entry needs a directory.
 '
-' A stored entry is copied in bounded chunks with a running CRC, so extracting a
-' 2 GiB entry from a file-backed archive holds one chunk rather than the entry.
-' A deflated entry has to be inflated whole -- `compress::` is a whole-buffer
-' codec -- so it goes through `read`, which applies the same CRC check.
-PRIVATE FUNC writeEntry(archive AS Archive, entry AS Entry, target AS String) AS Nothing
-  IF entry.method = 0 THEN
-    copyStored(archive, entry, target)
-  ELSE
-    LET data AS List OF Byte = readEntry(archive, entry, entry.size)
-    fs::writeBytes(target, data)
+' Paths are compared after `relPathOf`, so "a/./x" and "a/x" are the same path.
+PRIVATE FUNC requireNoCollisions(names AS Names) AS Nothing
+  LET sorted AS List OF String = collections::sort(names.files)
+  FOR i = 0 TO len(sorted) - 2
+    IF collections::get(sorted, i) = collections::get(sorted, i + 1) THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: two entries extract to \"" & collections::get(sorted, i) & "\"")
+    END IF
+  NEXT
+  LET fileSet AS Set OF String = collections::toSet(names.files)
+  FOR EACH dir IN names.dirs
+    IF collections::contains(fileSet, dir) THEN
+      FAIL error(errorCode::ErrInvalidFormat, "zip: \"" & dir & "\" is both a file and a directory")
+    END IF
+  NEXT
+END FUNC
+
+' The directories this extraction must create under `directory`, parents first.
+'
+' A directory that already exists is accepted, as long as it is a directory and
+' resolves inside `directory`. One that is a file is refused, since nothing can be
+' created beneath it.
+PRIVATE FUNC newDirectories(directory AS String, names AS Names, rootExists AS Boolean) AS List OF String
+  LET unique AS List OF String = collections::sort(collections::distinct(names.dirs))
+  MUT created AS List OF String = []
+  FOR EACH rel IN unique
+    LET path AS String = fs::pathJoin([directory, rel])
+    IF rootExists THEN
+      requireWithin(directory, path)
+    END IF
+    IF fs::fileExists(path) THEN
+      FAIL error(errorCode::ErrAlreadyExists, "zip: \"" & rel & "\" is a file where a directory is needed")
+    END IF
+    IF NOT fs::directoryExists(path) THEN
+      created = collections::append(created, rel)
+    END IF
+  NEXT
+  RETURN created
+END FUNC
+
+' Refuse a file that would replace an existing one, or that resolves outside
+' `directory` through a symlink already on disk.
+PRIVATE FUNC requireFreeTargets(directory AS String, names AS Names) AS Nothing
+  FOR EACH rel IN names.files
+    LET path AS String = fs::pathJoin([directory, rel])
+    requireWithin(directory, path)
+    IF fs::exists(path) THEN
+      FAIL error(errorCode::ErrAlreadyExists, "zip: \"" & rel & "\" already exists; extraction does not overwrite files")
+    END IF
+  NEXT
+END FUNC
+
+' Refuse a path whose nearest existing ancestor resolves outside `directory`.
+'
+' `fs::isWithin` resolves symlinks for real, which needs a path that exists. The
+' target of an extraction does not exist yet, so the check is made against its
+' deepest existing ancestor: a symlink can only redirect a path if it is already on
+' disk, so that ancestor is exactly where such a redirect would have to live.
+' This check is advisory for directories, which are created by path; the file open
+' that follows is the authoritative one.
+PRIVATE FUNC requireWithin(directory AS String, path AS String) AS Nothing
+  IF NOT fs::isWithin(directory, deepestExisting(path)) THEN
+    FAIL error(errorCode::ErrInvalidPath, "zip: \"" & path & "\" resolves outside the extraction directory")
   END IF
 END FUNC
 
-PRIVATE FUNC copyStored(archive AS Archive, entry AS Entry, target AS String) AS Nothing
-  LET dataOffset AS Integer = storedDataOffset(archive, entry)
-  RES out AS fs::File = fs::open(target, "write")
+' Create everything the plan names, then write each file.
+'
+' A file is opened with `fs::openWithin`, which enforces containment at open time.
+PRIVATE FUNC writeArchive(archive AS Archive, plan AS Plan) AS Nothing
+  fs::createDirectories(plan.root)
+  FOR EACH rel IN plan.dirs
+    fs::createDirectories(fs::pathJoin([plan.root, rel]))
+  NEXT
+  FOR EACH entry IN archive.entries
+    IF NOT entry.isDirectory THEN
+      writeEntry(archive, entry, plan.root, relPathOf(entry.name))
+    END IF
+  NEXT
+END FUNC
+
+' Write one file entry to `rel` under `root`.
+'
+' A stored entry is copied in bounded chunks with a running CRC, so extracting a
+' 2 GiB entry from a file-backed archive holds one chunk rather than the entry. A
+' deflated entry has to be inflated whole -- `compress::` is a whole-buffer codec --
+' so it goes through `readEntry`, which applies the same checks and CRC.
+PRIVATE FUNC writeEntry(archive AS Archive, entry AS Entry, root AS String, rel AS String) AS Nothing
+  ' Checked again here, after the earlier files of this extraction are on disk. On a
+  ' case-insensitive file system "README" and "readme" are one file: the second finds
+  ' the first and is refused, and the rollback removes what was written. Names that
+  ' differ only in case are kept apart on a case-sensitive one, as they should be.
+  IF fs::exists(fs::pathJoin([root, rel])) THEN
+    FAIL error(errorCode::ErrAlreadyExists, "zip: \"" & rel & "\" already exists; extraction does not overwrite files")
+  END IF
+  IF entry.method = 0 THEN
+    copyStored(archive, entry, root, rel)
+  ELSE
+    LET data AS List OF Byte = readEntry(archive, entry, entry.size)
+    RES out AS fs::File = fs::openWithin(root, rel, "write")
+    fs::writeAllBytes(out, data)
+    fs::close(out)
+  END IF
+END FUNC
+
+' Copy a stored entry's bytes to `rel`, checking its CRC as it goes.
+'
+' A mismatch raises `ErrorChecksum`; the file it started is removed by `unwind`
+' along with everything else this call wrote.
+PRIVATE FUNC copyStored(archive AS Archive, entry AS Entry, root AS String, rel AS String) AS Nothing
+  LET dataOffset AS Integer = localDataOffset(archive.source, entry)
+  RES out AS fs::File = fs::openWithin(root, rel, "write")
   MUT copied AS Integer = 0
   MUT running AS Integer = compress::crc32([])
-  MUT failure AS String = ""
   WHILE copied < entry.size
     MUT chunk AS Integer = COPY_CHUNK
     IF entry.size - copied < chunk THEN
@@ -102,67 +254,65 @@ PRIVATE FUNC copyStored(archive AS Archive, entry AS Entry, target AS String) AS
   fs::close(out)
 
   IF running <> entry.crc THEN
-    ' Leave nothing behind that failed its own checksum.
-    fs::deleteFile(target)
     FAIL error(ErrorChecksum, "zip: entry \"" & entry.name & "\" failed its CRC-32 check")
   END IF
 END FUNC
 
-' Where a stored entry's data begins, verified against its local header.
-PRIVATE FUNC storedDataOffset(archive AS Archive, entry AS Entry) AS Integer
-  LET header AS List OF Byte = readAt(archive.source, entry.headerOffset, 30)
-  IF u32le(header, 0) <> 67324752 THEN
-    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" has no local header signature")
-  END IF
-  IF u16le(header, 6) MOD 2 = 1 THEN
-    FAIL error(errorCode::ErrUnsupported, "zip: entry \"" & entry.name & "\" is encrypted")
-  END IF
-  LET dataOffset AS Integer = entry.headerOffset + 30 + u16le(header, 26) + u16le(header, 28)
-  IF dataOffset + entry.size > sizeOf(archive.source) THEN
-    FAIL error(errorCode::ErrInvalidFormat, "zip: entry \"" & entry.name & "\" runs past the end of the archive")
-  END IF
-  RETURN dataOffset
+' Remove what an extraction created, after it failed. Best effort: a removal that
+' itself fails is ignored, so the error that started the unwind is the one raised.
+'
+' Only files and directories this call created are touched. A file that existed
+' before was refused by `requireFreeTargets`, so every file here is ours. Directories
+' are removed children first, so each is empty when its turn comes.
+PRIVATE FUNC unwind(plan AS Plan) AS Nothing
+  FOR EACH rel IN plan.files
+    removeFileQuietly(fs::pathJoin([plan.root, rel]))
+  NEXT
+  FOR i = len(plan.dirs) - 1 TO 0 STEP -1
+    removeDirectoryQuietly(fs::pathJoin([plan.root, collections::get(plan.dirs, i)]))
+  NEXT
+  FOR EACH path IN plan.rootChain
+    removeDirectoryQuietly(path)
+  NEXT
 END FUNC
 
-' plan-139-B §4.3 rules 1-4: the name must be safe on its own terms, and must
-' still land inside `directory` once the disk has had its say.
-PRIVATE FUNC requireExtractableName(name AS String, directory AS String) AS Nothing
-  IF len(name) = 0 THEN
-    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"\"")
+PRIVATE FUNC removeFileQuietly(path AS String) AS Nothing
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path) TRAP(e)
+      RECOVER
+    END TRAP
   END IF
-  IF strings::contains(name, "\\") OR strings::startsWith(name, "/") THEN
-    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+END FUNC
+
+PRIVATE FUNC removeDirectoryQuietly(path AS String) AS Nothing
+  IF fs::directoryExists(path) THEN
+    fs::deleteDirectory(path) TRAP(e)
+      RECOVER
+    END TRAP
   END IF
-  FOR EACH scalar IN strings::toScalars(name)
-    IF toInt(scalar) = 0 THEN
-      FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
+END FUNC
+
+' The proper ancestors of a relative path, shallowest first: "a/b/c" gives "a" and
+' "a/b".
+PRIVATE FUNC ancestorsOf(rel AS String) AS List OF String
+  LET parts AS List OF String = strings::split(rel, "/")
+  MUT out AS List OF String = []
+  MUT prefix AS String = ""
+  FOR i = 0 TO len(parts) - 2
+    IF prefix = "" THEN
+      prefix = collections::get(parts, i)
+    ELSE
+      prefix = prefix & "/" & collections::get(parts, i)
     END IF
+    out = collections::append(out, prefix)
   NEXT
-  IF looksLikeDrive(name) THEN
-    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
-  END IF
-  FOR EACH part IN strings::split(fs::pathNormalize(name), "/")
-    IF part = ".." THEN
-      FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
-    END IF
-  NEXT
-  ' The rule the string checks cannot enforce: resolve it against the disk.
-  '
-  ' `fs::isWithin` resolves symlinks for real, which means it needs a path that
-  ' EXISTS -- on a path that does not it raises `ErrNotFound`. The target of an
-  ' extraction does not exist yet, by definition, so the check is made against
-  ' the deepest ancestor that does. That is not a weaker check: a symlink can
-  ' only redirect a path if it is already on disk, so the deepest existing
-  ' ancestor is exactly where such a redirect would have to live.
-  IF NOT fs::isWithin(directory, deepestExisting(fs::pathJoin([directory, name]))) THEN
-    FAIL error(errorCode::ErrInvalidPath, "zip: unsafe entry name \"" & name & "\"")
-  END IF
+  RETURN out
 END FUNC
 
 ' The longest prefix of `path` that exists on disk.
 '
-' Terminates: the extraction directory itself exists, and every path passed here
-' is beneath it.
+' Terminates: `path` is either beneath an existing directory or is the root of the
+' filesystem, and both stop the walk.
 PRIVATE FUNC deepestExisting(path AS String) AS String
   MUT current AS String = path
   WHILE NOT fs::exists(current)
@@ -175,13 +325,18 @@ PRIVATE FUNC deepestExisting(path AS String) AS String
   RETURN current
 END FUNC
 
-PRIVATE FUNC looksLikeDrive(name AS String) AS Boolean
-  LET scalars AS List OF Scalar = strings::toScalars(name)
-  IF len(scalars) < 2 THEN
-    RETURN FALSE
-  END IF
-  IF toInt(collections::get(scalars, 1)) <> 58 THEN
-    RETURN FALSE
-  END IF
-  RETURN strings::isLetter(collections::get(scalars, 0))
+' The directories above `path` that do not exist yet, deepest first. These are the
+' ones creating `path` will make, so these are the ones a failure must remove.
+PRIVATE FUNC missingChain(path AS String) AS List OF String
+  MUT out AS List OF String = []
+  MUT current AS String = path
+  WHILE NOT fs::exists(current)
+    out = collections::append(out, current)
+    LET parent AS String = fs::pathDirName(current)
+    IF parent = current OR len(parent) = 0 THEN
+      RETURN out
+    END IF
+    current = parent
+  END WHILE
+  RETURN out
 END FUNC

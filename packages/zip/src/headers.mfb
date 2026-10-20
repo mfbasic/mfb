@@ -1,0 +1,329 @@
+' ---------------------------------------------------------------------------
+' zip/headers.mfb — the bytes both writers emit.
+'
+' `Builder` (writer.mfb) and `Writer` (stream.mfb) produce the same archive
+' format, so the layout lives here once. Neither writer decides what a header
+' looks like; they ask this file.
+'
+' What is written, and why:
+'
+'   * Output is deterministic. A fixed "version made by", entries in insertion
+'     order, names always UTF-8 with general-purpose flag bit 11 set.
+'   * ZIP64 fields are written only when a value needs them. A small archive is an
+'     ordinary zip that any reader accepts. A local header that needs ZIP64 carries
+'     the ZIP64 extra field, as APPNOTE §4.4.8 requires.
+'   * Time is written two ways. The DOS date and time are the base format's; they
+'     are UTC here, as Go's archive/zip writes them. The extended-timestamp field
+'     (0x5455) carries the exact Unix time, which modern readers prefer, so a
+'     timestamp survives the two-second grain and the lack of a time zone.
+'   * The mode is the Unix st_mode, which is what `unzip` and `zipinfo` read. A
+'     directory also sets the DOS directory attribute, for DOS-era readers.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT strings
+
+PRIVATE LET U32_MAX AS Integer = 4294967295
+
+' "Version made by" 3.0 / Unix: host 3 in the high byte, version 30 in the low.
+PRIVATE LET VERSION_MADE_BY AS Integer = 798
+PRIVATE LET VERSION_NEEDED AS Integer = 20
+PRIVATE LET VERSION_NEEDED_ZIP64 AS Integer = 45
+
+' General-purpose flag bit 11: the name and comment are UTF-8.
+PRIVATE LET FLAG_UTF8 AS Integer = 2048
+
+' How an entry's data is stored: as it is, with no compression.
+LET METHOD_STORED AS Integer = 0
+
+' The extended-timestamp extra field's header id, and the ZIP64 one.
+PRIVATE LET EXTENDED_TIMESTAMP_ID AS Integer = 21589
+PRIVATE LET ZIP64_EXTRA_ID AS Integer = 1
+
+' Unix st_mode type bits, and the default permission bits for each kind.
+PRIVATE LET MODE_TYPE_FILE AS Integer = 32768
+PRIVATE LET MODE_TYPE_DIRECTORY AS Integer = 16384
+PRIVATE LET DEFAULT_FILE_PERMISSIONS AS Integer = 420
+PRIVATE LET DEFAULT_DIRECTORY_PERMISSIONS AS Integer = 493
+PRIVATE LET MAX_PERMISSIONS AS Integer = 4095
+
+' The DOS attribute bit for a directory, set alongside the Unix mode.
+PRIVATE LET DOS_DIRECTORY_ATTRIBUTE AS Integer = 16
+
+' 1980-01-01 00:00:00, the earliest instant a DOS timestamp can name.
+PRIVATE LET DOS_EARLIEST AS Integer = 2162688
+' Unix seconds for 1980-01-01 00:00:00 UTC.
+PRIVATE LET DOS_EPOCH_SECONDS AS Integer = 315532800
+' The largest timestamp the extended-timestamp field's 32 bits can carry.
+PRIVATE LET MAX_TIMESTAMP AS Integer = 4294967295
+
+' One entry, held until the archive is laid out.
+'
+' Internal -- use the `add*` functions. Exported only because `Builder` and
+' `Writer` have fields of this type, and an exported record's field type must be
+' nameable by importers. `payload` is empty in a `Writer`, which writes each
+' entry's bytes as it is added; `headerOffset` is set when the entry is placed.
+EXPORT TYPE Pending
+  name AS String
+  isDirectory AS Boolean
+  method AS Integer
+  size AS Integer
+  compressedSize AS Integer
+  crc AS Integer
+  payload AS List OF Byte
+  modifiedSeconds AS Integer
+  mode AS Integer
+  headerOffset AS Integer
+END TYPE
+
+' The full Unix st_mode an entry records, from a caller's permission bits.
+'
+' `mode` is permission bits only, 0o0000 to 0o7777, and 0 means the default: 0o644
+' for a file, 0o755 for a directory. The file-type bits are added here, so a caller
+' cannot record a mode that disagrees with what the entry is.
+FUNC modeOf(mode AS Integer, isDirectory AS Boolean) AS Integer
+  IF mode < 0 OR mode > MAX_PERMISSIONS THEN
+    FAIL error(errorCode::ErrInvalidArgument, "zip: mode " & toString(mode) & " is not permission bits in the range 0 to 4095 (0o7777)")
+  END IF
+  IF isDirectory THEN
+    IF mode = 0 THEN
+      RETURN MODE_TYPE_DIRECTORY + DEFAULT_DIRECTORY_PERMISSIONS
+    END IF
+    RETURN MODE_TYPE_DIRECTORY + mode
+  END IF
+  IF mode = 0 THEN
+    RETURN MODE_TYPE_FILE + DEFAULT_FILE_PERMISSIONS
+  END IF
+  RETURN MODE_TYPE_FILE + mode
+END FUNC
+
+' Refuse a timestamp the format cannot record.
+'
+' 0 is "no time given": it writes the earliest DOS time, as a time before 1980 does. Anything negative, or past the 32-bit Unix time the
+' extended-timestamp field holds, is an error rather than a silently wrong time.
+FUNC checkTimestamp(modifiedSeconds AS Integer) AS Nothing
+  IF modifiedSeconds < 0 OR modifiedSeconds > MAX_TIMESTAMP THEN
+    FAIL error(errorCode::ErrInvalidArgument, "zip: modification time " & toString(modifiedSeconds) & " is outside 0 to 4294967295 seconds since the Unix epoch")
+  END IF
+END FUNC
+
+' The local file header, the entry's name and any extra field, then the entry's
+' own bytes are NOT included: the caller writes them after this header.
+FUNC localHeader(entry AS Pending) AS List OF Byte
+  LET nameBytes AS List OF Byte = encoding::utf8Encode(entry.name)
+  IF len(nameBytes) > U16_MAX THEN
+    FAIL error(errorCode::ErrTooLarge, "zip: entry name of " & toString(len(nameBytes)) & " bytes exceeds the 65535-byte field")
+  END IF
+  LET zip64 AS Boolean = entry.size >= U32_MAX OR entry.compressedSize >= U32_MAX
+  LET stamp AS Integer = dosStamp(entry.modifiedSeconds)
+
+  MUT extra AS List OF Byte = extendedTimestamp(entry.modifiedSeconds)
+  IF zip64 THEN
+    ' The local ZIP64 field always carries both sizes, uncompressed first.
+    extra = putU16(extra, ZIP64_EXTRA_ID)
+    extra = putU16(extra, 16)
+    extra = putU64(extra, entry.size)
+    extra = putU64(extra, entry.compressedSize)
+  END IF
+
+  MUT header AS List OF Byte = []
+  header = putU32(header, 67324752)
+  header = putU16(header, versionNeeded(zip64))
+  header = putU16(header, FLAG_UTF8)
+  header = putU16(header, entry.method)
+  header = putU16(header, stamp MOD 65536)
+  header = putU16(header, stamp / 65536)
+  header = putU32(header, entry.crc)
+  header = putU32(header, capU32(entry.compressedSize, zip64))
+  header = putU32(header, capU32(entry.size, zip64))
+  header = putU16(header, len(nameBytes))
+  header = putU16(header, len(extra))
+  header = putBytes(header, nameBytes)
+  RETURN putBytes(header, extra)
+END FUNC
+
+' The central directory header for an entry, its name, and its extra field.
+FUNC centralHeader(entry AS Pending) AS List OF Byte
+  LET nameBytes AS List OF Byte = encoding::utf8Encode(entry.name)
+  LET stamp AS Integer = dosStamp(entry.modifiedSeconds)
+  ' A field that does not fit is written as all-ones and its real value goes in the
+  ' ZIP64 extra field, in the order APPNOTE §4.5.3 fixes: size, compressed size,
+  ' then offset.
+  LET bigSize AS Boolean = entry.size >= U32_MAX
+  LET bigCompressed AS Boolean = entry.compressedSize >= U32_MAX
+  LET bigOffset AS Boolean = entry.headerOffset >= U32_MAX
+  LET zip64 AS Boolean = bigSize OR bigCompressed OR bigOffset
+
+  MUT extra AS List OF Byte = []
+  IF zip64 THEN
+    MUT payload AS List OF Byte = []
+    IF bigSize THEN
+      payload = putU64(payload, entry.size)
+    END IF
+    IF bigCompressed THEN
+      payload = putU64(payload, entry.compressedSize)
+    END IF
+    IF bigOffset THEN
+      payload = putU64(payload, entry.headerOffset)
+    END IF
+    extra = putU16(extra, ZIP64_EXTRA_ID)
+    extra = putU16(extra, len(payload))
+    extra = putBytes(extra, payload)
+  END IF
+  extra = putBytes(extra, extendedTimestamp(entry.modifiedSeconds))
+
+  MUT external AS Integer = entry.mode * 65536
+  IF entry.isDirectory THEN
+    external = external + DOS_DIRECTORY_ATTRIBUTE
+  END IF
+
+  MUT header AS List OF Byte = []
+  header = putU32(header, 33639248)
+  header = putU16(header, VERSION_MADE_BY)
+  header = putU16(header, versionNeeded(zip64))
+  header = putU16(header, FLAG_UTF8)
+  header = putU16(header, entry.method)
+  header = putU16(header, stamp MOD 65536)
+  header = putU16(header, stamp / 65536)
+  header = putU32(header, entry.crc)
+  header = putU32(header, capU32(entry.compressedSize, bigCompressed))
+  header = putU32(header, capU32(entry.size, bigSize))
+  header = putU16(header, len(nameBytes))
+  header = putU16(header, len(extra))
+  header = putU16(header, 0)
+  header = putU16(header, 0)
+  header = putU16(header, 0)
+  header = putU32(header, external)
+  header = putU32(header, capU32(entry.headerOffset, bigOffset))
+  header = putBytes(header, nameBytes)
+  RETURN putBytes(header, extra)
+END FUNC
+
+' The archive's tail, after the central directory: the ZIP64 end record and locator
+' when a count, size or offset needs them, then the end-of-central-directory
+' record, then the archive comment.
+'
+' `commentBytes` must already be checked against the 16-bit length field.
+FUNC endOfArchive(count AS Integer, centralSize AS Integer, centralAt AS Integer, commentBytes AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = []
+  LET zip64 AS Boolean = count >= U16_MAX OR centralSize >= U32_MAX OR centralAt >= U32_MAX
+  IF zip64 THEN
+    out = putBytes(out, zip64EndRecord(count, centralSize, centralAt))
+    out = putBytes(out, zip64Locator(centralAt + centralSize))
+  END IF
+  out = putU32(out, 101010256)
+  out = putU16(out, 0)
+  out = putU16(out, 0)
+  out = putU16(out, capU16(count))
+  out = putU16(out, capU16(count))
+  out = putU32(out, capU32(centralSize, zip64))
+  out = putU32(out, capU32(centralAt, zip64))
+  out = putU16(out, len(commentBytes))
+  RETURN putBytes(out, commentBytes)
+END FUNC
+
+' The ZIP64 end-of-central-directory record.
+PRIVATE FUNC zip64EndRecord(count AS Integer, centralSize AS Integer, centralAt AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  out = putU32(out, 101075792)
+  out = putU64(out, 44)
+  out = putU16(out, VERSION_MADE_BY)
+  out = putU16(out, VERSION_NEEDED_ZIP64)
+  out = putU32(out, 0)
+  out = putU32(out, 0)
+  out = putU64(out, count)
+  out = putU64(out, count)
+  out = putU64(out, centralSize)
+  RETURN putU64(out, centralAt)
+END FUNC
+
+' The ZIP64 end-of-central-directory locator, which points at the record above.
+PRIVATE FUNC zip64Locator(recordAt AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  out = putU32(out, 117853008)
+  out = putU32(out, 0)
+  out = putU64(out, recordAt)
+  RETURN putU32(out, 1)
+END FUNC
+
+' The extended-timestamp field for a recorded time, or nothing when none is
+' recorded.
+PRIVATE FUNC extendedTimestamp(modifiedSeconds AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  IF modifiedSeconds = 0 THEN
+    RETURN out
+  END IF
+  out = putU16(out, EXTENDED_TIMESTAMP_ID)
+  out = putU16(out, 5)
+  out = collections::append(out, toByte(1))
+  RETURN putU32(out, modifiedSeconds)
+END FUNC
+
+' The version needed to extract: 4.5 for ZIP64, 2.0 otherwise.
+PRIVATE FUNC versionNeeded(zip64 AS Boolean) AS Integer
+  IF zip64 THEN
+    RETURN VERSION_NEEDED_ZIP64
+  END IF
+  RETURN VERSION_NEEDED
+END FUNC
+
+' All-ones when the value is to be carried in a ZIP64 field, which is the format's
+' "see the ZIP64 record" marker; otherwise the value itself.
+PRIVATE FUNC capU32(value AS Integer, zip64 AS Boolean) AS Integer
+  IF zip64 THEN
+    RETURN U32_MAX
+  END IF
+  RETURN value
+END FUNC
+
+PRIVATE FUNC capU16(value AS Integer) AS Integer
+  IF value > U16_MAX THEN
+    RETURN U16_MAX
+  END IF
+  RETURN value
+END FUNC
+
+' The DOS date and time packed into one Integer: date in the high 16 bits, time in
+' the low.
+'
+' A time before 1980, including the 0 that means "no time given", becomes the
+' earliest instant the format can name. Every time the caller can give is at most
+' 2106 (`checkTimestamp`), so the year always fits the 7-bit field.
+PRIVATE FUNC dosStamp(modifiedSeconds AS Integer) AS Integer
+  IF modifiedSeconds <= DOS_EPOCH_SECONDS THEN
+    RETURN DOS_EARLIEST
+  END IF
+  LET days AS Integer = modifiedSeconds / 86400
+  LET rest AS Integer = modifiedSeconds - days * 86400
+  LET ymd AS List OF Integer = civilFromDays(days)
+  LET year AS Integer = collections::get(ymd, 0)
+  LET date AS Integer = (year - 1980) * 512 + collections::get(ymd, 1) * 32 + collections::get(ymd, 2)
+  LET time AS Integer = (rest / 3600) * 2048 + ((rest / 60) MOD 60) * 32 + (rest MOD 60) / 2
+  RETURN date * 65536 + time
+END FUNC
+
+' Year, month, day for a count of days since 1970-01-01.
+'
+' Howard Hinnant's `civil_from_days`, the inverse of `central.mfb`'s
+' `daysFromCivil`.
+PRIVATE FUNC civilFromDays(days AS Integer) AS List OF Integer
+  LET z AS Integer = days + 719468
+  LET era AS Integer = z / 146097
+  LET doe AS Integer = z - era * 146097
+  LET yoe AS Integer = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+  LET y AS Integer = yoe + era * 400
+  LET doy AS Integer = doe - (365 * yoe + yoe / 4 - yoe / 100)
+  LET mp AS Integer = (5 * doy + 2) / 153
+  LET d AS Integer = doy - (153 * mp + 2) / 5 + 1
+  MUT m AS Integer = mp + 3
+  IF mp >= 10 THEN
+    m = mp - 9
+  END IF
+  MUT year AS Integer = y
+  IF m <= 2 THEN
+    year = y + 1
+  END IF
+  RETURN [year, m, d]
+END FUNC

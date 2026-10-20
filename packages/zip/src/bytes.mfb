@@ -12,10 +12,29 @@
 ' in an archive claiming a size of 8 exabytes or more, which is not a real
 ' archive, so it is refused here rather than silently returned as a negative
 ' number that would then pass a `<= size` bounds check.
+'
+' Every bounds check in the package goes through `fitsIn`, which is written as a
+' subtraction: `offset + count <= total` can wrap for two ZIP64 values near 2^63.
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
 IMPORT errorCode
+
+' The largest value a 16-bit field holds.
+LET U16_MAX AS Integer = 65535
+
+' The size of a local file header before its name and extra field.
+LET LOCAL_HEADER_SIZE AS Integer = 30
+
+' Whether `count` bytes starting at `offset` lie wholly inside `total` bytes.
+'
+' False for any negative argument, and for a window that starts past the end.
+FUNC fitsIn(offset AS Integer, count AS Integer, total AS Integer) AS Boolean
+  IF offset < 0 OR count < 0 OR offset > total THEN
+    RETURN FALSE
+  END IF
+  RETURN count <= total - offset
+END FUNC
 
 ' The unsigned 16-bit value at `index`.
 FUNC u16le(bytes AS List OF Byte, index AS Integer) AS Integer

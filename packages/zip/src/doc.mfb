@@ -8,6 +8,9 @@
 '
 ' Placement is free and the header line is the only link to the target, so they
 ' live together here rather than being scattered through the implementation.
+'
+' Error codes are the `errorCode::` values, written as `mfb spec diagnostics
+' error-codes` writes them: 7-705-0003 is errorCode::ErrInvalidFormat, and so on.
 ' ---------------------------------------------------------------------------
 
 DOC
@@ -20,15 +23,16 @@ DOC
   DESC
   DESC Opening a file-backed archive reads only the list of entries, and reading
   DESC one entry holds only that entry, so an archive far larger than memory is
-  DESC still readable one entry at a time.
-  INFO Every entry you read is checked against the CRC-32 the archive records
-  INFO for it. An entry whose bytes do not match raises `zip::ErrorChecksum`
-  INFO rather than returning data that fails its own checksum.
-  SEC `extractTo` treats an archive as untrusted input: it validates every entry
-  SEC before writing any byte, so an archive with one unsafe name leaves your
-  SEC directory exactly as it was. Names that are absolute, contain `..`, or
-  SEC resolve outside the target directory through a symlink already on disk are
-  SEC refused.
+  DESC still readable one entry at a time. Writing to a file works the same way:
+  DESC `openWriter` puts each entry in the file as it is added.
+  INFO Every entry you read is checked against the CRC-32 the archive records for
+  INFO it. An entry whose bytes do not match raises `zip::ErrorChecksum` rather
+  INFO than returning data that fails its own checksum.
+  SEC `extractTo` treats an archive as untrusted input. It checks every entry
+  SEC before writing any byte, refuses to overwrite an existing file, and opens
+  SEC each file with containment enforced, so a name that is absolute, contains
+  SEC `..`, or resolves outside the target through a symlink already on disk is
+  SEC refused. A failed extraction removes what it created.
 END DOC
 
 DOC
@@ -49,56 +53,64 @@ DOC
   DESC
   DESC Every field is read from the archive's index, so all of it is available
   DESC before any of the entry's contents are read.
-  PROP name The entry's name, with `/` separating directories.
+  PROP name The entry's name, with `/` separating directories, as the archive spells it.
   PROP isDirectory Whether the name ends in `/`, which is how zip marks a directory.
   PROP method How the data is stored: 0 for stored, 8 for deflated.
   PROP size The entry's size once uncompressed.
   PROP compressedSize The number of bytes the entry occupies in the archive.
   PROP crc The CRC-32 the archive records for the entry's contents.
-  PROP modifiedSeconds The modification time, in seconds since the Unix epoch.
-  PROP mode The Unix permission bits, or 0 when the archive was not written on a Unix-like host.
+  PROP modifiedSeconds The modification time in seconds since the Unix epoch. An entry written with 0 reads back as 315532800, the earliest time the DOS fields name.
+  PROP mode The Unix `st_mode` with file-type and permission bits, or 0 when not written on a Unix-like host.
   PROP comment The entry's own comment, or the empty string.
   PROP headerOffset Where the entry's local header sits in the archive. Used by `read`.
+  PROP flags The general-purpose flag word from the central directory.
 END DOC
 
 DOC
   TYPE Builder
-  DESC An archive under construction.
+  DESC An archive under construction, held in memory.
   DESC
   DESC Start one with `create`, add to it, and call `finish` when you are done.
   DESC Each `add` call gives you back a new builder; the one you passed in is
-  DESC unchanged.
+  DESC unchanged. For an archive too large to hold in memory, use `openWriter`.
   PROP pending The entries added so far. Internal.
 END DOC
 
-DOC INTERNAL
-  TYPE MemorySource
-  DESC An archive's bytes, already in memory. Use `open` instead.
-  PROP bytes The archive's bytes.
+DOC
+  TYPE Writer
+  DESC An archive being written to a file, one entry at a time.
+  DESC
+  DESC Start one with `openWriter`, write entries with `writeFile`, `writeText` and
+  DESC `writeDirectory`, and call `finishWriter` to complete the archive. Each write
+  DESC gives you back the updated writer; use that one, since the one you passed in
+  DESC now refers to the same file at an earlier position.
+  PROP sink The file the archive is written to. Internal.
+  PROP spool The central directory headers, held until `finishWriter`. Internal.
+  PROP offset How many bytes have been written to the file. Internal.
+  PROP count How many entries have been written. Internal.
 END DOC
 
 DOC INTERNAL
-  TYPE FileSource
-  DESC An archive's bytes, in a file you have open. Use `open` instead.
-  PROP handle The file the archive is read from.
-END DOC
-
-DOC INTERNAL
-  UNION Source
-  DESC Where an archive's bytes come from. Use `open` instead.
+  TYPE Source
+  DESC Where an archive's bytes come from: in memory, or in a file you have open. Use `open` instead.
+  PROP fromFile Whether the archive is read from a file rather than from memory.
+  PROP bytes The archive's bytes, when they are held in memory.
+  PROP handle The file the archive is read from, when it is a file.
 END DOC
 
 DOC INTERNAL
   TYPE Pending
-  DESC One entry a `Builder` is holding until `finish` lays the archive out.
+  DESC One entry a `Builder` or a `Writer` holds before it is laid out.
   PROP name The entry's name.
   PROP isDirectory Whether this entry is a directory.
-  PROP method How the data will be stored.
+  PROP method How the data is stored.
   PROP size The entry's uncompressed size.
+  PROP compressedSize The bytes the entry's data occupies in the archive.
   PROP crc The CRC-32 of the entry's contents.
-  PROP payload The bytes as they will appear in the archive.
+  PROP payload The bytes as they appear in the archive. Empty in a Writer.
   PROP modifiedSeconds The modification time, in seconds since the Unix epoch.
-  PROP mode The Unix permission bits to record.
+  PROP mode The Unix `st_mode` to record.
+  PROP headerOffset Where the entry's local header is placed.
 END DOC
 
 DOC
@@ -110,15 +122,16 @@ DOC
   INFO meant, so it does not compile.
   ARG data The archive's bytes.
   RET The opened archive.
-  ERROR 7-705-0004 The bytes are not a well-formed archive.
-  ERROR 7-705-0050 The archive uses a feature this package does not support, such as multiple disks.
+  ERROR 7-705-0003 The bytes are not a well-formed archive, or an entry's name is not decodable.
+  ERROR 7-705-0007 The archive uses a feature this package does not support, such as multiple disks.
   EXAMPLE
     IMPORT zip
-    IMPORT fs
     IMPORT io
 
     FUNC main() AS Nothing
-      LET raw AS List OF Byte = fs::readBytes("photos.zip")
+      MUT b AS zip::Builder = zip::create()
+      b = zip::addText(b, "notes.txt", "hello")
+      LET raw AS List OF Byte = zip::finish(b)
       LET archive AS zip::Archive = zip::open(raw)
       io::print(toString(len(zip::entries(archive))) & " entries")
     END FUNC
@@ -137,19 +150,22 @@ DOC
   INFO same read position it was found at.
   ARG file The file to read the archive from.
   RET The opened archive.
-  ERROR 7-705-0004 The bytes are not a well-formed archive.
-  ERROR 7-705-0050 The archive uses a feature this package does not support, such as multiple disks.
+  ERROR 7-705-0003 The bytes are not a well-formed archive, or an entry's name is not decodable.
+  ERROR 7-705-0007 The archive uses a feature this package does not support, such as multiple disks.
   EXAMPLE
     IMPORT zip
     IMPORT fs
     IMPORT io
 
     FUNC main() AS Nothing
-      RES f = fs::openFile("photos.zip")
+      RES f AS fs::File = fs::createTempFile()
+      fs::writeAllBytes(f, zip::finish(zip::addText(zip::create(), "notes.txt", "hello")))
+      fs::flush(f)
       LET archive AS zip::Archive = zip::open(f)
       FOR EACH entry IN zip::entries(archive)
         io::print(entry.name)
       NEXT
+      fs::close(f)
     END FUNC
   END EXAMPLE
 END DOC
@@ -184,13 +200,14 @@ DOC
   GROUP Reading
   DESC The entry with exactly this name.
   DESC
-  DESC Zip permits an archive to hold the same name twice. This returns the
-  DESC first such entry in the order the archive lists them, which is the one
-  DESC `unzip` lists first.
+  DESC Zip permits an archive to hold the same name twice. This returns the first
+  DESC such entry in the order the archive lists them, which is the one `unzip`
+  DESC lists first. `extractTo` refuses such an archive outright, rather than
+  DESC picking one of the two.
   ARG archive The archive to search.
   ARG name The name to look for, matched exactly.
   RET The matching entry.
-  ERROR 7-705-0003 No entry has that name.
+  ERROR 7-705-0004 No entry has that name.
 END DOC
 
 DOC
@@ -208,8 +225,8 @@ DOC
   ARG maxBytes The largest uncompressed size to accept. Defaults to 64 MiB.
   RET The entry's bytes.
   ERROR 7-705-0027 The entry is larger than `maxBytes`.
-  ERROR 7-705-0050 The entry is encrypted, or uses a compression method other than stored or deflate.
-  ERROR 7-705-0004 The entry contradicts the archive's index, or the archive is truncated.
+  ERROR 7-705-0007 The entry is encrypted, or uses a compression method other than stored or deflate.
+  ERROR 7-705-0003 The entry contradicts the archive's index, or the archive is truncated.
   ERROR 9315-0001 The entry's bytes do not match its recorded CRC-32.
   EXAMPLE
     IMPORT zip
@@ -217,8 +234,8 @@ DOC
     IMPORT io
 
     FUNC main() AS Nothing
-      RES f = fs::openFile("photos.zip")
-      LET archive AS zip::Archive = zip::open(f)
+      LET raw AS List OF Byte = zip::finish(zip::addText(zip::create(), "notes.txt", "hello"))
+      LET archive AS zip::Archive = zip::open(raw)
       LET bytes AS List OF Byte = zip::read(archive, zip::find(archive, "notes.txt"))
       io::print(toString(len(bytes)) & " bytes")
     END FUNC
@@ -236,7 +253,7 @@ DOC
   ARG entry The entry to read.
   ARG maxBytes The largest uncompressed size to accept. Defaults to 64 MiB.
   RET The entry's text.
-  ERROR 7-705-0004 The entry is not valid UTF-8, or contradicts the archive's index.
+  ERROR 7-705-0003 The entry is not valid UTF-8, or contradicts the archive's index.
   ERROR 7-705-0027 The entry is larger than `maxBytes`.
   ERROR 9315-0001 The entry's bytes do not match its recorded CRC-32.
 END DOC
@@ -244,16 +261,18 @@ END DOC
 DOC
   FUNC create
   GROUP Writing
-  DESC Start building a new archive.
+  DESC Start building a new archive in memory.
+  DESC
+  DESC For an archive too large to hold in memory, use `openWriter`.
   RET An empty builder.
   EXAMPLE
     IMPORT zip
-    IMPORT fs
+    IMPORT io
 
     FUNC main() AS Nothing
       MUT b AS zip::Builder = zip::create()
       b = zip::addText(b, "notes.txt", "hello")
-      fs::writeBytes("out.zip", zip::finish(b))
+      io::print(toString(len(zip::finish(b))) & " bytes")
     END FUNC
   END EXAMPLE
 END DOC
@@ -265,15 +284,17 @@ DOC
   DESC
   DESC The entry is deflated when that makes it smaller and stored when it does
   DESC not, so an incompressible file is never made bigger by compressing it.
-  INFO Refusing an unsafe name here, and not only when extracting, means this
-  INFO package cannot be used to build the archive its own `extractTo` refuses.
+  INFO Refusing an unsafe name here uses the same rules `extractTo` applies. Two entries
+  INFO that would extract to one path are not checked here; `extractTo` refuses them.
   ARG builder The builder to add to. It is not modified; the new builder is returned.
   ARG name The entry's name, with `/` separating directories.
   ARG data The entry's contents.
   ARG store Pass TRUE to store the data without compressing it. Defaults to FALSE.
-  ARG modifiedSeconds The modification time in seconds since the Unix epoch. 0 records the earliest time the format can express.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch, from 0 to 4294967295. 0 writes the earliest DOS time, 1980-01-01.
+  ARG mode The Unix permission bits, from 0o0000 to 0o7777. 0 means 0o644.
   RET A builder holding the new entry.
-  ERROR 7-705-0013 The name is unsafe: empty, absolute, containing `..`, a backslash or a NUL byte, or naming a Windows drive.
+  ERROR 7-703-0002 The name is unsafe: empty, absolute, containing `..`, a backslash or a NUL byte, naming a Windows drive, or with an empty or `.` component.
+  ERROR 7-705-0002 The modification time or the mode cannot be recorded.
   ERROR 7-705-0027 The name is longer than 65535 bytes.
 END DOC
 
@@ -285,9 +306,11 @@ DOC
   ARG name The entry's name.
   ARG text The entry's contents.
   ARG store Pass TRUE to store the text without compressing it. Defaults to FALSE.
-  ARG modifiedSeconds The modification time in seconds since the Unix epoch.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch. Defaults to 0, which writes 1980-01-01.
+  ARG mode The Unix permission bits. Defaults to 0, meaning 0o644.
   RET A builder holding the new entry.
-  ERROR 7-705-0013 The name is unsafe.
+  ERROR 7-703-0002 The name is unsafe.
+  ERROR 7-705-0002 The modification time or the mode cannot be recorded.
   ERROR 7-705-0027 The name is longer than 65535 bytes.
 END DOC
 
@@ -300,9 +323,11 @@ DOC
   DESC implies `a/`, but most tools list them.
   ARG builder The builder to add to.
   ARG name The directory's name.
-  ARG modifiedSeconds The modification time in seconds since the Unix epoch.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch. Defaults to 0, which writes 1980-01-01.
+  ARG mode The Unix permission bits. Defaults to 0, meaning 0o755.
   RET A builder holding the new entry.
-  ERROR 7-705-0013 The name is unsafe.
+  ERROR 7-703-0002 The name is unsafe.
+  ERROR 7-705-0002 The modification time or the mode cannot be recorded.
 END DOC
 
 DOC
@@ -314,10 +339,7 @@ DOC
   DESC produce the same bytes. ZIP64 records are written only when the archive
   DESC needs them, so an ordinary archive is an ordinary zip that any reader
   DESC accepts.
-  WARN Adding an entry costs more as the archive grows, because each `add` call
-  WARN takes the whole builder and returns a new one. A few thousand entries is
-  WARN comfortable; tens of thousands takes minutes. Reading an archive with very
-  WARN many entries has no such limit.
+  WARN The whole archive is built in memory. For a large archive, use `openWriter`.
   ARG builder The builder to finish.
   ARG comment An archive-level comment. Defaults to none.
   RET The archive's bytes.
@@ -325,35 +347,146 @@ DOC
 END DOC
 
 DOC
+  FUNC openWriter
+  GROUP Streaming
+  DESC Start writing an archive to a file, which must be empty.
+  DESC
+  DESC Each entry's contents are written to the file as it is added, so the archive
+  DESC never has to fit in memory. Only the central directory, about 50 bytes and the
+  DESC name per entry, is held until `finishWriter`. The file stays yours: this package
+  DESC never closes it, so close it after `finishWriter`.
+  INFO Offsets in a zip are counted from the start of the file, so the file must be
+  INFO empty. An archive written after existing bytes would point at the wrong places.
+  ARG file An open file, empty, to write the archive to.
+  RET A writer for the archive.
+  ERROR 7-705-0002 The file is not empty.
+  EXAMPLE
+    IMPORT zip
+    IMPORT fs
+
+    FUNC main() AS Nothing
+      RES f AS fs::File = fs::createTempFile()
+      MUT w AS zip::Writer = zip::openWriter(f)
+      w = zip::writeText(w, "notes.txt", "hello")
+      zip::finishWriter(w)
+      fs::close(f)
+    END FUNC
+  END EXAMPLE
+END DOC
+
+DOC
+  FUNC writeFile
+  GROUP Streaming
+  DESC Write a file entry holding `data` into the writer's file, now.
+  DESC
+  DESC The entry is deflated when that makes it smaller and stored when it does not.
+  INFO Use the writer this returns, not the one passed in: see `openWriter`.
+  ARG writer The writer to write to.
+  ARG name The entry's name, with `/` separating directories.
+  ARG data The entry's contents.
+  ARG store Pass TRUE to store the data without compressing it. Defaults to FALSE.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch. Defaults to 0, which writes 1980-01-01.
+  ARG mode The Unix permission bits. Defaults to 0, meaning 0o644.
+  RET The updated writer.
+  ERROR 7-703-0002 The name is unsafe. Nothing is written.
+  ERROR 7-705-0002 The modification time or the mode cannot be recorded. Nothing is written.
+END DOC
+
+DOC
+  FUNC writeText
+  GROUP Streaming
+  DESC Write a file entry holding the UTF-8 bytes of `text` into the writer's file.
+  ARG writer The writer to write to.
+  ARG name The entry's name.
+  ARG text The entry's contents.
+  ARG store Pass TRUE to store the text without compressing it. Defaults to FALSE.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch. Defaults to 0, which writes 1980-01-01.
+  ARG mode The Unix permission bits. Defaults to 0, meaning 0o644.
+  RET The updated writer.
+  ERROR 7-703-0002 The name is unsafe. Nothing is written.
+END DOC
+
+DOC
+  FUNC writeDirectory
+  GROUP Streaming
+  DESC Write a directory entry into the writer's file.
+  ARG writer The writer to write to.
+  ARG name The directory's name.
+  ARG modifiedSeconds The modification time in seconds since the Unix epoch. Defaults to 0, which writes 1980-01-01.
+  ARG mode The Unix permission bits. Defaults to 0, meaning 0o755.
+  RET The updated writer.
+  ERROR 7-703-0002 The name is unsafe. Nothing is written.
+END DOC
+
+DOC
+  FUNC finishWriter
+  GROUP Streaming
+  DESC Write the central directory, completing the archive in the file.
+  DESC
+  DESC The file is flushed, so a write error surfaces here. Call this once, and do
+  DESC not write to the writer afterwards.
+  ARG writer The writer to finish.
+  ARG comment An archive-level comment. Defaults to none.
+  ERROR 7-705-0027 The comment is longer than 65535 bytes.
+  EXAMPLE
+    IMPORT zip
+    IMPORT fs
+
+    FUNC main() AS Nothing
+      RES f AS fs::File = fs::createTempFile()
+      MUT w AS zip::Writer = zip::openWriter(f)
+      w = zip::writeText(w, "a.txt", "one")
+      w = zip::writeText(w, "b.txt", "two")
+      zip::finishWriter(w, "two files")
+      fs::close(f)
+    END FUNC
+  END EXAMPLE
+END DOC
+
+DOC
   FUNC extractTo
   GROUP Writing
   DESC Extract every entry into `directory`, returning how many files were written.
   DESC
+  DESC `directory` is created, with any missing parents, when it does not exist.
   DESC Directories in the archive are created but not counted.
-  SEC Every entry is validated before any byte is written, so an archive with one
-  SEC unsafe entry leaves the directory exactly as it was rather than extracting
-  SEC part of itself and then failing. A name is refused when it is empty,
-  SEC absolute, contains `..`, a backslash or a NUL byte, names a Windows drive,
-  SEC or resolves outside `directory` once symlinks already on disk are followed.
-  INFO File permissions and modification times are not restored, because `fs` has
-  INFO no way to set either. Extracted files get the host's defaults.
+  SEC Every entry is checked before any byte is written. A name is refused when it is
+  SEC empty, absolute, contains `..`, a backslash or a NUL byte, or names a Windows
+  SEC drive. Two entries that extract to one path, or a file where another entry needs
+  SEC a directory, are refused. A path that already exists is refused: extraction never
+  SEC overwrites a file. Each file is opened with containment enforced, so nothing is
+  SEC written outside `directory`, even through a symlink already on disk.
+  SEC A failure after writing has started removes every file and directory this call
+  SEC created, then raises the original error.
+  INFO File permissions and modification times are not restored, because `fs` cannot
+  INFO set either. Extracted files are created user-only (0600, less the umask).
   ARG archive The archive to extract.
-  ARG directory An existing directory to extract into.
+  ARG directory The directory to extract into. Created if it does not exist.
   ARG maxTotalBytes The largest total uncompressed size to write. Defaults to 1 GiB.
   RET The number of files written.
-  ERROR 7-705-0003 The directory does not exist.
-  ERROR 7-705-0013 An entry name is unsafe to write.
+  ERROR 7-703-0002 An entry name is unsafe to write, or resolves outside `directory`.
+  ERROR 7-705-0003 Two entries extract to one path, an entry contradicts its local header, or a file is needed where a directory is.
+  ERROR 7-705-0005 A path that extraction would write to already exists, or the target is a file.
+  ERROR 7-705-0007 An entry is encrypted, or uses an unsupported compression method.
   ERROR 7-705-0027 The archive's total uncompressed size is over `maxTotalBytes`.
-  ERROR 9315-0001 An entry's bytes do not match its recorded CRC-32. The partial file is deleted.
+  ERROR 9315-0001 An entry's bytes do not match its recorded CRC-32. Nothing it created is left behind.
   EXAMPLE
     IMPORT zip
     IMPORT fs
     IMPORT io
 
     FUNC main() AS Nothing
-      RES f = fs::openFile("photos.zip")
-      LET archive AS zip::Archive = zip::open(f)
-      io::print(toString(zip::extractTo(archive, "out")) & " files")
+      MUT b AS zip::Builder = zip::create()
+      b = zip::addText(b, "notes/todo.txt", "buy milk")
+      LET raw AS List OF Byte = zip::finish(b)
+      LET archive AS zip::Archive = zip::open(raw)
+      LET target AS String = fs::pathJoin([fs::tempDirectory(), "zip-doc-example"])
+      io::print(toString(zip::extractTo(archive, target)) & " files")
+      ' The target did not exist, so extractTo created it. Remove what it wrote, so
+      ' the example can run again.
+      fs::deleteFile(fs::pathJoin([target, "notes", "todo.txt"]))
+      fs::deleteDirectory(fs::pathJoin([target, "notes"]))
+      fs::deleteDirectory(target)
     END FUNC
   END EXAMPLE
 END DOC
