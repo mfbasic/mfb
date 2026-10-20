@@ -13,7 +13,7 @@
 //   * declared prefixes, so namespaced names appear;
 //   * text holding `]]>`, `&`, `<`, CR, tab, and non-ASCII scalars;
 //   * whitespace-only text as an element's SOLE child (data) and beside
-//     elements (layout) — the distinction plan-138-A §4 turns on;
+//     elements (layout) — the distinction the content projection turns on;
 //   * comments and processing instructions interleaved with elements.
 
 /** mulberry32: small, seeded, and identical across runs. */
@@ -124,7 +124,7 @@ export function tree(next) {
  * no-namespace elements, so on a document with `xmlns="urn:x"` both oracles
  * correctly select nothing for `//a` while this package -- which never resolves
  * a prefix -- matches the literal name. No resolver bridges that, so namespaced
- * documents are outside those modes (plan-138-E §3).
+ * documents are outside those modes.
  */
 export function plainTree(next) {
   const root = element(next, 3, []);
@@ -304,7 +304,7 @@ function writeNode(node, style, level) {
   }
 
   // Layout whitespace may be inserted only where it cannot become DATA, and the
-  // rule is plan-138-A §4 step 3: whitespace-only text is layout only when the
+  // rule is the content projection's step 3: whitespace-only text is layout only when the
   // parent also has an ELEMENT child. An element whose children are just
   // comments or PIs has none, so indenting it would give it text it never had —
   // which is exactly what this generator caught itself doing.

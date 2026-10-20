@@ -83,7 +83,7 @@ than on meaning.
         | ["t", text]
 ```
 
-This is plan-138-A §4's content projection: comments and processing instructions
+This is the content projection's content projection: comments and processing instructions
 removed, adjacent text merged, whitespace-only text dropped where the parent also
 has an element child, attributes sorted, names kept as raw `prefix:local` text.
 **All three sides compute it independently.** A projection computed once and
@@ -100,7 +100,7 @@ shared would hide exactly the disagreements this oracle exists to find.
 | `roundtrip` | corpus + random trees | `content(read(write(read(x)))) = content(read(x))`, compact and pretty |
 | `mutate` | corpus documents with random byte damage | robustness, not correctness: the probe always answers a well-formed envelope, exits 0, and finishes inside 30 s. Agreement is *reported*, never asserted — damaged input has no right answer |
 | `perf` | generated 100k-node flat, deep and wide documents | `xmlprobe read` of each within 3.00 s, taking the **fastest of three** attempts |
-| `xpath` | `corpus/xpath/*.json` — 148 expressions over `corpus/catalog.xml` | the three XPath engines agree on the result's kind and value |
+| `xpath` | `corpus/xpath/*.json` — 232 expressions over `corpus/catalog.xml` | the three XPath engines agree on the result's kind and value |
 | `fuzz-xpath` | expressions drawn from each random tree's own names, attributes and text | the same, over documents nobody wrote by hand |
 
 The XPath modes run over documents with **no namespace declarations**, and that
@@ -163,12 +163,24 @@ character references for non-ASCII, and `<a></a>` versus `<a/>`.
 | harness (both oracles) | Selecting the document node itself (`.` at the top) rendered three different ways, though all three had selected the same node. It is now reported as the document element, which is what the package does. | envelope rule in both oracles |
 | **package** | Selecting the document node returned the PROLOG too — `//a/..` on a document opening with a comment came back with the comment beside the root element. The document node has no `Node` form here, so it is reported as the document element; the prolog is not the document. | `xpath_eval.mfb`, behind a failing case in `test_xpath_edges.mfb` |
 | harness (Node) | npm `xpath` implements `string-length`, `substring` and `translate` on raw JavaScript strings, which count UTF-16 code units — so every character above the BMP counted twice. `string-length(string(//Ωmega))` said 4 where the package and roxmltree said 3. XPath 1.0 §4.2 defines all three in terms of *characters*. 52 of 20,000 `fuzz-xpath` cases. | `oracle.mjs` supplies its own three, over code points |
+| harness (Node) | Its string form of a number used JavaScript's `String()`, so `10000000000000000000000` came back as `1e+22`. §4.2 forbids exponent notation. | `oracle.mjs` writes the same shortest digits in plain notation |
+| harness (Node) | Its `number()` rejected `5.`, which §3.5 allows, and accepted whitespace beyond XML's four characters. | `oracle.mjs` replaces the conversion with the §3.5 grammar |
+| harness (Rust) | xpath-eval 0.2.2 computes `round()` as `floor(n + 0.5)`, which answers 1 for `0.49999999999999994` where §4.4 says 0. The crate has no hook for replacing a builtin. | a declared divergence in `divergences.json`, with the citation |
+| harness (probe) | The probe did not compile at all: it named the package's types unqualified, which the compiler no longer resolves. The oracle had not run since. | `xmlprobe` qualifies every type it uses |
+| harness (runner) | The XPath summary counted a declared divergence as one of the agreeing cases. | the runner reports agreement as total minus declared |
 
-Every row above was resolved by fixing the side that was wrong. `divergences.json`
-holds exactly one thing, and it is not a disagreement about XML or XPath:
-`sum(//price)` is `30.740000000000002` in both oracles and `30.74` in the
-package, because MFBASIC's `toString(Float)` is fixed at two decimal places. The
-arithmetic agrees; only the text form differs.
+Every row above was resolved by fixing the side that was wrong, except the Rust
+`round()` row, which is a declared divergence: the crate offers no way to replace
+the builtin, and the case is settled by §4.4. `divergences.json` holds only that
+one entry. The `sum(//price)` entries it used to hold are gone, because the
+package now prints the shortest round-trip digits that the oracles print.
+
+The package itself had three XPath defects that the corpus did not exercise: a
+predicate on an attribute tested its element, `number()` accepted `1e5`, and a
+function given the wrong argument count was accepted. The probe that runs the
+corpus did not compile at the time, so nothing had checked those behaviours.
+`corpus/xpath/core.json` now covers them, and the three sides agree on all of
+them.
 
 ## Layout
 

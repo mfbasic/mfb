@@ -6,7 +6,7 @@
 // have. xmldom appears only in the write direction, as a DOM and serializer.
 //
 // The declaration checks (version, encoding) are done HERE rather than left to
-// saxes. plan-138-C §2 records that whether saxes refuses `version="1.1"` or a
+// saxes. The oracle's notes record that whether saxes refuses `version="1.1"` or a
 // non-UTF-8 encoding on its own is UNVERIFIED, and policy agreement between the
 // three sides must not rest on an unverified library behaviour.
 //
@@ -144,7 +144,7 @@ export function read(text) {
 }
 
 /**
- * plan-138-A §4's content projection: drop comments and PIs (never collected),
+ * the content projection's content projection: drop comments and PIs (never collected),
  * merge adjacent text, drop layout whitespace where the parent also has an
  * element child, and sort attributes.
  */
@@ -342,14 +342,47 @@ function domOf(text) {
   return { doc };
 }
 
-/** XPath's own string() of a number (§4.2): "2", not "2.0". */
+/**
+ * XPath's own string() of a number (§4.2): "2", not "2.0", and never an exponent.
+ * JavaScript's shortest round-trip digits are the ones §4.2 asks for; this only
+ * writes them out in plain notation, where String() would use an exponent.
+ */
 export function xpathNumberToString(value) {
   if (Number.isNaN(value)) return "NaN";
   if (value === Infinity) return "Infinity";
   if (value === -Infinity) return "-Infinity";
-  if (Number.isInteger(value)) return String(value);
-  return String(value);
+  if (value === 0) return "0";
+  const sign = value < 0 ? "-" : "";
+  const [mantissa, exponentText] = String(Math.abs(value)).split("e");
+  if (exponentText === undefined) return sign + mantissa;
+  const [whole, fraction = ""] = mantissa.split(".");
+  const digits = whole + fraction;
+  const point = whole.length + Number(exponentText);
+  if (point <= 0) return sign + "0." + "0".repeat(-point) + digits;
+  if (point >= digits.length) return sign + digits + "0".repeat(point - digits.length);
+  return sign + digits.slice(0, point) + "." + digits.slice(point);
 }
+
+/**
+ * XPath 1.0 §3.5's Number grammar, applied to a string: an optional minus sign,
+ * then digits with an optional point, or a point with digits, surrounded by the
+ * four XML whitespace characters. No exponent, no plus sign, no words. npm
+ * `xpath` accepts neither `5.` nor the grammar's exact whitespace, so the
+ * conversion is replaced rather than trusted.
+ */
+export function numberOfText(text) {
+  const trimmed = text.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(trimmed)) return Number.NaN;
+  return Number(trimmed);
+}
+
+xpathLib.XNumber.prototype.parse = numberOfText;
+xpathLib.XNumber.prototype.toString = function numberText() {
+  return xpathNumberToString(this.num);
+};
+xpathLib.XNodeSet.prototype.numberValue = function nodeSetNumber() {
+  return numberOfText(this.string());
+};
 
 /** One element of a result node-set, in the content-envelope shape. */
 function nodeEnvelope(node) {
@@ -377,7 +410,7 @@ function nodeEnvelope(node) {
   return ["e", node.nodeName, attributes, projectDomChildren(children)];
 }
 
-/** plan-138-A §4's projection over DOM children. */
+/** the content projection's projection over DOM children. */
 function projectDomChildren(children) {
   const hasElement = children.some((child) => child.kind === "e");
   const out = [];

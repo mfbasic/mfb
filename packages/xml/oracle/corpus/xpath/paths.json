@@ -1,6 +1,6 @@
 {
   "doc": "catalog.xml",
-  "comment": "One expression per location-path row of plan-138-D §4.",
+  "comment": "One expression per location-path row of the XPath subset.",
   "exprs": [
     "/catalog",
     "/catalog/book",

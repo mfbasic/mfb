@@ -8,7 +8,7 @@ description = "The Rust side of the packages/xml differential oracle: reads and 
 # Its own workspace table, deliberately empty. Without it Cargo attaches this
 # project to the repository root workspace (members = [".", "repository",
 # "wire"]), which would make the oracle's dependencies part of the compiler's
-# build graph. plan-138-C's non-goals forbid touching the root workspace.
+# build graph. the oracle's non-goals forbid touching the root workspace.
 [workspace]
 
 [dependencies]

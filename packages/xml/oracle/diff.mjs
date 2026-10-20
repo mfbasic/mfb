@@ -734,7 +734,7 @@ function runPerf() {
 // both oracles, while this package -- which never resolves a prefix -- matches
 // the literal name and selects every book. A namespace resolver bridges
 // PREFIXED names but cannot bridge a default namespace, so a namespaced
-// document is outside this mode (plan-138-E §3).
+// document is outside this mode.
 // ---------------------------------------------------------------------------
 
 const XPATH_CORPUS = join(CORPUS, "xpath");
@@ -908,7 +908,9 @@ function main() {
     // acceptance check reads, so they print on success as well as on failure.
     const detail = note ? `\n     ${note}` : "";
     if (failures.length === 0) {
-      console.log(`ok   ${mode}: ${count} case(s) agreed three ways${declared}${detail}`);
+      // A declared divergence is one of the cases, not an addition to them.
+      const agreed = count - diverged;
+      console.log(`ok   ${mode}: ${agreed} case(s) agreed three ways${declared}${detail}`);
       continue;
     }
     failed = true;

@@ -158,7 +158,7 @@ impl<'a> xpath_eval::Node<'a> for Handle<'a> {
 
     fn namespaces(self) -> impl Iterator<Item = Self> + 'a {
         // XPath's namespace axis is every binding IN SCOPE, which is exactly
-        // what roxmltree's namespaces() yields (measured in plan-138-C).
+        // what roxmltree's namespaces() yields (measured while building the oracle).
         let nodes: Vec<Self> = match self {
             Handle::Tree(node) if node.is_element() => (0..node.namespaces().count())
                 .map(|at| Handle::Namespace(node, at))
@@ -264,7 +264,7 @@ fn is_space_only(text: &str) -> bool {
 
 /// Check the XML declaration ourselves rather than relying on roxmltree.
 ///
-/// plan-138-C §2 records that whether the libraries refuse `version="1.1"` or a
+/// The oracle's notes record that whether the libraries refuse `version="1.1"` or a
 /// non-UTF-8 encoding on their own is UNVERIFIED, and policy agreement between
 /// the three sides may not rest on an unverified library behaviour.
 fn check_declaration(text: &str) -> Option<(&'static str, String)> {
@@ -669,7 +669,7 @@ fn check_declarations(source: &str) -> Option<(&'static str, String)> {
     None
 }
 
-/// plan-138-A §4's content projection over one child list.
+/// the content projection's content projection over one child list.
 fn project(children: &[roxmltree::Node], source: &str) -> Vec<Value> {
     let has_element = children.iter().any(|child| child.is_element());
     let mut out: Vec<Value> = Vec::new();
@@ -995,7 +995,7 @@ fn layout_tree(tree: &Value, indent: &str) -> Result<String, String> {
 /// child and no DATA text child. Anything else is written exactly as compact:
 /// adding whitespace beside text changes the text, and adding it inside an
 /// element whose only children are comments or PIs gives that element text it
-/// never had (plan-138-A §4 step 3).
+/// never had (the content projection's step 3).
 fn layout_node(node: &Value, indent: &str, level: usize) -> Result<String, String> {
     if indent.is_empty() || node_kind(node) != Some("e") {
         return compact(node);
