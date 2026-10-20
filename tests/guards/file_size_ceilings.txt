@@ -127,13 +127,7 @@ ceiling inline 332 src/optimizer/opt1/globals.rs
 ceiling inline 270 src/optimizer/opt1/inline.rs
 ceiling inline 294 src/optimizer/opt2/promote.rs
 ceiling inline 300 src/optimizer/opt2/sink.rs
-ceiling inline 254 src/os/linux/appimage/mod.rs
 ceiling code 1037 src/os/linux/link/elf.rs
-ceiling test 1796 src/os/linux/link/tests.rs
-ceiling inline 259 src/os/linux/object.rs
-ceiling test 1656 src/os/macos/link/tests.rs
-ceiling inline 420 src/os/macos/object.rs
-ceiling inline 686 src/os/windows/link/mod.rs
 ceiling inline 631 src/resolver/mod.rs
 ceiling inline 280 src/resolver/packages.rs
 ceiling code 1496 src/resolver/resolution.rs

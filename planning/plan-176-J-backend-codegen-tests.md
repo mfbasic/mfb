@@ -678,19 +678,25 @@ fixtures through the `/tests/` rule, and the four spec cites resolve.
   list count → 300; the `encode/tests.rs` spec grep → 0; census → 49/672/534, 77/510/583, 44/736/849/788/777,
   625, 905, 276 (all ≤ 905); hosts inline 2, 2, 2; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`,
   which includes `spec_citations_resolve`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
-Commit: —
+Commit: 01adb44aa
 
 ### Phase 2 — `src/os` linker and object tests
 
-- [ ] Split `src/os/linux/link/tests.rs` per §4.7; repoint the `writes_init_array_glibc_elf`
+- [x] Split `src/os/linux/link/tests.rs` per §4.7; repoint the `writes_init_array_glibc_elf`
       cites in `src/docs/spec/linker/04_symbols-and-relocations.md` and `07_linux-aarch64.md` to
       `tests/elf_writing.rs`.
-- [ ] Split `src/os/macos/link/tests.rs` per §4.8.
-- [ ] Move the inline tests of `src/os/windows/link/mod.rs` (§4.9), `src/os/linux/appimage/mod.rs`
+      Done: `git mv` + `planparts.py` + `items.py extract` → 30 + 21 tests; `x86_static_image` moved to `mod.rs`
+      (Corrections); motion → only the part `mod` lines differ; both cites repointed.
+- [x] Split `src/os/macos/link/tests.rs` per §4.8.
+      Done: same tools → 24 + 21 tests; motion → only the part `mod` lines differ.
+- [x] Move the inline tests of `src/os/windows/link/mod.rs` (§4.9), `src/os/linux/appimage/mod.rs`
       (§4.10; rewrite the `scripts/coverage-exceptions.txt:47` prose as stated there),
       `src/os/linux/object.rs` (§4.11) and `src/os/macos/object.rs` (§4.12) to their `tests/mod.rs`.
-- [ ] G4: tighten the ceilings for the six files (two `ceiling test` and four `ceiling inline`
+      Done: `inline1.py` → 23, 19, 16, 17 tests; motion → only the module lines differ; the coverage-exceptions
+      entry now gives its production reason only.
+- [x] G4: tighten the ceilings for the six files (two `ceiling test` and four `ceiling inline`
       rows go).
+      Done: → 2 STALE `test` + 4 TIGHTEN `inline` rows (6, 2, 2, 4); tighten drops exactly those six; re-run → 0.
 
 Acceptance: every os test runs from its new module, including the macOS-only launch tests on
 this host.
@@ -698,6 +704,10 @@ this host.
   `cargo test -p mfb --bin mfb -- --list 2>/dev/null | grep -cE '^os::(linux::(link::tests|appimage::tests|object::tests)|macos::(link::tests|object::tests)|windows::link::tests)::'`
   → 51+19+16+45+17+23 = 171; `grep -rn "linux/link/tests.rs" src/docs/spec` → no output;
   `grep -c "463-524" scripts/coverage-exceptions.txt` → 0; G3; G4; G5 (est. 12 min).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 171 passed` (the macOS launch tests
+  included); list count → 171; the spec grep → 0; the `463-524` grep → 0; census → 133/798/869, 89/819/752, 680, 246,
+  256, 415; hosts inline 4, 6, 2, 2; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8, 7 + 1
+  ignored, 8); G4 → 0; G5 → exit 0.
 Commit: —
 
 ### Phase 3 — Collection, link and canvas hosts (largest blast radius)
@@ -807,6 +817,9 @@ Commit: —
   and their bodies spell `super::encode` (9), `super::operand` and `super::{EncodedSection,
   EncodedSymbol}`: from a part `super` is `encode::tests`, so `encode/tests/mod.rs` imports those four
   names from `encode` (one line, with a comment) and the bodies stay byte for byte.
+- 2026-10-19 (execution): §4.7 lists `x86_static_image` as an `elf_writing.rs` helper, but
+  `sections_and_symbols.rs` calls it twice too (`cargo check` → 2 E0425), so it is shared and lives in
+  `linux/link/tests/mod.rs`.
 
 ## Summary
 

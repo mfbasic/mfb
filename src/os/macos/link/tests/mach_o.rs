@@ -1,0 +1,928 @@
+//! plan-176-J: the Mach-O linker's mach_o tests. The shared image builders live in\n//! `link/tests/mod.rs`.
+
+use super::*;
+
+// ===== Relocation patching + symbol resolution =====
+
+#[test]
+fn patches_external_data_relocations_to_got_entry() {
+    let mut text = vec![
+        0x00, 0x00, 0x00, 0x90, // adrp x0, symbol
+        0x00, 0x00, 0x00, 0x91, // add x0, x0, pageoff(symbol)
+    ];
+    let image = EncodedImage {
+        text: text.clone(),
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        relocations: vec![
+            EncodedRelocation {
+                offset: 0,
+                target: "_mach_task_self_".to_string(),
+                kind: "page21".to_string(),
+                binding: "external".to_string(),
+                library: Some("libSystem".to_string()),
+            },
+            EncodedRelocation {
+                offset: 4,
+                target: "_mach_task_self_".to_string(),
+                kind: "pageoff12".to_string(),
+                binding: "external".to_string(),
+                library: Some("libSystem".to_string()),
+            },
+        ],
+        imports: vec![import("libSystem", "_mach_task_self_")],
+        ..none()
+    };
+    let text_vmaddr = VM_BASE + 0x4000;
+    let locations =
+        append_import_stubs(&mut text, &image, text_vmaddr, 0x4000, 0).expect("import stubs");
+
+    let data_vmaddr = text_vmaddr + text.len() as u64;
+    patch_relocations(
+        &mut text,
+        &image,
+        text_vmaddr,
+        data_vmaddr,
+        data_vmaddr,
+        0,
+        &locations,
+    )
+    .expect("relocations");
+
+    assert!(locations.got_entries.contains_key("_mach_task_self_"));
+}
+
+#[test]
+fn bind_info_uses_uleb_ordinal_past_fifteen() {
+    // A 16th distinct library forces the ULEB ordinal path (BIND_OPCODE
+    // SET_DYLIB_ORDINAL_ULEB, 0x80) instead of the packed immediate form.
+    // `bind_info` takes the library list directly, so hand-build 16 libraries
+    // and place the single import in the last one (ordinal 16).
+    let libraries: Vec<(String, String)> = (1..=16)
+        .map(|i| (format!("lib{i}"), format!("/usr/lib/lib{i}.dylib")))
+        .collect();
+    let image = EncodedImage {
+        text: Vec::new(),
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: vec![import("lib16", "_late")],
+        ..none()
+    };
+    assert_eq!(library_ordinal(&libraries, "lib16").unwrap(), 16);
+    let bind = bind_info(&image, &libraries);
+    // 0x80 = SET_DYLIB_ORDINAL_ULEB, then a single ULEB byte 16 (0x10).
+    assert_eq!(bind[0], 0x80);
+    assert_eq!(bind[1], 0x10);
+    // Followed by BIND_OPCODE_SET_SYMBOL (0x40) and the null-terminated name.
+    assert_eq!(bind[2], 0x40);
+    assert!(bind
+        .windows(b"_late\0".len())
+        .any(|window| window == b"_late\0"));
+}
+
+#[test]
+fn import_libraries_assigns_one_ordinal_per_distinct_library() {
+    let image = EncodedImage {
+        text: Vec::new(),
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: vec![
+            import("libSystem", "_exit"),
+            import("Network", "_nw_path_monitor_create"),
+            import("libSystem", "_write"),
+        ],
+        ..none()
+    };
+    let libraries = import_libraries(&image).expect("libraries");
+    assert_eq!(libraries.len(), 2);
+    assert_eq!(library_ordinal(&libraries, "libSystem").unwrap(), 1);
+    assert_eq!(library_ordinal(&libraries, "Network").unwrap(), 2);
+    // The bind stream tags _nw_path_monitor_create with dylib ordinal 2.
+    let bind = bind_info(&image, &libraries);
+    assert!(bind.contains(&0x12)); // SET_DYLIB_ORDINAL_IMM(2)
+}
+
+// ===== Load-time initializers (__mod_init_func) =====
+
+#[test]
+fn rejects_initializer_without_text_symbol() {
+    // plan-linker.md §5.3: an initializer that names no internal text symbol
+    // must error rather than be silently dropped (mirrors the Linux backend).
+    let image = EncodedImage {
+        text: vec![0xc0, 0x03, 0x5f, 0xd6],
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: vec!["_missing".to_string()],
+        signing_metadata: None,
+        rpaths: Vec::new(),
+        debug_symbols: false,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let error = write_executable(dir.path(), "init", &image)
+        .expect_err("dangling initializer must be rejected");
+    assert!(error.contains("does not resolve to a text symbol"));
+}
+
+// S_MOD_INIT_FUNC_POINTERS end to end on the no-imports path (plan-linker.md
+// §7.5): a self-contained program whose initializer exits 0 via a direct
+// syscall while `_main` would exit 7. Exit 0 proves dyld ran the rebased
+// `__mod_init_func` pointer before `LC_MAIN`; a missing or mis-rebased pointer
+// would let `_main` run (exit 7) or crash.
+#[cfg(target_os = "macos")]
+#[test]
+fn runs_initializer_before_entry_without_imports() {
+    let words: [u32; 6] = [
+        0xD280_0000, // _init0: movz x0, #0
+        0xD280_0030, //         movz x16, #1   (SYS_exit)
+        0xD400_1001, //         svc  #0x80     -> exit(0)
+        0xD280_00E0, // _main:  movz x0, #7
+        0xD280_0030, //         movz x16, #1
+        0xD400_1001, //         svc  #0x80     -> exit(7)
+    ];
+    let mut text = Vec::new();
+    for word in words {
+        put_u32(&mut text, word);
+    }
+    let image = EncodedImage {
+        text,
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![
+            EncodedSymbol {
+                name: "_init0".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            },
+            EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 12,
+            },
+        ],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: vec!["_init0".to_string()],
+        signing_metadata: None,
+        rpaths: Vec::new(),
+        debug_symbols: false,
+    };
+    let dir = std::env::temp_dir().join(format!("mfb_modinit_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = write_executable(&dir, "modinit", &image).expect("link initializer executable");
+    let status = std::process::Command::new(&path)
+        .status()
+        .expect("run initializer executable");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "the __mod_init_func initializer must run (exit 0) before _main (exit 7)"
+    );
+}
+
+// The combined path: a GOT (imported `_exit`) and a `__mod_init_func` share the
+// __DATA_CONST segment. The initializer calls the imported `_exit(0)`; `_main`
+// would call `_exit(7)`. Exit 0 proves bind (GOT) and rebase (mod-init) coexist
+// correctly in one segment.
+#[cfg(target_os = "macos")]
+#[test]
+fn runs_initializer_before_entry_with_imports() {
+    let words: [u32; 4] = [
+        0xD280_0000, // _init0: movz x0, #0
+        0x9400_0000, //         bl _exit        (external branch26, patched)
+        0xD280_00E0, // _main:  movz x0, #7
+        0x9400_0000, //         bl _exit        (external branch26, patched)
+    ];
+    let mut text = Vec::new();
+    for word in words {
+        put_u32(&mut text, word);
+    }
+    let image = EncodedImage {
+        text,
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![
+            EncodedSymbol {
+                name: "_init0".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            },
+            EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 8,
+            },
+        ],
+        relocations: vec![
+            EncodedRelocation {
+                offset: 4,
+                target: "_exit".to_string(),
+                kind: "branch26".to_string(),
+                binding: "external".to_string(),
+                library: Some("libSystem".to_string()),
+            },
+            EncodedRelocation {
+                offset: 12,
+                target: "_exit".to_string(),
+                kind: "branch26".to_string(),
+                binding: "external".to_string(),
+                library: Some("libSystem".to_string()),
+            },
+        ],
+        imports: vec![import("libSystem", "_exit")],
+        entry: "_main".to_string(),
+        initializers: vec!["_init0".to_string()],
+        signing_metadata: None,
+        rpaths: Vec::new(),
+        debug_symbols: false,
+    };
+    let dir = std::env::temp_dir().join(format!("mfb_modinit_imp_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path =
+        write_executable(&dir, "modinitimp", &image).expect("link initializer+import executable");
+    let status = std::process::Command::new(&path)
+        .status()
+        .expect("run initializer+import executable");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "the initializer's imported _exit(0) must run before _main's _exit(7)"
+    );
+}
+
+// ===== Code signing + provenance note =====
+
+#[test]
+fn writes_mfb_sign_section_to_mach_o() {
+    let image = EncodedImage {
+        text: vec![0xc0, 0x03, 0x5f, 0xd6],
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: Some(crate::arch::image::ExecutableSigning::unsealed(
+            br#"{"owner":"alice"}"#,
+        )),
+        rpaths: Vec::new(),
+        debug_symbols: false,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(dir.path(), "signed", &image).expect("link signed mach-o");
+    let bytes = std::fs::read(path).unwrap();
+    assert!(bytes
+        .windows(b"__MFB".len())
+        .any(|window| window == b"__MFB"));
+    assert!(bytes
+        .windows(b".mfbsign".len())
+        .any(|window| window == b".mfbsign"));
+    assert!(bytes
+        .windows(br#"{"owner":"alice"}"#.len())
+        .any(|window| window == br#"{"owner":"alice"}"#));
+}
+
+/// The `MFBasic\0` `LC_NOTE`'s out-of-line payload (plan-43), located the way
+/// `otool -l` does: walk the load commands, match `cmd == LC_NOTE` and the
+/// `data_owner`, then read `offset`/`size` out of the file. Also returns the
+/// payload's file offset so callers can prove it lies in the signed prefix.
+fn mfb_note(bytes: &[u8]) -> Option<(usize, Vec<u8>)> {
+    let read_u32 = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let read_u64 = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    let count = read_u32(16) as usize;
+    let mut command = 32;
+    for _ in 0..count {
+        let size = read_u32(command + 4) as usize;
+        if read_u32(command) == 0x31 {
+            assert_eq!(size, NOTE_COMMAND_SIZE);
+            let mut data_owner = [0u8; 16];
+            data_owner[..MFB_NOTE_OWNER.len()].copy_from_slice(MFB_NOTE_OWNER);
+            if bytes[command + 8..command + 24] == data_owner {
+                let offset = read_u64(command + 24) as usize;
+                let length = read_u64(command + 32) as usize;
+                return Some((offset, bytes[offset..offset + length].to_vec()));
+            }
+        }
+        command += size;
+    }
+    None
+}
+
+/// The file offset of `LC_CODE_SIGNATURE`'s blob — the ad-hoc signature's
+/// `codeLimit`. Every byte below it is covered by a page hash.
+fn code_signature_offset(bytes: &[u8]) -> usize {
+    let read_u32 = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    let count = read_u32(16) as usize;
+    let mut command = 32;
+    for _ in 0..count {
+        if read_u32(command) == 0x1d {
+            return read_u32(command + 8) as usize;
+        }
+        command += read_u32(command + 4) as usize;
+    }
+    panic!("LC_CODE_SIGNATURE must be present");
+}
+
+/// plan-43: every emitted Mach-O carries an unconditional `LC_NOTE` whose
+/// `data_owner` is `MFBasic\0` and whose out-of-line payload is the shared
+/// descriptor — placed below `codeLimit`, so the ad-hoc signature covers it and
+/// stays valid.
+#[test]
+fn mach_o_carries_the_mfbasic_provenance_note_inside_the_signed_region() {
+    let image = EncodedImage {
+        text: vec![0xc0, 0x03, 0x5f, 0xd6],
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![text_symbol("_main", 0)],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        ..none()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(dir.path(), "noted", &image).expect("link mach-o");
+    let bytes = std::fs::read(path).unwrap();
+    let (offset, descriptor) = mfb_note(&bytes).expect("LC_NOTE owned by MFBasic");
+    assert_eq!(descriptor, mfb_note_descriptor());
+    assert_eq!(offset % 16, 0, "the payload stays 16-byte aligned");
+    assert!(
+        offset + descriptor.len() <= code_signature_offset(&bytes),
+        "the payload must lie inside the signed prefix"
+    );
+}
+
+/// plan-43 non-goal: the marker is additive and orthogonal to the `--sign`
+/// feature — an image with `signing_metadata` carries both the `LC_NOTE` and the
+/// `__MFB`/`.mfbsign` segment.
+#[test]
+fn provenance_note_coexists_with_the_mfb_sign_segment() {
+    let image = EncodedImage {
+        text: vec![0xc0, 0x03, 0x5f, 0xd6],
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![text_symbol("_main", 0)],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: Some(crate::arch::image::ExecutableSigning::unsealed(
+            br#"{"owner":"alice"}"#,
+        )),
+        rpaths: Vec::new(),
+        debug_symbols: false,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(dir.path(), "noted-signed", &image).expect("link signed mach-o");
+    let bytes = std::fs::read(path).unwrap();
+    let (offset, descriptor) = mfb_note(&bytes).expect("LC_NOTE owned by MFBasic");
+    assert_eq!(descriptor, mfb_note_descriptor());
+    assert!(offset + descriptor.len() <= code_signature_offset(&bytes));
+    assert!(bytes
+        .windows(b".mfbsign".len())
+        .any(|window| window == b".mfbsign"));
+    assert!(bytes
+        .windows(br#"{"owner":"alice"}"#.len())
+        .any(|window| window == br#"{"owner":"alice"}"#));
+}
+
+/// plan-43 acceptance: the marker must not invalidate the ad-hoc code signature
+/// or change runtime behavior. `codesign -v` passing proves the `LC_NOTE` payload
+/// lies inside `codeLimit` (a payload past it, or an `LC_NOTE` the two-pass sign
+/// settle sized inconsistently, breaks verification); exit 7 proves dyld still
+/// loads the image and reaches `_main`. The plain, the `--sign`
+/// (`__MFB`/`.mfbsign`), and the sealed shapes — the content signature is filled
+/// into the blob before the ad-hoc signature hashes it, so sealing must leave
+/// `codesign -v` passing too.
+#[cfg(target_os = "macos")]
+#[test]
+fn noted_mach_o_verifies_and_runs() {
+    let words: [u32; 3] = [
+        0xD280_00E0, // _main: movz x0, #7
+        0xD280_0030, //        movz x16, #1  (SYS_exit)
+        0xD400_1001, //        svc  #0x80    -> exit(7)
+    ];
+    let mut text = Vec::new();
+    for word in words {
+        put_u32(&mut text, word);
+    }
+    let sealed = crate::arch::image::ExecutableSigning {
+        metadata: format!(
+            "{{\"contentSignature\":\"{}\"}}",
+            crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER
+        )
+        .into_bytes(),
+        signing_private: Some(mfb_repository::crypto::generate_keypair().1),
+    };
+    for (name, metadata) in [
+        ("noted_run", None),
+        (
+            "noted_run_signed",
+            Some(crate::arch::image::ExecutableSigning::unsealed(
+                br#"{"owner":"ada"}"#,
+            )),
+        ),
+        ("noted_run_sealed", Some(sealed)),
+    ] {
+        let image = EncodedImage {
+            text: text.clone(),
+            data: Vec::new(),
+            rodata_size: 0,
+            symbols: vec![text_symbol("_main", 0)],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: metadata,
+            rpaths: Vec::new(),
+            debug_symbols: false,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_executable(dir.path(), name, &image).expect("link mach-o");
+        let verified = std::process::Command::new("/usr/bin/codesign")
+            .arg("-v")
+            .arg(&path)
+            .status()
+            .expect("run codesign");
+        assert!(
+            verified.success(),
+            "{name}: codesign -v must still pass with the LC_NOTE present"
+        );
+        let status = std::process::Command::new(&path)
+            .status()
+            .expect("run binary");
+        assert_eq!(
+            status.code(),
+            Some(7),
+            "{name}: the marker is inert — _main must still run"
+        );
+    }
+}
+
+// Drives the multi-library Mach-O path (plan-linker.md §7) end to end against
+// the real `tls` driver library, Network.framework: a hand-built program that
+// imports a symbol from Network (ordinal 2) and `exit` from libSystem
+// (ordinal 1), then links and executes. A wrong dylib ordinal or a missing
+// LC_LOAD_DYLIB makes dyld fail to bind at launch, so a clean exit proves the
+// generalization.
+#[cfg(target_os = "macos")]
+#[test]
+fn links_and_runs_program_importing_from_two_dylibs() {
+    // _main: x0 = nw_path_monitor_create(); exit(x0 != null ? 0 : 7).
+    let words: [u32; 6] = [
+        0x9400_0000, // bl _nw_path_monitor_create  (external branch26, patched)
+        0xB400_0060, // cbz x0, fail (+12)
+        0xD280_0000, // movz x0, #0
+        0x1400_0002, // b done (+8)
+        0xD280_00E0, // fail: movz x0, #7
+        0x9400_0000, // done: bl _exit              (external branch26, patched)
+    ];
+    let mut text = Vec::new();
+    for word in words {
+        put_u32(&mut text, word);
+    }
+    let image = EncodedImage {
+        text,
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        relocations: vec![
+            EncodedRelocation {
+                offset: 0,
+                target: "_nw_path_monitor_create".to_string(),
+                kind: "branch26".to_string(),
+                binding: "external".to_string(),
+                library: Some("Network".to_string()),
+            },
+            EncodedRelocation {
+                offset: 20,
+                target: "_exit".to_string(),
+                kind: "branch26".to_string(),
+                binding: "external".to_string(),
+                library: Some("libSystem".to_string()),
+            },
+        ],
+        imports: vec![
+            import("libSystem", "_exit"),
+            import("Network", "_nw_path_monitor_create"),
+        ],
+        ..none()
+    };
+
+    let dir = std::env::temp_dir().join(format!("mfb_nwlink_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = write_executable(&dir, "nwlink", &image).expect("link multi-dylib executable");
+    let status = std::process::Command::new(&path)
+        .status()
+        .expect("run multi-dylib executable");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "program importing from libSystem + Network.framework should exit 0"
+    );
+}
+
+// Drives every internal/data relocation arm of `patch_relocations` on a
+// hand-built text blob: internal branch26, data page21/pageoff12. Asserts the
+// opcode bits land where the AArch64 encoding expects.
+#[test]
+fn patches_internal_and_data_relocations() {
+    let mut text = vec![
+        0x00, 0x00, 0x00, 0x94, // bl _target       (internal branch26)
+        0x00, 0x00, 0x00, 0x90, // adrp x0, _g      (data page21)
+        0x00, 0x00, 0x00, 0x91, // add x0,x0,#off   (data pageoff12)
+    ];
+    let image = EncodedImage {
+        text: text.clone(),
+        data: vec![0; 8],
+        rodata_size: 0,
+        symbols: vec![
+            text_symbol("_main", 0),
+            text_symbol("_target", 8),
+            data_symbol("_g", 0),
+        ],
+        relocations: vec![
+            EncodedRelocation {
+                offset: 0,
+                target: "_target".to_string(),
+                kind: "branch26".to_string(),
+                binding: "internal".to_string(),
+                library: None,
+            },
+            EncodedRelocation {
+                offset: 4,
+                target: "_g".to_string(),
+                kind: "page21".to_string(),
+                binding: "data".to_string(),
+                library: None,
+            },
+            EncodedRelocation {
+                offset: 8,
+                target: "_g".to_string(),
+                kind: "pageoff12".to_string(),
+                binding: "data".to_string(),
+                library: None,
+            },
+        ],
+        imports: Vec::new(),
+        ..none()
+    };
+    let text_vmaddr = VM_BASE + 0x4000;
+    let data_vmaddr = text_vmaddr + 0x4000;
+    patch_relocations(
+        &mut text,
+        &image,
+        text_vmaddr,
+        data_vmaddr,
+        data_vmaddr,
+        0,
+        &ImportLocations::default(),
+    )
+    .expect("relocations");
+    // The internal branch26 kept the bl opcode high byte (0x94) after patching.
+    assert_eq!(text[3] & 0xfc, 0x94);
+    // The adrp opcode (0x90 family) high bit set.
+    assert_eq!(read_u32(&text, 4).unwrap() & 0x9f00_0000, 0x9000_0000);
+}
+
+#[test]
+fn patch_relocations_rejects_unsupported_kind() {
+    let mut text = vec![0; 4];
+    let image = EncodedImage {
+        text: text.clone(),
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![text_symbol("_main", 0)],
+        relocations: vec![EncodedRelocation {
+            offset: 0,
+            target: "_main".to_string(),
+            kind: "bogus".to_string(),
+            binding: "weird".to_string(),
+            library: None,
+        }],
+        imports: Vec::new(),
+        ..none()
+    };
+    let err = patch_relocations(
+        &mut text,
+        &image,
+        VM_BASE,
+        VM_BASE,
+        VM_BASE,
+        0,
+        &ImportLocations::default(),
+    )
+    .expect_err("unsupported reloc");
+    assert!(err.contains("does not support relocation"), "{err}");
+}
+
+// bug-351: an out-of-range relocation offset must return a diagnostic, never
+// panic — matching the Linux twin (bug-225). Offsets are in-bounds by
+// construction and `EncodedImage` is never deserialized, so this fires only on
+// an internal codegen defect, which is exactly when a readable message beats a
+// stack trace. Before the fix, the macOS `write_u32` sliced `text[offset..
+// offset + 4]` unchecked and aborted the compiler here.
+#[test]
+fn patch_relocations_rejects_out_of_range_offset() {
+    // text is 8 bytes; offset 6 means offset + 4 = 10 > 8. A `data`/`page21`
+    // relocation reaches the (now bounds-checked) text access — `read_u32` — as
+    // its first indexing of `text`, so the offset error surfaces here. Before
+    // the fix this indexed `text[6..10]` unchecked and panicked.
+    let mut text = vec![0u8; 8];
+    let image = EncodedImage {
+        text: text.clone(),
+        data: vec![0u8; 8],
+        rodata_size: 0,
+        symbols: vec![text_symbol("_main", 0), data_symbol("_g", 0)],
+        relocations: vec![EncodedRelocation {
+            offset: 6,
+            target: "_g".to_string(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        }],
+        imports: Vec::new(),
+        ..none()
+    };
+    let err = patch_relocations(
+        &mut text,
+        &image,
+        VM_BASE,
+        VM_BASE,
+        VM_BASE,
+        0,
+        &ImportLocations::default(),
+    )
+    .expect_err("out-of-range relocation offset must be an error, not a panic");
+    assert!(
+        err.contains("relocation offset 6 + 4 exceeds text length 8"),
+        "{err}"
+    );
+}
+
+#[test]
+fn patch_relocations_rejects_unbound_external_symbols() {
+    let make = |kind: &str| EncodedImage {
+        text: vec![0; 4],
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![text_symbol("_main", 0)],
+        relocations: vec![EncodedRelocation {
+            offset: 0,
+            target: "_unbound".to_string(),
+            kind: kind.to_string(),
+            binding: "external".to_string(),
+            library: Some("libSystem".to_string()),
+        }],
+        imports: Vec::new(),
+        ..none()
+    };
+    for kind in ["branch26", "page21", "pageoff12"] {
+        let image = make(kind);
+        let mut text = image.text.clone();
+        let err = patch_relocations(
+            &mut text,
+            &image,
+            VM_BASE,
+            VM_BASE,
+            VM_BASE,
+            0,
+            &ImportLocations::default(),
+        )
+        .expect_err("unbound external");
+        assert!(err.contains("cannot bind external"), "{kind}: {err}");
+    }
+}
+
+// External page21/pageoff12 patched against a GOT entry (imported data global).
+#[test]
+fn patches_external_got_page_relocations() {
+    let mut text = vec![
+        0x00, 0x00, 0x00, 0x90, // adrp x0, GOT   (external page21)
+        0x00, 0x00, 0x00, 0x91, // add  x0, ...   (external pageoff12)
+    ];
+    let image = EncodedImage {
+        text: text.clone(),
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: vec![text_symbol("_main", 0)],
+        relocations: vec![
+            EncodedRelocation {
+                offset: 0,
+                target: "environ".to_string(),
+                kind: "page21".to_string(),
+                binding: "external".to_string(),
+                library: Some("libSystem".to_string()),
+            },
+            EncodedRelocation {
+                offset: 4,
+                target: "environ".to_string(),
+                kind: "pageoff12".to_string(),
+                binding: "external".to_string(),
+                library: Some("libSystem".to_string()),
+            },
+        ],
+        imports: vec![import("libSystem", "environ")],
+        ..none()
+    };
+    let mut locations = ImportLocations::default();
+    locations
+        .got_entries
+        .insert("environ".to_string(), VM_BASE + 0x8000);
+    patch_relocations(
+        &mut text,
+        &image,
+        VM_BASE + 0x4000,
+        VM_BASE + 0x4000,
+        VM_BASE + 0x4000,
+        0,
+        &locations,
+    )
+    .expect("external got relocations");
+    assert_eq!(read_u32(&text, 0).unwrap() & 0x9f00_0000, 0x9000_0000);
+    assert_eq!(read_u32(&text, 4).unwrap() & 0xff00_0000, 0x9100_0000);
+}
+
+#[test]
+fn symbol_vmaddr_rejects_unknown_symbol() {
+    let image = EncodedImage {
+        text: Vec::new(),
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        ..none()
+    };
+    let err = symbol_vmaddr(&image, "_nope", VM_BASE, VM_BASE, Some((VM_BASE, 0)))
+        .expect_err("unknown symbol");
+    assert!(err.contains("does not resolve"), "{err}");
+}
+
+// A data symbol below `rodata_size` resolves into the read-only constant region
+// (`rodata_vmaddr`); one at or above it into the writable `__DATA` (`data_vmaddr`),
+// indexed past the constant prefix (bug-187).
+#[test]
+fn symbol_vmaddr_splits_constants_from_writable_data() {
+    let image = EncodedImage {
+        text: Vec::new(),
+        data: vec![0; 0x2000],
+        rodata_size: 0x1000,
+        symbols: vec![data_symbol("_const", 0x40), data_symbol("_arena", 0x1000)],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        ..none()
+    };
+    let text_vmaddr = VM_BASE;
+    let rodata_vmaddr = VM_BASE + 0x4000;
+    let data_vmaddr = VM_BASE + 0x8000;
+    // Constant: `rodata_vmaddr + offset`.
+    assert_eq!(
+        symbol_vmaddr(
+            &image,
+            "_const",
+            text_vmaddr,
+            data_vmaddr,
+            Some((rodata_vmaddr, 0x1000))
+        )
+        .unwrap(),
+        rodata_vmaddr + 0x40,
+    );
+    // Writable: `data_vmaddr + (offset - rodata_size)` — the first writable byte
+    // sits at the base of `__DATA`.
+    assert_eq!(
+        symbol_vmaddr(
+            &image,
+            "_arena",
+            text_vmaddr,
+            data_vmaddr,
+            Some((rodata_vmaddr, 0x1000))
+        )
+        .unwrap(),
+        data_vmaddr,
+    );
+}
+
+#[test]
+fn dylib_path_covers_all_libraries_and_rejects_unknown() {
+    assert_eq!(
+        dylib_path("libSystem").unwrap(),
+        "/usr/lib/libSystem.B.dylib"
+    );
+    assert_eq!(
+        dylib_path("Network").unwrap(),
+        "/System/Library/Frameworks/Network.framework/Network"
+    );
+    assert_eq!(dylib_path("libz").unwrap(), "/usr/lib/libz.1.dylib");
+    assert!(dylib_path("Unknown")
+        .expect_err("unknown lib")
+        .contains("no dylib path"));
+}
+
+#[test]
+fn library_ordinal_rejects_absent_library() {
+    let libraries = import_libraries(&EncodedImage {
+        text: Vec::new(),
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: vec![import("libSystem", "_exit")],
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+        rpaths: Vec::new(),
+        debug_symbols: false,
+    })
+    .unwrap();
+    assert_eq!(library_ordinal(&libraries, "libSystem").unwrap(), 1);
+    assert!(library_ordinal(&libraries, "Network")
+        .expect_err("absent library")
+        .contains("no dylib ordinal"));
+}
+
+#[test]
+fn data_const_helpers_size_by_slots() {
+    let none = none();
+    assert_eq!(data_const_size(&none), 0);
+    assert_eq!(data_const_section_count(0, 0, false), 0);
+    assert_eq!(data_const_section_count(1, 0, false), 1);
+    assert_eq!(data_const_section_count(0, 1, false), 1);
+    assert_eq!(data_const_section_count(2, 3, false), 2);
+    // The read-only `__const` block adds a third section (bug-187).
+    assert_eq!(data_const_section_count(0, 0, true), 1);
+    assert_eq!(data_const_section_count(2, 3, true), 3);
+    let some = EncodedImage {
+        imports: vec![import("libSystem", "_exit")],
+        initializers: vec!["_init".to_string()],
+        ..none
+    };
+    // Two slots (one import + one initializer) round up to a page.
+    assert_eq!(data_const_size(&some), PAGE_SIZE);
+}
+
+#[test]
+fn plist_escape_handles_all_predefined_entities() {
+    assert_eq!(
+        plist_escape("a&b<c>d\"e'f"),
+        "a&amp;b&lt;c&gt;d&quot;e&apos;f"
+    );
+}
+
+#[test]
+fn rejects_entry_symbol_not_in_text() {
+    // The entry names a data symbol → encoding must refuse.
+    let image = EncodedImage {
+        text: vec![0xc0, 0x03, 0x5f, 0xd6],
+        data: vec![0; 4],
+        rodata_size: 0,
+        symbols: vec![data_symbol("_main", 0)],
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        ..none()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let err = write_executable(dir.path(), "bad", &image).expect_err("entry not text");
+    assert!(err.contains("does not resolve to text"), "{err}");
+}
+
+#[test]
+fn dylib_path_resolves_app_mode_frameworks() {
+    // App mode (plan-04-macos-app.md §6.5) binds against these frameworks.
+    assert_eq!(
+        dylib_path("AppKit").unwrap(),
+        "/System/Library/Frameworks/AppKit.framework/AppKit"
+    );
+    assert_eq!(
+        dylib_path("Foundation").unwrap(),
+        "/System/Library/Frameworks/Foundation.framework/Foundation"
+    );
+    assert_eq!(dylib_path("libobjc").unwrap(), "/usr/lib/libobjc.A.dylib");
+}

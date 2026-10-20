@@ -112,7 +112,7 @@ Each pointer has an ISA-specific `R_*_RELATIVE` relocation so the loader applies
 the PIE slide. Array invocation requires the C-runtime startup path; the raw
 console entry does not invoke it. Static ELF does not emit the array.
 [[src/os/linux/link/elf.rs:build]]
-[[src/os/linux/link/tests.rs:writes_init_array_glibc_elf]]
+[[src/os/linux/link/tests/elf_writing.rs:writes_init_array_glibc_elf]]
 For a normal custom-entry MFBASIC binary the entry runs `_mfb_linker_init`
 itself, so `initializers` is empty and no `.init_array` is produced.
 
