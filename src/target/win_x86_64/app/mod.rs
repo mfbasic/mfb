@@ -208,7 +208,7 @@ const CANVAS_HWND_SYM: &str = "_mfb_winapp_canvas_hwnd";
 /// keyboard still reach this window's procedure. Created hidden and kept at the client
 /// size; shown by [`WM_APP_CANVAS_SHOW`] and hidden by a readback frame's
 /// [`WM_APP_BLIT`] and by every reconcile out of canvas mode — the renderer module
-/// (`vulkan_present.rs`) says why the swapchain cannot present to this window itself.
+/// (`runtime/canvas/vulkan/present/`) says why the swapchain cannot present to this window itself.
 const CANVAS_CHILD_SYM: &str = crate::codegen::runtime::canvas::vulkan::CANVAS_CHILD_SYMBOL;
 /// bug-688 V6: posted by the renderer after each directly presented frame.
 const WM_APP_CANVAS_SHOW: &str = crate::codegen::runtime::canvas::vulkan::WM_APP_CANVAS_SHOW;

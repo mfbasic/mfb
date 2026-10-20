@@ -332,7 +332,7 @@ keep measuring it. A GPU frame is used only when a pipeline exists and the scene
 is one the backend draws correctly; otherwise that frame falls back to software.
 A machine with no Vulkan loader or driver builds no pipeline and draws in software.
 [[src/codegen/builtins/canvas/helper_render/render_loop.rs:ENSURE_GRAPHICS]]
-[[src/codegen/runtime/canvas/vulkan.rs:has_vulkan_backend]]
+[[src/codegen/runtime/canvas/vulkan/mod.rs:has_vulkan_backend]]
 
 **The GPU pipeline is never on a frame's critical path.** Creating it compiles the
 canvas shader, which a Vulkan driver that has not seen the executable before can take
@@ -351,7 +351,7 @@ the build then runs on the graphics thread before the first frame is drawn, so t
 run's first frame (and an exit during it) waits for the pipeline and every frame the
 backend accepts is a GPU frame.
 [[src/codegen/builtins/canvas/helper_render/render_loop.rs:render_loop_head]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_build]]
+[[src/codegen/runtime/canvas/vulkan/build.rs:emit_vulkan_build]]
 [[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_vulkan_builder_entry]]
 [[src/target/macos_aarch64/app/metal.rs:emit_metal_init]]
 [[src/target/macos_aarch64/app/metal.rs:emit_metal_builder]]
@@ -402,7 +402,7 @@ sends the frame down the readback path, and a FALSE from the readback makes
 `vkQueueWaitIdle`. [[src/target/macos_aarch64/app/metal.rs:SEL_STATUS]]
 [[src/codegen/builtins/canvas/func_metal_draw.rs:lower_metal_draw_scene]]
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_renderMetal]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
+[[src/codegen/runtime/canvas/vulkan/draw_scene.rs:emit_vulkan_draw_scene]]
 
 **No scene size is a limit on a GPU backend: a frame that does not fit the frame buffer
 is drawn in passes.** Every per-item payload travels in one frame buffer whose regions
@@ -460,7 +460,7 @@ constants, so drawing in passes rebuilds no pipeline.
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_vulkanRenderable]]
 [[src/codegen/runtime/canvas/scene_layout.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
+[[src/codegen/runtime/canvas/vulkan/bands.rs:emit_band_index]]
 [[src/codegen/runtime/canvas/scene_layout.rs:ITEM_BAND_NORM]]
 
 **A pass is told from a whole frame by one word of its draw list.** The emitters are
@@ -486,9 +486,9 @@ stats line describe the frame, not its passes.
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_renderMetal]]
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_renderVulkan]]
 [[src/target/macos_aarch64/app/metal.rs:emit_branch_if_more]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_load_render_pass]]
-[[src/codegen/runtime/canvas/vulkan_present.rs:emit_present_resume]]
-[[src/codegen/runtime/canvas/vulkan_present.rs:emit_submit_and_present]]
+[[src/codegen/runtime/canvas/vulkan/passes.rs:emit_load_render_pass]]
+[[src/codegen/runtime/canvas/vulkan/present/mod.rs:emit_present_resume]]
+[[src/codegen/runtime/canvas/vulkan/present/mod.rs:emit_submit_and_present]]
 
 **A `PolyLine` on either GPU reuses the polygon's edges and the gradient's stops.** Its
 segments upload through the polygon edge path and are banded the same way. The band
@@ -500,7 +500,7 @@ axis parameter. The first and last live segments travel in the block's gradient-
 words as whole numbers rather than 16.16, because 16.16 holds an index only up to 32,767.
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/target/macos_aarch64/app/metal.rs:METAL_SHADER_BODY]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
+[[src/codegen/runtime/canvas/vulkan/edges.rs:emit_edge_upload]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:polylineScan]]
 [[src/codegen/runtime/canvas/scene_layout.rs:HEADER_POLYLINE_FIRST]]
 
@@ -569,7 +569,7 @@ otherwise narrow to zero, is given a residual of 1.
 [[src/codegen/runtime/canvas/scene_layout.rs:emit_item_stroke_sign]]
 [[src/codegen/builtins/canvas/helper_render/gpu_draw_list.rs:__canvas_pushOneDraw]]
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
+[[src/codegen/runtime/canvas/vulkan/edges.rs:emit_edge_upload]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:shapeCoverage]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dfShapeDistance]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:farBound]]
@@ -611,9 +611,9 @@ one on screen. The child answers `WM_NCHITTEST` with `HTTRANSPARENT` and never t
 focus, so input still reaches the canvas window. Entering canvas mode fits the child to
 the client area and publishes that size as the canvas size, and `WM_SIZE` keeps both
 current.
-[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
-[[src/codegen/runtime/canvas/vulkan_present.rs:emit_ensure_swapchain]]
-[[src/codegen/runtime/canvas/vulkan_present.rs:emit_submit_and_present]]
+[[src/codegen/runtime/canvas/vulkan/draw_scene.rs:emit_vulkan_draw_scene]]
+[[src/codegen/runtime/canvas/vulkan/present/mod.rs:emit_ensure_swapchain]]
+[[src/codegen/runtime/canvas/vulkan/present/mod.rs:emit_submit_and_present]]
 [[src/target/win_x86_64/app/mod.rs:emit_canvas_child_fit]]
 
 **Compositing happens in linear light.** A colour's channels are sRGB-encoded
@@ -837,7 +837,7 @@ offsets from the item's own outline taken in double-float, so the precision is t
 outline's position rather than its coordinates'.
 [[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_STROKE_STYLE]]
 [[src/target/macos_aarch64/app/metal.rs:emit_dash_buffer]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_dash_upload]]
+[[src/codegen/runtime/canvas/vulkan/stroke_style.rs:emit_dash_upload]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dashedStroke]]
 
 **A `Polygon` is one or more closed rings filled under its `rule`.** `contours` is a
@@ -1024,7 +1024,7 @@ pass), however many `Picture` items name it — a tilemap of thousands of tiles 
 from a few images costs those few images — and a block's cost counts each distinct
 image once a pass against the region's 8M texels.
 [[src/target/macos_aarch64/app/metal.rs:emit_picture_lookup]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_picture_lookup]]
+[[src/codegen/runtime/canvas/vulkan/picture.rs:emit_picture_lookup]]
 
 **`Paint.clip` restricts an item to the area its rings enclose.** `clip` is a
 `List OF List OF vector::Float2`, each inner list a closed ring exactly as a `Polygon`'s
@@ -1089,7 +1089,7 @@ there is.
 [[src/codegen/runtime/canvas/scene_layout.rs:ITEM_CLIP_BAND_NORM]]
 [[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_CLIP_PATH]]
 [[src/target/macos_aarch64/app/metal.rs:emit_clip_buffer]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_clip_upload]]
+[[src/codegen/runtime/canvas/vulkan/edges.rs:emit_clip_upload]]
 
 **`Paint.transparency` fades the whole item.** It is clamped to `0.0`..`1.0` — a NaN
 counts as `1.0` — and becomes the step `T = int(clamp(transparency, 0, 1) * 255 + 0.5)`.
@@ -1437,7 +1437,7 @@ block's cost counts `2 × pieces` against the edge region, with every other item
 edges; a pass ends before the region is passed, and a shape of more pieces than half
 the region is the software renderer's, with its frame.
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
+[[src/codegen/runtime/canvas/vulkan/edges.rs:emit_edge_upload]]
 [[src/codegen/builtins/canvas/helper_render/mod.rs:RENDER_METAL_TEMPLATE]]
 
 The shader functions are the software renderer's, one for one — `pieceCrossing`,
@@ -1601,8 +1601,8 @@ Vulkan that both stages declare. `hasMatrix` is not sent — an inverse is never
 zero, so all-zero bits mean the groups only translate, and the shaders then take the
 branch they took before a group could have a matrix.
 [[src/target/macos_aarch64/app/metal.rs:emit_draw_list_pass]]
-[[src/codegen/runtime/canvas/vulkan.rs:emit_draw_list_pass]]
-[[src/codegen/runtime/canvas/vulkan.rs:PUSH_OFFSET_BYTES]]
+[[src/codegen/runtime/canvas/vulkan/publish.rs:emit_draw_list_pass]]
+[[src/codegen/runtime/canvas/vulkan/mod.rs:PUSH_OFFSET_BYTES]]
 
 With a matrix:
 

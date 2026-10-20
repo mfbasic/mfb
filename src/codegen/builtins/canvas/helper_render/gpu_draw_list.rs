@@ -102,7 +102,7 @@ MUT __CANVAS_VIEWPORT_H AS Integer = 0
 ' How many item-buffer blocks one geometry record occupies.
 ' How many INSTANCES one geometry block publishes. This has to agree, case for case,
 ' with what the emitters actually write into the item buffer -- `emit_split_or_publish`
-' and `emit_glyph_publish` in src/codegen/runtime/canvas/vulkan.rs -- because the draw
+' and `emit_glyph_publish` in src/codegen/runtime/canvas/vulkan/publish.rs -- because the draw
 ' list's bases are running sums of this function while the item buffer's contents are
 ' the emitter's. A single case that disagrees shifts every base after it, and the last
 ' entry then draws instances that were never published: uninitialised buffer, which
@@ -172,7 +172,7 @@ FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS 
   '
   ' This width is agreed in THREE places and there is no gate that checks they agree:
   ' here, `__canvas_drawsText` in helper_surface.rs, and `emit_draw_list_pass` in
-  ' src/codegen/runtime/canvas/vulkan.rs (`CANVAS_DRAW_ENTRY_SHIFT`), with
+  ' src/codegen/runtime/canvas/vulkan/publish.rs (`CANVAS_DRAW_ENTRY_SHIFT`), with
   ' `canvas::sceneDrawsFlat` writing the same width natively.
   ' When they disagreed -- this function writing four words while the emitter strode by eight --
   ' the emitter read every other entry and took the following entry's `base` as a blend

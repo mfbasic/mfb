@@ -222,7 +222,7 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
 }
 
 /// Both emitters upload a picture's pixel block ONCE per buffer and point every later
-/// picture of it at those texels (`emit_picture_lookup` in `metal.rs` and `vulkan.rs`),
+/// picture of it at those texels (`emit_picture_lookup` in `metal.rs` and `vulkan/picture.rs`),
 /// so the frame sum and the pass walk must count each distinct block once against the
 /// glyph region. Counting per item ends a pass early on a 2,000-tile tilemap that uses
 /// 2,048 texels (bug-686 H); counting per block against an emitter that copied per item

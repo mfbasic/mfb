@@ -4869,7 +4869,7 @@ pub(super) fn emit_transaction_commit(asm: &mut Asm) {
 /// header already stores. Nothing here rounds a colour, so a fill is exact.
 /// One quad per glyph, for a `__CANVAS_GEO_TEXT` item.
 ///
-/// The Metal twin of `emit_glyph_publish` in `runtime/canvas/vulkan.rs`, and now the
+/// The Metal twin of `emit_glyph_publish` in `runtime/canvas/vulkan/publish.rs`, and now the
 /// same design (bug-670): each glyph's bitmap is copied into the frame buffer's glyph
 /// region at `OFF_GLYPH_CURSOR`, one sample a word, and the cursor goes into the
 /// glyph's block at `ITEM_ARC_EDGE_BASE`, where the shader finds it as `arc.z`. It used
@@ -5237,7 +5237,8 @@ fn emit_glyph_publish(asm: &mut Asm) {
     // The per-glyph quad narrows the item's quad to this one glyph's box, which is only
     // valid UNTRANSFORMED — the box is in shape space, so under a transform the GPU
     // would rasterise a region the glyph no longer occupies and draw nothing. See the
-    // twin of this block in `runtime/canvas/vulkan.rs` for the cost of the alternative.
+    // twin of this block in `runtime/canvas/vulkan/publish.rs` (`vk_glyph_hull`) for the
+    // cost of the alternative.
     {
         let keep_hull = format!("{METAL_DRAW_SYMBOL}_glyph_hull");
         asm.push(abi::load_u32(
@@ -5423,7 +5424,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     // bug-735: every field a distance reads -- the shape parameters, the radius and
     // stroke half-width, an arc's sweep endpoints, an ellipse's rotation and the clip --
     // as its 16.16 word and, in the block's residual `ivec4`s, its residual. The twin of
-    // the loop in `runtime/canvas/vulkan.rs`, from the same table.
+    // the `ITEM_RESIDUAL_FIELDS` loop in `runtime/canvas/vulkan/item_block.rs`, from the same table.
     asm.push(abi::move_immediate(
         abi::SCRATCH[1],
         "Integer",
@@ -5611,7 +5612,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     ));
 
     // The cap tag, in the per-kind block's last free word (plan-116-D) — the twin of
-    // the block in `runtime/canvas/vulkan.rs`, and unconditional for the same reason.
+    // the block in `runtime/canvas/vulkan/item_block.rs`, and unconditional for the same reason.
     // plan-116-F: the gradient's kind, a whole 0 or 1 in the block's last spare word.
     // plan-163-D: packed with the spread and the stroke apply, `kind + 2 * spread + 8 *
     // apply` (`ITEM_SURFACE_GRADIENT_KIND`), every term a small whole number.
@@ -5759,7 +5760,7 @@ fn emit_item_publish(asm: &mut Asm, full: &str) {
 /// — a zero `strokeHalf` skips the stroke arm, a zero fill alpha premultiplies to
 /// nothing.
 ///
-/// The twin of `emit_split_or_publish` in `runtime/canvas/vulkan.rs`; the two must
+/// The twin of `emit_split_or_publish` in `runtime/canvas/vulkan/publish.rs`; the two must
 /// split the same items or the backends disagree on exactly the scenes this letter
 /// adds.
 fn emit_split_or_publish(asm: &mut Asm, full: &str) {
@@ -5913,7 +5914,7 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
 
 /// One instanced draw per entry of `__canvas_sceneDraws`, after every block is
 /// published (plan-116-H Phase 3 — the Metal twin of `emit_draw_list_pass` in
-/// `runtime/canvas/vulkan.rs`).
+/// `runtime/canvas/vulkan/publish.rs`).
 ///
 /// This replaces `emit_run_flush`, which ended a run at a blend-mode change, at a glyph
 /// run and at the end of the scene, and took its instance count from the emitter's own
@@ -6141,7 +6142,7 @@ fn emit_draw_list_pass(asm: &mut Asm) {
 /// where they landed in the item block.
 ///
 /// The twin of `emit_edge_buffer`, and of `emit_gradient_upload` in
-/// `runtime/canvas/vulkan.rs` — one buffer, three regions, a per-item base index.
+/// `runtime/canvas/vulkan/item_block.rs` — one buffer, three regions, a per-item base index.
 ///
 /// The stops sit at the END of the geometry record (`slot1 − count * 5`), because
 /// `__canvas_tailFor` appends them after whatever other tail the kind has. Deriving the
@@ -7085,7 +7086,7 @@ fn emit_picture_record(asm: &mut Asm) {
 }
 
 /// plan-163-B: the item's join records into the frame buffer's edge region after its own
-/// edges, two edge slots per record -- `emit_join_upload` in `runtime/canvas/vulkan.rs`,
+/// edges, two edge slots per record -- `emit_join_upload` in `runtime/canvas/vulkan/stroke_style.rs`,
 /// line for line: the records' points as 16.16 words with their residuals, found from
 /// the record's end (`header + (slot1 - stops * 5 - records * 8) * 8`), their first slot
 /// and count in `strokeStyle`, and 0 there (and in the dash words) for an item with none.

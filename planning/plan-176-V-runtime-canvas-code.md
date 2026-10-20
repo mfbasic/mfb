@@ -1020,25 +1020,25 @@ citation still points at a symbol that left `mod.rs`.
   ceiling row the tighten then removed; §10.1 grep → empty; budget → `TIGHTEN code 44 (ceiling 2272)`, removed;
   census → mod 44 + 178 test, state_layout 124, scene_layout 414 + 2 test, entry 195, thread_lifecycle 569,
   frame_sync 669, surface 274 + 21 test.
-Commit: —
+Commit: e9259dfee
 
 ### Phase 3 — `vulkan.rs` → `vulkan/`, `vulkan_present.rs` → `vulkan/present/mod.rs` (pure motion)
 
-- [ ] `git mv src/codegen/runtime/canvas/vulkan.rs src/codegen/runtime/canvas/vulkan/mod.rs`.
+- [x] `git mv src/codegen/runtime/canvas/vulkan.rs src/codegen/runtime/canvas/vulkan/mod.rs`.
       `vulkan/tests/` from J is already in that directory.
-- [ ] `git mv src/codegen/runtime/canvas/vulkan_present.rs
+- [x] `git mv src/codegen/runtime/canvas/vulkan_present.rs
       src/codegen/runtime/canvas/vulkan/present/mod.rs`. In `vulkan/mod.rs`, replace
       `#[path = "vulkan_present.rs"]` + `mod present;` with `mod present;`.
-- [ ] `include_bytes!` paths → `"../shaders/mfb_canvas.vert.spv"` /
+- [x] `include_bytes!` paths → `"../shaders/mfb_canvas.vert.spv"` /
       `"../shaders/mfb_canvas.frag.spv"`.
-- [ ] Split `vulkan/mod.rs` into the 14 parts of §4.3 (`calls`, `memory`, `build`,
+- [x] Split `vulkan/mod.rs` into the 14 parts of §4.3 (`calls`, `memory`, `build`,
       `descriptors`, `pipeline`, `target`, `item_block`, `edges`, `stroke_style`, `bands`,
       `picture`, `publish`, `draw_scene`, `passes`). Add the 14 `mod` decls, the 12 private
       part globs and the two explicit `pub(crate) use` re-exports.
-- [ ] The 62 `pub(super)` additions of §4.3 (39 items, 23 fields).
-- [ ] Repoint the 14 `vulkan.rs` citations and the 4 `vulkan_present.rs` citations
+- [x] The 62 `pub(super)` additions of §4.3 (39 items, 23 fields).
+- [x] Repoint the 14 `vulkan.rs` citations and the 4 `vulkan_present.rs` citations
       (→ `vulkan/present/mod.rs`) per §4.3.
-- [ ] `.ai/arch-abi.md:70`, `.ai/canvas-threading.md:585`, and every Phase-3 row of the §4.6
+- [x] `.ai/arch-abi.md:70`, `.ai/canvas-threading.md:585`, and every Phase-3 row of the §4.6
       table.
 
 Acceptance: both Vulkan modules compile from the new tree with no `#[path]`, every outside caller
@@ -1063,6 +1063,23 @@ the emitted Vulkan members still run in the interpreter.
 
   Tighten removes the `vulkan.rs` and `vulkan_present.rs` ceiling rows as missing paths. Every
   other new `vulkan/` file is ≤ 900 by step 10 (est. 25 min total).
+- [x] Repoint the comment mentions §4.6's table did not list: `vulkan/publish.rs` (old 6746's neighbour, the
+      read-back note naming `vulkan_present.rs`) and `metal.rs`'s draw-list twin (`emit_draw_list_pass`, old
+      5726) were in the table; the rest of the 25 hits are its rows at shifted lines (`grep -rnE
+      '(canvas/|`)vulkan(_present)?\.rs|vulkan\.rs|vulkan_present\.rs' src tests tools scripts .ai`).
+  Done: `git mv` both files, then `codesplit.py` by item name (`v3-vulkan.json`; every name §4.3 lists, at lines
+  ~25 later than planned); the wiring script removed the `#[path]`, re-based both `include_bytes!` paths, and
+  wrote the 14 `mod` lines, the two `pub(crate) use` re-exports and the 12 private globs. Visibility: `autovis.py`
+  added 38, then `BandSlots.cursor` (a use-site error `autovis` does not parse), `BandSet` (`private_interfaces`)
+  and all fields of `PictureSlots` (6) and `GlyphPublishSlots` (16) by hand → 62 new `pub(super)` (63 in `vulkan/`
+  minus the existing `emit_branch_on_pass`), exactly §4.3's count. `present/mod.rs` unchanged but for one comment.
+  Verified 2026-10-20: `motion.py` (ignoring `pub(super)`) → only wiring, the `#[path]`/`include_bytes!` edits and
+  rustfmt re-wraps; N = 5018, W = 0; `spec_citations_resolve` + `codegen::runtime::canvas` → 26 passed; guards →
+  9, 8, 7 + 1 ignored; C1 → `SAME` ×4; `codegen_canvas_vulkan_off_frame_path` → 6 passed; cites → 14 + 4
+  repointed; the `#[path]` grep, the old-cite grep, the comment grep and §10.1 → empty/0; budget → `NEW code 1061 >
+  1000 …/vulkan/draw_scene.rs` (1061, not 1060) and `NEW code 1848 > 1000 …/vulkan/present/mod.rs`, both STALE rows
+  gone after the tighten; census → mod 523 + 33 test, calls 338, memory 255, build 577, descriptors 504, pipeline
+  586, target 541, item_block 440, edges 547, stroke_style 344, bands 441, picture 345, publish 753, passes 114.
 Commit: —
 
 ### Phase 4 — `vulkan/present/` parts (pure motion)

@@ -125,7 +125,7 @@ const ST_SWAPCHAIN_CREATE_INFO_KHR: &str = "1000001000";
 const SEMAPHORE_INFO_SIZE: usize = 24;
 const ST_SEMAPHORE_CREATE_INFO: &str = "9";
 
-/// `VkSubmitInfo`'s semaphore members (the rest are in `vulkan.rs`).
+/// `VkSubmitInfo`'s semaphore members (the rest are in `vulkan/mod.rs`).
 const SUBMIT_WAIT_COUNT: usize = 16;
 const SUBMIT_WAIT_SEMAPHORES: usize = 24;
 const SUBMIT_WAIT_STAGES: usize = 32;

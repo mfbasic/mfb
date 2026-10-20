@@ -67,7 +67,7 @@ Spilling *after* staging does not fix it. `emit_external_int_call` gets away wit
 caller-saved `rdi`/`rsi`; at index 7 the staging write itself has already destroyed `rbp`.
 For an overflow argument, **write the value straight to the outgoing area** and never touch
 `c_arg(n)` for `n >= external_int_argument_registers()` — see
-`runtime/canvas/vulkan.rs:emit_int_arg_zero`, which branches on the register model so the
+`runtime/canvas/vulkan/calls.rs:emit_int_arg_zero`, which branches on the register model so the
 bytes are unchanged wherever the target's registers cover the call.
 
 Symptom when it happens: every API call reports success and the frame comes back blank.

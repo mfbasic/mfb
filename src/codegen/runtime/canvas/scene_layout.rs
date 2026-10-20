@@ -35,7 +35,7 @@ use super::*;
 /// `strokeStyle` at 272; plan-163-C's `clipBand` at 288 and `clipPath` at 304; plan-163-D's
 /// `gradInv0`/`gradInv1` at 320/336 and `gradFocal` at 352), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
-/// in `vulkan.rs` pins it. Widening the block means keeping every member `ivec4`-sized
+/// in `vulkan/tests/mod.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
 pub(crate) const ITEM_BLOCK_SIZE: usize = 368;
 /// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.

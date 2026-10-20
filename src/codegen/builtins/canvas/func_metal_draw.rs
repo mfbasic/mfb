@@ -182,7 +182,7 @@ pub(crate) fn lower_metal_draw_scene(
 ///
 /// Unlike the Metal one this needs no platform seam: Vulkan is plain C reached
 /// through `dlopen`, so the whole emitter is target-neutral and lives in
-/// `runtime/canvas/vulkan.rs`. On a target with no Vulkan path it emits nothing and
+/// `runtime/canvas/vulkan/`. On a target with no Vulkan path it emits nothing and
 /// the call is a no-op — unreachable anyway, since the renderer branch gates on
 /// `canvas::vulkanReady`.
 pub(crate) fn lower_vulkan_draw_scene(

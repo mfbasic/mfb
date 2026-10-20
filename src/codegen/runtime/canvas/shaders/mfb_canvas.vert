@@ -14,7 +14,7 @@
 // 128-byte range. Both properties had to go: the block is what every later letter of
 // plan-116 widens. `ItemBlock`'s std430 array stride is exactly the 112 bytes the
 // block already is (every member is an `ivec4`, which std430 aligns and sizes at 16),
-// and `the_item_block_matches_the_std430_stride` in `vulkan.rs` pins that agreement.
+// and `the_item_block_matches_the_std430_stride` in `vulkan/tests/mod.rs` pins that agreement.
 
 struct ItemBlock {
     ivec4 quad;    //  0: bounds minX, minY, maxX, maxY (16.16 px)

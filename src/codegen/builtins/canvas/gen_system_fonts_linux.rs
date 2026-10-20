@@ -2,7 +2,7 @@
 //! (plan-148-C).
 //!
 //! fontconfig is reached through `dlopen("libfontconfig.so.1")` and `dlsym`, never a
-//! `DT_NEEDED`, for the same reason Vulkan is (`runtime/canvas/vulkan.rs`): a canvas
+//! `DT_NEEDED`, for the same reason Vulkan is (`runtime/canvas/vulkan/`): a canvas
 //! program must still start on a machine without the library. There — or if any
 //! fontconfig call fails — the table is empty, so `listSystemFonts` answers `[]` and
 //! `loadSystemFont` answers `ErrNotFound`, rather than the program failing to run.

@@ -308,7 +308,7 @@ pub(crate) const GRAPHICS_OFFSET_FRAME_COND: usize = GRAPHICS_OFFSET_LAST_RENDER
 /// When `canvas::waitFrame` last returned, in the `CLOCK_REALTIME` nanoseconds its timed
 /// wait is expressed in. Written and read only by `waitFrame`, under the mutex.
 pub(crate) const GRAPHICS_OFFSET_LAST_WAIT: usize = GRAPHICS_OFFSET_FRAME_COND + 48;
-/// bug-688 V6: the Vulkan swapchain present path (`vulkan_present.rs`), **graphics
+/// bug-688 V6: the Vulkan swapchain present path (`vulkan/present/`), **graphics
 /// thread only** — the one thread that renders, so no lock.
 ///
 /// * `WSI` — 0 no window-system integration; 1 the instance took `VK_KHR_surface` +

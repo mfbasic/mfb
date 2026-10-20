@@ -631,7 +631,7 @@ vec2 inverseMap(vec2 p) {
 // word in `edges`, length), or (-1, edgeCount) for "every edge" -- any other kind, or a
 // polygon the emitter gave no band index (`arcCaps.z` = 0). The band header is
 // `arcCaps` = (top, height in 16.16, band count, table offset), written by
-// `emit_band_index` in `vulkan.rs`; the table is (first, count) per band and the list
+// `emit_band_index` in `vulkan/bands.rs`; the table is (first, count) per band and the list
 // follows it. A point above the first band or below the last uses the end band, which
 // the emitter built to hold every edge that can matter there. Metal's `polygonBand`,
 // line for line.

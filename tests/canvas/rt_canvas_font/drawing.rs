@@ -842,7 +842,7 @@ fn a_rotated_text_run_draws_rotated() {
 ///    entirely unexercised.
 /// 2. **The glyph fragment path's inverse sample matches the oracle's.** A transformed
 ///    run is the one case where the per-glyph quad cannot be narrowed to the glyph's
-///    own box (see the `_glyph_hull` block in `runtime/canvas/vulkan.rs`), so this is
+///    own box (see the `_glyph_hull` block in `runtime/canvas/vulkan/publish.rs`), so this is
 ///    also the test that the run's transformed hull is what the vertex stage expands.
 #[test]
 fn a_transformed_text_run_reaches_the_gpu_and_matches_the_oracle() {
