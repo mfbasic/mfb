@@ -10,7 +10,7 @@
 /// data is consumed: the rasteriser walks `__CANVAS_GEO_DATA` linearly and never wants a
 /// whole entry at once.
 ///
-/// bug-686: the store is kept natively (`func_geo_cache.rs`): `__CANVAS_GEO_SLOTS` holds
+/// bug-686: the store is kept natively (`func_geo_cache/`): `__CANVAS_GEO_SLOTS` holds
 /// four words per slot and `__CANVAS_GEO_TABLE` indexes them by item hash. A slot lives
 /// until the frame boundary after the first frame that did not use it. It used to be a
 /// 256-slot list scanned linearly per probe, then a `Map` whose per-frame rebuild and

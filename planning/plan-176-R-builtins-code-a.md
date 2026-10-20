@@ -758,13 +758,15 @@ and native code.
   2 ignored; `codegen::builtins::canvas` → 50; check warnings 0; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1
   ignored; sweep → only `'` raw-string lines; budget → one STALE row (2380) before, none after; census → mod 122/2,
   header_paint 491, header_kinds 479, tail 465, cache 560, verify 282.
-Commit: —
+Commit: 9237f3b8f
 
 ### Phase 5: func_geo_cache
 
-- [ ] `func_geo_cache.rs` → `func_geo_cache/{mod,table,resolve,layout,snapshot}.rs` per §4.7,
+- [x] `func_geo_cache.rs` → `func_geo_cache/{mod,table,resolve,layout,snapshot}.rs` per §4.7,
       with the 16 `pub(super)` edits and mod.rs's 4 `use` lines.
-- [ ] Repoint the 2 `06_canvas.md` citations, and the prose in §4.7.
+      Done: `codesplit.py` → 12, 4, 5, 5 items; exactly the 16 `pub(super)`; `motion.py` → wiring and the 16.
+- [x] Repoint the 2 `06_canvas.md` citations, and the prose in §4.7.
+      Done: `citesweep.py` → 2; `helper_geometry/cache.rs:13` (`///`) and `.ai/canvas-threading.md:1372` → `func_geo_cache/`.
 
 Acceptance: the native geometry cache is split, with byte-identical native code. The `func_`
 guard covers files inside `func_*/` directories.
@@ -774,6 +776,11 @@ guard covers files inside `func_*/` directories.
   `func_geo_cache/table.rs`, revert the line, rerun → passes (est. 2 min). Sweep:
   `grep -rn "func_geo_cache\.rs" src tests scripts .ai tools` → only the raw-string `'` line in
   `helper_geometry/cache.rs`. File-size path: `func_geo_cache` (est. 25 min).
+  Verified 2026-10-20: R-BID → `diff` empty; `rt_canvas_geo_native` → 4 passed; guard proof → with the probe line in
+  `table.rs` the guard FAILED naming `src/codegen/builtins/canvas/func_geo_cache/table.rs:487 (registers a *_native
+  shell body)`; reverted → 1 passed; `codegen::builtins::canvas` → 50; check warnings 0; `spec_citations_resolve` ok;
+  guards → 9, 8, 7 + 1 ignored; sweep → only the raw-string line; budget → one STALE row (1647) before, none after;
+  census → mod 360/15, table 437, resolve 315, layout 439, snapshot 117.
 Commit: —
 
 ### Phase 6: func_geo_build

@@ -1369,7 +1369,7 @@ Two consequences worth stating because they are easy to get wrong in the other o
 ## 14. The geometry cache and item hashes (bug-686)
 
 The graphics thread's geometry cache (`helper_geometry/`, kept by the inline native
-members of `func_geo_cache.rs`) is keyed by the item's content hash through
+members of `func_geo_cache/`) is keyed by the item's content hash through
 `__CANVAS_GEO_TABLE` (an open-addressing table of `(hash, slot)` over `__CANVAS_GEO_SLOTS`),
 and **a hit is trusted on the hash alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
 `setBytes` swaps without the item changing (`__canvas_pictureCached`). That is only

@@ -958,7 +958,7 @@ On the GPU path the block list still holds every item and its instance base; a r
 blocks ends where viewport visibility changes, and only visible runs become draw
 entries. A frame with no group lays that out natively with the same test at no offset,
 and a `--debug` build's `MFB_CANVAS_GEO_VERIFY=1` checks it against the MFBASIC walk.
-[[src/codegen/builtins/canvas/func_geo_cache.rs:emit_block_visible]]
+[[src/codegen/builtins/canvas/func_geo_cache/layout.rs:emit_block_visible]]
 
 The record says how much of its box is rim: header slots 67 (the x sides) and 68 (the y
 sides), in the units the box is in. Untransformed both are the one unit. Under a
@@ -1841,7 +1841,7 @@ The offset is good for the frame by the rule every offset is: no float of that l
 moves or is dropped inside a frame. `canvas::geoBeginFrame` is the one place that does,
 at the top of the next; it counts as stale every float no slot used, and the pass that
 keeps the used slots drops those with the rest.
-[[src/codegen/builtins/canvas/func_geo_cache.rs:lower_geo_begin_frame]] So the stats
+[[src/codegen/builtins/canvas/func_geo_cache/table.rs:lower_geo_begin_frame]] So the stats
 line's `entries=` does not count such particles and `floats=` does until the boundary.
 
 A particle the native builder declines — turned, scaled, a gradient fill, a `Text` —
