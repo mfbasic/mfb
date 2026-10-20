@@ -7,7 +7,7 @@
 One output line per (cases.tsv line, field site): `signature \t site \t expect`.
 The findings' §1 (record sites S3–S10) and §2 (`STATE` sites T1–T8) cell tables
 are the input, read from
-`planning/plan-144-findings/record-state-self-update-audit.md`:
+`planning/completed/plan-144-findings/record-state-self-update-audit.md`:
 
     finding cell        expect
     y                   arm
@@ -47,7 +47,7 @@ import re
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-FINDINGS = os.path.join(ROOT, "planning", "plan-144-findings", "record-state-self-update-audit.md")
+FINDINGS = os.path.join(ROOT, "planning", "completed", "plan-144-findings", "record-state-self-update-audit.md")
 CASES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases.tsv")
 
 RECORD_SITES = ["S3", "S4", "S5", "S6", "S7", "S9", "S10"]
