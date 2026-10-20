@@ -3,13 +3,10 @@
 # ceiling <code|inline|test> <n> <path>  an over-limit file may not grow past n; MFB_LOC_TIGHTEN=1 lowers n.
 ceiling code 1445 repository/src/client.rs
 ceiling inline 2838 repository/src/client.rs
-ceiling inline 457 repository/src/local.rs
-ceiling inline 637 repository/src/main.rs
 ceiling code 3056 repository/src/server.rs
 ceiling inline 7487 repository/src/server.rs
 ceiling code 3431 repository/src/store.rs
 ceiling inline 3468 repository/src/store.rs
-ceiling inline 523 repository/src/trust.rs
 ceiling code 1202 src/arch/aarch64/decode/vector.rs
 ceiling code 1133 src/arch/aarch64/encode/emitter.rs
 ceiling test 1251 src/arch/aarch64/encode/tests.rs

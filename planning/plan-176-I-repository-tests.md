@@ -778,16 +778,20 @@ Acceptance: the six hosts' tests run from `tests/mod.rs` files and the counts di
   `mfb_repository` lib `450 passed`; `mfb-repo` `24 passed`); G4 → 0; G5 `cargo fmt --all --check` and
   `cargo fmt --all --check --manifest-path repository/Cargo.toml` → clean; G6 → new files 760, 543, 316, 606, 380,
   581; hosts inline 14, 2, 2, 2, 53, 2.
-Commit: —
+Commit: 76d23b173
 
 ### Phase 2 — `local`, `trust` and the binary's tests
 
-- [ ] Move `repository/src/local.rs`'s tests to `local/tests/mod.rs` per §4.5 (declaration
+- [x] Move `repository/src/local.rs`'s tests to `local/tests/mod.rs` per §4.5 (declaration
       stays `pub(crate)`).
-- [ ] Move `repository/src/trust.rs`'s tests to `trust/tests/mod.rs` per §4.8.
-- [ ] Move `repository/src/main.rs`'s tests to `main/tests/mod.rs` per §4.6
+- [x] Move `repository/src/trust.rs`'s tests to `trust/tests/mod.rs` per §4.8.
+- [x] Move `repository/src/main.rs`'s tests to `main/tests/mod.rs` per §4.6
       (`#[cfg(test)] #[path = "main/tests/mod.rs"] mod tests;`).
-- [ ] G4: tighten the ceilings for the three files.
+      Done (all three, `python3 -I target/p176/i2.py`): 21, 16, 24 tests; `local` keeps `pub(crate) mod tests;`,
+      `main.rs` declares `#[path = "main/tests/mod.rs"] mod tests;`; motion → only the module lines differ.
+- [x] G4: tighten the ceilings for the three files.
+      Done: → TIGHTEN `inline` 2 (local), 3 (main, its `#[path]` line counts), 2 (trust); tighten drops exactly those;
+      re-run → 0.
 
 Acceptance: `local::tests::env_guard` still serves its importers and the binary's tests run
 from `main/tests/mod.rs`.
@@ -796,6 +800,10 @@ from `main/tests/mod.rs`.
   → 24 passed; `cargo test -p mfb_repository --lib -- --list 2>/dev/null | grep -cE '^(local|trust)::tests::'`
   → 21+16 = 37, and `cargo test -p mfb_repository --bin mfb-repo -- --list 2>/dev/null | grep -cE '^tests::'`
   → 24; G3; G4; G5; G6 over the 3 new files and 3 hosts (est. 12 min).
+  Verified 2026-10-19: G1 → lib 450 = 450, bin 24 = 24, leaves SAME, clippy 21 = 21; G2 → lib `ok. 225 passed`
+  (local, trust, client, server), bin `ok. 24 passed`; list counts → 37 and 24; G3 + landing tier → `test-fast: ok`
+  (mfb unit `4998 passed`; `mfb_repository` `450 passed`; `mfb-repo` `24 passed`); G4 → 0; G5 → both workspaces
+  clean; G6 → new files 454, 517, 630; hosts inline 2, 2, 3.
 Commit: —
 
 ### Phase 3 — `store`
