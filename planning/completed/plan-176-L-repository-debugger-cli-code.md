@@ -915,7 +915,7 @@ Acceptance: the store behaves identically and the single-writer invariant is sti
   803, versions 381/56, browse 381, blobs 118, governance 627, transparency 368; G5 → both workspaces exit 0.
   Final gate (Validation Plan): G1, G2, G3 as above; `cargo test --test file_size_budget` → 0 rows; `grep` of the
   ceiling file for any L path (old or new) → no row.
-Commit: —
+Commit: 51393afed
 
 ## Validation Plan
 
