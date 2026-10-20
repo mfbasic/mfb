@@ -935,19 +935,25 @@ Acceptance: as Phase 1, and the spec still resolves.
   census → resource_escape.rs `495 17`, shape.rs `2950 8`, new files 756, 36, 532, 655; spec_citations_resolve →
   `ok. 1 passed`; the rendered topic (debug `mfb` rebuilt by the fast tier) → `[[` count 0; G3 fast tier →
   `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8, 8, 7+1 ignored); G4 → 0; G5 → exit 0.
-Commit: —
+Commit: 2733eae7d
 
 ### Phase 3 — variant corpus
 
-- [ ] Create `src/ir/tests/variant_corpus/` per §4.2 (`mod.rs` + 2 parts) and delete
+- [x] Create `src/ir/tests/variant_corpus/` per §4.2 (`mod.rs` + 2 parts) and delete
       `src/ir/variant_corpus_tests.rs`.
-- [ ] `src/ir/mod.rs`: `#[cfg(test)] #[path = "tests/variant_corpus/mod.rs"] mod variant_corpus_tests;`.
-- [ ] G4: tighten (the `ceiling test … src/ir/variant_corpus_tests.rs` row is STALE).
+      Done: `items.py extract` (whole file) → parts 23 + 11 tests; the file is deleted; motion → only the widened
+      `use super::binary::{self, …}` line and the 2 part `mod` lines differ.
+- [x] `src/ir/mod.rs`: `#[cfg(test)] #[path = "tests/variant_corpus/mod.rs"] mod variant_corpus_tests;`.
+- [x] G4: tighten (the `ceiling test … src/ir/variant_corpus_tests.rs` row is STALE).
+      Done: → `STALE test (ceiling 1748) src/ir/variant_corpus_tests.rs` only; tighten drops it; re-run → 0.
 
 Acceptance: the 34 corpus tests run under the unchanged module path.
   Check: G1. G2: `cargo test -p mfb --bin mfb ir::variant_corpus_tests::` → 0 failed, and the
   `--list` count of `^ir::variant_corpus_tests::` → 34. G3 → passes: the files are under
   `/tests/`, so both string guards still exempt them. G4; G5 (est. 6 min).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 34 passed`; list count → 34; census →
+  536, 640, 576; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; architecture_guards 8,
+  no_operator_strings 8, no_type_strings 7 + 1 ignored); G4 → 0; G5 → exit 0.
 Commit: —
 
 ### Phase 4 — `src/ir/tests.rs`

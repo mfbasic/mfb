@@ -54,6 +54,7 @@ pub(crate) use lower_link::{link_spans, CStructSpans, LinkFunctionSpans, LinkSpa
 mod op;
 mod package;
 #[cfg(test)]
+#[path = "tests/variant_corpus/mod.rs"]
 mod variant_corpus_tests;
 // bug-343 A3: resource-escape analysis (was the misleadingly-named crate-root
 // `escape.rs`); pub(crate) so its `src/target/` consumers can reach it.
