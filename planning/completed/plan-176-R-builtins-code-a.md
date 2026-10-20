@@ -809,21 +809,23 @@ and `func_item_hash` compile unchanged.
   37065; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; sweep → only raw-string lines; budget → one STALE
   row (3111) before, none after; census → mod 612/66, record 227, paint 667, joins 432, dashes 258, fills 587,
   polyline 381.
-Commit: —
+Commit: d519b85fa
 
 ### Phase 7: letter gate
 
-- [ ] `sh scripts/artifact-gate.sh target/release/mfb all` on the Phase 6 binary (est. 15–20 min).
+- [x] `sh scripts/artifact-gate.sh target/release/mfb all` on the Phase 6 binary (est. 15–20 min).
+      Done (as `bash`): `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`.
       This is justified once per letter: code motion in codegen can change emission for any fixture
       on any target, and only `all` covers every fixture's goldens on all five targets.
-- [ ] `cargo test --test file_size_budget 2>&1 | grep -E 'src/codegen/builtins/(audio|big|canvas)/'`
+- [x] `cargo test --test file_size_budget 2>&1 | grep -E 'src/codegen/builtins/(audio|big|canvas)/'`
       → no row for an R file, and
       `grep -E 'gen_macos_stream|gen_windows_io|gen_big|func_geo_(build|cache)|helper_(curves|geometry|items|particles|picture)' tests/guards/file_size_ceilings.txt`
       → no `ceiling` line.
+      Done: → 0 rows; 0 ceiling lines.
 
 Acceptance: the whole letter is byte-identical on every target and the budget is clean for R's files.
   Check: the two commands above. The first prints a pass and the greps print no output.
-Commit: —
+Commit: (this commit; letter gate only)
 
 ## Validation Plan
 
