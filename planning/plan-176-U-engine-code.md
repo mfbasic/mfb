@@ -1254,19 +1254,19 @@ Acceptance: every statement lowers to the same code; the paths the artifact gate
   all passed; census → statement_dispatch 431, bind_op 477, assign_op 363; fns → `lower_bind_op` 474,
   `lower_ops_inner` 428, `lower_assign_op` 274, `lower_state_assign_op` 86; budget after tighten → only the
   `lower_inner.rs` (1227) and `lower_module.rs` (1849) NEW rows.
-Commit: —
+Commit: 7a4d4a886
 
 ### Phase 6 — Extract `lower_value_inner` arms
 
-- [ ] `builder_values/lower_construct.rs`: `lower_closure_value` (capturing Closure 2345–2618)
+- [x] `builder_values/lower_construct.rs`: `lower_closure_value` (capturing Closure 2345–2618)
       and `lower_union_wrap_value` (UnionWrap 3319–3428) (§4.11).
-- [ ] `builder_values/lower_call.rs`: `lower_call_value` (Call 2639–2832) and
+- [x] `builder_values/lower_call.rs`: `lower_call_value` (Call 2639–2832) and
       `lower_call_result_value` (CallResult 2835–3146).
-- [ ] `lower_inner.rs`: the four remainder arms of §4.11 (capture-less guard arm kept first);
+- [x] `lower_inner.rs`: the four remainder arms of §4.11 (capture-less guard arm kept first);
       `builder_values/mod.rs` gains `mod lower_call; mod lower_construct;`.
-- [ ] Repoint the Phase-6 rows of §4.13 (`.ai/collections.md:556`;
+- [x] Repoint the Phase-6 rows of §4.13 (`.ai/collections.md:556`;
       `builder_arena_transfer.rs:123,540,549`; `builder_emit_helpers.rs:652`).
-- [ ] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
+- [x] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
 
 Acceptance: every value expression lowers to the same code.
   Check: the common sequence with built-ins `general`, `collections`, `strings`, `json`,
@@ -1275,6 +1275,19 @@ Acceptance: every value expression lowers to the same code.
   `cargo test --test rt_inline_trap_union_bind --test rt_inline_trap_nested_call --test rt_callback_failure_reaches_trap`
   → pass (CallResult under inline TRAP, uncovered by goldens; est. 4 min); step 8 rows after
   tighten: only the `lower_module.rs` NEW row (est. 30 min).
+  Done: `u6extract.py` located the four arms by their exact header lines (capturing Closure 221–500, Call 519–714,
+  CallResult 715–1028, UnionWrap 1195–1310 of the Phase 3 `lower_inner.rs`; the capture-less guard arm at 208 stays
+  first), moved each body unchanged behind its let-else (the bodies' tail expressions are the methods' results),
+  and replaced each arm with its one-line call; rustfmt re-indented.
+  Verified 2026-10-20: `u6verify.py` → all four bodies `VERBATIM (modulo rustfmt)` (code normalised as in Phase 5,
+  plus char literals masked; comment lines compared exactly, in order) and `lower_inner.rs` equals the original
+  with exactly the four arms replaced; (the string mask now spans `\`-newline continuations, and Phase 5's check
+  re-run with it → `ALL OK`); `cargo check` → 0 warnings; clippy → 37065; N = 5018; `spec_citations_resolve` ok;
+  guards → 9, 8, 7 + 1 ignored; artifact gates `general`, `collections`, `strings`, `json`, `thread`, `tcp`,
+  `vector` → 0 diffs each; `rt_inline_trap_union_bind` 6, `rt_inline_trap_nested_call` 20,
+  `rt_callback_failure_reaches_trap` 1 → all passed; census → lower_inner 503, lower_call 382, lower_construct 357;
+  fns → `lower_value_inner` 500, `lower_closure_value` 247, `lower_call_result_value` 244, `lower_call_value` 135,
+  `lower_union_wrap_value` 107; budget after tighten → only `NEW code 1849 > 1000 …/builder/lower_module.rs`.
 Commit: —
 
 ### Phase 7 — Extract `lower_module_for_platform` regions (largest blast radius last)

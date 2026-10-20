@@ -409,7 +409,7 @@ impl CodeBuilder<'_> {
     ///
     /// Shared by all three lowerings that build a trapped `Result` — the direct
     /// user/`.mfb` callee and the indirect `FUNC`-value callee in
-    /// `builder_values/lower_inner.rs`, and [`Self::materialize_current_result`] for a runtime
+    /// `builder_values/lower_call.rs` (`lower_call_result_value`), and [`Self::materialize_current_result`] for a runtime
     /// helper or an inline builtin. They differ only in where the rebuild branch
     /// gets its `ErrorLoc`, which is [`TrappedErrorSource`].
     ///
@@ -418,7 +418,7 @@ impl CodeBuilder<'_> {
     /// each leaked TWO arena blocks per trapped error: the flat `Error` block
     /// `emit_build_error_inline` builds (which [`Self::emit_build_result_inline`]
     /// deep-copies into the `Result`, after which nothing owns the original), and
-    /// — on the two `builder_values/lower_inner.rs` paths, which rebuilt unconditionally —
+    /// — on the two `builder_values/lower_call.rs` paths, which rebuilt unconditionally —
     /// the `ERR_BLOCK` block the raiser had already PARKED for the catcher to
     /// adopt, orphaned by the very next `FAIL` that overwrote the slot. A loop
     /// whose call fails every iteration grew 780 B per trapped error: 149.8 MB at

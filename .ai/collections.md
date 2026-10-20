@@ -555,7 +555,7 @@ A plain owning copy (`MUT r = a`) MUST stay tight (value semantics — the calle
 
 ## Native collection lowering: optional params arrive pre-padded
 
-When adding a native codegen fast-path for a source-generic collection builtin (the `#collections_<name>$<types>` prefix gates in `builder_values/lower_inner.rs`), the NIR `Call.args` already has the **optional/default parameters filled in**, so gate on the FULL arity, not the source-visible one.
+When adding a native codegen fast-path for a source-generic collection builtin (the `#collections_<name>$<types>` prefix gates in `builder_values/inline_calls.rs`, `try_mfb_fast_path`, consulted from `lower_call_value` in `builder_values/lower_call.rs`), the NIR `Call.args` already has the **optional/default parameters filled in**, so gate on the FULL arity, not the source-visible one.
 
 Example: `csv::stringify(rows, delimiter)` lowers with its `quote`/`newline` defaults already appended, so a gate written on the source-visible arity never fires — use the FULL arity and have the lowering evaluate the padded argument generally rather than special-casing the default shape. This mirrors the Fill/`default_argument_padding` side.
 
