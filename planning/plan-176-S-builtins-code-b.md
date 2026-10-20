@@ -665,17 +665,17 @@ still scans the three moved labels.
   `gen_fixed_math/exp_log.rs`; list 5018; check warnings 0; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored;
   sweep → 0; budget → two STALE rows (1136, 1414) before, none after; census → gen_math 200/298/508/154,
   gen_fixed_math 264/60 + 669/489.
-Commit: —
+Commit: 57bfaebaa
 
 ### Phase 4 — canvas render source (`concat!` rebuild)
 
-- [ ] Save `git show HEAD:src/codegen/builtins/canvas/helper_render.rs > /tmp/hr_old.rs`.
-- [ ] `canvas/helper_render.rs` → `canvas/helper_render/{mod,scene,gpu_groups,gpu_draw_list,gpu_passes,render_loop,present}.rs`
+- [x] Save `git show HEAD:src/codegen/builtins/canvas/helper_render.rs > /tmp/hr_old.rs`.
+- [x] `canvas/helper_render.rs` → `canvas/helper_render/{mod,scene,gpu_groups,gpu_draw_list,gpu_passes,render_loop,present}.rs`
       per §4.1; `RENDER_METAL_TEMPLATE` = `concat!` of the three macro pieces; the 14 `pub(super)`
       consts and 3 macro re-exports; `#[cfg(test)] mod tests;` still resolves to `helper_render/tests/mod.rs`.
-- [ ] Run the §4.1 text-identity check → `True` and equal lengths.
-- [ ] Repoint the 20 `helper_render.rs` citations (§4.1).
-- [ ] The 6 sweep items of §4.11 marked Phase 4 (two `.ai/canvas-threading.md` lines, three
+- [x] Run the §4.1 text-identity check → `True` and equal lengths.
+- [x] Repoint the 20 `helper_render.rs` citations (§4.1).
+- [x] The 6 sweep items of §4.11 marked Phase 4 (two `.ai/canvas-threading.md` lines, three
       comments, and the **pre-existing stale** `audio/func_render.rs:4`).
 
 Acceptance: every canvas program's companion source and native code are byte-identical.
@@ -687,6 +687,16 @@ Acceptance: every canvas program's companion source and native code are byte-ide
   `every_cap_token_in_the_render_source_is_generated`); `cargo test --test rt_canvas_debug_hooks --test rt_canvas_pointer`
   → pass (the `_DEBUG` render-loop and pointer-script variants) (est. 5 min, guess); step 8
   rows: `STALE` for `canvas/helper_render.rs` only, gone after tighten (est. 25 min total, guess).
+  Done: `s4render.py` cut the template text at `' plan-116-H: the GPU draw list` and `' The frame buffer's item region`
+  (each after a blank line) and moved the other items by line range; the pre-split copy is
+  `target/p176/hr_old.rs` (this machine wipes `/tmp`). `pub(super)` on exactly the 14 consts; 3 macro re-exports.
+  Cites → 13 (`citesweep.py`) + 8 MFBASIC `FUNC` names (`mfbcites.py`) = 21 (one added since); the six §4.11 items.
+  Verified 2026-10-20: §4.1 text identity → `True 76092 76092` (and again after `cargo fmt`); `test-accept.sh …
+  app-mouse-surface` → 1 passed; R-BID's ten canvas scenes (an extra canvas check) → `diff` empty; `helper_render` →
+  13 passed (= G0's 13 for that filter); `rt_canvas_debug_hooks` → 3, `rt_canvas_pointer` → 2 passed; list 5018; check
+  warnings 0; `spec_citations_resolve` ok + `wordcheck.py` 0 missing; guards → 9, 8, 7 + 1 ignored; sweep → only `'`
+  raw-string lines; budget → one STALE row (2204) before, none after; census → mod 98/2, scene 103, gpu_groups 275,
+  gpu_draw_list 622, gpu_passes 582, render_loop 406, present 151.
 Commit: —
 
 ### Phase 5 — Extract canvas `register` sub-registrars (largest blast radius last)

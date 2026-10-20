@@ -331,7 +331,7 @@ the exact-match oracle, and every test that renders runs headless, so the golden
 keep measuring it. A GPU frame is used only when a pipeline exists and the scene
 is one the backend draws correctly; otherwise that frame falls back to software.
 A machine with no Vulkan loader or driver builds no pipeline and draws in software.
-[[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
+[[src/codegen/builtins/canvas/helper_render/render_loop.rs:ENSURE_GRAPHICS]]
 [[src/codegen/runtime/canvas/vulkan.rs:has_vulkan_backend]]
 
 **The GPU pipeline is never on a frame's critical path.** Creating it compiles the
@@ -350,7 +350,7 @@ while it is running ends at once. A set `MFB_CANVAS_GPU` is the exception, for t
 the build then runs on the graphics thread before the first frame is drawn, so that
 run's first frame (and an exit during it) waits for the pipeline and every frame the
 backend accepts is a GPU frame.
-[[src/codegen/builtins/canvas/helper_render.rs:render_loop_head]]
+[[src/codegen/builtins/canvas/helper_render/render_loop.rs:render_loop_head]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_build]]
 [[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_vulkan_builder_entry]]
 [[src/target/macos_aarch64/app/metal.rs:emit_metal_init]]
@@ -401,7 +401,7 @@ sends the frame down the readback path, and a FALSE from the readback makes
 `gpuFrames=`. The Vulkan readback path does not test the results of `vkQueueSubmit` and
 `vkQueueWaitIdle`. [[src/target/macos_aarch64/app/metal.rs:SEL_STATUS]]
 [[src/codegen/builtins/canvas/func_metal_draw.rs:lower_metal_draw_scene]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderMetal]]
+[[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_renderMetal]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
 
 **No scene size is a limit on a GPU backend: a frame that does not fit the frame buffer
@@ -424,10 +424,10 @@ tables an emitter keeps while it fills the buffer (the edge, gradient, dash and 
 cursors, the band index, the table that points a second picture of one image at the
 texels already copied) start empty in each pass, so an image is copied once a pass,
 and a group's blocks that an earlier pass held are laid out again for a later use.
-[[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_blockCost]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_framePasses]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_passNext]]
+[[src/codegen/builtins/canvas/helper_render/mod.rs:RENDER_METAL]]
+[[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_blockCost]]
+[[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_framePasses]]
+[[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_passNext]]
 [[src/codegen/runtime/canvas/mod.rs:METAL_MAX_FRAME_ITEMS]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_MAX_FRAME_ITEMS]]
 
@@ -456,8 +456,8 @@ and generated into the MFBASIC source. So are the region bases the shaders read:
 formats them into its shader source when it compiles it, and Vulkan's checked-in SPIR-V
 declares them as specialization constants that the pipeline sets from the same
 constants, so drawing in passes rebuilds no pipeline.
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_metalRenderable]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_vulkanRenderable]]
+[[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_metalRenderable]]
+[[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_vulkanRenderable]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
@@ -483,8 +483,8 @@ frame again down the readback path from its first pass, and a failed readback pa
 Metal makes the frame a software frame. `blocks=`, `draws=` and `gpuFrames=` on the
 stats line describe the frame, not its passes.
 [[src/codegen/runtime/canvas/mod.rs:CANVAS_DRAW_PASS_WORD]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderMetal]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderVulkan]]
+[[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_renderMetal]]
+[[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_renderVulkan]]
 [[src/target/macos_aarch64/app/metal.rs:emit_branch_if_more]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_load_render_pass]]
 [[src/codegen/runtime/canvas/vulkan_present.rs:emit_present_resume]]
@@ -567,7 +567,7 @@ otherwise narrow to zero, is given a residual of 1.
 [[src/codegen/runtime/canvas/mod.rs:ITEM_ARC_REFLEX]]
 [[src/codegen/runtime/canvas/mod.rs:emit_item_polygon_rule]]
 [[src/codegen/runtime/canvas/mod.rs:emit_item_stroke_sign]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_pushOneDraw]]
+[[src/codegen/builtins/canvas/helper_render/gpu_draw_list.rs:__canvas_pushOneDraw]]
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:shapeCoverage]]
@@ -1235,7 +1235,7 @@ frame presented straight to the window's layer) or `Vulkan` (2, including a fram
 presented to the window's swapchain). It reads
 `Software` before the first frame.
 [[src/codegen/builtins/canvas/func_get_frame_stats.rs:body]]
-[[src/codegen/builtins/canvas/helper_render.rs:RENDER_LOOP]]
+[[src/codegen/builtins/canvas/helper_render/render_loop.rs:RENDER_LOOP]]
 
 Both wrappers call `__canvas_ensureGraphics` and then log the present
 **unconditionally**, ahead of their publish test. So the first present of any scene
@@ -1438,7 +1438,7 @@ edges; a pass ends before the region is passed, and a shape of more pieces than 
 the region is the software renderer's, with its frame.
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
-[[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL_TEMPLATE]]
+[[src/codegen/builtins/canvas/helper_render/mod.rs:RENDER_METAL_TEMPLATE]]
 
 The shader functions are the software renderer's, one for one — `pieceCrossing`,
 `pieceNearest` with the same twelve steps, `pieceCut`, `pieceArc`/`pieceAtArc` — and one
@@ -1531,7 +1531,7 @@ A node's transform that is **not in effect** — all-zero, or with no area — m
 node a translation by `position`, by the same test an item's uses. A scene whose nodes
 are all like that is drawn exactly as a scene of `dx` / `dy` nodes was: the composed
 translation is the same sum, and nothing below changes for it.
-[[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL_TEMPLATE]]
+[[src/codegen/builtins/canvas/helper_render/mod.rs:RENDER_METAL_TEMPLATE]]
 [[src/codegen/builtins/canvas/helper_paint_defaults.rs:TRANSFORM_ACTIVE]]
 [[tests/canvas/rt_canvas_rasteriser.rs:group_affine_a_nested_group_composes_with_its_parent]]
 
@@ -1863,7 +1863,7 @@ the surface's opaque black, and redraws every entry whose box meets it, each wit
 rectangle as its scissor: every pixel loop of the software rasteriser is bounded by it.
 An unchanged item whose box runs outside the rectangle therefore does not blend its edge
 a second time over the kept pixels (bug-1089), and the frame is the full redraw's byte for
-byte. [[src/codegen/builtins/canvas/helper_render.rs:RENDER_SCENE]]
+byte. [[src/codegen/builtins/canvas/helper_render/scene.rs:RENDER_SCENE]]
 [[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
 [[tests/canvas/rt_canvas_damage.rs:damage_does_not_blend_an_unchanged_overlapping_item_twice]]
 
@@ -2225,7 +2225,7 @@ A normal build reads neither pair: they are `--debug` only
 
 **A `--debug` build can script the pointer.** `MFB_CANVAS_POINTER` holds
 `ms,x,y,buttons,inside;…`; at the start of each frame
-[[src/codegen/builtins/canvas/helper_render.rs:POINTER_SCRIPT_DEBUG]] publishes every
+[[src/codegen/builtins/canvas/helper_render/render_loop.rs:POINTER_SCRIPT_DEBUG]] publishes every
 entry whose time has come, counted from the first frame, through
 `canvas::publishPointer` — the same writer. A normal build's source has neither the
 reader nor a call to the writer. The stats line reports the snapshot as

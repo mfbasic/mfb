@@ -7,7 +7,7 @@
 //! `--debug` build's `MFB_CANVAS_STATS` line (`.ai/canvas-threading.md` section 11).
 //!
 //! The pointer is put somewhere by `MFB_CANVAS_POINTER`, the `--debug` build's script
-//! (`helper_render.rs:POINTER_SCRIPT_DEBUG`), which calls the same writer the
+//! (`helper_render/render_loop.rs:POINTER_SCRIPT_DEBUG`), which calls the same writer the
 //! platforms' handlers call. That proves the words, the writer and the reader on every
 //! target these tests run on; that each platform's REAL handler calls the writer is a
 //! separate claim, proved per platform below and in `scripts/test-macapp.sh`.

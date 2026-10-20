@@ -852,7 +852,7 @@ oracle, so a declined frame is at least as correct, and truncating instead would
 
 ### A frame that does not fit the frame buffer is drawn in passes (bug-765)
 
-`helper_render.rs`. `__canvas_metalRenderable` / `__canvas_vulkanRenderable` answer 0
+`helper_render/gpu_passes.rs`. `__canvas_metalRenderable` / `__canvas_vulkanRenderable` answer 0
 (a block fits no pass: software), 1 (the frame fits one buffer) or 2 (it does not).
 For 1 the renderer is handed `__CANVAS_DRAW_BLOCKS` and `__CANVAS_DRAWS` exactly as
 before. For 2 `__canvas_passNext` lays out one pass at a time into
@@ -953,7 +953,7 @@ A set of environment variables. A normal build reads only `MFB_HEADLESS` and
 the name and the reader are both absent from a normal build's binary, so a test that
 sets one builds with `--debug`. The canonical list is `mfb spec tooling debug-report`.
 The canvas ones are `RegistryHelper::debug_split` pairs (`TEST_SWITCHES` /
-`TEST_SWITCHES_DEBUG` in `helper_render.rs`, `DAMAGE_SWITCH` / `DAMAGE_SWITCH_DEBUG` in
+`TEST_SWITCHES_DEBUG` in `helper_render/render_loop.rs`, `DAMAGE_SWITCH` / `DAMAGE_SWITCH_DEBUG` in
 `helper_damage.rs`, `GLYPH_BUDGET` / `GLYPH_BUDGET_DEBUG` in `helper_glyph_cache.rs`).
 
 * `MFB_CANVAS_AUTO_WINDOW_MS` — **a `--debug` build only**: the length of an

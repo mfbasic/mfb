@@ -154,7 +154,7 @@ A compiled program reads four environment variables in every build:
 `MFB_CANVAS_SYNC` and `MFB_MOUSE_INJECT` are test switches. They are read by every
 build because `tools/canvas-bench` measures release builds with them (`sweep --release`
 and `hit`), and a `--debug` build's instrumentation would change the timings.
-[[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
+[[src/codegen/builtins/canvas/helper_render/render_loop.rs:ENSURE_GRAPHICS]]
 [[src/codegen/term/core/term/mouse.rs:emit_mouse_inject]]
 
 Every other `MFB_` variable a program reads is read only by a `--debug` build: the
@@ -208,7 +208,7 @@ The canvas variables live in the canvas package's source, which carries a normal
 a `--debug` body for each reading helper (`RegistryHelper::debug_split`); the build
 injects the body matching its flag.
 [[src/codegen/registry/descriptors.rs:debug_split]]
-[[src/codegen/builtins/canvas/helper_render.rs:TEST_SWITCHES_DEBUG]]
+[[src/codegen/builtins/canvas/helper_render/render_loop.rs:TEST_SWITCHES_DEBUG]]
 [[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_SWITCH_DEBUG]]
 [[src/codegen/builtins/canvas/helper_glyph_cache.rs:GLYPH_BUDGET_DEBUG]]
 The Linux GTK bootstrap emits its variable names and the `atoi`/`usleep` imports only
@@ -226,7 +226,7 @@ The Windows entry emits its names and readers only for `--debug`.
 A `--debug` build's `MFB_CANVAS_STATS` line carries four phase totals for the graphics
 thread's frame, in milliseconds: `phaseOffsetsMs=`, `phaseDrawsMs=`, `phaseDamageMs=`
 and `phaseRenderMs=`. The last covers the whole call into whichever renderer drew the
-frame. [[src/codegen/builtins/canvas/helper_render.rs:PHASE_TIMERS_DEBUG]]
+frame. [[src/codegen/builtins/canvas/helper_render/render_loop.rs:PHASE_TIMERS_DEBUG]]
 
 On macOS the Metal renderer splits that call. It keeps twelve 64-bit words in the data
 object `_mfb_rt_canvas_profile`, and the stats line prints each one after
@@ -284,7 +284,7 @@ nothing there and `profVsyncOff=` stays 0.
 A rendered frame's line is written before that frame's `phaseRenderMs=` is added, so
 on any one line the `prof…` fields include the frame being reported and
 `phaseRenderMs=` does not.
-[[src/codegen/builtins/canvas/helper_render.rs:DIRECT_PRESENT_DEBUG]]
+[[src/codegen/builtins/canvas/helper_render/present.rs:DIRECT_PRESENT_DEBUG]]
 
 A software frame writes nothing to the block. On Linux and Windows no renderer writes
 it, so a `--debug` build there prints every `prof…` field as 0.

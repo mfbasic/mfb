@@ -1377,7 +1377,7 @@ pub(crate) const VULKAN_MAX_FRAME_ITEMS: usize = 65536;
 /// rather than spelled in the MSL (`metal_shader_source`).
 ///
 /// A frame past it is drawn as several passes (bug-765, `__canvas_passNext`); the
-/// MFBASIC copy is generated from this constant (`helper_render.rs`).
+/// MFBASIC copy is generated from this constant (`helper_render/mod.rs`, `RENDER_CAPS`).
 pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 
 /// How many 64-bit words one entry of the GPU draw list occupies.

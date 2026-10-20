@@ -7,7 +7,7 @@
 //! as one consistent set of four values.
 //!
 //! `publishPointer` is the same writer called from MFBASIC. Its one caller is the
-//! `--debug` pointer script (`helper_render.rs:__canvas_pointerScript`), which stands
+//! `--debug` pointer script (`helper_render/render_loop.rs:__canvas_pointerScript`), which stands
 //! in for a mouse on a headless run; a normal build's source never names it.
 //!
 //! `canvas::autoPublish` (plan-172-K) is the word that turns a pointer change into a
