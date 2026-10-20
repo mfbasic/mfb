@@ -47,8 +47,8 @@ messages for call-site materialization happen after the helper unlocks:
   with the drop function the call site passes — one read behind is the earliest
   safe point, because the call site's copy runs after the helper returns, and each
   queue has exactly one reader.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_read_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/queue.rs:thread_queue_write_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/queue.rs:thread_queue_read_helper]]
 [[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]]
 
 A resource's copy is its record (and a deep copy of its `STATE`); copying it flags
@@ -85,8 +85,8 @@ indefinitely on exactly that value and rejects every other negative timeout.
 The helper receives no argument-presence flag, so an explicitly supplied
 `i64::MIN` also takes the indefinite path.)
 [[src/codegen/engine/value/builder_values/inline_calls.rs:lower_runtime_helper_call]]
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_read_helper]]
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/queue.rs:thread_queue_read_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/queue.rs:thread_queue_write_helper]]
 
 ## Copy and move semantics
 
@@ -121,9 +121,9 @@ if cancellation has been requested. Once a worker's queue is empty, cancellation
 produces `ErrInterrupted`; an empty closed queue on the parent side produces
 `ErrNotFound`. Cancellation closes all four queues and broadcasts their waiters,
 but does not discard their queued entries.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_read_helper]]
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/queue.rs:thread_queue_write_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/queue.rs:thread_queue_read_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:simple_thread_handle_helper]]
 
 A positive `os::sleep` in a worker is also a cancellation point; zero is a no-op.
 The implementation is specified by `./mfb spec threading thread-runtime-helpers`.
@@ -134,7 +134,7 @@ It requires `ms >= 0`, returns `TRUE` when data is queued, and returns `FALSE`
 when an empty queue's worker is completed or the wait expires. Zero checks once.
 It does not inspect the cancellation flag or queue-closed flag: cancelling a
 still-running worker does not by itself end a positive poll's wait.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:simple_thread_handle_helper]]
 
 Cancellation does not interrupt arbitrary user code, does not asynchronously
 terminate the OS thread, and does not unwind out of foreign/native code that has
@@ -165,7 +165,7 @@ per thread and one drop of it: a `RETURN` moves the view to the caller's binding
 receiving thread, and a view passed to a function is lent — the callee drops
 nothing. A drop reached through a null slot (a binding its initializer never
 wrote) or on a closed view does nothing.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:simple_thread_handle_helper]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_cleanup_call]]
 
 A value produced by `thread::receive`, `thread::waitFor`, or `thread::accept`
@@ -199,7 +199,7 @@ A worker's own arena is unmapped by the worker itself as the last step of its ru
 thread can read points into it, because the result and every message are
 block-arena copies, and the worker's own scope drops have already run. Its buffered
 standard output is drained on exit even without an explicit `io::flush`; this
-is best-effort, and a write failure cannot be reported after the worker returns. [[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
+is best-effort, and a write failure cannot be reported after the worker returns. [[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:lower_thread_finish]]
 
 ## See Also
 

@@ -64,10 +64,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-U complete and archived | `ls planning/plan-176-U-* planning/completed/plan-176-U-*` → only `planning/completed/…` | NOT MET (2026-10-17) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-17; lands in plan-176-A) |
-| plan-176-J moved `vulkan.rs`'s inline tests to the one test-only file `vulkan/tests/mod.rs` and left `assert_layout` in `vulkan.rs` | `grep -c '^mod tests {' src/codegen/runtime/canvas/vulkan.rs` → `0`; `ls src/codegen/runtime/canvas/vulkan/tests/mod.rs` → exists; `grep -c 'fn assert_layout' src/codegen/runtime/canvas/vulkan.rs` → `1` | NOT MET (2026-10-17; J not landed) |
-| V's files have no uncommitted changes | `git status --porcelain -- src/codegen/runtime/canvas src/codegen/runtime/thread src/docs/spec/app/06_canvas.md src/docs/spec/tooling/01_project-manifest.md src/docs/spec/tooling/09_debug-report.md src/docs/spec/threading src/docs/spec/language/08_error-model.md src/docs/spec/language/15_resource-management.md .ai/canvas-threading.md .ai/arch-abi.md src/target/macos_aarch64/app src/target/win_x86_64/app src/codegen/builtins/canvas tests/canvas tests/codegen/codegen_canvas_vulkan_off_frame_path.rs tests/guards/file_size_ceilings.txt tools/loc-census` → empty | NOT MET (2026-10-17: ` M src/docs/spec/app/06_canvas.md`, the bug-1092 work in progress) |
+| plan-176-U complete and archived | `ls planning/plan-176-U-* planning/completed/plan-176-U-*` → only `planning/completed/…` | MET (2026-10-20, `ls planning/completed/` → `plan-176-U-engine-code.md`; none in `planning/`) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-20, passes) |
+| plan-176-J moved `vulkan.rs`'s inline tests to the one test-only file `vulkan/tests/mod.rs` and left `assert_layout` in `vulkan.rs` | `grep -c '^mod tests {' src/codegen/runtime/canvas/vulkan.rs` → `0`; `ls src/codegen/runtime/canvas/vulkan/tests/mod.rs` → exists; `grep -c 'fn assert_layout' src/codegen/runtime/canvas/vulkan.rs` → `1` | MET (2026-10-20: `0`, exists, `1`) |
+| V's files have no uncommitted changes | `git status --porcelain -- src/codegen/runtime/canvas src/codegen/runtime/thread src/docs/spec/app/06_canvas.md src/docs/spec/tooling/01_project-manifest.md src/docs/spec/tooling/09_debug-report.md src/docs/spec/threading src/docs/spec/language/08_error-model.md src/docs/spec/language/15_resource-management.md .ai/canvas-threading.md .ai/arch-abi.md src/target/macos_aarch64/app src/target/win_x86_64/app src/codegen/builtins/canvas tests/canvas tests/codegen/codegen_canvas_vulkan_off_frame_path.rs tests/guards/file_size_ceilings.txt tools/loc-census` → empty | MET (2026-10-20, empty output) |
 
 `assert_layout` must stay in the host because `vulkan_present.rs`'s own test module calls it 10
 times (`grep -c 'assert_layout(' src/codegen/runtime/canvas/vulkan_present.rs` → 10) through
@@ -946,11 +946,11 @@ filters and expected rows.
 
 ### Phase 1 — Thread runtime helpers (pure motion)
 
-- [ ] `git mv src/codegen/runtime/thread/runtime_helpers_thread.rs
+- [x] `git mv src/codegen/runtime/thread/runtime_helpers_thread.rs
       src/codegen/runtime/thread/runtime_helpers_thread/mod.rs`, then split it into
       `{mod,handle,sleep,queue}.rs` per §4.1: the a3c95fc07 ranges, `mod` decls and the three
       `pub(crate) use <part>::*;`. There are 0 visibility edits.
-- [ ] Repoint the 21 spec citations per the §4.1 table (7 spec files).
+- [x] Repoint the 21 spec citations per the §4.1 table (7 spec files).
 
 Acceptance: the thread helpers compile from their new layout with every outside path unchanged,
 the code they emit is byte-identical, and the moved emitters still run real thread programs.
@@ -966,6 +966,13 @@ the code they emit is byte-identical, and the moved emitters still run real thre
 
   Step 9 shows no `runtime/thread/` row. The ceiling row for `runtime_helpers_thread.rs` is
   removed by tighten (est. 15 min total).
+  Done: plain `mv` to `runtime_helpers_thread/mod.rs` (the U archive was committed while this ran; git records the
+  rename at commit), then `codesplit.py` by name (`v1-thread.json`); 0 visibility edits, as §4.1 says.
+  Verified 2026-10-20: `motion.py` → only the six wiring lines differ; N = 5018, W = 0; `spec_citations_resolve` ok;
+  guards → 9, 8, 7 + 1 ignored; artifact gates `thread`, `os` → 0 diffs each; `rt_thread_exit_program_in_worker` 1,
+  `rt_thread_drop_running_finish_race` 1, `rt_thread_block_arena` 5 → all passed; cite counts → 0 old, 21 new; §10.1
+  grep → empty; budget → the one STALE row, gone after the tighten; census → mod 237, handle 529, sleep 150,
+  queue 455.
 Commit: —
 
 ### Phase 2 — Canvas runtime root (pure motion, path kept)

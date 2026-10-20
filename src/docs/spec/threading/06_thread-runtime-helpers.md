@@ -104,7 +104,7 @@ value). It allocates the control block from the heap, zeroes it, and builds it
   `ENTRY_GLOBALS_OFFSET + arena_global_slots * 8`, using the same slot count as
   the program entry: globals and the enabled LINK, terminal, presentation, mouse,
   and input state regions. These regions are **per-arena**.
-  [[src/codegen/runtime/thread/runtime_helpers_thread.rs:worker_arena_state_size]]
+  [[src/codegen/runtime/thread/runtime_helpers_thread/mod.rs:worker_arena_state_size]]
   [[src/codegen/engine/builder/module_layout.rs:plan_arena_layout]]
 
 It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
@@ -140,7 +140,7 @@ wait for the remaining time and never shortens the sleep. On Windows the same
 helper is built from `pthread_mutex_*`/`pthread_cond_timedwait`, which translate to
 SRWLOCK / `SleepConditionVariableSRW`; that translation honors the absolute
 deadline rather than polling, so the cancellation contract holds there too.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_os_sleep_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/sleep.rs:lower_os_sleep_helper]]
 
 ## Trampoline
 
@@ -181,7 +181,7 @@ In an executable, an error result emits the failed-thread report described in
 identity. This happens outside the control-block lock, before result copying and
 arena destruction, even if the parent has already closed the handle. Success and
 program-exit results do not produce error reports.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:lower_thread_finish]]
  A
 program-exit result (tag `2`: the worker, or a function it called, ran
 `EXIT PROGRAM n`; the lexical cleanup of its frames already ran on the way out, and
@@ -207,7 +207,7 @@ worker's arena-state block, which goes with the control block, so it must finish
 while the worker still holds its reference; after the release the worker touches
 only its own stack. If its reference was the last (the handle side let go of a
 running thread), the worker frees the control block itself.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:lower_thread_finish]]
 
 ## See Also
 

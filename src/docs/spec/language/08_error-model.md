@@ -280,7 +280,7 @@ within a thread and successful thread exits produce no report. Complete reports
 are serialized by the thread-table lock in programs that start workers; their
 fields cannot interleave with another failed-thread report. Other stderr writers
 are not serialized by this lock.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:lower_thread_finish]]
 [[src/codegen/error/report.rs:report_lock]]
 
 ## 8.8 Desugaring

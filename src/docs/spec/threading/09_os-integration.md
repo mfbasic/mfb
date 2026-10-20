@@ -63,7 +63,7 @@ The trampoline restores the worker arena state, calls the worker function,
 stores the returned result in the control block through `_mfb_rt_thread_finish`,
 and returns `NULL` to pthread. The result is copied into the block arena; the
 worker destroys its own arena before returning.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:lower_thread_finish]]
 
 Raw Linux thread syscalls such as `clone`, `clone3`, `futex`, `set_tid_address`,
 `gettid`, `tgkill`, and thread-local raw `exit` are not the threading ABI for

@@ -21,7 +21,7 @@ then behaves like a normal fallible call:
 `thread::waitFor` is the only retrieval path; there is no `t.result` field. It
 closes nothing, so it may be called again: each call reads the same stored outcome
 and materializes it afresh, until the parent's view is dropped.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:simple_thread_handle_helper]]
 
 Because worker and package functions ride the same `IR -> NIR -> native` path as
 the executable's own code, this behavior is automatic for calls made inside a

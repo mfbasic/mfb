@@ -82,7 +82,7 @@ error path of `thread::start` is a closed resource record with the thread tag an
 a zero `HANDLE`, so no op ever reaches a block through it.
 `thread::isCancelled` instead reads the pinned current-thread register; the
 no-argument stdin subscription operations use the calling arena.
-[[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_is_cancelled_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:thread_is_cancelled_helper]]
 [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_stdin_subscription_helper]]
 [[src/codegen/error/constants/error_constants.rs:RESOURCE_TAG_THREAD]]
 [[src/codegen/runtime/thread/control_block.rs:emit_control_block_of]]
@@ -97,7 +97,7 @@ blocking wait — a full or empty queue in `send`/`receive`/`transfer`/`accept`/
 `poll`, `thread::waitFor`, a worker's cancellable `os::sleep` — waits on one of the
 queues' two condition variables with this mutex. A state change that can satisfy a
 waiter broadcasts the condition variable that waiter uses; the worker's exit
-broadcasts every one of them. [[src/codegen/runtime/thread/runtime_helpers_thread.rs:emit_block_lock]]
+broadcasts every one of them. [[src/codegen/runtime/thread/runtime_helpers_thread/mod.rs:emit_block_lock]]
 
 The mutex and the eight condition variables are initialized (`pthread_*_init`) by
 `thread::start` before the worker exists. On Windows they are an SRWLOCK and
@@ -170,7 +170,7 @@ the worker and zeroes the OS handle; the drop joins a `COMPLETED` worker and
 detaches a `RUNNING` one (after cancelling it), zeroing the OS handle either way,
 and skips both when the handle is already zero. A worker whose handle
 side let go while it was running is detached, so it frees the block itself when it
-finishes. [[src/codegen/runtime/thread/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+finishes. [[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:simple_thread_handle_helper]]
 
 The worker's arena chunks are unmapped by the worker at the end of its run (see
 `queue-semantics`); its arena-state block goes with the control block.
