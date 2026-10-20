@@ -42,7 +42,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     );
 }
 
-/// Target-generic call-site lowering for `math::acos`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
+/// Target-generic call-site lowering for `math::acos`, delegating to the shared `lower_math_call` carrier in `gen_math/mod.rs`.
 pub(crate) fn lower_math_acos(
     builder: &mut CodeBuilder,
     args: &[ValueResult],

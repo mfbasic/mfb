@@ -34,7 +34,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         &[Float],
         // bug-617: `ErrFloatNaN` is the `Float` kernel's own guard. The `Fixed`
         // path has NO raise site at all (the five raise sites in
-        // `money/gen_fixed_math.rs` are tan-overflow, asin/acos-domain,
+        // `money/gen_fixed_math/` are tan-overflow, asin/acos-domain,
         // scale-by-power-of-two, log-domain and pow — none in sin/cos/atan2), so
         // the `Fixed` form declares nothing.
         &[],
@@ -44,7 +44,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     );
 }
 
-/// Target-generic call-site lowering for `math::sin`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
+/// Target-generic call-site lowering for `math::sin`, delegating to the shared `lower_math_call` carrier in `gen_math/mod.rs`.
 pub(crate) fn lower_math_sin(
     builder: &mut CodeBuilder,
     args: &[ValueResult],

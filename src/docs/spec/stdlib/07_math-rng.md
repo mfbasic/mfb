@@ -177,7 +177,7 @@ The reduction is Lemire's multiply-shift: the offset is the high word of the
 no modulo bias. The tail threshold `t` is computed once with `udiv`/`msub`. The
 full-domain case (`min = INT_MIN`, `max = INT_MAX`) detects the `span == 0` wrap
 and returns the raw 64-bit draw unmodified, covering every `Integer` uniformly.
-[[src/codegen/builtins/math/gen_math.rs:lower_math_rand]]
+[[src/codegen/builtins/math/gen_math/rng.rs:lower_math_rand]]
 
 ## `math::seed(value)` semantics
 
@@ -187,7 +187,7 @@ own. Because each thread owns an independent generator and stream, reseeding one
 thread never disturbs another. Calling `math::seed` is optional — every thread is
 already seeded automatically (main from the OS, children from the parent) — and
 is needed only to make a thread's subsequent sequence reproducible.
-[[src/codegen/builtins/math/gen_math.rs:883]]
+[[src/codegen/builtins/math/gen_math/rng.rs:lower_math_seed]]
 
 ## Relationship to the arena's memory fill
 

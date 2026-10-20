@@ -965,7 +965,7 @@ fn every_json_member_declares_exactly_the_errors_its_lowering_raises() {
     );
 }
 
-/// `emit_fixed_log` (`money/gen_fixed_math.rs`) divides `m - 1` by `m + 1` with
+/// `emit_fixed_log` (`money/gen_fixed_math/exp_log.rs`) divides `m - 1` by `m + 1` with
 /// `m` normalised into `[1, 2)`, so the quotient is in `[0, 1/3)` and the shared
 /// `emit_fixed_divide`'s overflow raise cannot fire.
 const MATH_UNREACHABLE_OWN_RAISE: &[(&str, &str, &str)] = &[

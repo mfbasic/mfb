@@ -9,7 +9,7 @@ deterministic Q32.32 routines. This topic specifies the accuracy and determinism
 contract those kernels meet, how they are validated, and the one place the
 behavior deliberately diverges from a system C library.
 
-The lowering dispatch is [[src/codegen/builtins/math/gen_math.rs:lower_math_call]];
+The lowering dispatch is [[src/codegen/builtins/math/gen_math/mod.rs:lower_math_call]];
 the `Float` NEON kernels live in
 [[src/codegen/builtins/vector/builder_simd_float_math.rs]] (with Remez coefficients in
 [[src/codegen/builtins/vector/simd_kernel_coeffs.rs]]), `pow` in
@@ -83,8 +83,8 @@ baked constants, so every target agrees bit for bit) and reduce the angle agains
 **160-bit `pi/2`**, which keeps the reduction error below `2^-127` for every `k`
 below `2^31`. The reduced angle feeds a Q1.63 Taylor series,
 rounded once to Q32.32.
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_trig_reduce]]
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_sin_cos_magnitudes]]
+[[src/codegen/builtins/money/gen_fixed_math/trig.rs:emit_fixed_trig_reduce]]
+[[src/codegen/builtins/money/gen_fixed_math/trig.rs:emit_fixed_sin_cos_magnitudes]]
 
 `tan` is the quotient of those Q1.63 magnitudes (`cot` in an odd quadrant), and
 close to a pole — an odd quadrant with `|r| < 2^-8` — it is evaluated as
@@ -92,7 +92,7 @@ close to a pole — an odd quadrant with `|r| < 2^-8` — it is evaluated as
 at a tangent near `2^31` needs about 95 bits of the reduced angle. A true tangent
 outside the `Fixed` range raises `ErrOverflow` (`77050010`), declared on the `Fixed`
 overload only — the `Float` overloads return a large finite value there and cannot
-overflow. [[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_tan]]
+overflow. [[src/codegen/builtins/money/gen_fixed_math/trig.rs:emit_fixed_tan]]
 [[src/codegen/builtins/math/func_tan.rs:register]]
 
 ### `Fixed` inverse trigonometry
@@ -102,7 +102,7 @@ overflow. [[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_tan]]
 in `[0, pi/2]`. Taking a **ratio** rather than a `Fixed` is what buys the
 accuracy: the quotient is never rounded to Q32.32 first, so a huge or a tiny
 argument keeps its full relative precision.
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_atan_ratio]]
+[[src/codegen/builtins/money/gen_fixed_math/trig.rs:emit_fixed_atan_ratio]]
 
 Two range folds are exact integer rewrites of the ratio — `num > den` swaps the
 words for `atan t = pi/2 − atan(1/t)`, and `2·num > den` replaces `(num, den)` with
@@ -112,13 +112,13 @@ division, which a 28-level Horner Taylor series `atan u = u·Σ(−u²)ⁿ/(2n+1
 evaluates in Q1.63; the first omitted term is `u^55/55 < 2^-60`. The angle
 therefore carries about 60 bits and the whole family rounds **once**, at the
 Q3.61 → Q32.32 step, so the measured error is rounding-limited.
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_q61_to_signed_fixed]]
+[[src/codegen/builtins/money/gen_fixed_math/trig.rs:emit_q61_to_signed_fixed]]
 
 `atan2`'s axes are exact baked constants (`atan2(0, x<0)` is `+pi`, not `-pi`);
 elsewhere the quadrant is added in Q3.61 before that rounding step, `x < 0`
 taking `pi` minus the first-quadrant angle and the sign of `y` applied last.
 `atan(x)` is `atan2(x, 1.0)`.
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_atan2]]
+[[src/codegen/builtins/money/gen_fixed_math/trig.rs:emit_fixed_atan2]]
 
 `asin x = atan(x / sqrt(1 − x²))`, again as an integer ratio. With `x = r/2^32`,
 `1 − x² = d/2^64` for `d = 2^64 − r²`, which is exactly the low word of `−r·r`
@@ -130,15 +130,15 @@ angle by at most `2^-48` radians. `|x| = 1` gives `d = 0`, and a zero denominato
 answers `pi/2` with no divide. Unlike the `Float` kernel, the `Fixed`
 `acos x = pi/2 − asin x` is formed in Q3.61 **before** the single rounding step,
 so the cancellation that forces the `Float` half-angle identity never reaches a
-rounded operand. [[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_asin]]
+rounded operand. [[src/codegen/builtins/money/gen_fixed_math/trig.rs:emit_fixed_asin]]
 
 ### `Fixed` `exp` and fractional `pow`
 
 `exp` on a `Fixed` is `2^n · exp(r)` with `n = round(x / ln2)` and `r = x − n·ln2`,
 the reduced `exp(r)` coming from an 18-term Taylor series and the `2^n` recombination
 from a doubling/halving loop that raises `ErrOverflow` on the way up.
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_exp]]
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_scale_by_power_of_two]]
+[[src/codegen/builtins/money/gen_fixed_math/exp_log.rs:emit_fixed_exp]]
+[[src/codegen/builtins/money/gen_fixed_math/exp_log.rs:emit_fixed_scale_by_power_of_two]]
 
 That recombination **dispatches on the sign of `n`** — non-negative doubles with the
 overflow check, negative halves without one — so the reduction's sign is load-bearing
@@ -159,8 +159,8 @@ to the plain multiply in range, and past the gate in the correct direction outsi
 which is the true result since `|exponent · ln(base)| > 2^31` cannot land inside `Fixed`
 range. The whole-number-exponent path is a separate exact multiply loop and never
 reaches either seam.
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_mul_saturating]]
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_pow_general]]
+[[src/codegen/builtins/money/gen_fixed_math/mod.rs:emit_fixed_mul_saturating]]
+[[src/codegen/builtins/money/gen_fixed_math/exp_log.rs:emit_fixed_pow_general]]
 
 That loop multiplies `base` into the power `|n|` times. For `n ≥ 0` a power that
 leaves `Fixed` range raises `ErrOverflow`. For a negative `n` the result is the
@@ -173,7 +173,7 @@ the nearest unit, ties away from zero, with `base`'s sign for an odd `|n|`. So
 `1 / power` as before. `ErrOverflow` for a negative exponent remains only where the
 true result is out of range: a power that truncates to zero (`pow(0.5F, -40.0F)`,
 zero to a negative power).
-[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_pow_tiny_reciprocal]]
+[[src/codegen/builtins/money/gen_fixed_math/exp_log.rs:emit_fixed_pow_tiny_reciprocal]]
 
 ### The `Float` `acos` half-angle identity
 

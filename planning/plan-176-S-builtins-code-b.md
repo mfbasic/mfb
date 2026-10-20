@@ -633,17 +633,17 @@ Acceptance: EC key generation, signing and verification emit byte-identical code
   passed; `codegen::builtins::crypto` → 18 (= G0's 18); list 5018; check warnings 0; `spec_citations_resolve` ok;
   guards → 9, 8, 7 + 1 ignored; sweep → 0; budget → three STALE rows (1897, 1635, 1487) before, none after; census →
   generate 477/409/559/461, sign 452/263/445/484, verify 365/244/374/513.
-Commit: —
+Commit: 1f1e016b8
 
 ### Phase 3 — math and money kernels (pure motion, impl splits)
 
-- [ ] `math/gen_math.rs` → `math/gen_math/{mod,arrays,scalar,rng}.rs` per §4.8; the 18
+- [x] `math/gen_math.rs` → `math/gen_math/{mod,arrays,scalar,rng}.rs` per §4.8; the 18
       `pub(super)` edits.
-- [ ] `money/gen_fixed_math.rs` → `money/gen_fixed_math/{mod,trig,exp_log}.rs` per §4.9; 0
+- [x] `money/gen_fixed_math.rs` → `money/gen_fixed_math/{mod,trig,exp_log}.rs` per §4.9; 0
       visibility edits; the inline `mod tests` stays in `mod.rs`.
-- [ ] Repoint the 3 `gen_math.rs` citations (incl. the **pre-existing stale** `gen_math.rs:883` →
+- [x] Repoint the 3 `gen_math.rs` citations (incl. the **pre-existing stale** `gen_math.rs:883` →
       `gen_math/rng.rs:lower_math_seed`, evidence §4.8) and the 11 `gen_fixed_math.rs` citations (§4.9).
-- [ ] The 27 comment repoints of §4.11 marked Phase 3.
+- [x] The 27 comment repoints of §4.11 marked Phase 3.
 
 Acceptance: float math and fixed-point kernels emit byte-identical code; the overflow-label guard
 still scans the three moved labels.
@@ -655,6 +655,16 @@ still scans the three moved labels.
   → those 3 files); `cargo test -p mfb --bin mfb codegen::builtins::money` → the inline test
   passes; step 8 rows: `STALE` for `math/gen_math.rs` and `money/gen_fixed_math.rs` only, gone
   after tighten (est. 25 min total, guess).
+  Done: `items.py split` (method-level) → gen_math arrays 11, scalar 10, rng 3 methods with exactly the 18
+  `pub(super)`; gen_fixed_math trig 10, exp_log 5 (incl. `emit_fixed_pow_tiny_reciprocal`, added since planning) with
+  0 visibility edits; citations → 2 + the stale `gen_math.rs:883` → `gen_math/rng.rs:lower_math_seed` by hand, 12
+  fixed-math (one added since); comments → the 21 `func_*.rs` carrier lines + the three `money/gen_fixed_math.rs`
+  mentions + `declared_errors_all.rs`, `builder_simd_float_math.rs`, `float_parse_table.rs`.
+  Verified 2026-10-20: G2 (`bash`) math, money, vector, collections → 0 diffs; overflow scan + `codegen::builtins::
+  {money,math}` → 13 passed (= G0's 13); the three label files are `gen_math/scalar.rs`, `gen_fixed_math/trig.rs`,
+  `gen_fixed_math/exp_log.rs`; list 5018; check warnings 0; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored;
+  sweep → 0; budget → two STALE rows (1136, 1414) before, none after; census → gen_math 200/298/508/154,
+  gen_fixed_math 264/60 + 669/489.
 Commit: —
 
 ### Phase 4 — canvas render source (`concat!` rebuild)
