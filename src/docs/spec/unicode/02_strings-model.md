@@ -29,7 +29,7 @@ segmentation uses the emitted state machine and vendored properties described in
 not a single shared implementation.
 [[src/codegen/builtins/strings/gen_graphemes.rs:lower_strings_graphemes]]
 [[src/codegen/builtins/strings/func_byte_len.rs:lower]]
-[[src/codegen/string/unicode_props.rs:emit_scalar_count_loop]]
+[[src/codegen/string/unicode_props/mod.rs:emit_scalar_count_loop]]
 
 Scalar and grapheme indices differ whenever a cluster spans multiple scalars: a
 combining sequence (`"a\u{301}"` = 2 scalars, 1 grapheme), a ZWJ emoji sequence
@@ -59,7 +59,7 @@ The `term::` backends lay one grapheme per cell at the same width.
 `term::drawText` reserves a trailing cell for a wide grapheme and clips the run
 if that grapheme would cross the right edge; it does not wrap.
 [[src/codegen/term/core/term.rs:emit_draw_text]]
-[[src/codegen/string/unicode_props.rs:emit_unicode_property_charwidth]]
+[[src/codegen/string/unicode_props/properties.rs:emit_unicode_property_charwidth]]
 
 `strings::padLeft`/`padRight` target a scalar count. `padLeftToWidth` and
 `padRightToWidth` compute a number of padding copies from display widths:
@@ -174,7 +174,7 @@ allocation failure on the (unreachable) wrap.
 The three trims use an emitted UTF-8 byte classifier for this whitespace set:
 `U+0009..U+000D`, `U+0020`, `U+0085`, `U+00A0`, `U+1680`,
 `U+2000..U+200A`, `U+2028`, `U+2029`, `U+202F`, `U+205F`, `U+3000`.
-No Rust function or property-table lookup runs in the generated program. [[src/codegen/string/unicode_props.rs:emit_unicode_whitespace_branch]]
+No Rust function or property-table lookup runs in the generated program. [[src/codegen/string/unicode_props/mod.rs:emit_unicode_whitespace_branch]]
 
 | Function | Strips from | Equivalent Rust semantics |
 | --- | --- | --- |
@@ -199,13 +199,13 @@ does with that presence is decided by what the member does, not by its name:
 | answers a question about an occurrence | `contains`, `startsWith`, `endsWith`, `startsWithAny`, `endsWithAny` | `TRUE` [[src/codegen/builtins/strings/func_contains.rs:lower]] |
 | answers with the position of an occurrence | `find` | validated `start` (no substring scan) [[src/codegen/builtins/strings/func_find.rs:register]] |
 | acts at a single named position | `stripPrefix`, `stripSuffix` | the zero-length match is removed, so `value` is reproduced [[src/codegen/builtins/strings/gen_strip.rs:lower_strings_strip]] |
-| counts or rewrites every occurrence | `count`, `split`, `replace` | raises `ErrInvalidArgument` (`77050002`) [[src/codegen/builtins/strings/func_count.rs:lower]] [[src/codegen/string/repr/builder_strings.rs:lower_replace]] |
+| counts or rewrites every occurrence | `count`, `split`, `replace` | raises `ErrInvalidArgument` (`77050002`) [[src/codegen/builtins/strings/func_count.rs:lower]] [[src/codegen/string/repr/builder_strings/replace.rs:lower_replace]] |
 
 There are no exceptions. `replace`'s refusal is emitted by the shared
 `lower_replace` on its `String` path only — the `collections::` `List` overload
 returns before that guard, because an empty *element* in a list is an ordinary
 value rather than a degenerate needle.
-[[src/codegen/string/repr/builder_strings.rs:lower_replace]]
+[[src/codegen/string/repr/builder_strings/replace.rs:lower_replace]]
 
 The rule does not reach two arguments that are not needles: `trimChars` takes a
 *set* of scalars (the empty set holds nothing, so nothing is trimmed) and `join`

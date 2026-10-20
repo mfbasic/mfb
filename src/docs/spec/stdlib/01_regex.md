@@ -392,7 +392,7 @@ generated from Unicode 16.0.0.[[src/codegen/string/unicode/unicode_gencat_ranges
 Script lookup `regex::scriptOf` is the analogous run table, generated from the vendored
 UCD `Scripts.txt` (Unicode 16.0.0).[[src/codegen/string/unicode/unicode_script_ranges.txt]]
 Both are read from the emitted program's read-only data by a binary search over the
-runs.[[src/codegen/string/unicode_props.rs:emit_unicode_range_lookup]]
+runs.[[src/codegen/string/unicode_props/properties.rs:emit_unicode_range_lookup]]
 
 ## Flags
 

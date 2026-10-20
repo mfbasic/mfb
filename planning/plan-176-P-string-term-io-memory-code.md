@@ -525,16 +525,22 @@ Acceptance: terminal input decoding and stdin broadcast emit identical code.
   Verified 2026-10-19: `codegen::io` → `ok. 22 passed` (= G0's 22); `bash scripts/artifact-gate.sh` io, term, thread
   → 0 diffs each; check warnings 0; `spec_citations_resolve` ok; old-path grep → 0; budget → two STALE rows (1296,
   1126) before, none after, no NEW; list 5018; census → decode 423/298/586, stdin_broadcast 228/619/287.
-Commit: —
+Commit: f9b75331e
 
 ### Phase 2 — Strings: `unicode_props.rs`, `builder_strings.rs`
 
-- [ ] §4.8: split `unicode_props.rs` into `unicode_props/{mod,properties,grapheme,free_mirrors}.rs`;
+- [x] §4.8: split `unicode_props.rs` into `unicode_props/{mod,properties,grapheme,free_mirrors}.rs`;
       the 7-item re-export and `use free_mirrors::*;`; 1 `pub(super)` edit; rewrite the 21
       citations.
-- [ ] §4.7: split `builder_strings.rs` into `builder_strings/{mod,replace,to_string,numeric_text}.rs`;
+      Done: `items.py split` (method-level) → properties 15 (incl. `emit_unicode_range_value`/`_search`, added since
+      planning), grapheme 3 methods, free_mirrors 8 items; exactly the 1 `pub(super)`; `citesweep.py` → 23 (two more
+      than planned, added since).
+- [x] §4.7: split `builder_strings.rs` into `builder_strings/{mod,replace,to_string,numeric_text}.rs`;
       rewrite the 5 citations.
-- [ ] Tighten and commit the ceiling file.
+      Done: `items.py split` → 3, 5, 8 methods; 0 visibility edits; `grep -c 'abi::label(&.*overflow' replace.rs` → 2;
+      `citesweep.py` → 5; three unlisted comments (`general_declared_errors.rs:6`, `builder_numeric.rs:6`,
+      `numeric.rs:152`) repointed.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: string and Unicode lowering emit identical code, and the 2 overflow labels in
 `replace.rs` stay under the overflow-label scan.
@@ -542,6 +548,10 @@ Acceptance: string and Unicode lowering emit identical code, and the 2 overflow 
   → pass, count before == after (est. 6 min). `sh scripts/artifact-gate.sh target/release/mfb strings`,
   `… regex`, `… money`, `… term` → 0 diffs each (`money` renders fixed/money text; `term` uses the
   free mirrors; est. 1 min each).
+  Verified 2026-10-19: `codegen::string no_overflow_label_returns_through_the_result_tag_register` → 30 passed + 1
+  ignored (= G0's 31); G2 strings, regex, money, term → 0 diffs; check warnings 0; `spec_citations_resolve` ok;
+  old-path grep → 0; budget → two STALE rows (1533, 2018) before, none after; census → unicode_props 520/354/249/426,
+  builder_strings 179/766/466/619.
 Commit: —
 
 ### Phase 3 — Terminal: `term/core/term.rs`, `term/grid/term_grid.rs`

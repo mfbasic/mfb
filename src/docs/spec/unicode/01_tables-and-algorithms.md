@@ -35,7 +35,7 @@ The compile-time and runtime paths use the data as follows:
   per-starter scans for composition pairs. The property trie and composition
   tables come from utf8proc; NFD and the upper/lower mappings are generated through Rust
   mappings, and the casefold mapping is the C+F data of the vendored Unicode
-  16.0.0 `CaseFolding.txt` (`tools/unicode-tables/gen_casefold_table.py`); category and Script come from separate pinned tables. [[src/codegen/string/unicode_props.rs:emit_unicode_property_lookup]]
+  16.0.0 `CaseFolding.txt` (`tools/unicode-tables/gen_casefold_table.py`); category and Script come from separate pinned tables. [[src/codegen/string/unicode_props/properties.rs:emit_unicode_property_lookup]]
 
 The string memory model these routines operate on (UTF-8 length-prefixed heap
 values) is `./mfb spec unicode strings-model`. `mfb man strings` owns how each
@@ -81,7 +81,7 @@ into the names table without allocating.
 [[src/unicode/range_tables.rs:runs_bytes]]
 [[src/unicode/range_tables.rs:names_bytes]]
 [[src/unicode/range_tables.rs:name_stride]]
-[[src/codegen/string/unicode_props.rs:emit_unicode_range_lookup]]
+[[src/codegen/string/unicode_props/properties.rs:emit_unicode_range_lookup]]
 
 ## Provenance: utf8proc
 
@@ -131,8 +131,8 @@ load the stage-1 entry, add `cp & 0xFF`, scale by 2, load the stage-2 entry,
 multiply by the 12-byte record size, and add to the base of the properties
 table. The result register holds a pointer to the live `PackedProperty` record;
 individual fields are then read with `load_u16` at fixed offsets.
-[[src/codegen/string/unicode_props.rs:emit_unicode_property_lookup]]
-[[src/codegen/string/unicode_props.rs:emit_unicode_property_u16]]
+[[src/codegen/string/unicode_props/properties.rs:emit_unicode_property_lookup]]
+[[src/codegen/string/unicode_props/properties.rs:emit_unicode_property_u16]]
 
 Reference table sizes (asserted by tests): stage1 = 4352 u16, stage2 = 46336
 u16, properties = 8385 records, combinations = 961 entries each.
@@ -157,7 +157,7 @@ On emission each record is serialized little-endian, in field order, producing a
 Decomposition and case mappings use the separate flattened u32 tables below;
 the packed record contains no mapping sequence indices. The compiler-side offset
 constants must agree with `PackedProperty::encode_le`.
-[[src/codegen/string/unicode_props.rs:UNICODE_PROPERTY_SIZE]]
+[[src/codegen/string/unicode_props/mod.rs:UNICODE_PROPERTY_SIZE]]
 
 `flags` is a bitfield packed from four utf8proc booleans plus the display-width
 fields:
@@ -225,7 +225,7 @@ Each entry is the `NfdEntry` record, serialized little-endian as **16 bytes**
 
 [[src/unicode/runtime_tables.rs:NfdEntry]]
 [[src/unicode/runtime_tables.rs:nfd_entries_hex]]
-[[src/codegen/string/unicode_props.rs:UNICODE_NFD_ENTRY_SIZE]]
+[[src/codegen/string/unicode_props/mod.rs:UNICODE_NFD_ENTRY_SIZE]]
 
 `sequence_offset` is a u32 index into the corresponding flattened sequences
 table (each element a u32 codepoint); `sequence_length` is the element count.
@@ -234,7 +234,7 @@ by the 16-byte record stride (`<< 4`), with a `not_found` exit that returns
 length 0. On a hit it scales `sequence_offset` by 4 to a byte address into the
 sequences table. The same helper serves NFD and all three case maps; only the
 entries/sequences symbols and the entry count differ.
-[[src/codegen/string/unicode_props.rs:emit_unicode_u32_mapping_lookup]]
+[[src/codegen/string/unicode_props/properties.rs:emit_unicode_u32_mapping_lookup]]
 
 ## Embedding: data objects and symbols
 
@@ -281,7 +281,7 @@ align 2; u32 tables and the 16-byte mapping-entry records align 4). [[src/codege
 The emitter reads each table's `.len()` from `unicode::runtime_tables::tables()`
 to compute object sizes; the runtime helpers likewise pass `tables().*.len()` as
 the binary-search entry count, so embedded data and emitted code share one source
-of truth. [[src/codegen/string/unicode_props.rs:emit_unicode_u32_mapping_lookup]]
+of truth. [[src/codegen/string/unicode_props/properties.rs:emit_unicode_u32_mapping_lookup]]
 
 ## Runtime algorithm: UTF-8 codec
 
@@ -299,8 +299,8 @@ stop continuation-byte validation at a truncated tail. On a valid `String` the
 substitution never fires. `emit_utf8_encoded_width` computes a scalar's encoded
 width (thresholds 0x80 / 0x800 / 0x10000), and `emit_utf8_encode_next` writes
 1–4 bytes and advances the cursor.
-[[src/codegen/string/unicode_props.rs:emit_utf8_decode_next]]
-[[src/codegen/string/unicode_props.rs:emit_utf8_encode_next]]
+[[src/codegen/string/unicode_props/mod.rs:emit_utf8_decode_next]]
+[[src/codegen/string/unicode_props/mod.rs:emit_utf8_encode_next]]
 
 ## Runtime algorithm: grapheme segmentation
 
@@ -330,12 +330,12 @@ in order: GB3 (CR×LF no-break), GB4/GB5 (control boundaries), GB6/GB7/GB8 (Hang
 L/V/T jamo sequences), GB9/GB9a/GB9b (Extend, ZWJ, SpacingMark, Prepend),
 GB11 (emoji ZWJ sequence: E_ZWG × Extended_Pictographic), GB12/GB13 (regional
 indicator pairing), and GB9c (Indic linker conjunct: a linker state followed by
-a consonant does not break). [[src/codegen/string/unicode_props.rs:emit_grapheme_break_branch]]
+a consonant does not break). [[src/codegen/string/unicode_props/grapheme.rs:emit_grapheme_break_branch]]
 
 `emit_grapheme_state_update` advances the state machine after each scalar: it
 updates the Indic property state and promotes the boundclass for emoji ZWJ sequences (Extended_Pictographic + Extend
 stays pictographic; + ZWJ becomes E_ZWG) and resets regional-indicator pairing.
-[[src/codegen/string/unicode_props.rs:emit_grapheme_state_update]]
+[[src/codegen/string/unicode_props/grapheme.rs:emit_grapheme_state_update]]
 
 The Indic state is the GB9c context, not the last scalar's raw property: "none"
 (0), "consonant prefix" (CONSONANT, kept through Extend as EXTEND), or "linker
@@ -346,17 +346,17 @@ consonant opens the context. A walk seeds it from the first scalar through
 two clusters, as on the folded Rust path. Every walk seeds the same way: the
 grapheme list, count and index, terminal measurement, and terminal placement's
 standalone helpers.
-[[src/codegen/string/unicode_props.rs:emit_seed_indic_conjunct_state]]
+[[src/codegen/string/unicode_props/grapheme.rs:emit_seed_indic_conjunct_state]]
 [[src/codegen/builtins/strings/gen_graphemes.rs:lower_strings_graphemes]]
 [[src/codegen/builtins/term/func_measure_text.rs:measure_text_of]]
-[[src/codegen/string/unicode_props.rs:emit_grapheme_break_branch_free]]
-[[src/codegen/string/unicode_props.rs:emit_grapheme_state_update_free]]
+[[src/codegen/string/unicode_props/free_mirrors.rs:emit_grapheme_break_branch_free]]
+[[src/codegen/string/unicode_props/free_mirrors.rs:emit_grapheme_state_update_free]]
 [[src/unicode/backend.rs:graphemes]]
 
 The compiled cluster boundary classes are integer constants matching utf8proc's
 `UTF8PROC_BOUNDCLASS_*` numbering (e.g. CR=2, LF=3, CONTROL=4, EXTEND=5, L=6 …
 ZWJ=14, EXTENDED_PICTOGRAPHIC=19, E_ZWG=20) and conjunct-break values
-(LINKER=1, CONSONANT=2, EXTEND=3). [[src/codegen/string/unicode_props.rs:GRAPHEME_BOUNDCLASS_CR]]
+(LINKER=1, CONSONANT=2, EXTEND=3). [[src/codegen/string/unicode_props/mod.rs:GRAPHEME_BOUNDCLASS_CR]]
 [[src/unicode/runtime_tables.rs:boundclass_value]]
 
 ## Runtime algorithm: NFD and NFC normalization
@@ -389,7 +389,7 @@ decomposition, canonical ordering and recomposition in the stages below. NFD is 
    non-starter. A marked candidate is tried only when its class exceeds that
    class. A class-zero candidate is tried only when the remembered class is zero,
    that is when it directly follows the starter: any intervening mark blocks it.
-   [[src/codegen/string/unicode_props.rs:emit_hangul_composition_attempt]]
+   [[src/codegen/string/unicode_props/properties.rs:emit_hangul_composition_attempt]]
 5. **Encode.** Compute the composed byte length, arena-allocate the length-
    prefixed result string, and UTF-8-encode the composed scalars.
 
@@ -451,7 +451,7 @@ general-category runs. [[src/unicode/range_tables.rs:linebreak]]
 [[src/codegen/builtins/strings/func_line_break_class.rs:lower]] It is the same
 bisection as the category table's, but each run's second word is the value itself, so
 there is no names table: `(u32 lastCodepoint, u32 value)`, emitted only when a function
-reads it. [[src/codegen/string/unicode_props.rs:emit_unicode_range_value]]
+reads it. [[src/codegen/string/unicode_props/properties.rs:emit_unicode_range_value]]
 
 The value is the class after LB1's default resolutions — AI, SG and XX are AL, SA is
 CM for Mn or Mc and AL otherwise, CJ is NS — numbered in the generator's order, plus

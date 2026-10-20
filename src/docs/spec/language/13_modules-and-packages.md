@@ -257,7 +257,7 @@ its ordinal stays the same. Source compatibility, textual-output compatibility,
 and binary layout/calling-convention compatibility must be assessed separately;
 an unchanged layout alone does not establish compatibility.
 [[src/ir/lower/construct.rs:lower_constructor_args]]
-[[src/codegen/string/repr/builder_strings.rs:lower_enum_to_string]]
+[[src/codegen/string/repr/builder_strings/to_string.rs:lower_enum_to_string]]
 
 ## 13.1 Package identity, versions, and manifests
 

@@ -149,7 +149,7 @@ pub(crate) fn expand_scientific_notation(value: &str) -> String {
 
 /// The text the runtime `toString(value)` helper produces for a `Float`/`Fixed`
 /// constant when no precision argument is supplied — the default is two digits
-/// after the decimal point (`builder_strings.rs` stores `Byte 2` into the
+/// after the decimal point (`builder_strings/numeric_text.rs` stores `Byte 2` into the
 /// precision slot). The constant fold must match the runtime byte-for-byte, or
 /// the same value prints two different ways depending on whether the compiler
 /// could see it (bug-358).

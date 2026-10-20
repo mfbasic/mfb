@@ -3,7 +3,7 @@
 //!
 //! The `general` members are `Body::Intrinsic`: their registry entry carries no
 //! lowering — codegen is the builder's own bare-name dispatch
-//! (`builder_conversions.rs`, `builder_strings.rs`) — so neither
+//! (`builder_conversions.rs`, `builder_strings/`) — so neither
 //! `declared_errors_all.rs` (which lowers `AbiFunction`/`AbiInline` bodies) nor
 //! `mfb_body_declared_errors/` (which scans `Body::Mfb` source) could see
 //! them, and `toString`/`toInt` declared no errors while raising four.

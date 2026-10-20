@@ -33,7 +33,7 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 > are trailing zeros. The rounding is applied to the unsigned magnitude, so it
 > holds at every magnitude including the range ends: `toString(2147483647.996F)`
 > is `2147483648.00`. A folded constant renders identically.
-> [[src/codegen/string/repr/builder_strings.rs:emit_fixed_to_string_value]]
+> [[src/codegen/string/repr/builder_strings/numeric_text.rs:emit_fixed_to_string_value]]
 > [[src/numeric.rs:fixed_default_to_string_text]]
 >
 > The conversion name is `toInt` (not `toInteger`). String concatenation `&` is a
@@ -162,7 +162,7 @@ and lowers it to a register move of the value, which already is the member's
 0-based declaration index. [[src/codegen/engine/convert/builder_conversions.rs:lower_to_int]]
 `toString` of an enum selects the member's name by comparing that index against
 each member in declaration order, and returns a fresh copy of the name.
-[[src/codegen/string/repr/builder_strings.rs:lower_to_string]] The names become
+[[src/codegen/string/repr/builder_strings/to_string.rs:lower_to_string]] The names become
 string data only for an enum a program passes to `toString`, chosen by one
 predicate the string pre-pass shares with the lowering's member order.
 [[src/codegen/engine/types/type_utils.rs:to_string_enum_members]]

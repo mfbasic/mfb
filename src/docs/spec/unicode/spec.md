@@ -18,7 +18,7 @@ grapheme-context differences are specified in `tables-and-algorithms`.
 [[src/unicode/backend.rs:normalize_nfc]]
 [[src/unicode/backend.rs:graphemes]]
 [[src/codegen/builtins/strings/func_normalize_nfc.rs:lower_out]]
-[[src/codegen/string/unicode_props.rs:emit_grapheme_break_branch]]
+[[src/codegen/string/unicode_props/grapheme.rs:emit_grapheme_break_branch]]
 
 ## Reading order
 
