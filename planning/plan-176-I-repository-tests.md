@@ -854,13 +854,17 @@ Acceptance: every client test runs against the in-process stub from its part.
   Verified 2026-10-19: G1 → lib 450 = 450, bin 24 = 24, leaves SAME, clippy 21 = 21; G2 → `ok. 75 passed`; list
   counts → 75 (38, 15, 22); G3 + landing tier → `test-fast: ok` (mfb unit `4998 passed`; `mfb_repository` `450
   passed`; `mfb-repo` `24 passed`); G4 → 0; G5 → both workspaces clean; G6 → 369, 797, 840, 824; client.rs inline 2.
-Commit: —
+Commit: 6485408f2
 
 ### Phase 5 — `server` (largest blast radius)
 
-- [ ] Split `repository/src/server.rs`'s tests per §4.12 into `server/tests/mod.rs` (shared
+- [x] Split `repository/src/server.rs`'s tests per §4.12 into `server/tests/mod.rs` (shared
       helpers + the four harnesses) + 9 parts.
-- [ ] G4: tighten the ceiling for `server.rs`.
+      Done: `planparts.py` from §4.12's lists → 8, 10, 8, 12, 10, 13, 21, 17, 14 tests; the 35 shared harness items stay
+      in `mod.rs`; the block has no `impl` to separate; motion → only the module lines and the 9 part `mod` lines
+      differ.
+- [x] G4: tighten the ceiling for `server.rs`.
+      Done: → `TIGHTEN inline 2 (ceiling 7487)` only; tighten drops it; re-run → 0.
 
 Acceptance: the server suite runs from 9 parts with every count unchanged.
   Check: G1 → equal; G2 `cargo test -p mfb_repository --lib -- server::` → 0 failed;
@@ -869,6 +873,13 @@ Acceptance: the server suite runs from 9 parts with every count unchanged.
   `log_routes` 13, `pages` 21, `search_limits` 17, `transfers` 14);
   G3; G4; G5; G6 over `repository/src/server/tests/*.rs` (largest `transfers.rs` 866)
   (est. 8 min).
+  Verified 2026-10-19: G1 → lib 450 = 450, bin 24 = 24, leaves SAME, clippy 21 = 21; G2 → `ok. 113 passed`; list
+  count → 113; G3 + landing tier → `test-fast: ok` (mfb unit `4998 passed`; `mfb_repository` `450 passed`; `mfb-repo`
+  `24 passed`); G4 → 0; G5 → both workspaces clean; G6 → mod.rs 643, parts 748, 820, 698, 832, 784, 778, 823, 462,
+  860; server.rs inline 2.
+  Final gate: `cargo test -p mfb_repository` → exit 0 (lib `450 passed`, bin `24 passed`, `tests/s3_backend.rs` and
+  the doc tests `0 passed`); the banner grep over the 12 hosts → no output; the ceiling file keeps only the three
+  `ceiling code` rows of client.rs (1445), server.rs (3056) and store.rs (3431), which L owns.
 Commit: —
 
 ## Validation Plan
