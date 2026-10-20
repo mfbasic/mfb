@@ -100,7 +100,7 @@ decoded by `fp_reg`. [[src/arch/x86_64/encode/operand.rs:reg]] [[src/arch/x86_64
 **Encoding correctness gate.** An encoder test asserts each op's
 exact byte sequence (for example `mov rax,rbx` = `48 89 D8`). Unlike AArch64's
 NEON encoding test, these are **hand-verified against the x86-64 instruction
-reference, not asserted against a system assembler.** [[src/arch/x86_64/encode/tests.rs:1]]
+reference, not asserted against a system assembler.** [[src/arch/x86_64/encode/tests/mod.rs:1]]
 
 ## Register model
 
@@ -229,7 +229,7 @@ The encoder rejects ops it does not encode with an explicit `Err`
 
 - **Unsupported SIMD ops:** `fcvtas_v` (nearest ties-away vector), `sshl_v`,
   `ushl_v` (per-lane variable shifts). The `sshl_v` rejection is pinned by the
-  `unsupported_op_errors` test. [[src/arch/x86_64/encode/tests.rs:unsupported_op_errors]]
+  `unsupported_op_errors` test. [[src/arch/x86_64/encode/tests/image_and_coverage.rs:unsupported_op_errors]]
 - **`arena_base` is pinned on `r15`** (the analog of AArch64's pinned `x19`),
   narrowing the integer allocatable set accordingly.
 

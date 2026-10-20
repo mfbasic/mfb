@@ -6,14 +6,8 @@ ceiling code 3056 repository/src/server.rs
 ceiling code 3431 repository/src/store.rs
 ceiling code 1202 src/arch/aarch64/decode/vector.rs
 ceiling code 1133 src/arch/aarch64/encode/emitter.rs
-ceiling test 1251 src/arch/aarch64/encode/tests.rs
-ceiling test 1166 src/arch/riscv64/encode/tests.rs
-ceiling inline 629 src/arch/riscv64/select.rs
 ceiling code 1155 src/arch/riscv64/v128.rs
-ceiling inline 913 src/arch/riscv64/v128.rs
 ceiling code 1837 src/arch/x86_64/encode/emitter.rs
-ceiling test 3185 src/arch/x86_64/encode/tests.rs
-ceiling inline 279 src/arch/x86_64/select.rs
 ceiling code 1083 src/ast/expr.rs
 ceiling inline 390 src/ast/scope_privates.rs
 ceiling code 1570 src/ast/serialize.rs

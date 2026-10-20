@@ -228,7 +228,7 @@ error mask (e.g. `fcmlt_zero_v` for a negative `sqrt` lane) is reduced to a GPR
 with two `umov_x_from_v` extracts ORed together — there is no horizontal-reduce
 op in the set. Shift-immediate ops encode the amount in `immhb=bits[22:16]`. Every
 new op's exact word is pinned by an encoder test that
-asserts against the system assembler (`as -arch arm64`) output.[[src/arch/aarch64/encode/tests.rs:encodes_neon_vector_ops]]
+asserts against the system assembler (`as -arch arm64`) output.[[src/arch/aarch64/encode/tests/forms.rs:encodes_neon_vector_ops]]
 
 ## Worked encodings
 
@@ -281,7 +281,7 @@ umulh x14, x11, x9       ; dst=14, lhs(Rn)=11, rhs(Rm)=9
 ```
 
 This exact word (`0x9BC97D6E`) is the value the encoder's unit test asserts.
-[[src/arch/aarch64/encode/tests.rs:encodes_umulh_add_carry_and_rorv]]
+[[src/arch/aarch64/encode/tests/forms.rs:encodes_umulh_add_carry_and_rorv]]
 
 ## Multi-word lowerings
 

@@ -45,10 +45,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-I is complete and archived | `ls planning/plan-176-I-* planning/completed/plan-176-I-*` → only `planning/completed/…` | NOT MET (2026-10-18) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-18) |
-| The architecture guards treat a `tests` directory component as test code (plan-176-H §4.1) | `grep -rn 'contains("/tests/")' tests/guards/architecture_guards.rs` → a hit in each of `is_physical_scan_exempt`, `no_hand_picked_vreg` and `emission_lines` | NOT MET (2026-10-18) |
-| J's files and the docs/scripts J edits have no uncommitted changes | `git status --porcelain -- src/arch/aarch64/encode src/arch/riscv64 src/arch/x86_64 src/os/linux/link src/os/macos src/os/linux/appimage/mod.rs src/os/linux/object.rs src/os/windows/link/mod.rs src/codegen/collection/assign/self_update.rs src/codegen/collection/layout/builder_collection_layout.rs src/codegen/link/thunk/link_thunk.rs src/codegen/runtime/canvas/vulkan.rs src/docs/spec/architecture src/docs/spec/linker .ai/collections.md scripts/coverage-exceptions.txt tests/guards/inplace_self_update_census.rs tests/runtime` → empty | MET (2026-10-18) |
+| plan-176-I is complete and archived | `ls planning/plan-176-I-* planning/completed/plan-176-I-*` → only `planning/completed/…` | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| The architecture guards treat a `tests` directory component as test code (plan-176-H §4.1) | `grep -rn 'contains("/tests/")' tests/guards/architecture_guards.rs` → a hit in each of `is_physical_scan_exempt`, `no_hand_picked_vreg` and `emission_lines` | MET (2026-10-19: 3 hits, `118ec25a8`) |
+| J's files and the docs/scripts J edits have no uncommitted changes | `git status --porcelain -- src/arch/aarch64/encode src/arch/riscv64 src/arch/x86_64 src/os/linux/link src/os/macos src/os/linux/appimage/mod.rs src/os/linux/object.rs src/os/windows/link/mod.rs src/codegen/collection/assign/self_update.rs src/codegen/collection/layout/builder_collection_layout.rs src/codegen/link/thunk/link_thunk.rs src/codegen/runtime/canvas/vulkan.rs src/docs/spec/architecture src/docs/spec/linker .ai/collections.md scripts/coverage-exceptions.txt tests/guards/inplace_self_update_census.rs tests/runtime` → empty | MET (2026-10-19) |
 
 Everything below is written against the world where these hold.
 
@@ -649,16 +649,22 @@ measurements):
 
 ### Phase 1 — `src/arch` encoder and selector tests
 
-- [ ] Split `src/arch/aarch64/encode/tests.rs` per §4.1; repoint the two cites in
+- [x] Split `src/arch/aarch64/encode/tests.rs` per §4.1; repoint the two cites in
       `src/docs/spec/architecture/14_aarch64-instruction-set.md` to `tests/forms.rs`.
-- [ ] Split `src/arch/riscv64/encode/tests.rs` per §4.2.
-- [ ] Split `src/arch/x86_64/encode/tests.rs` per §4.3; repoint the two cites in
+- [x] Split `src/arch/riscv64/encode/tests.rs` per §4.2.
+- [x] Split `src/arch/x86_64/encode/tests.rs` per §4.3; repoint the two cites in
       `src/docs/spec/architecture/15_x86_64-instruction-set.md` (`:1` → `tests/mod.rs:1`,
       `unsupported_op_errors` → `tests/image_and_coverage.rs`).
-- [ ] Move the inline tests of `src/arch/riscv64/select.rs` (§4.4), `src/arch/riscv64/v128.rs`
+      Done (all three): `git mv` to `tests/mod.rs`, then `planparts.py` (§4.1–§4.3's own per-part lists) +
+      `items.py extract` in place → 22 + 19, 25 + 16, 51 + 22 + 28 + 29 tests; motion → only the part `mod` lines (and the
+      riscv64/aarch64 parts' `use super::*;`) differ. x86-64's `mod.rs` keeps its `//!` header at line 1 and gains
+      `use super::{encode, operand, EncodedSection, EncodedSymbol};` (Corrections). The 4 cites are repointed.
+- [x] Move the inline tests of `src/arch/riscv64/select.rs` (§4.4), `src/arch/riscv64/v128.rs`
       (§4.5) and `src/arch/x86_64/select.rs` (§4.6) to their `tests/mod.rs`.
-- [ ] G4: tighten the ceilings for the six files (three `ceiling test` rows and three
+      Done: `inline1.py` → 39, 36, 13 tests; motion → only the module lines differ.
+- [x] G4: tighten the ceilings for the six files (three `ceiling test` rows and three
       `ceiling inline` rows go; `v128.rs`'s `ceiling code` row stays for plan-176-O).
+      Done: → 3 STALE `test` rows + 3 TIGHTEN `inline` rows (2, 2, 2); tighten drops exactly those six; re-run → 0.
 
 Acceptance: every arch test runs from its new module, the guards ignore the register-spelling
 fixtures through the `/tests/` rule, and the four spec cites resolve.
@@ -668,6 +674,10 @@ fixtures through the `/tests/` rule, and the four spec cites resolve.
   `find src/arch/aarch64/encode/tests src/arch/riscv64/encode/tests src/arch/x86_64/encode/tests src/arch/riscv64/select src/arch/riscv64/v128 src/arch/x86_64/select -name '*.rs' | xargs -n1 python3 -I tools/loc-census/census.py --file`
   → every second field ≤ 910 (v128's single `tests/mod.rs`; every other ≤ 900); G3; G4; G5
   (est. 12 min).
+  Verified 2026-10-19: G1 (`bash target/p176/g1.sh`) → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 300 passed`;
+  list count → 300; the `encode/tests.rs` spec grep → 0; census → 49/672/534, 77/510/583, 44/736/849/788/777,
+  625, 905, 276 (all ≤ 905); hosts inline 2, 2, 2; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`,
+  which includes `spec_citations_resolve`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
 Commit: —
 
 ### Phase 2 — `src/os` linker and object tests
@@ -791,6 +801,12 @@ Commit: —
   `tests/mod.rs` + `tests/census/mod.rs` + `tests/census/self_update_table.rs`), phases 5 → 3, tests 711 → 514, visibility edits 19 → 0,
   `include_str!` repoints 5 → 2. Fixed: `lowers_in` and `code` are `impl Site` methods, not
   `impl ArmId` (`grep -n "fn lowers_in\|fn code" src/codegen/collection/assign/self_update.rs`).
+- 2026-10-19 (execution): G0 is the full sorted `--list` in `target/p176/g0/` (`/tmp` is wiped by
+  session restarts here); G1 compares count and leaf names. G2/G3 run through `bash scripts/test-fast.sh`
+  (owner, 2026-10-18), on macOS only (owner, 2026-10-19). x86-64's encoder tests had no `use super::*;`
+  and their bodies spell `super::encode` (9), `super::operand` and `super::{EncodedSection,
+  EncodedSymbol}`: from a part `super` is `encode::tests`, so `encode/tests/mod.rs` imports those four
+  names from `encode` (one line, with a comment) and the bodies stay byte for byte.
 
 ## Summary
 
