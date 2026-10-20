@@ -449,13 +449,18 @@ Acceptance: both targets list and pass the same tests, and the guard's self-test
   `bash scripts/test-fast.sh --test app_special_keys --test no_type_strings --test test_targets_registered` →
   `test-fast: ok` (`37 passed`; `7 passed; 1 ignored`; `4 passed`); census_by_file → 1; spec_citations_resolve →
   `ok. 1 passed`; census → 742, 409, 752, 430; E4 → 0 rows after tightening; E5 `cargo fmt --all --check` → exit 0.
-Commit: —
+Commit: 7077d7902
 
 ### Phase 2 — tests/cli: repository and debugger
 
-- [ ] Split `tests/cli/cli_repo_install.rs` per §4.1.
-- [ ] Split `tests/cli/cli_dbg.rs` per §4.1 (dissolve `mod native`; the cfg line goes on both
+- [x] Split `tests/cli/cli_repo_install.rs` per §4.1.
+      Done: `items.py split` → root 3 tests, `remove_update_and_resolve.rs` 7 tests; motion check → 0 / 0.
+- [x] Split `tests/cli/cli_dbg.rs` per §4.1 (dissolve `mod native`; the cfg line goes on both
       declarations and on `use session_launch_and_list::*;`).
+      Done: `items.py split` over the module body (L83-1697), dedenting 4 only where the indent is code (12 lines
+      inside string literals kept byte for byte) → part A 32 items / 8 tests, part B 20 items / 12 tests;
+      `motion.py --strip` → only the 3 dropped module lines (`mod native {`, `use super::*;`, `}`) and the 3 added cfg'd
+      lines differ, besides the `pub(super)` prefixes. `pub(super)`: 13 items (see Corrections), 4 methods, 1 field.
 - [ ] Linux compile check of `cli_dbg`'s Linux variants on box 2223 (Kali aarch64 glibc, the
       only box where `all(target_os = "linux", target_arch = "aarch64")` selects the native
       debugger parts and the `#[cfg(target_os = "linux")] signed_mfb`; `.ai/remote_systems.md`
@@ -463,13 +468,28 @@ Commit: —
       `git archive HEAD | ssh -p 2223 test@127.0.0.1 'rm -rf ~/p176e && mkdir ~/p176e && tar -x -C ~/p176e'`,
       then `ssh -p 2223 test@127.0.0.1 'cd ~/p176e && cargo check --test cli_dbg 2>&1 | tail -3'`
       → `Finished` with no warning (est. 15 min).
-- [ ] E4: tighten the two rows.
+      Done on a substitute (Corrections): every box is down (`nc -z 127.0.0.1 2223..2229` → refused) and UTM will not
+      start one from this session (`utmctl list` → OSStatus -1743). The same cfg — aarch64 glibc Linux — ran in a
+      `podman run docker.io/library/rust:1-bookworm` container on the local Podman machine (`uname -sm` → `Linux aarch64`,
+      `ldd --version` → `GLIBC 2.36`) over the worktree mounted read-only: `cargo test --test cli_dbg --no-run` →
+      `Finished`, no `warning`/`error` line; `-- --list` → 19 tests: 1 root, 7 `session_launch_and_list::`, 11
+      `threads_watch_and_run::` (the macOS 21 minus the two `#[cfg(target_os = "macos")]` tests), so both native
+      parts and the Linux `signed_mfb` compile there.
+- [x] E4: tighten the two rows.
+      Done: guard → `TIGHTEN test 68 (ceiling 1473)` cli_dbg, `TIGHTEN test 520 (ceiling 1241)` cli_repo_install;
+      tighten drops exactly those two rows; re-run → 0 rows.
 
 Acceptance: both targets list and pass the same tests.
   Check: E1 over `cli_repo_install cli_dbg`; E2 over both → 0 failed (est. 10 min; each repo
   test runs a live repository server, each dbg test a debugger session).
   `python3 -I tools/loc-census/census.py --file <f>` over the five files → second fields 520,
   724, 68, 604, 807. E3; E4; E5.
+  Verified 2026-10-19: E1 → cli_repo_install SAME 10, cli_dbg SAME 21; warnings → 0; E2+E3
+  `bash scripts/test-fast.sh --test cli_repo_install --test cli_dbg --test no_type_strings --test test_targets_registered`
+  → `test-fast: ok` (`21 passed`, `10 passed`, `7 passed; 1 ignored`, `4 passed`). The first run of that call failed 2
+  `cli_dbg` tests (a 30 s prompt timeout; a worker arena not yet listed) while the container build loaded every core;
+  `cargo test --test cli_dbg` alone → 21 passed in 11 s, and the rerun above is clean. Census → 520, 724, 68, 605, 806
+  (rustfmt reflowed two expressions after the dedent: +1 in part A, −1 in part B). E4 → 0 rows; E5 → exit 0.
 Commit: —
 
 ### Phase 3 — tests/common (largest blast radius)
@@ -581,6 +601,16 @@ Commit: —
   `the_debugger_is_not_supported_off_macos_and_linux_aarch64`, is `cfg`'d out). Per the owner's
   2026-10-18 instruction, E2/E3 run through `bash scripts/test-fast.sh --test <t>...`; the full
   suite runs once before the plan merges.
+- 2026-10-19 (execution) — `cli_dbg`'s `pub(super)` set is what the compiler asked for, not §4.1's
+  list: 13 items (`signed_mfb` ×2, `Session`, `image`, `attach_allowed`, `TICKER`, `build_debug`,
+  `is_address`, `debug_example`, `EXITED`, `body`, `REGISTER_COLUMNS`, `table_rows`), the 4 methods
+  `start`/`until_prompt`/`send`/`finish`, and 1 field (`child`). §4.1's other four items
+  (`executable_name`, `NOT_A_DEBUG_BUILD`, `line_count`, `SEPARATOR`) and two fields are used only
+  inside part A, so they stay private (`cargo check --test cli_dbg` → no error, no warning).
+- 2026-10-19 (execution) — Phase 2's box-2223 check ran in an aarch64 glibc Linux container
+  instead (every box refused the connection and UTM cannot start one from this session). The
+  check's point is the target's `cfg` (`linux` + `aarch64`), which the container has; it also
+  links and lists, which `cargo check` on the box would not.
 
 ## Summary
 
