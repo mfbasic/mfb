@@ -256,7 +256,7 @@ Acceptance: `EXIT PROGRAM 1` is rejected; `program` is usable as a variable name
   Check: `/tmp` project with `LET program AS Integer = 1` builds and one with
   `EXIT PROGRAM 1` fails with `MFB_PARSE_UNEXPECTED_TOKEN` (est. 1 min);
   `cargo check --workspace --all-targets` clean.
-Commit: —
+Commit: bcfa86a3a
 
 ### Phase 3 — tests and docs follow the removal
 
@@ -300,7 +300,7 @@ Acceptance: every touched test passes with its original assertion.
   --test rt_resource_review_806 --test rt_native_io_runtime --test rt_debug_report` → pass;
   `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180a 'os-exit-*'` → pass
   (est. 6 min).
-Commit: —
+Commit: bcfa86a3a
 
 ## Validation Plan
 
