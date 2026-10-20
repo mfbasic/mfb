@@ -832,14 +832,18 @@ single-writer scan still reads `store.rs`.
   Verified 2026-10-19: G1 → lib 450 = 450, bin 24 = 24, leaves SAME, clippy 21 = 21; G2 → `ok. 248 passed`; list
   count → 88; G3 + landing tier → `test-fast: ok` (mfb unit `4998 passed`; `mfb_repository` `450 passed`; `mfb-repo`
   `24 passed`); G4 → 0; G5 → both workspaces clean; G6 → 195, 864, 760, 394, 656, 544; store.rs inline 62.
-Commit: —
+Commit: b53744616
 
 ### Phase 4 — `client`
 
-- [ ] Split `repository/src/client.rs`'s tests per §4.10 into `client/tests/mod.rs` (shared
+- [x] Split `repository/src/client.rs`'s tests per §4.10 into `client/tests/mod.rs` (shared
       helpers + the HTTP stub, mid-module `use` lines hoisted) + `transport.rs`,
       `verification.rs`, `accounts.rs`.
-- [ ] G4: tighten the ceiling for `client.rs`.
+      Done: `planparts.py` from §4.10's lists → 38, 15, 22 tests; the stub and fixtures stay in `mod.rs`; the three
+      mid-module `use` groups hoisted into one block at its top; motion → only the module lines and the 3 part `mod`
+      lines differ.
+- [x] G4: tighten the ceiling for `client.rs`.
+      Done: → `TIGHTEN inline 2 (ceiling 2838)` only; tighten drops it; re-run → 0.
 
 Acceptance: every client test runs against the in-process stub from its part.
   Check: G1 → equal; G2 `cargo test -p mfb_repository --lib -- client::` → 0 failed;
@@ -847,6 +851,9 @@ Acceptance: every client test runs against the in-process stub from its part.
   (`^client::tests::(transport|verification|accounts)::` → 38, 15, 22);
   G3; G4; G5; G6 over `repository/src/client/tests/*.rs` (largest `verification.rs` 844)
   (est. 8 min).
+  Verified 2026-10-19: G1 → lib 450 = 450, bin 24 = 24, leaves SAME, clippy 21 = 21; G2 → `ok. 75 passed`; list
+  counts → 75 (38, 15, 22); G3 + landing tier → `test-fast: ok` (mfb unit `4998 passed`; `mfb_repository` `450
+  passed`; `mfb-repo` `24 passed`); G4 → 0; G5 → both workspaces clean; G6 → 369, 797, 840, 824; client.rs inline 2.
 Commit: —
 
 ### Phase 5 — `server` (largest blast radius)
