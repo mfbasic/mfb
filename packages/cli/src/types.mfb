@@ -1,0 +1,454 @@
+IMPORT collections
+IMPORT errorCode
+IMPORT strings
+
+DOC
+  PACKAGE
+  DESC Declarative command-line parsing: one `cli::Command` drives strict
+  DESC parsing, typed accessors, and the generated `--help` text.
+  DESC
+  DESC Describe what the program accepts as a `cli::Command`, hand it to
+  DESC `cli::parse`, and read values back by name from the `cli::Args` it
+  DESC returns. The same command renders the help text, so the options a
+  DESC program documents and the options it accepts cannot drift apart.
+  DESC
+  DESC `cli::parse` behaves the way command-line users expect. `--help` (and
+  DESC `-h`) prints the help text and exits with status 0. `--version` (and
+  DESC `-V`) does the same when the command declares a version. A command line
+  DESC the schema does not accept prints a one-line error and a hint to
+  DESC standard error and exits with status 2. When it returns, every value has
+  DESC already been checked against its kind, so reading one never fails on
+  DESC user input.
+  EXAMPLE
+    IMPORT cli
+    IMPORT collections
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[summary := "Serve a directory over HTTP.", version := "1.0.0", operands := "[dir]", maxOperands := 1, options := [cli::Option[name := "port", alias := "p", kind := cli::OptionKind.Integer, defaultValue := "8080", help := "Port to listen on"], cli::Option[name := "host", kind := cli::OptionKind.String, defaultValue := "127.0.0.1", help := "Address to bind"], cli::Option[name := "verbose", alias := "v", kind := cli::OptionKind.Flag, help := "Log every request"]]]
+      LET args AS cli::Args = cli::parse(command)
+      MUT dir AS String = "."
+      IF len(cli::operands(args)) = 1 THEN dir = collections::get(cli::operands(args), 0)
+      io::print("serving " & dir & " on " & cli::getString(args, "host") & ":" & toString(cli::getInteger(args, "port")))
+      IF cli::getFlag(args, "verbose") THEN io::print("verbose logging on")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+  DESC
+  DESC Accepted spellings
+  DESC
+  INFO `--name value` and `--name=value` give a long option its value.
+  INFO `-n value`, `-nvalue`, and `-n=value` give a short option its value.
+  INFO Short flags may be grouped: `-vq` is `-v -q`, and `-vo out.txt` is `-v`
+  INFO followed by `-o out.txt`.
+  INFO
+  INFO An argument that does not start with `-` is an operand, wherever it
+  INFO appears, and so is a lone `-` (the usual spelling for standard input).
+  INFO A bare `--` ends option parsing: everything after it is an operand,
+  INFO whatever it looks like.
+  DESC
+  DESC A separate value may not itself look like an option, so `--title -v`
+  DESC fails rather than silently swallowing `-v`. A negative number and a lone
+  DESC `-` are accepted as separate values; any other value beginning with `-`
+  DESC must be written inline, as `--title=-v`.
+  DESC
+  DESC Strict by design
+  DESC
+  DESC An unknown option, an option given twice that is not `repeatable`, a
+  DESC missing value, a value of the wrong kind, a value outside `choices`, an
+  DESC absent `required` option, and an operand count outside the command's
+  DESC limits are all errors. A command line is a user's instruction; acting on
+  DESC a misread one is worse than refusing it. Option names are matched
+  DESC exactly: there are no abbreviations.
+  DESC
+  DESC The accessors are equally strict about the program: reading an option
+  DESC the command does not declare, or reading a `String` option with
+  DESC `cli::getInteger`, fails at the call whatever the user typed. A
+  DESC malformed `Command` fails every call to `cli::parse`, so a schema
+  DESC mistake shows up the first time the program runs.
+  DESC
+  DESC What it does not do
+  DESC
+  INFO No built-in subcommands. Set `optionsFirst` so parsing stops at the
+  INFO first operand, read the verb from `cli::operands`, and parse the rest
+  INFO with that verb's own command through `cli::tryParse`.
+  INFO
+  INFO No environment-variable or config-file fallback, and no line wrapping
+  INFO of help text.
+END DOC
+
+DOC
+  ENUM OptionKind
+  DESC What one command-line option carries, and therefore which accessor
+  DESC reads it back.
+  DESC
+  DESC Every value is checked against its kind while the command line is
+  DESC parsed, so a malformed `--port=abc` is reported before the program does
+  DESC anything, not when it first reads the option. An accessor whose kind
+  DESC does not match the schema's is refused rather than coerced.
+  DESC
+  DESC `String` is the first member, so an `Option` constructed without a
+  DESC `kind` takes a string value.
+  PROP String  Arbitrary text, read back with `cli::getString` (or `cli::getStrings` when `repeatable`).
+  PROP Integer A whole number with an optional leading `+` or `-`, read back with `cli::getInteger` (or `cli::getIntegers`). A number too large for an `Integer` is an error.
+  PROP Float   A decimal number such as `2.5`, `-0.1`, or `1e3`, read back with `cli::getFloat` (or `cli::getFloats`). `nan` and `inf` are refused.
+  PROP Bool    A value spelled `true`, `false`, `yes`, `no`, `on`, `off`, `1`, or `0`, in any letter case, read back with `cli::getBool`.
+  PROP Flag    Present or absent, written `--name` or `-n` with no value, read back with `cli::getFlag`. A `repeatable` flag counts its occurrences, read back with `cli::count`.
+END DOC
+EXPORT ENUM OptionKind
+  String, Integer, Float, Bool, Flag
+END ENUM
+
+DOC
+  TYPE Option
+  DESC One option in a `cli::Command`.
+  DESC
+  DESC Construct it by field name and leave out what you do not need:
+  DESC `cli::Option[name := "port", alias := "p", kind := cli::OptionKind.Integer, defaultValue := "8080", help := "Port to listen on"]`.
+  DESC An omitted field takes its empty value — `""`, `FALSE`, `[]`, or
+  DESC `OptionKind.String` for `kind`.
+  DESC
+  DESC `cli::parse` refuses a malformed option, so a mistake here fails the
+  DESC first run of the program whatever the user typed.
+  PROP name         The long spelling, without dashes: `"dry-run"` is accepted as `--dry-run`. Required and unique. Letters, digits, `-`, and `_` only, starting with a letter or digit. `help` is reserved, and so is `version` when the command declares a version.
+  PROP alias        The short spelling, without its dash, or `""` for none: `"p"` is accepted as `-p`. Exactly one letter (one Unicode scalar), and unique. Declaring `h` (or `V`) takes that letter from the automatic `--help` (or `--version`), which then has no short spelling.
+  PROP kind         What the option carries. See `cli::OptionKind`.
+  PROP help         One line describing the option in the help text. `""` shows no description.
+  PROP required     `TRUE` when the command line must supply the option. Not allowed on a `Flag`, or together with `defaultValue`.
+  PROP defaultValue The value an accessor returns when the command line omits the option, written as the user would type it (`"8080"`, `"true"`). Checked against `kind` and `choices`, and shown in the help text. `""` means no default: an accessor then returns `""`, `0`, `0.0`, or `FALSE`, and `cli::has` tells absent from supplied. Not allowed on a `Flag` or a `repeatable` option.
+  PROP valueName    The placeholder shown for the value in the help text, as in `--port <number>`. `""` uses the option's `name`. Not allowed on a `Flag`.
+  PROP choices      The only values the option accepts, matched exactly. `[]` accepts any value. Only allowed on a `String` option; the help text lists them.
+  PROP repeatable   `TRUE` lets the option appear more than once; not allowed on a `Bool`. Its values are read back in order with `cli::getStrings`, `cli::getIntegers`, or `cli::getFloats`, and a repeated `Flag` is counted with `cli::count`. Without it, a second occurrence is an error.
+END DOC
+EXPORT TYPE Option
+  name AS String
+  alias AS String
+  kind AS OptionKind
+  help AS String
+  required AS Boolean
+  defaultValue AS String
+  valueName AS String
+  choices AS List OF String
+  repeatable AS Boolean
+END TYPE
+
+DOC
+  TYPE Command
+  DESC Everything a program accepts on its command line, and the text that
+  DESC describes it.
+  DESC
+  DESC Construct it by field name, leaving out what you do not need. The only
+  DESC field most programs must set is `options`; a command with an empty
+  DESC `operands` accepts no operands at all, so set it when the program takes
+  DESC file names or other positional arguments.
+  PROP name         The program name used in the help text and error messages. `""` uses the final component of the path the program was started with, without a trailing `.exe` or `.out`.
+  PROP summary      Text printed above the `Usage:` line of the help text. `""` prints none.
+  PROP version      The version `--version` prints, after the program name. `""` declares no `--version` option.
+  PROP options      The options the command accepts. `--help` is added automatically, and `--version` when `version` is set.
+  PROP operands     How the operands are written in the `Usage:` line, such as `"<file>..."` or `"[dir]"`. `""` means the command takes no operands, and any operand is an error.
+  PROP minOperands  The fewest operands the command line must supply. `0` by default.
+  PROP maxOperands  The most operands the command line may supply. `0` means no limit when `operands` is set.
+  PROP optionsFirst `TRUE` stops option parsing at the first operand: it and everything after it are operands. Use it to read a subcommand and hand its arguments to another `cli::Command`. `FALSE` (the default) lets options and operands mix in any order.
+  PROP footer       Text printed after the option table. `""` prints none.
+END DOC
+EXPORT TYPE Command
+  name AS String
+  summary AS String
+  version AS String
+  options AS List OF Option
+  operands AS String
+  minOperands AS Integer
+  maxOperands AS Integer
+  optionsFirst AS Boolean
+  footer AS String
+END TYPE
+
+DOC
+  ENUM ParseStatus
+  DESC How a command line turned out, as reported by `cli::tryParse`.
+  DESC
+  DESC `cli::parse` acts on every status but `Ok` itself — printing help, the
+  DESC version, or the error, and exiting — so only a program that calls
+  DESC `cli::tryParse` needs to look at it.
+  PROP Ok      The command line was valid. Read values with the accessors.
+  PROP Help    The command line asked for `--help`. Print `cli::helpText` and exit with status 0.
+  PROP Version The command line asked for `--version`. Print `cli::versionText` and exit with status 0.
+  PROP Invalid The command line was not valid; `message` says why. Report it with `cli::usageError`, which exits with status 2.
+END DOC
+EXPORT ENUM ParseStatus
+  Ok, Help, Version, Invalid
+END ENUM
+
+DOC
+  TYPE Args
+  DESC A parsed command line, as returned by `cli::parse` and `cli::tryParse`.
+  DESC
+  DESC Read values with the accessors (`cli::getString`, `cli::getInteger`,
+  DESC `cli::operands`, ...). Only `status` and `message` are fields a program
+  DESC reads directly; the others are internal to the package. Get an `Args`
+  DESC only from `cli::parse` or `cli::tryParse`: the accessors rely on its
+  DESC values having been checked there. It is an ordinary value: passing it
+  DESC to a function or another thread gives that code its own copy.
+  PROP status  How parsing turned out. Always `ParseStatus.Ok` for a value `cli::parse` returns.
+  PROP message Why the command line was refused when `status` is `ParseStatus.Invalid`, such as `unknown option '--prot'`; `""` otherwise. It does not name the program.
+END DOC
+EXPORT TYPE Args
+  status AS ParseStatus
+  message AS String
+  PUBLIC command AS Command
+  PUBLIC values AS Map OF String TO List OF String
+  PUBLIC operandList AS List OF String
+END TYPE
+
+' A mistake in the program's own `Command`, as opposed to the command line.
+PUBLIC FUNC invalidSchema(detail AS String) AS Error
+  RETURN error(errorCode::ErrInvalidArgument, "cli: invalid command definition: " & detail)
+END FUNC
+
+' The canonical spelling of an option in messages and the help text.
+PUBLIC FUNC longSpelling(choice AS Option) AS String
+  RETURN "--" & choice.name
+END FUNC
+
+' Whether `text` is one of the accepted `Bool` spellings, in any letter case.
+PUBLIC FUNC isBoolText(text AS String) AS Boolean
+  LET folded AS String = strings::lower(text)
+  RETURN folded = "true" OR folded = "false" OR folded = "yes" OR folded = "no" OR folded = "on" OR folded = "off" OR folded = "1" OR folded = "0"
+END FUNC
+
+' The truth value of an accepted `Bool` spelling. Callers check `isBoolText`.
+PUBLIC FUNC boolFromText(text AS String) AS Boolean
+  LET folded AS String = strings::lower(text)
+  RETURN folded = "true" OR folded = "yes" OR folded = "on" OR folded = "1"
+END FUNC
+
+PRIVATE FUNC isInteger(text AS String) AS Boolean
+  MUT ok AS Boolean = TRUE
+  LET unused AS Integer = toInt(text) TRAP(err)
+    ok = FALSE
+    RECOVER 0
+  END TRAP
+  RETURN ok
+END FUNC
+
+' Whether `text` is a decimal number a `Float` can hold.
+PRIVATE FUNC isFloat(text AS String) AS Boolean
+  MUT ok AS Boolean = TRUE
+  LET unused AS Float = toFloat(text) TRAP(err)
+    ok = FALSE
+    RECOVER 0.0
+  END TRAP
+  RETURN ok
+END FUNC
+
+' Whether `text` is written as a decimal number, even one too large for a
+' `Float`. This is how the parser recognises a negative number such as `-3`,
+' which is a value or an operand, never a switch.
+PUBLIC FUNC isNumber(text AS String) AS Boolean
+  MUT ok AS Boolean = TRUE
+  LET unused AS Float = toFloat(text) TRAP(err)
+    ok = err.code = errorCode::ErrOverflow
+    RECOVER 0.0
+  END TRAP
+  RETURN ok
+END FUNC
+
+' Why `value` is not acceptable for `choice`, or `""` when it is. Shared by the
+' parser, which checks what the user typed, and the schema check, which checks
+' `defaultValue` the same way.
+PUBLIC FUNC valueProblem(choice AS Option, value AS String) AS String
+  IF choice.kind = OptionKind.Integer THEN
+    IF isInteger(value) THEN RETURN ""
+    MUT tooLarge AS Boolean = FALSE
+    LET unused AS Integer = toInt(value) TRAP(err)
+      tooLarge = err.code = errorCode::ErrOverflow
+      RECOVER 0
+    END TRAP
+    IF tooLarge THEN RETURN "invalid value '" & value & "' for '" & longSpelling(choice) & "': integer out of range"
+    RETURN "invalid value '" & value & "' for '" & longSpelling(choice) & "': expected an integer"
+  END IF
+  IF choice.kind = OptionKind.Float THEN
+    IF isFloat(value) THEN RETURN ""
+    IF isNumber(value) THEN RETURN "invalid value '" & value & "' for '" & longSpelling(choice) & "': number out of range"
+    RETURN "invalid value '" & value & "' for '" & longSpelling(choice) & "': expected a number"
+  END IF
+  IF choice.kind = OptionKind.Bool THEN
+    IF isBoolText(value) THEN RETURN ""
+    RETURN "invalid value '" & value & "' for '" & longSpelling(choice) & "': expected true or false"
+  END IF
+  IF len(choice.choices) > 0 THEN
+    FOR EACH allowed IN choice.choices
+      IF allowed = value THEN RETURN ""
+    NEXT
+    RETURN "invalid value '" & value & "' for '" & longSpelling(choice) & "': expected one of " & strings::join(choice.choices, ", ")
+  END IF
+  RETURN ""
+END FUNC
+
+PRIVATE FUNC validName(name AS String) AS Boolean
+  MUT first AS Boolean = TRUE
+  FOR EACH c IN strings::toScalars(name)
+    IF first THEN
+      IF NOT (strings::isLetter(c) OR strings::isDigit(c)) THEN RETURN FALSE
+      first = FALSE
+    ELSEIF NOT (strings::isLetter(c) OR strings::isDigit(c) OR c = `-` OR c = `_`) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN NOT first
+END FUNC
+
+' One letter, so it can be typed, shows in the help text, and is never
+' mistaken for a negative number or for the `=` of an inline value.
+PRIVATE FUNC validAlias(alias AS String) AS Boolean
+  IF len(alias) <> 1 THEN RETURN FALSE
+  RETURN strings::isLetter(collections::get(strings::toScalars(alias), 0))
+END FUNC
+
+PRIVATE FUNC validateOption(command AS Command, choice AS Option) AS Boolean
+  LET spelled AS String = "option '" & choice.name & "'"
+  IF choice.name = "" THEN FAIL invalidSchema("an option has an empty name")
+  IF NOT validName(choice.name) THEN FAIL invalidSchema(spelled & " may hold only letters, digits, '-' and '_', and must start with a letter or digit")
+  IF choice.name = "help" THEN FAIL invalidSchema("option 'help' is reserved for the automatic --help")
+  IF choice.name = "version" AND command.version <> "" THEN FAIL invalidSchema("option 'version' is reserved for the automatic --version")
+  IF choice.alias <> "" AND NOT validAlias(choice.alias) THEN FAIL invalidSchema("alias '" & choice.alias & "' of " & spelled & " must be a single letter")
+  IF choice.kind = OptionKind.Flag THEN
+    IF choice.required THEN FAIL invalidSchema(spelled & " is a Flag and cannot be required")
+    IF choice.defaultValue <> "" THEN FAIL invalidSchema(spelled & " is a Flag and cannot have a defaultValue")
+    IF choice.valueName <> "" THEN FAIL invalidSchema(spelled & " is a Flag and cannot have a valueName")
+  END IF
+  IF choice.kind = OptionKind.Bool AND choice.repeatable THEN FAIL invalidSchema(spelled & " is a Bool and cannot be repeatable")
+  IF len(choice.choices) > 0 THEN
+    IF choice.kind <> OptionKind.String THEN FAIL invalidSchema(spelled & " has choices, which only a String option may have")
+    MUT seen AS List OF String = []
+    FOR EACH allowed IN choice.choices
+      IF allowed = "" THEN FAIL invalidSchema(spelled & " lists an empty choice")
+      IF collections::contains(seen, allowed) THEN FAIL invalidSchema(spelled & " lists choice '" & allowed & "' twice")
+      seen = collections::append(seen, allowed)
+    NEXT
+  END IF
+  IF choice.defaultValue <> "" THEN
+    IF choice.required THEN FAIL invalidSchema(spelled & " is required and cannot also have a defaultValue")
+    IF choice.repeatable THEN FAIL invalidSchema(spelled & " is repeatable and cannot have a defaultValue")
+    LET problem AS String = valueProblem(choice, choice.defaultValue)
+    IF problem <> "" THEN FAIL invalidSchema("defaultValue of " & spelled & ": " & problem)
+  END IF
+  RETURN TRUE
+END FUNC
+
+' Refuse a `Command` no command line could use correctly. Every failure is a
+' mistake in the program, raised whatever the user typed.
+PUBLIC FUNC validateCommand(command AS Command) AS Boolean
+  IF command.minOperands < 0 THEN FAIL invalidSchema("minOperands must not be negative")
+  IF command.maxOperands < 0 THEN FAIL invalidSchema("maxOperands must not be negative")
+  IF command.operands = "" AND (command.minOperands > 0 OR command.maxOperands > 0) THEN FAIL invalidSchema("minOperands and maxOperands need an operands description")
+  IF command.maxOperands > 0 AND command.maxOperands < command.minOperands THEN FAIL invalidSchema("maxOperands is smaller than minOperands")
+  MUT names AS List OF String = []
+  MUT aliases AS List OF String = []
+  FOR EACH choice IN command.options
+    validateOption(command, choice)
+    IF collections::contains(names, choice.name) THEN FAIL invalidSchema("option '" & choice.name & "' is declared twice")
+    names = collections::append(names, choice.name)
+    IF choice.alias <> "" THEN
+      IF collections::contains(aliases, choice.alias) THEN FAIL invalidSchema("alias '" & choice.alias & "' is declared twice")
+      aliases = collections::append(aliases, choice.alias)
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' Whether the automatic `--help` also answers to `-h`: only when no option
+' has claimed that letter. Likewise `-V` for `--version`.
+PUBLIC FUNC aliasTaken(command AS Command, alias AS String) AS Boolean
+  FOR EACH choice IN command.options
+    IF choice.alias = alias THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+TESTING
+  TGROUP "schema"
+    TCASE "every kind and field combination that makes sense is valid"
+      LET options AS List OF Option = [Option[name := "flag", alias := "f", kind := OptionKind.Flag, repeatable := TRUE], Option[name := "bool", alias := "b", kind := OptionKind.Bool, defaultValue := "yes"], Option[name := "integer", alias := "i", kind := OptionKind.Integer, defaultValue := "-3"], Option[name := "float", kind := OptionKind.Float, defaultValue := "2.5"], Option[name := "mode", choices := ["fast", "slow"], defaultValue := "fast"], Option[name := "dry-run_2", alias := "é", required := TRUE, valueName := "x"]]
+      expectEqual(validateCommand(Command[options := options, operands := "<file>", minOperands := 1, maxOperands := 2]), TRUE)
+      expectEqual(validateCommand(Command[options := []]), TRUE)
+    END TCASE
+    TCASE "malformed names and aliases are refused"
+      expectTrap(validateCommand(Command[options := [Option[name := ""]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "-a"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "a=b"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "two words"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "ab"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "-"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "="]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "1"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := " "]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "."]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "?"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "\u{301}"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "\u{200B}"]]]), 77050002)
+      expectEqual(validateCommand(Command[options := [Option[name := "x", alias := "日"]]]), TRUE)
+    END TCASE
+    TCASE "duplicates are refused"
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "a"], Option[name := "x", alias := "b"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", alias := "a"], Option[name := "y", alias := "a"]]]), 77050002)
+    END TCASE
+    TCASE "help is always reserved and version only when declared"
+      expectTrap(validateCommand(Command[options := [Option[name := "help", kind := OptionKind.Flag]]]), 77050002)
+      expectEqual(validateCommand(Command[options := [Option[name := "version", kind := OptionKind.Flag]]]), TRUE)
+      expectTrap(validateCommand(Command[version := "1.0", options := [Option[name := "version", kind := OptionKind.Flag]]]), 77050002)
+    END TCASE
+    TCASE "fields that cannot apply to a flag are refused"
+      expectTrap(validateCommand(Command[options := [Option[name := "x", kind := OptionKind.Flag, required := TRUE]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", kind := OptionKind.Flag, defaultValue := "true"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", kind := OptionKind.Flag, valueName := "v"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", kind := OptionKind.Bool, repeatable := TRUE]]]), 77050002)
+    END TCASE
+    TCASE "defaults are checked against kind and choices"
+      expectTrap(validateCommand(Command[options := [Option[name := "x", kind := OptionKind.Integer, defaultValue := "ten"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", kind := OptionKind.Float, defaultValue := "nan"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", kind := OptionKind.Bool, defaultValue := "maybe"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", choices := ["a"], defaultValue := "b"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", required := TRUE, defaultValue := "a"]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", repeatable := TRUE, defaultValue := "a"]]]), 77050002)
+    END TCASE
+    TCASE "choices must be non-empty, unique, and on a String option"
+      expectTrap(validateCommand(Command[options := [Option[name := "x", kind := OptionKind.Integer, choices := ["1"]]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", choices := ["a", "a"]]]]), 77050002)
+      expectTrap(validateCommand(Command[options := [Option[name := "x", choices := [""]]]]), 77050002)
+    END TCASE
+    TCASE "operand limits must be consistent"
+      expectTrap(validateCommand(Command[minOperands := 1]), 77050002)
+      expectTrap(validateCommand(Command[operands := "<f>", minOperands := -1]), 77050002)
+      expectTrap(validateCommand(Command[operands := "<f>", maxOperands := -1]), 77050002)
+      expectTrap(validateCommand(Command[operands := "<f>", minOperands := 3, maxOperands := 2]), 77050002)
+    END TCASE
+    TCASE "value checks name the option and the expectation"
+      LET port AS Option = Option[name := "port", kind := OptionKind.Integer]
+      expectString(valueProblem(port, "80"), "")
+      expectString(valueProblem(port, "+80"), "")
+      expectString(valueProblem(port, "8o"), "invalid value '8o' for '--port': expected an integer")
+      expectString(valueProblem(port, "99999999999999999999"), "invalid value '99999999999999999999' for '--port': integer out of range")
+      expectString(valueProblem(Option[name := "ratio", kind := OptionKind.Float], "1e3"), "")
+      expectString(valueProblem(Option[name := "ratio", kind := OptionKind.Float], "inf"), "invalid value 'inf' for '--ratio': expected a number")
+      expectString(valueProblem(Option[name := "ratio", kind := OptionKind.Float], "1e999"), "invalid value '1e999' for '--ratio': number out of range")
+      expectEqual(isNumber("-1e999"), TRUE)
+      expectEqual(isNumber("-x"), FALSE)
+      expectString(valueProblem(Option[name := "on", kind := OptionKind.Bool], "maybe"), "invalid value 'maybe' for '--on': expected true or false")
+      expectString(valueProblem(Option[name := "mode", choices := ["a", "b"]], "c"), "invalid value 'c' for '--mode': expected one of a, b")
+      expectString(valueProblem(Option[name := "mode", choices := ["a", "b"]], "A"), "invalid value 'A' for '--mode': expected one of a, b")
+    END TCASE
+    TCASE "every boolean spelling in any case"
+      FOR EACH yes IN ["true", "TRUE", "Yes", "on", "1"]
+        expectEqual(isBoolText(yes), TRUE)
+        expectEqual(boolFromText(yes), TRUE)
+      NEXT
+      FOR EACH no IN ["false", "False", "NO", "off", "0"]
+        expectEqual(isBoolText(no), TRUE)
+        expectEqual(boolFromText(no), FALSE)
+      NEXT
+      expectEqual(isBoolText("y"), FALSE)
+      expectEqual(isBoolText(""), FALSE)
+    END TCASE
+  END TGROUP
+END TESTING
