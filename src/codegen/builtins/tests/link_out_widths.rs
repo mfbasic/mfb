@@ -3,7 +3,7 @@
 //! A `LINK` function may `RETURN` an `OUT` parameter rather than the call's
 //! direct result. The callee wrote that slot with a C value of the declared
 //! width; MFBASIC reads it as an 8-byte word, so the thunk has to convert —
-//! and `link_thunk.rs`'s comment records what happens when it does not:
+//! and `link_thunk/`'s comment records what happens when it does not:
 //!
 //! > otherwise a `CInt32` OUT writing -1 surfaced as 4294967295
 //! > (zero-extended) and a `CDouble` OUT bypassed the finiteness rejection an
@@ -46,7 +46,7 @@ fn program(ctype: &str, mfb_type: &str) -> String {
     )
 }
 
-/// Every operand string of every instruction `link_thunk.rs` emitted.
+/// Every operand string of every instruction the link thunk code (`link/thunk/link_thunk/`) emitted.
 ///
 /// Filtered by the emitting file, for C10's reason: these programs carry
 /// hundreds of instructions from string handling and the entry stub, so "the
@@ -60,9 +60,10 @@ fn thunk_operands(plan: &crate::codegen::engine::types::NativeCodePlan) -> Vec<S
         .iter()
         .flat_map(|function| function.instructions.iter())
         .filter(|instruction| {
-            instruction
-                .source
-                .is_some_and(|location| location.file().ends_with("link_thunk.rs"))
+            instruction.source.is_some_and(|location| {
+                let file = location.file();
+                file.contains("link_thunk/") || file.contains("link_thunk\\")
+            })
         })
         .flat_map(|instruction| {
             // The mnemonic as well as the operands: the `CInt32` arm's marker is

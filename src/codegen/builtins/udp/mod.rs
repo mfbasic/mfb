@@ -300,7 +300,7 @@ mod tests {
     /// `lower_net_receive_from_helper`, `lower_net_send_to_helper` — `ErrInvalidArgument`
     /// only on the byte form, bug-497), `os/socket/poll.rs` (`lower_net_poll_helper`,
     /// `lower_net_poll_list_helper`, `lower_net_set_timeout_helper`) and
-    /// `os/socket/shared.rs:lower_net_address_helper`. Spelled in the order `tcp`'s
+    /// `os/socket/shared/mod.rs:lower_net_address_helper`. Spelled in the order `tcp`'s
     /// descriptors use for the same helpers.
     #[test]
     fn members_declare_the_errors_they_raise() {

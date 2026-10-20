@@ -440,7 +440,7 @@ fn every_udp_helper_releases_the_host_it_marshalled() {
 }
 
 /// `tls` has its OWN marshaller (`builtins/tls/gen_shared.rs::emit_cstring`,
-/// distinct from the `os/socket/shared.rs` one the tables above go through), and
+/// distinct from the `os/socket/shared/` one the tables above go through), and
 /// three mutually exclusive backends behind it. bug-575 converted its twelve call
 /// sites; these three tables are the per-backend result.
 ///

@@ -26,7 +26,7 @@ use std::collections::HashMap;
 /// point: it is one spelling of the invariant, and the same
 /// `sign_extend_word(return_register(), return_register())` pair is written
 /// inline at ~50 other `int`-returning wrapper sites (elsewhere in this file and
-/// across `fs_helpers_io.rs`, `link_thunk.rs`, `net/`, `tls/`, `audio/`). A new
+/// across `fs_helpers_io.rs`, `link_thunk/`, `net/`, `tls/`, `audio/`). A new
 /// `int`-returning wrapper must therefore apply the extension deliberately —
 /// calling this helper will not do it for you.
 ///

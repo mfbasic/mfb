@@ -201,7 +201,7 @@ fn every_audio_member_declares_exactly_the_errors_its_lowering_raises() {
 }
 
 /// `tcp::listen` shares `lower_net_endpoint_helper` with `tcp::connect`
-/// (`os/socket/shared.rs`, `listen: bool` parameter). The non-blocking-connect
+/// (`os/socket/shared/`, `listen: bool` parameter). The non-blocking-connect
 /// + `poll` sequence that ends in the shared `connect_timeout` label (which
 /// raises `ErrTimeout`) lives entirely in that function's `else` (connect) arm
 /// — the `if listen { .. bind/listen syscalls .. }` arm never branches there —

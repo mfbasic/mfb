@@ -1,6 +1,6 @@
 //! The native `LINK` thunk, lowered in process for every backend.
 //!
-//! `codegen/link/thunk/link_thunk.rs` is 2,277 lines and emits everything a
+//! `codegen/link/thunk/link_thunk/` is 2,277 lines and emits everything a
 //! `LINK "sqlite3" AS sql` block turns into: the per-library `dlopen` of a
 //! *resolved* filename, the per-symbol `dlsym`, the marshalling of each `ABI`
 //! parameter, the `CSTRUCT` field packing, the `RES` handle records and their

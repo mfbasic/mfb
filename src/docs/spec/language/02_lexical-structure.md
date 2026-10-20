@@ -64,7 +64,7 @@ A **scalar literal** is delimited by backticks and holds exactly one Unicode sca
 
 For **any other string** escape, the lexer drops the backslash and keeps the following character verbatim: `"\q"` lexes to `q`. Escape handling is identical in every lexing mode — there is a single `lex_string` routine, so internal/source-package lexing decodes `\r`, `\0`, and `\u{...}` exactly as ordinary lexing does.
 
-MFBASIC string operations use the explicit byte length and preserve embedded NUL (`\0`) payloads. Boundary behavior is member-specific: `fs::open`/`openFile` reject embedded NUL paths, while native `LINK` `CString` marshaling copies the bytes without that check and a C string reader sees only the prefix. [[src/codegen/builtins/fs/gen_shared.rs:emit_cstring_copy]] [[src/codegen/link/thunk/link_thunk.rs:emit_copy_string_to_cstring]]
+MFBASIC string operations use the explicit byte length and preserve embedded NUL (`\0`) payloads. Boundary behavior is member-specific: `fs::open`/`openFile` reject embedded NUL paths, while native `LINK` `CString` marshaling copies the bytes without that check and a C string reader sees only the prefix. [[src/codegen/builtins/fs/gen_shared.rs:emit_cstring_copy]] [[src/codegen/link/thunk/link_thunk/value_marshal.rs:emit_copy_string_to_cstring]]
 
 ## 2.4 `DOC` blocks
 

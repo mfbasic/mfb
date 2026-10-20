@@ -86,11 +86,11 @@ layers:
    retires the free of its block, which the caller now holds, and keeps its
    owned-list drains: they skip every record the return released, free their
    nodes, and close a record the container no longer holds;
-   [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:retire_returned_owner_block]]
+   [[src/codegen/cleanup/owned/builder_owned_cleanup/owned_list.rs:retire_returned_owner_block]]
    a `RETURN` of a value whose record pointer equals a
    registered cleanup's also skips it; a binding of a `collections` member that only
    re-packages its arguments' handles registers no owned-list.
-   [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:call_result_holds_only_argument_resources]]
+   [[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:call_result_holds_only_argument_resources]]
    Each removes code whose outcome the owner word would decide the same way.
 2. **The owner word, the correctness layer.** Every resource record carries the
    token of the one scope that closes it (`./mfb spec memory heap-values`, "The

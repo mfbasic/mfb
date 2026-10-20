@@ -6,7 +6,7 @@
 //! — because `mfb` is a binary-only package — none of it is observable from this
 //! process, so the shared codegen it exercises (`ir/lower/`,
 //! `engine/value/builder_values.rs`, `collection/list/list_mutate.rs`,
-//! `link/thunk/link_thunk.rs`, …) has no in-process coverage at all beyond
+//! `link/thunk/link_thunk/`, …) has no in-process coverage at all beyond
 //! whatever a hand-written unit test happens to reach.
 //!
 //! This runs the same programs through the real `.ncode` pipeline in process,

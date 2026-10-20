@@ -130,7 +130,7 @@ These are not resolved as ordinary platform imports. Instead:
 - `_mfb_linker_init` is invoked from the entry bootstrap, not from a load-time
   initializer array.
 
-[[src/codegen/link/thunk/link_thunk.rs:emit_link_support]]
+[[src/codegen/link/thunk/link_thunk/mod.rs:emit_link_support]]
 
 A call to a `LINK` function is a `CallKind::Local` referencing the internal
 thunk symbol — an internal call relocation (`branch26`, `call_pc32`, or

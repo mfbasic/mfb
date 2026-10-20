@@ -3101,7 +3101,7 @@ fn collection_payload_types(type_: &ParameterType) -> Vec<ParameterType> {
 /// user-declared resource as an ordinary nominal — and the answer that fell out
 /// of the default was "a plain 8-byte flat scalar", i.e. a copyable, relocatable
 /// block. It is not: a `LINK` function returning `AS RES T` arena-allocates the
-/// canonical plan-80 resource record (`link_thunk.rs`, `if function.return_resource`)
+/// canonical plan-80 resource record (`link_thunk/lower_thunk.rs`, `if function.return_resource`)
 /// with its own lifetime and its own close op, exactly as a built-in does.
 ///
 /// plan-156-D: a parent `Thread` view is one too — a resource record in the arena

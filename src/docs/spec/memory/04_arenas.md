@@ -512,9 +512,9 @@ free, no I/O buffers and no `STATE`: a `canvas` image or font) has no reclaim sl
 and keeps the plain close. A value a store replaces in a binding (the inline-`TRAP`
 temporary's closed default) is closed at the store and its default record freed by
 its own rule; the binding's scope has not exited.
-[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
-[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_reclaims]]
-[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:OwnedListPass]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup/drain.rs:emit_owned_list_drain]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup/drain.rs:emit_owned_list_reclaims]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:OwnedListPass]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_reclaim]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_union_reclaim]]
 [[src/codegen/engine/control/builder_exits.rs:append_error_return_pads]]
@@ -534,7 +534,7 @@ that floats into a container of a union it is a member of (`RES s AS fs::File`, 
 `hs = collections::append(hs, s)` on a `List OF RES Handle`) is listed at its
 binding, before the store wraps it, so it has no box yet: its node takes the record
 itself and the member's own variant tag, the node a box of the member would have
-given. [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_push_as]]
+given. [[src/codegen/cleanup/owned/builder_owned_cleanup/owned_list.rs:emit_owned_list_push_as]]
 The drain frees no union box: a box is its binding's or its statement's, or a span
 of the collection block that holds the element inline (`./mfb spec memory
 heap-values`, "Union"). The collection's own block is not part of any of this: a
@@ -553,7 +553,7 @@ word is below the taker's token (unowned, owned by the taker's statement, or own
 by a scope inside the taker's) is raised to the taker's scope and listed. A record
 already owned at that scope or further out — a handle the caller passed in and got
 back, or one the container already lists — keeps its owner and is not listed again.
-[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_push_node]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup/owned_list.rs:emit_owned_list_push_node]]
 
 A **store** raises what it stores (rule 4). The code is emitted where it can do
 something, which is read off the declarations: a binding's value reaches nothing
@@ -567,16 +567,16 @@ nothing deeper and floats nothing.
 The float is done at the store, over what the store adds: an in-place append or set
 walks the one item it stores, any other assignment walks the assigned container.
 Each resource reached is pushed, adopting, onto the container's owned-list.
-[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_stored_item_float]]
-[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_assigned_container_float]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:emit_stored_item_float]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:emit_assigned_container_float]]
 A binding that a `LAMBDA` captures **by reference** lives in the frame that created
 the lambda, so its stack object is a cell `{value, scope token, one owned-list head
 per resource leaf kind}`. An assignment to it inside the lambda cannot compare
 scopes statically, so it always raises: each resource the stored value reaches whose
 owner is below the cell's token takes that token and is listed on the cell's head
 for its kind, which the binding's own scope drains and reclaims like any other
-owned-list. [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:setup_ref_cell]]
-[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_captured_store_float]]
+owned-list. [[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:setup_ref_cell]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:emit_captured_store_float]]
 
 A resource union's drop reclaims what the concrete drop reclaims: after the
 tag-dispatched close it parks its box, and the reclaim frees a `File` variant's

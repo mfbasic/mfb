@@ -477,7 +477,7 @@ const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     // Two more codegen tables outside `TypeModel`, both keyed by a resource
     // TYPE name (plan-111-B Correction 12).
     (
-        "src/codegen/link/thunk/link_thunk.rs",
+        "src/codegen/link/thunk/link_thunk/mod.rs",
         "record_native_resources",
     ),
     (

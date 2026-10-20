@@ -37,7 +37,7 @@ allocated, or a native `LINK` thunk's gate/marshaling failure — a thunk has no
 MFBASIC expression to stamp, so it sets `x3 = 0` on **every** exit rather than
 leaving the argument register it shares as-is). Setting `x3` is not optional: a
 caller that materializes the loose error reads it, so a stale argument value
-there is an invalid `ErrorLoc` pointer, not a missing origin. [[src/codegen/link/thunk/link_thunk.rs:lower_link_thunk]]
+there is an invalid `ErrorLoc` pointer, not a missing origin. [[src/codegen/link/thunk/link_thunk/lower_thunk.rs:lower_link_thunk]]
 
 In the **registers**, `x2` and `x3` are **absolute pointers**. In the in-arena
 `Error`/`ErrorLoc` records, however, `message` and `source` are stored as

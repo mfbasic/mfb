@@ -392,7 +392,7 @@ fn no_cross_member_os_seam_dispatcher() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.join("src/codegen/builtins");
     let mut offenders: Vec<String> = Vec::new();
-    for path in rs_files(&[root.clone()]) {
+    for path in rs_files(std::slice::from_ref(&root)) {
         let src = std::fs::read_to_string(&path).expect("read source");
         let member_file = func_named(&root, &path);
         for (line_no, line) in code_above_tests(&src).lines().enumerate() {

@@ -68,7 +68,7 @@ use crate::target::shared::regmodel::RegClass;
 
 /// The runtime helpers whose first argument is the address of ONE frame word,
 /// which they read and then zero (free-and-null) — the owned-value drops
-/// (`builder_owned_cleanup.rs`, `error_constants.rs`: "`x0` is the slot's
+/// (`builder_owned_cleanup/`, `error_constants.rs`: "`x0` is the slot's
 /// ADDRESS"). Handing a frame address to one of these reaches that word and no
 /// other.
 pub(crate) const SINGLE_SLOT_HELPERS: &[&str] = &[

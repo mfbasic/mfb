@@ -36,7 +36,7 @@ and `net::lookup`) raises `ErrAddressInvalid` for a port outside `0..65535` befo
 resolver or socket call; the port is never reduced to its low 16 bits, so `70000`
 does not reach port 4464 and `-1` does not reach 65535. Port `0` keeps its meaning
 "any free port" on `listen`/`bind`.
-[[src/codegen/os/socket/shared.rs:emit_port_range_check]]
+[[src/codegen/os/socket/shared/mod.rs:emit_port_range_check]]
 
 ## Handles, ownership, and close
 

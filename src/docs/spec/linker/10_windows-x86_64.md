@@ -161,7 +161,7 @@ the `±2 GiB` reach, is a hard link error (see **Failure rules**).
 User `LINK` bindings are **not** ordinary imports (see **Import selection** — they
 are a runtime `dlopen`-style load, not an `.idata` entry, so a missing library is
 a startup error handled by the generated entry rather than an OS-loader error).
-[[src/codegen/link/thunk/link_thunk.rs:lower_link_initializer]] Windows has no
+[[src/codegen/link/thunk/link_thunk/mod.rs:lower_link_initializer]] Windows has no
 `dlopen`, so `_mfb_linker_init` uses the Win32 loader: `LoadLibraryExA` in place
 of `dlopen`, `GetProcAddress` in place of `dlsym`. These come from `kernel32.dll`
 (plus `shlwapi.dll` for `PathRemoveFileSpecA`) as ordinary `.idata` imports,

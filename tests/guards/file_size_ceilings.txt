@@ -30,7 +30,6 @@ ceiling code 2050 src/codegen/builtins/tls/gen_macos/server.rs
 ceiling code 2997 src/codegen/builtins/tls/gen_openssl.rs
 ceiling code 1006 src/codegen/builtins/tls/gen_schannel_server.rs
 ceiling code 2147 src/codegen/builtins/vector/builder_simd_float_math.rs
-ceiling code 1106 src/codegen/cleanup/owned/builder_owned_cleanup.rs
 ceiling code 1262 src/codegen/collection/assign/builder_inplace_assign.rs
 ceiling code 1027 src/codegen/collection/assign/builder_inplace_setmap.rs
 ceiling code 1059 src/codegen/collection/assign/self_update.rs
@@ -51,12 +50,10 @@ ceiling code 1591 src/codegen/engine/operators/builder_numeric.rs
 ceiling code 3060 src/codegen/engine/value/builder_values.rs
 ceiling code 1296 src/codegen/io/input/decode.rs
 ceiling code 1126 src/codegen/io/stdin/stdin_broadcast.rs
-ceiling code 2140 src/codegen/link/thunk/link_thunk.rs
 ceiling code 1614 src/codegen/memory/arena/arena.rs
 ceiling code 1569 src/codegen/memory/arena/builder_arena_transfer.rs
 ceiling code 1496 src/codegen/memory/data/data_objects.rs
 ceiling code 1336 src/codegen/memory/value/builder_value_semantics.rs
-ceiling code 1224 src/codegen/os/socket/shared.rs
 ceiling code 2272 src/codegen/runtime/canvas/mod.rs
 ceiling code 7309 src/codegen/runtime/canvas/vulkan.rs
 ceiling code 1848 src/codegen/runtime/canvas/vulkan_present.rs

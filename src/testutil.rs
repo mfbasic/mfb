@@ -921,7 +921,7 @@ pub fn code_for_fixture(
 /// `IrProject::native_libraries` — not from the logical name. Without a table
 /// entry the whole thunk emitter refuses ("cannot resolve native library"), so
 /// no `LINK` program can be lowered by the plain harness at all, and
-/// `codegen/link/thunk/link_thunk.rs` (2,277 lines) has no in-process coverage.
+/// `codegen/link/thunk/link_thunk/` (2,277 lines) has no in-process coverage.
 ///
 /// Each `library` is declared as a `System` locator for every OS, with no arch
 /// or libc constraint, which is exactly what a `"type": "system"` manifest entry

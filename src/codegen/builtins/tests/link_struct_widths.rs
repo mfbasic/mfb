@@ -1,7 +1,7 @@
 //! A `CSTRUCT` buffer is zeroed with a tail, and the tail's widths follow its
 //! SIZE.
 //!
-//! `link_thunk.rs::lower_link_thunk` zeroes a struct slot's buffer before the
+//! `link_thunk/lower_thunk.rs::lower_link_thunk` zeroes a struct slot's buffer before the
 //! `BIND IN` fields are written into it, widest store first:
 //!
 //! ```text
@@ -71,7 +71,7 @@ fn program(fields: &[(&str, &str)]) -> String {
     )
 }
 
-/// Sub-word stores emitted **by `link_thunk.rs`**, counted by width.
+/// Sub-word stores emitted **by the link thunk code (`link/thunk/link_thunk/`)**, counted by width.
 ///
 /// The filter on the emitting file is the whole point. A program this size
 /// carries about twenty `store_u8`s from string handling alone, so
@@ -97,10 +97,10 @@ fn thunk_narrow_stores(plan: &NativeCodePlan) -> BTreeMap<u32, usize> {
             CodeOp::StrU8 => 8,
             _ => continue,
         };
-        if instruction
-            .source
-            .is_some_and(|location| location.file().ends_with("link_thunk.rs"))
-        {
+        if instruction.source.is_some_and(|location| {
+            let file = location.file();
+            file.contains("link_thunk/") || file.contains("link_thunk\\")
+        }) {
             *counts.entry(width).or_insert(0) += 1;
         }
     }

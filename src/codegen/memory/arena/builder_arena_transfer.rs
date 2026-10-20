@@ -927,7 +927,7 @@ impl CodeBuilder<'_> {
             // bug-546: the sendability question is the MODEL's, not the builtin
             // registry's — a user-declared `RESOURCE Db … THREAD_SENDABLE` is as
             // sendable as `fs.File`, and its record is the same canonical plan-80
-            // record (`link_thunk.rs`, `if function.return_resource`), so the same
+            // record (`link_thunk/lower_thunk.rs`, `if function.return_resource`), so the same
             // deep copy is correct for it. Before this the predicate was
             // builtin-only, so a declared resource reached neither resource arm.
             other if self.is_sendable_resource_nominal(other) => {

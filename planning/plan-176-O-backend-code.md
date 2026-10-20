@@ -758,21 +758,42 @@ Acceptance: Linux executables and `--debug` native code are byte-identical.
   dumps (all five targets; each holds `_mfb_debug_arena_register`/`_sample`/`_report_arena…`) → all `same`, `diffs:
   0`; check warnings 0; `spec_citations_resolve` ok; budget → two STALE rows (1037, 1097) before, none after;
   census → elf 418/296/334, arena 523/422/158.
-Commit: —
+Commit: f1cdbb5e9
 
 ### Phase 5 — Codegen: owned cleanup, socket shared, link thunk (largest blast radius)
 
-- [ ] §4.8: split `builder_owned_cleanup.rs` into `builder_owned_cleanup/{mod,owned_list,drain}.rs`;
+- [x] §4.8: split `builder_owned_cleanup.rs` into `builder_owned_cleanup/{mod,owned_list,drain}.rs`;
       two `pub(super)` edits; the old-1252 comment fix; rewrite the 17 citations;
       `.ai/resources-packages.md:58`; the stale `.ai/codegen-invariants.md:98` fix.
-- [ ] §4.11: split `src/codegen/os/socket/shared.rs` into `shared/{mod,endpoint}.rs`; the
+      Done: `items.py split` (method-level, first `impl CodeBuilder`) → 8 + 7 methods; exactly the 2 `pub(super)`;
+      `citesweep.py` → 17; `.ai` lines as §4.8 ("null-guards", one subject now). The old-1252 comment: §4.8 read
+      `:201` as `emit_owned_list_push`, but the comment was written by `3b29873c5` (plan-71-C) and `:201` was this
+      site's own entry in that plan's divergence work-list; it now says so (Corrections).
+- [x] §4.11: split `src/codegen/os/socket/shared.rs` into `shared/{mod,endpoint}.rs`; the
       `pub(crate) use endpoint::{…}` re-export.
-- [ ] §4.10: split `link_thunk.rs` into `link_thunk/{mod,lower_thunk,value_marshal,link_expr,struct_marshal}.rs`;
+      Done: `codesplit.py` → endpoint 4 items; 0 visibility edits; one spec cite §4.11 missed
+      (`stdlib/17_transports.md:39`, `emit_port_range_check`) → `shared/mod.rs`.
+- [x] §4.10: split `link_thunk.rs` into `link_thunk/{mod,lower_thunk,value_marshal,link_expr,struct_marshal}.rs`;
       12 `pub(super)` edits; the four private globs; rewrite the 19 citations;
       `.ai/resources-packages.md:553`.
-- [ ] `tests/guards/no_type_strings.rs`: the `record_native_resources` row →
+      Done: `codesplit.py` → 1, 10, 3, 5 items; exactly the 12 `pub(super)`; `citesweep.py` → 18 + the symbol-less
+      `_mfb_linker_init` cite by hand.
+- [x] Repoint the two source-location filters the split broke (added task): `link_out_widths.rs` and
+      `link_struct_widths.rs` keep only instructions whose `#[track_caller]` location `file().ends_with("link_thunk.rs")`;
+      after the split no file has that name and `an_out_parameter_is_narrowed_by_its_c_type` /
+      `a_struct_buffer_is_zeroed_with_the_tail_its_size_calls_for` FAILED. (1) Written in `1a8c2bb3f` / `a43445ea4`
+      (2026-09-05/06, coverage); (2) they pin that the thunk's own code narrows OUT params and zeroes struct tails;
+      (3) dependents: none (`grep -rn 'location.file()' src tests` → these two); (4) proof: the thunk's code moved
+      verbatim into `link_thunk/*.rs` (motion check), so the same instructions now carry those paths. The filter now
+      takes a file under `link_thunk/` (either separator); both pass. No other `location.file()` filter exists.
+- [x] `tests/guards/no_type_strings.rs`: the `record_native_resources` row →
       `src/codegen/link/thunk/link_thunk/mod.rs` (justification in the commit message).
-- [ ] Tighten and commit the ceiling file.
+      Done: before → `curated_type_keyed_tables_all_exist` FAILED; after → 7 + 1 ignored. Also 10 code comments
+      naming the three old paths → their directories (3 with the exact part file).
+- [x] Fix the clippy warning Phase 1 added (added task): `rs_files(&[root.clone()])` in
+      `no_cross_member_os_seam_dispatcher` → `rs_files(std::slice::from_ref(&root))` (`clippy::cloned_ref_to_slice_refs`);
+      clippy total back to 37065.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: resource cleanup, sockets and native calls emit identical code, and the scans read
 the owned-cleanup parts.
@@ -785,6 +806,13 @@ the owned-cleanup parts.
   → one `STALE` code row per old path (three; J removed `link_thunk.rs`'s inline ceiling and
   `builder_owned_cleanup.rs`'s 78 inline test LOC never had one) before the
   tighten, none after, and no `NEW` row (so `lower_thunk.rs`, 922, is under 1000) (est. 2 min).
+  Verified 2026-10-19: the unit filters (+ the two width tests) → `ok. 44 passed` (= 44 in the G0 list, same filter);
+  G2 resource-xfer-slots, fs, net, tcp, udp, link-const-pins → 0 diffs each; guards → 9, 8, 7 + 1 ignored; check
+  warnings 0; clippy 37065; list 5018; `spec_citations_resolve` ok; `wordcheck.py` → 27, 0 missing; budget → three
+  STALE rows (1106, 1224, 2140) before, none after, no NEW; census → owned cleanup 432/78 + 318 + 364, socket 673 +
+  556, link_thunk 389/2 + 922/322/122/397.
+  Letter end (Validation Plan): `bash scripts/artifact-gate.sh target/release/mfb all` → `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`; plus the Phase 3
+  `.mfp` and Phase 4 executable/`--debug` differentials; budget pattern → no row; ceiling file → no O row.
 Commit: —
 
 ## Validation Plan
@@ -829,6 +857,11 @@ Commit: —
 - No exemptions exist (rule revised 2026-10-18); O adds only the scan widening, no guard row.
 
 ## Corrections
+
+- 2026-10-19 — Each `sh scripts/artifact-gate.sh` runs as `bash` (the script needs bash). §4.8's old-1252 comment
+  target was wrong (see Phase 5). Two width tests filtered emitted instructions by source file name; §2's
+  "motion cannot change output" holds for bytes, but `#[track_caller]` locations are test-visible, so a split that
+  renames the emitting file breaks such a filter — fixed in Phase 5. §4.11's "0 citations" missed one.
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text restated, J's moved blocks named as single `tests/mod.rs` files, `aarch64/decode/tests.rs` (742, no longer split by J) keeps its `include_str!("../encode/emitter.rs")` path, `architecture_guards.rs`/`engine/tests/tests.rs` noted unsplit.
 

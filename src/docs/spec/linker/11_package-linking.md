@@ -46,7 +46,7 @@ linkage.
   `dlopen`/`dlsym` on POSIX or `LoadLibraryExA`/`GetProcAddress` on Windows
   to resolve linked native symbols before the language entry. It is called
   explicitly by startup, not registered with the OS loader.
-  [[src/codegen/link/thunk/link_thunk.rs:emit_link_support]]
+  [[src/codegen/link/thunk/link_thunk/mod.rs:emit_link_support]]
   [[src/target/win_x86_64/code.rs:emit_lib_open]]
 * The per-function thunk producer emits one marshaling thunk per `LINK`
   function, named `_mfb_linker_<alias>_<name>` (each `alias`/`name` component is
