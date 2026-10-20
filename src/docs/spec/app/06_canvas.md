@@ -677,7 +677,7 @@ written back as `255` under every one.
 `dashOffset`.** `canvas::fill`, `canvas::stroke` and `canvas::fillStroke` set `Butt`,
 `Round`, `4.0`, `[]` and `0.0`. The cap is on `Paint` rather than on the three variants
 with ends, because a dash has ends on every kind.
-[[src/codegen/builtins/canvas/mod.rs:JoinStyle]]
+[[src/codegen/builtins/canvas/types_values.rs:JoinStyle]]
 [[src/codegen/builtins/canvas/func_fill_stroke.rs:BODY]]
 
 **`cap` shapes a stroke's ends**: the two ends of a `Line`, an `Arc` or a `PolyLine`, and

@@ -697,22 +697,23 @@ Acceptance: every canvas program's companion source and native code are byte-ide
   warnings 0; `spec_citations_resolve` ok + `wordcheck.py` 0 missing; guards → 9, 8, 7 + 1 ignored; sweep → only `'`
   raw-string lines; budget → one STALE row (2204) before, none after; census → mod 98/2, scene 103, gpu_groups 275,
   gpu_draw_list 622, gpu_passes 582, render_loop 406, present 151.
-Commit: —
+Commit: d30f7a371
 
 ### Phase 5 — Extract canvas `register` sub-registrars (largest blast radius last)
 
-- [ ] Before editing: `cargo build --release && target/release/mfb man canvas > /tmp/s-man-before.txt`.
-- [ ] Create `canvas/types_values.rs`, `types_paint.rs`, `types_items.rs`, `types_motion.rs`,
+- [x] Before editing: `cargo build --release && target/release/mfb man canvas > /tmp/s-man-before.txt`.
+- [x] Create `canvas/types_values.rs`, `types_paint.rs`, `types_items.rs`, `types_motion.rs`,
       `types_groups_curves.rs`, each `use super::*;` + `pub(super) fn register(pkg: &mut RegistryPackage)`
       holding lines 280-741, 743-1079, 1081-1620, 1622-2075, 2077-2378 of `canvas/mod.rs`
       verbatim (§4.10), including their banners and leading comments.
-- [ ] `canvas/mod.rs`: replace the five runs by the five calls, in order, between `add_imports`
+- [x] `canvas/mod.rs`: replace the five runs by the five calls, in order, between `add_imports`
       and the Resources banner; add the five private `mod types_*;` decls; edit the `register`
       doc sentence (§4.10).
-- [ ] `app/06_canvas.md` `[[…/canvas/mod.rs:JoinStyle]]` → `[[src/codegen/builtins/canvas/types_values.rs:JoinStyle]]`.
-- [ ] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
-- [ ] `python3 -I tools/loc-census/census.py --file src/codegen/builtins/canvas/mod.rs` → code ≤ 900;
+- [x] `app/06_canvas.md` `[[…/canvas/mod.rs:JoinStyle]]` → `[[src/codegen/builtins/canvas/types_values.rs:JoinStyle]]`.
+- [x] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
+- [x] `python3 -I tools/loc-census/census.py --file src/codegen/builtins/canvas/mod.rs` → code ≤ 900;
       record the largest new fn's LOC (`types_items::register`) here.
+      Done: `canvas/mod.rs` → 341 code; the largest new file is `types_items.rs` at 530 (its one fn).
 
 Acceptance: the canvas registry — every record, enum, union and resource, in order — and the
 companion source it renders are unchanged, so every canvas program's code is byte-identical.
@@ -725,6 +726,16 @@ companion source it renders are unchanged, so every canvas program's code is byt
   `target/release/mfb man canvas > /tmp/s-man-after.txt; diff /tmp/s-man-before.txt /tmp/s-man-after.txt`
   → no output (the man page renders the registry's types in registration order) (est. 30 s); step 8 rows: `TIGHTEN` for `canvas/mod.rs` (its ceiling is now removable),
   gone after tighten (est. 25 min total, guess).
+  Done: `s5extract.py` located each run by its last registered type (`FillRule`, `Paint`, `DrawItem`, `AutoPaint`,
+  `DrawLayer`) — lines 289-779, 781-1117, 1119-1684, 1686-2139, 2141-2442 at this commit — and moved each whole, with
+  its banner and leading comments, into `types_*::register`; the five calls replace them in order before the
+  Resources banner. A check that the five bodies equal the original lines (blank separators aside) → `VERBATIM 2154
+  2154`. The `register` doc sentence and the `JoinStyle` cite as §4.10.
+  Verified 2026-10-20: `mfb man canvas` before/after → identical (237 lines); `test-accept.sh … app-mouse-surface` → 1
+  passed; R-BID's ten canvas scenes → `diff` empty; `codegen::builtins::canvas` → 50, `registry` → 107 (= G0's 107);
+  list 5018; check warnings 0; clippy 37065; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; budget →
+  `TIGHTEN code 341 (ceiling 2371) … canvas/mod.rs`, removed by the tighten; census → types_values 468, types_paint 321,
+  types_items 530, types_motion 444, types_groups_curves 292.
 Commit: —
 
 ## Validation Plan
