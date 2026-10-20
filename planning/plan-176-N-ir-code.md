@@ -572,20 +572,26 @@ Acceptance: `verify` behaves identically and the file is within budget.
   0 diffs; check warnings 0; `spec_citations_resolve` ok; `no_type_strings` → 7 + 1 ignored; budget before the
   tighten → one row `TIGHTEN code 849 (ceiling 1203) src/ir/verify/mod.rs`; after → no row; census → mod 849/2,
   env 356.
-Commit: —
+Commit: f719a4af1
 
 ### Phase 2 — `verify/resources.rs` → `verify/resources/`
 
-- [ ] `git mv src/ir/verify/resources.rs src/ir/verify/resources/mod.rs`; create
+- [x] `git mv src/ir/verify/resources.rs src/ir/verify/resources/mod.rs`; create
       `sendability.rs`, `flow.rs`, `defaultability.rs` with the §4.5 ranges, each `use super::*;` +
       `impl TypeEnv { … }`; add the three `mod` lines to `resources/mod.rs`.
-- [ ] Widen the 10 methods listed in §4.5 to `pub(in crate::ir::verify)`.
-- [ ] `flow.rs`: the three `super::` rewrites of §4.5.
-- [ ] Spec: rewrite all 27 `[[src/ir/verify/resources.rs:…]]` citations per §4.5, including the
+      Done: `items.py split` (method-level) → sendability 9, flow 4, defaultability 4 methods; `motion.py` →
+      only the wiring, three new impl blocks, the 10 widenings and the 3 path rewrites.
+- [x] Widen the 10 methods listed in §4.5 to `pub(in crate::ir::verify)`.
+- [x] `flow.rs`: the three `super::` rewrites of §4.5.
+- [x] Spec: rewrite all 27 `[[src/ir/verify/resources.rs:…]]` citations per §4.5, including the
       stale `is_thread_sendable` → `[[src/ir/verify/resources/sendability.rs:thread_unsendable_cause]]`
       (`language/16_threads.md:34`).
-- [ ] `.ai/collections.md:608` → `src/ir/verify/resources/defaultability.rs:is_defaultable`.
-- [ ] Tighten and commit the ceiling file.
+      Done: `citesweep.py` → 26 + the stale one by hand; `citedef.py src/ir/verify/` → 89 cites, 0 not defined.
+- [x] `.ai/collections.md:608` → `src/ir/verify/resources/defaultability.rs:is_defaultable`.
+      Also the same path in `tests/runtime/inplace_self_update/field_kinds_gen.py`'s `defaultable` docstring
+      (§4.5 missed it; the acceptance grep covers `tests`); the generator's output is unchanged
+      (`inplace_self_update_census` → 3 passed).
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: the resource and sendability rules behave identically; no citation of the old path
 remains.
@@ -598,6 +604,9 @@ remains.
   `cargo test --test file_size_budget 2>&1 | grep 'src/ir/verify/resources'` → exactly one row,
   `STALE … src/ir/verify/resources.rs`, and no `NEW` row for a `resources/` part; after it, none
   (est. 2 min).
+  Verified 2026-10-19: old-path grep → 0; `ir::verify` → `ok. 493 passed`; `test-accept.sh … '*-invalid'` → 208
+  passed; G2 thread → 0 diffs; check warnings 0; `spec_citations_resolve` ok; budget before the tighten → one row
+  `STALE code (ceiling 1153) src/ir/verify/resources.rs`, no `NEW`; after → none; census → 580, 269, 175, 144.
 Commit: —
 
 ### Phase 3 — `binary.rs` → `binary/`

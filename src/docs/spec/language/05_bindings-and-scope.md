@@ -44,7 +44,7 @@ Rules:
   A `MUT` *may* omit its initializer, but only when its declared type has a
   defined default value: `MUT x AS T` (no value) starts at `T`'s default, and a
   non-defaultable `T` is `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` (enforced on the IR
-  by the semantic verifier). [[src/ir/verify/resources.rs:is_defaultable]] Every
+  by the semantic verifier). [[src/ir/verify/resources/defaultability.rs:is_defaultable]] Every
   collection type (`List`, `Set`, `Map`) is defaultable to its empty form
   regardless of its element/key/value type (§4.10), so a `MUT` binding of a
   collection never needs an initializer. An `ENUM` defaults to its first declared

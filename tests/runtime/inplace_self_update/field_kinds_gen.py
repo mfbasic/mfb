@@ -130,7 +130,7 @@ def cls(t, seen=()):
 
 def defaultable(t, seen=()):
     """Whether `MUT x AS t` has a default, by the compiler's rule
-    (`src/ir/verify/resources.rs:is_defaultable`): a scalar, an enum (its first
+    (`src/ir/verify/resources/defaultability.rs:is_defaultable`): a scalar, an enum (its first
     variant), a `String`, a collection, or a record all of whose fields are. A
     function value, a data union, a resource handle and `json::Json` have none."""
     if t in PRINTABLE or t in enums or t in ("Nothing", "String"):

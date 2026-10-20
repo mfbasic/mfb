@@ -26,7 +26,7 @@ The compiler may choose stack storage, inline storage, or heap allocation. A `MU
 ## 14.1 Copy, move, and freeze
 
 - **Copy** creates independent ordinary data. A function value is ordinary data: copying one copies its closure — a new closure object over a copy of the captured environment — so every holder owns its own (`./mfb spec memory closures`). Resource slots are the explicit sharing case: they copy a reference to the same resource (handle, `STATE`, and owner), described in §15.
-- **Move** transfers ownership from one place to another. For resources, the static move check invalidates a source name as described in §14.9; this does not imply that the shared resource identity is closed or that its cleanup obligation has changed scope. A later read of a name marked moved is a compile-time use-after-move error. [[src/rules/table/type_check.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources.rs:check_resource_moves]]
+- **Move** transfers ownership from one place to another. For resources, the static move check invalidates a source name as described in §14.9; this does not imply that the shared resource identity is closed or that its cleanup obligation has changed scope. A later read of a name marked moved is a compile-time use-after-move error. [[src/rules/table/type_check.rs:TYPE_USE_AFTER_MOVE]] [[src/ir/verify/resources/mod.rs:check_resource_moves]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
 Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions all of whose variant payloads are copyable are copyable. `List`, `Set`, and `Map` are copyable when their element/key/value types are copyable; `RES` list elements and map values are also copyable as non-owning resource references (§15.6). Copying ordinary collection contents copies values — a function value included — while resource slots copy their references. Functions and lambdas are copyable: every capture is either copyable data or a reference to a resource — a captured resource is a reference, exactly as a `RES` list element is — and a capture that could not be a `List` element is rejected where the closure is built (§14.4). [[src/ir/verify/compat.rs:check_closure_captures]] Threads and resource handles are not copyable; both thread views, a parent `Thread` and a `ThreadWorker`, are resources (§15, §16), and a resource is bound only with `RES`, which names the one resource rather than copying it. [[src/ir/verify/link.rs:is_resource_or_resource_union]]
@@ -152,7 +152,7 @@ can mark a source name moved. A successful `thread::transfer` also moves its res
 of cleanup responsibility: close ends the resource's open state, while a direct
 `RES new = old` can copy its reference and invalidate `old` without relocating its
 cleanup. The initializer table and cleanup model are specified in §15. Copying
-ordinary copyable data is never a resource move. [[src/ir/verify/resources.rs:check_resource_moves]]
+ordinary copyable data is never a resource move. [[src/ir/verify/resources/mod.rs:check_resource_moves]]
 
 State is a single per-block set of moved binding names threaded through the op
 list (moved-or-not, not a three-value lattice). Reading a name already in the
@@ -172,7 +172,7 @@ cannot reach the code after the branch, so its moves are dropped from the merge
 — close-then-return in one branch does not taint the join. Only moves of
 bindings the outer scope knows propagate; branch-local resources die with the
 branch. Because "moved on *some* fall-through path" unions into the set, a
-subsequent use is rejected exactly as a definite move would be. [[src/ir/verify/resources.rs:check_resource_moves]]
+subsequent use is rejected exactly as a definite move would be. [[src/ir/verify/resources/mod.rs:check_resource_moves]]
 
 A loop body is also reached round its **back edge**, from an earlier iteration.
 Before the body is checked, it is scanned once (its diagnostics discarded) for the
@@ -193,7 +193,7 @@ leaves once a transfer succeeds is valid, the flag that ends it is not something
 this check tracks, and a transfer actually repeated is refused at run time with
 `ErrResourceMoved`. A resource the body declares itself is fresh each iteration. One scan
 suffices: a pass only adds moves, so the set after one pass is the set after any
-number. [[src/ir/verify/resources.rs:loop_carried_moves]] [[src/ir/verify/resources.rs:leaves_scanned_loop]]
+number. [[src/ir/verify/resources/mod.rs:loop_carried_moves]] [[src/ir/verify/resources/mod.rs:leaves_scanned_loop]]
 
 A resource's cleanup scope follows the production, container-routing and
 escape rules in §15; merely reading or passing a pointer does not change it.
@@ -226,14 +226,14 @@ a name the check cannot connect to the caller's binding — a callee transferrin
 its resource parameter — is still refused at run time: a later guarded operation
 raises `ErrResourceMoved`.
 [[src/ir/verify/link.rs:transferred_resource]]
-[[src/ir/verify/resources.rs:check_resource_moves]]
+[[src/ir/verify/resources/mod.rs:check_resource_moves]]
 [[src/codegen/resource/mod.rs:closed_or_moved_guard]]
 
 Because two names can now denote one resource, a consume through either marks
 both: a binding produced by a call returning that same resource type is recorded
 as a possible alias of the resource-typed arguments, and closing one name marks
 the whole alias set. Nothing is reported at the aliasing point itself — only a
-later *use* of a consumed name is. [[src/ir/verify/resources.rs:check_resource_moves]]
+later *use* of a consumed name is. [[src/ir/verify/resources/mod.rs:check_resource_moves]]
 
 ## See Also
 

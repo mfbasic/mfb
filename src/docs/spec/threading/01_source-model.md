@@ -50,15 +50,15 @@ union, and resource types may cross a boundary) are owned by
 
 - Thread sendability is a type property decided by the thread-sendability
   predicate; it is not stored as a per-value flag in every value's memory
-  block. Opaque resource handles opt in through resource metadata. [[src/ir/verify/resources.rs:thread_unsendable_cause]]
+  block. Opaque resource handles opt in through resource metadata. [[src/ir/verify/resources/sendability.rs:thread_unsendable_cause]]
 - Boundary checks run during IR verification. Non-sendable types report
   `TYPE_THREAD_NOT_SENDABLE`; resource/data-plane violations report
   `TYPE_THREAD_RESOURCE_PLANE_REQUIRED`; transferring a worker view reports
   `TYPE_THREAD_WORKER_NOT_TRANSFERABLE`. The declared handle planes and the
   boundary call arguments are checked separately.
-  [[src/ir/verify/resources.rs:require_thread_sendable]]
-  [[src/ir/verify/resources.rs:check_thread_sendability]]
-  [[src/ir/verify/resources.rs:check_thread_boundary_sendability]]
+  [[src/ir/verify/resources/sendability.rs:require_thread_sendable]]
+  [[src/ir/verify/resources/sendability.rs:check_thread_sendability]]
+  [[src/ir/verify/resources/sendability.rs:check_thread_boundary_sendability]]
 - Runtime queue helpers are type-agnostic. Codegen passes per-type copy/drop
   function pointers so values are materialized and resources closed correctly.
   [[src/codegen/runtime/thread/value_functions.rs:emit_thread_value_fn_address]]

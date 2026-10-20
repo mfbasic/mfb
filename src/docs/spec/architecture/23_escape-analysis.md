@@ -40,7 +40,7 @@ The direct-name move check invalidates the source of `RES b = a` even when `a`
 is a resource parameter or `FOR EACH` element. This static invalidation is
 separate from native cleanup placement; see the initializer table in
 `./mfb spec language resource-management`.
-[[src/ir/verify/resources.rs:check_resource_moves]]
+[[src/ir/verify/resources/mod.rs:check_resource_moves]]
 
 ```text
 resource_owners = <escape analysis of the function> -> owners

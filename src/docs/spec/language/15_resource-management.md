@@ -111,7 +111,7 @@ closed view reports `ErrResourceClosed`, and through a transferred view reports
 `ErrResourceMoved`. These checks are distinct from the lifetime of the resource
 record itself. How a transfer's success and failure edges enter the static check
 is specified in §14.9.
-[[src/ir/verify/resources.rs:check_resource_moves]]
+[[src/ir/verify/resources/mod.rs:check_resource_moves]]
 [[src/codegen/resource/mod.rs:closed_or_moved_guard]]
 
 - **Identity** is the single resource record and its underlying handle. Its
@@ -133,7 +133,7 @@ The following table separates initialization from cleanup. The direct-name move
 rule applies when the destination is a `RES` owner-table binding and the source's
 concrete resource type has a registered close operation. It does not ask whether
 that source name owns cleanup; parameters and other non-owning names qualify too.
-[[src/ir/verify/resources.rs:check_resource_moves]]
+[[src/ir/verify/resources/mod.rs:check_resource_moves]]
 
 | Initializer / binding form | Identity and source-name validity | Cleanup consequence |
 | --- | --- | --- |
@@ -193,11 +193,11 @@ s.state.pos = 10                                             ' update one field 
 s.state = WITH s.state { pos := 10 }                         ' or replace the whole state
 ```
 
-`T` must be a **record `TYPE` that is copyable and defaultable** (`TYPE_STATE_INVALID` otherwise). [[src/ir/verify/resources.rs:state_type_fault]] Nothing else is a `STATE` type: not a scalar (`Integer`, `Boolean`, `Float`, `Fixed`, `Money`, `Byte`), not a `String` or an `AttributedString`, not a collection (`List`, `Map`, `Set`), not an `ENUM`, not a `UNION`, not a resource, a `FUNC` or a thread handle. The built-in records `Error` and `ErrorLoc` are records and are accepted. A program that wants one of those as its state declares a record with a field of that type and names the record. A union's member is a record `TYPE` in its own right and may be named. The kind is read from the declaration wherever it lives — the project, an imported package's type table, or a built-in package — so `STATE pkg::Cursor` is accepted for an imported record and `STATE pkg::Mode` is refused for an imported `ENUM`.
+`T` must be a **record `TYPE` that is copyable and defaultable** (`TYPE_STATE_INVALID` otherwise). [[src/ir/verify/resources/defaultability.rs:state_type_fault]] Nothing else is a `STATE` type: not a scalar (`Integer`, `Boolean`, `Float`, `Fixed`, `Money`, `Byte`), not a `String` or an `AttributedString`, not a collection (`List`, `Map`, `Set`), not an `ENUM`, not a `UNION`, not a resource, a `FUNC` or a thread handle. The built-in records `Error` and `ErrorLoc` are records and are accepted. A program that wants one of those as its state declares a record with a field of that type and names the record. A union's member is a record `TYPE` in its own right and may be named. The kind is read from the declaration wherever it lives — the project, an imported package's type table, or a built-in package — so `STATE pkg::Cursor` is accepted for an imported record and `STATE pkg::Mode` is refused for an imported `ENUM`.
 
-A direct `RES` field prevents a record from being defaultable, so such a record cannot be `T`; an `ENUM` field does not, and starts at its first variant (§4.10). A record with a collection of resource references can be defaultable because the collection defaults to empty; it remains prohibited on a thread data plane (`TYPE_THREAD_RESOURCE_PLANE_REQUIRED`, §16). [[src/ir/verify/resources.rs:is_defaultable]]
+A direct `RES` field prevents a record from being defaultable, so such a record cannot be `T`; an `ENUM` field does not, and starts at its first variant (§4.10). A record with a collection of resource references can be defaultable because the collection defaults to empty; it remains prohibited on a thread data plane (`TYPE_THREAD_RESOURCE_PLANE_REQUIRED`, §16). [[src/ir/verify/resources/defaultability.rs:is_defaultable]]
 
-**`STATE` is attached to a resource, and to nothing else.** A `STATE` clause written on a type that is not a resource — `x AS Integer STATE Cur`, `RES n AS Integer STATE Cur`, a `List OF RES String STATE Cur` element — is rejected with `TYPE_STATE_REQUIRES_RESOURCE`, at the declaration. [[src/ir/verify/resources.rs:check_state_clauses]] [[src/ir/shape.rs:check_stray_state]] Only a type **positively known** to be data is refused: a name no declaration table can place may be another package's resource. [[src/ir/verify/resources.rs:state_host_is_data]]
+**`STATE` is attached to a resource, and to nothing else.** A `STATE` clause written on a type that is not a resource — `x AS Integer STATE Cur`, `RES n AS Integer STATE Cur`, a `List OF RES String STATE Cur` element — is rejected with `TYPE_STATE_REQUIRES_RESOURCE`, at the declaration. [[src/ir/verify/resources/defaultability.rs:check_state_clauses]] [[src/ir/shape.rs:check_stray_state]] Only a type **positively known** to be data is refused: a name no declaration table can place may be another package's resource. [[src/ir/verify/resources/defaultability.rs:state_host_is_data]]
 
 The two rules are checked at **every position a clause can be written**: a `RES` binding (local or top-level), a parameter (a lambda's included), a return, a record field, a collection element or map value, a thread's resource plane, a thread view's own `STATE` (§16), and a native `LINK` declaration's parameter and return (§17). A top-level binding's clause and a lambda parameter's ride in the lowered type like every other, so they are judged by the same walk. [[src/ir/lower.rs:top_level_binding_type]] [[src/ir/lower.rs:lambda_param_type]] One clause reports **at most one** of the two, decided in this order:
 
@@ -349,7 +349,7 @@ failure handler is not permission to reuse a local resource after unwinding.
 [[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
 [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:retire_moved_resource_cleanup]]
-[[src/ir/verify/resources.rs:check_resource_moves]]
+[[src/ir/verify/resources/mod.rs:check_resource_moves]]
 
 A close that runs as part of an implicit lexical drop cannot inject an error into program flow, because a drop has no source-level result to route. If such a drop-close fails, the failure is emitted as diagnostic/audit metadata associated with the failed cleanup; it does not replace, wrap, or raise a source-level `Error`. Programs that must observe a close failure use the explicit close operation instead. Re-closing an already-closed handle during a drop is not such a failure — it is a benign no-op and is never reported as a drop-close failure. Nor is a handle `thread::transfer` moved to another thread: the scope drop recognizes the record's `moved|closed` flag and closes nothing, frees only the sender's tombstone where the binding owns the record, and records no failure — whether the transfer was the binding's own, a callee's transfer of the caller's handle (which the static move check cannot see, §14.9), or one under an inline `TRAP` that succeeded. A transfer that fails leaves the handle open and the sender's drop closes it, inline `TRAP` or not. Every drop path — a binding's, an owned-list drain, a resource union's, a discarded result's, the module instance's teardown — treats `ErrResourceClosed` and `ErrResourceMoved` from its close the same way. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_drop_close_outcome]] [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:deactivate_closed_resource_arguments]]
 

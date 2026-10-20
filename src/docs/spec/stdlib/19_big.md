@@ -26,7 +26,7 @@ A `big::Int` is a **value**, not a handle. Assigning it or passing it to a funct
 independent copy; there is nothing to open and no `close`. A `big::Int` declared with `MUT`
 and no initializer holds zero: a `List` field defaults to the empty list and a `Boolean` to
 `FALSE`, and `{[], FALSE}` is canonical zero. (An immutable `LET` must have an initializer,
-as for every type.) [[src/ir/verify/resources.rs:is_defaultable]]
+as for every type.) [[src/ir/verify/resources/defaultability.rs:is_defaultable]]
 
 ### Canonical form
 
