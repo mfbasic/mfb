@@ -789,19 +789,35 @@ Acceptance: the package commands behave identically and keep their coverage trea
   → `ok. 90 passed`; the six registry targets in the fast tier → `ok` (1, 10, 6, 4, 9, 2 passed); exception greps → 8
   and 0; G2 → `spec_citations_resolve` in the unit run (pass) + the sweep checks clean; G3 → guards 8, 7 + 1 ignored,
   8; census → pkg 100/348/144/213/441/535/262, resolve 505/208/200/117; G5 → exit 0.
-Commit: —
+Commit: ba662b2e1
 
 ### Phase 3 — Debugger shared code (host-built)
 
-- [ ] Split `src/debugger/values.rs` per §4.10.
-- [ ] Split `src/debugger/breakpoints.rs` per §4.6.
-- [ ] Split `src/debugger/prompt.rs` per §4.9.
-- [ ] Sweep the 43 citations (4 + 11 + 28) and `10_debugger.md:69`'s prose path.
-- [ ] G4.
+- [x] Split `src/debugger/values.rs` per §4.10.
+      Done: `codesplit.py` → view 14, collection 8 items; `pub(super)` on §4.10's set + all 13 `Collection` fields (mod.rs
+      builds it with a literal); `view.rs` needs nothing from its parent, so it has no `use super::*;`; `collection` is
+      glob-imported privately (no `pub(crate)` item); `values/mod.rs` imports `prompt` from `debugger`.
+- [x] Split `src/debugger/breakpoints.rs` per §4.6.
+      Done: `items.py split` with method-level entries (the one `impl Breakpoints` becomes three blocks) → running 15
+      methods + `Finish` (incl. `run_inferior`/`take_landed`, new since planning), errors 8 items + 5 methods; motion →
+      only the wiring and the two new `impl Breakpoints {`/`}` pairs; `pub(super)` on §4.6's set + `run_inferior`, `Raise`,
+      `ErrorWatch.{commands, park}`; `breakpoints/mod.rs` imports `runtime`, `Exit`, `RegisterValue` from `debugger`.
+- [x] Split `src/debugger/prompt.rs` per §4.9.
+      Done: `codesplit.py` → command 42, render 14, stops 9, actions 18 items; `pub(super)` on §4.9's 42 + `launched_only`,
+      `after_words` (new since planning) + `Dump.{block, offset, size}`; `stops` is glob-imported privately.
+- [x] Sweep the 43 citations (4 + 11 + 28) and `10_debugger.md:69`'s prose path.
+      Done: `citesweep.py` → 4 + 12 + 29 (one more cite each than planned, added since); `citedef.py` → 50 cites, each names
+      its defining file; 0 old-path cites; line 69 → `src/debugger/breakpoints/`.
+- [x] G4.
+      Done: → 3 STALE `code` rows (values 1068, breakpoints 1300, prompt 2131); tighten drops them; re-run → 0.
 
 Acceptance: the debugger prompt, breakpoints and value views behave identically.
   Check: G1; `cargo test -p mfb --bin mfb debugger::` → 0 failed; `cargo test --test cli_dbg`
   → pass; G2; G3; G5 (est. 8 min).
+  Verified 2026-10-19: G1 → mfb list 5017 = 5017, leaves SAME, check warnings 0, clippy 37065 = G0; `debugger::` →
+  `ok. 180 passed`; `cli_dbg` (fast tier) → `ok. 21 passed`; G2 → `spec_citations_resolve` in the unit run (pass) +
+  `citedef.py` clean; G3 → guards 8, 7 + 1 ignored, 8; census → values 646/210/218, breakpoints 595/518/198, prompt
+  346/743/256/255/547; G5 → exit 0.
 Commit: —
 
 ### Phase 4 — Debugger backends (macOS on the host, Linux on box 2223)

@@ -66,7 +66,7 @@ trait (`executable_of`, `launch`, `attach`) and an `Inferior` (`pid`, `end`,
 Symbol classification, the reading of the runtime's thread table and arena
 registry (`src/debugger/runtime.rs`), breakpoint resolution, pending
 placement and tests, the watchpoints' change test and commands at a stop
-(`src/debugger/breakpoints.rs`), locations and their values
+(`src/debugger/breakpoints/`), locations and their values
 (`src/debugger/location.rs`), the environment a restart gives
 (`src/debugger/environment.rs`), the listings' format, the prompt and the CLI are
 platform-neutral.
@@ -393,7 +393,7 @@ needs no signing: a process may trace its own children, and others as
 
 ## The prompt
 
-[[src/debugger/prompt.rs:run]]
+[[src/debugger/prompt/mod.rs:run]]
 
 The launch banner is
 `Launched <path> as process <pid>; paused before its first instruction.`; the
@@ -463,7 +463,7 @@ Then, repeatedly:
 | `quit`, `q` | ends the session |
 
 `list` may be spelled `l` in every form. Commands are case-sensitive.
-[[src/debugger/prompt.rs:parse]] Refusals, each printed as `error: <text>`:
+[[src/debugger/prompt/command.rs:parse]] Refusals, each printed as `error: <text>`:
 
 | Input | Text |
 | --- | --- |
@@ -574,7 +574,7 @@ Every listing below — and `show type`'s element table — is laid out by
 columns are separated by ` | ` (`COLUMN_SEPARATOR`) and each but the last is
 left-aligned to its widest entry, header included, counted in characters, so
 every row's separators fall under the header's. A listing with no rows prints
-no header. [[src/debugger/prompt.rs:table]]
+no header. [[src/debugger/prompt/render.rs:table]]
 
 A listing or step the backend cannot produce prints `error: <reason>`. All go
 to stderr after stdout is flushed; the prompt continues. End of input writes a
@@ -585,7 +585,7 @@ newline and ends the session as `quit` does.
 One line per symbol `Inferior::functions` answers, except that a symbol
 repeated at the same address (an import's repeated records, or the same
 unbound import) is shown once; the same name at two addresses is shown twice:
-[[src/debugger/prompt.rs:function_lines]]
+[[src/debugger/prompt/render.rs:function_lines]]
 
 ```text
 Type   | Address   | Symbol   | Written name
@@ -607,8 +607,8 @@ Type   | Address   | Symbol   | Written name
   itself. A function is listed when it is of one of the types given (any, with
   none) and matches one of the patterns given (any, with none). The collision
   tags are worked out over every function, not just those listed. A filter
-  that keeps nothing is refused. [[src/debugger/prompt.rs:FunctionFilter]]
-  [[src/debugger/prompt.rs:glob]]
+  that keeps nothing is refused. [[src/debugger/prompt/command.rs:FunctionFilter]]
+  [[src/debugger/prompt/command.rs:glob]]
 - After the table, an empty line and one legend line per type the listing
   shows, in group order: the code, two spaces, and `Origin::legend` —
   `MU  MFB User: code you wrote, in your program or a package it imports`,
@@ -670,7 +670,7 @@ empty. A `_` not followed by two uppercase hex digits is kept literally.
 
 One line per thread, in the backend's order, `<id> | <name> | <pc> | <task>`,
 under the header `ID | Name | PC | Task`:
-[[src/debugger/prompt.rs:thread_lines]]
+[[src/debugger/prompt/render.rs:thread_lines]]
 
 - `<id>` is the thread's index, the id `list reg` and `list arena` use.
 - `<name>` is the name the thread gave itself; else the function holding its
@@ -698,7 +698,7 @@ three registers. A first argument of all digits is the thread id `<id>`
 (default 0). Every other argument picks registers, in the order given: `gpr`,
 `simd` and `sys` pick every register of that `RegisterGroup` in the backend's
 order, and any other word picks the one register of that name.
-[[src/debugger/prompt.rs:RegisterPick]]
+[[src/debugger/prompt/command.rs:RegisterPick]]
 
 With no other argument the command prints every register of the thread whose
 `Register::role` is set, in the backend's order, one line each as
@@ -706,7 +706,7 @@ With no other argument the command prints every register of the thread whose
 `Register | Hex | Decimal | Role`, then an empty line, then the
 `LIST_REG_USAGE` block. A thread id past the last thread is refused as it is
 with arguments. After the program has ended it prints the `LIST_REG_USAGE`
-block alone. [[src/debugger/prompt.rs:common_register_lines]]
+block alone. [[src/debugger/prompt/render.rs:common_register_lines]]
 
 On AArch64 the roles are the compiler's own register assignments
 (`./mfb spec memory native-calling-convention`), and a role is a fixed label
@@ -726,7 +726,7 @@ One line per register picked, `<register> | 0x<hex> | (<decimal>)`, under the
 header `Register | Hex | Decimal`: the value as `0x` plus 16 lowercase hex digits
 (64-bit) or 32 (128-bit), and the same value in decimal, signed for a 64-bit
 register (as MFBASIC's `Integer`) and unsigned for a 128-bit one.
-[[src/debugger/prompt.rs:register_lines]]
+[[src/debugger/prompt/render.rs:register_lines]]
 
 On AArch64 every register of the thread state is read
 (`src/debugger/arm64.rs:registers`), the same on macOS and Linux:
@@ -745,7 +745,7 @@ reads; `fpsr` and `fpcr` are the 32-bit words of `ARM_NEON_STATE64`.
 One line per live arena in the `--debug` registry,
 `<id> | <thread id> | <address> | <size in KB>`, under the header
 `ID | Thread | Address | Size (KB)`: [[src/debugger/runtime.rs:arenas]]
-[[src/debugger/prompt.rs:arena_lines]]
+[[src/debugger/prompt/render.rs:arena_lines]]
 
 - `<id>` is the registry slot (`./mfb spec tooling debug-report`); a slot whose
   state pointer is 0 (a joined worker) is skipped.
@@ -770,7 +770,7 @@ A program with no `_mfb_rt_debug_arena_base` symbol (no `--debug`) answers
 Runs thread `<t>` `<count>` instructions through `Inferior::step`, every other
 thread held, then prints one line, where `<place>` is `0x<pc>` and, inside a
 function the executable defines, ` in <function>` as `list thread` spells it:
-[[src/debugger/prompt.rs:step]]
+[[src/debugger/prompt/actions.rs:step]]
 
 | Outcome | Line |
 | --- | --- |
@@ -782,13 +782,13 @@ function the executable defines, ` in <function>` as `list thread` spells it:
 
 When the step ended the program and the session holds its debug report (`show
 report`), a second line follows: `Type "show report" to see the performance and
-memory report.` [[src/debugger/prompt.rs:ended_lines]]
+memory report.` [[src/debugger/prompt/actions.rs:ended_lines]]
 
 ### `step-all`
 
 Runs every thread `list thread` shows in `<count>` rounds through one
 `Inferior::step`, then prints one line per thread in id order:
-[[src/debugger/prompt.rs:step_all]]
+[[src/debugger/prompt/actions.rs:step_all]]
 
 | Outcome | Line |
 | --- | --- |
@@ -824,7 +824,7 @@ term and an optional offset, `+<n>` or `-<n>` (decimal, or hex after `0x`):
   <n> functions, at 0x…, 0x…; give one by its address`; one that names none
   (and no register) with `no register or function is named '<name>'; type
   'list reg' or 'list func' for them`.
-  [[src/debugger/location.rs:is_register]] [[src/debugger/prompt.rs:function_start]]
+  [[src/debugger/location.rs:is_register]] [[src/debugger/prompt/actions.rs:function_start]]
 - `[<location>]`, nested to any depth: the 8 bytes, little-endian, in memory at
   the inner location's value.
 
@@ -840,23 +840,23 @@ and 16 hex digits and offsets in short hex (`[0x0000000012348593]`,
 
 ### `show mem`
 
-[[src/debugger/prompt.rs:show_memory]] `show mem <where> [<size>]` reads
+[[src/debugger/prompt/actions.rs:show_memory]] `show mem <where> [<size>]` reads
 `<size>` bytes (default 64, at most 65536; decimal or `0x` hex) at the value of
 `<where>` worked out for the current thread (`0x1000-0x10`, `sp`, `sp+0x18`,
 `x19-16`, `main+0x110`, `isPrime+16`, `[sp+0x10]`). It prints
 `Memory at 0x<address>:` — with ` (<where> of thread <t>)` when a register
 went into the value, ` (<where>)` for any other location but a number — then
 the bytes as `show arena`'s dump does, each line led by its full address (`0x` +
-16 digits). [[src/debugger/prompt.rs:resolve]] [[src/debugger/prompt.rs:memory_lines]]
+16 digits). [[src/debugger/prompt/actions.rs:resolve]] [[src/debugger/prompt/render.rs:memory_lines]]
 
 ### `show type`
 
-[[src/debugger/values.rs:show]] `show type <type> <where> [...]` reads the value
+[[src/debugger/values/mod.rs:show]] `show type <type> <where> [...]` reads the value
 at `<where>` (as `show mem` resolves it: an address, or a register's value plus
 an offset) as `<type>`; `show type` alone prints the `TYPE_USAGE` block, even
 after the program has ended. `<type>` is `int`/`integer`, `float`, `fixed`,
 `money`, `bool`/`boolean`, `byte`, `scalar`, `string`, `list`, `set`, `map` or
-`resource`, in any case. [[src/debugger/values.rs:parse_view]]
+`resource`, in any case. [[src/debugger/values/view.rs:parse_view]]
 
 Every byte read must lie in the usable space (`blockAddress + 32` up to
 `blockAddress + blockSize`) of one block of one arena in the `--debug` registry
@@ -873,7 +873,7 @@ symbol (`data_symbol_at`) — a `String` literal the compiler emits, laid out as
 an arena `String` (its length, its bytes, a NUL) in the file's data — reads it
 there instead, without the arena check or any arena, and adds ` (the literal
 <symbol less one '_'>)`: `Length: 17 Value: "function handler " (the literal
-mfb_str_2)`. [[src/debugger/values.rs:show_literal]]
+mfb_str_2)`. [[src/debugger/values/mod.rs:show_literal]]
 
 | Type | Bytes | Prints |
 | --- | --- | --- |
@@ -890,7 +890,7 @@ A `string`'s length word, its bytes and its NUL must lie in the block
 (`not a String … its length, <n>, runs past the end of its arena block`), its
 bytes must be UTF-8 (`not a String … byte <i> of its value, 0x<b>, is not
 UTF-8`), and at most 65536 bytes are shown, then ` (the first 65536 bytes)`. Text
-is escaped as `char::escape_debug` does. [[src/debugger/values.rs:quoted]]
+is escaped as `char::escape_debug` does. [[src/debugger/values/mod.rs:quoted]]
 
 `list`, `set` and `map` read a 40-byte `CollectionHeader` and check it: the kind
 byte (0 or 2 for `list`, 3 for `set`, 1 for `map`; else `not a <Type> … its kind
@@ -945,7 +945,7 @@ tag, <t>, is no resource kind`.
 
 ### `show arena`
 
-[[src/debugger/prompt.rs:show_arena]] The arena is the live registry slot
+[[src/debugger/prompt/actions.rs:show_arena]] The arena is the live registry slot
 `<id>` that `list arena` shows, so like it this needs a `--debug` build
 (`showing an arena needs a debug build; …`); otherwise `no arenas yet: …` or
 `no arena <id>; type 'list arena' for the arenas`.
@@ -957,7 +957,7 @@ the compiler's own offset constants — as the name left-aligned in 17 columns
 and the value in hex at its width (`0x` + 16 digits; `v128Slots` entries 32).
 An array prints `<name>[<count>]` and `<n> non-empty`, then a line
 `    [<index>]` per entry that is not all zero bytes.
-[[src/debugger/prompt.rs:state_lines]] Then each block, **oldest first**
+[[src/debugger/prompt/render.rs:state_lines]] Then each block, **oldest first**
 (numbered from 0: the chain from `blockHead` through `prevBlock`, reversed), as
 `Arena Block (<n>):` and its `prevBlock`, `blockSize`, `usableCapacity` and
 `bumpOffset`. [[src/debugger/runtime.rs:blocks]]
@@ -972,11 +972,11 @@ address plus `<offset>` and printed under `Arena Block (<id>,<block>):` as one
 line per 16 bytes: the line's offset in the block as `0x` and hex digits
 grouped in fours by `_` (at least 8 digits), the bytes as two hex digits each
 (a short last line padded), `|`, and each byte as its ASCII character (`.`
-outside 0x20–0x7e), all space-separated. [[src/debugger/prompt.rs:dump_lines]]
+outside 0x20–0x7e), all space-separated. [[src/debugger/prompt/render.rs:dump_lines]]
 
 ### `show error`
 
-[[src/debugger/prompt.rs:show_error]] `show error [<thread>]` reads the error
+[[src/debugger/prompt/actions.rs:show_error]] `show error [<thread>]` reads the error
 thread `<thread>` (a `list thread` id; default the current thread) has raised
 and not yet caught: the flat `Error` block a failing operation parks in its
 arena's `ARENA_CURRENT_ERROR_OFFSET` slot for its catcher, which takes it and
@@ -997,7 +997,7 @@ is a fault, not an error a TRAP can catch. Use bt and list reg to see where.`
 session remembers it per thread (`prompt::Faults`) until the thread can have
 left the fault: `run`, `finish`, `restart` and a `step-all` of one round or
 more forget every thread's, a `step` of that thread and a `jump` of it forget
-its own. [[src/debugger/prompt.rs:Faults]]
+its own. [[src/debugger/prompt/command.rs:Faults]]
 
 With an error in the slot:
 
@@ -1056,7 +1056,7 @@ window open likewise leaves an incomplete report. A breakpoint of the user's
 that stops the thread at `_mfb_debug_shutdown` or at one of its `write`s opens
 no window and takes no line there. A program stepped into
 `_mfb_debug_shutdown` writes the whole report itself.
-[[src/debugger/breakpoints.rs:run]]
+[[src/debugger/breakpoints/running.rs:run]]
 
 `show report` prints the report's lines as the program wrote them, each made
 safe for a terminal (`terminal_safe::safe`), followed for an incomplete report by
@@ -1075,7 +1075,7 @@ the process per report line.
 
 ### Breakpoints
 
-[[src/debugger/breakpoints.rs:Breakpoints]] A `<target>` starting `0x` (or
+[[src/debugger/breakpoints/mod.rs:Breakpoints]] A `<target>` starting `0x` (or
 `0X`) is an address in hex, perhaps `+` or `-` an offset (decimal, or hex after
 `0x`), as `show mem` reads one; `<name>+<offset>` is a place in a function;
 anything else is a name.
@@ -1097,7 +1097,7 @@ anything else is a name.
   gives one **pending** breakpoint per symbol, unless another record of it is
   bound. No match:
   `no function is named '<target>'; type 'list func' for the functions`.
-  [[src/debugger/breakpoints.rs:find]]
+  [[src/debugger/breakpoints/mod.rs:find]]
 - **By place** (`<name>+<offset>`, the offset decimal or `0x` hex, as `bt` and
   stops print a place: `main+0x110`, `main+272`): `<name>` matched as by name,
   then one breakpoint `<offset>` bytes into each bound function it matches,
@@ -1124,7 +1124,7 @@ thread; a memory read that fails then is no fault. A breakpoint's place and
 messages carry ` if <test>`, the test written `<where> <test> <value>` with the
 location as Locations shows one and the value as an 8-byte watchpoint value
 (`x0 eq 0x0000000000000005 (5)`, `[x0+0x8] in`).
-[[src/debugger/location.rs:Condition]] [[src/debugger/breakpoints.rs:Breakpoint]]
+[[src/debugger/location.rs:Condition]] [[src/debugger/breakpoints/mod.rs:Breakpoint]]
 
 Several breakpoints may be at one address, each with a different test (or
 none); setting one with the test, and at the place, of one already there is
@@ -1133,7 +1133,7 @@ address — the user's, `breakerror`'s on the park, a `finish`'s on a `ret` —
 written when the first is set and taken out when the last goes
 (`Breakpoints::armed`). A thread there stops when any of them stops it: one
 with no test, or one whose test holds; each of those runs its own commands. A
-thread no breakpoint there stops runs on, unseen. [[src/debugger/breakpoints.rs:Breakpoints]]
+thread no breakpoint there stops runs on, unseen. [[src/debugger/breakpoints/mod.rs:Breakpoints]]
 
 Every word after the target is the breakpoints' **commands** (see Commands at
 a stop below); with any, the line goes on ` Each stop runs '<commands>'.`,
@@ -1162,7 +1162,7 @@ has commands, a last column `Commands` gives each one's, joined by `; `, or
 
 ### Watchpoints
 
-[[src/debugger/breakpoints.rs:Watch]] `watchpoint <where> [<size>]
+[[src/debugger/breakpoints/mod.rs:Watch]] `watchpoint <where> [<size>]
 [<commands>]` (`wp`) watches the `<size>` bytes at `<where>`: `<where>` is
 resolved once, now, as `show mem` resolves one (`0x…`, a register of the
 current thread, a function, `[…]`, each `±<offset>`); `<size>` is the word after it
@@ -1190,7 +1190,7 @@ on the one a `breakerror` run places at the raiser's return) stops there at
 the next `run`, before anything runs. Only stores the thread makes are seen:
 the kernel writing the memory (a `read` into it) is not. After the stop the
 current thread is the writer, its `pc` past the write.
-[[src/debugger/breakpoints.rs:Breakpoints]]
+[[src/debugger/breakpoints/mod.rs:Breakpoints]]
 
 A write by the instruction under a breakpoint is seen too. While any
 watchpoint is set, every `run` — and the run on to a watched raise's raiser —
@@ -1212,7 +1212,7 @@ is laid out anew.`
 
 ### Commands at a stop
 
-[[src/debugger/prompt.rs:stop_commands]] The words after a breakpoint's target,
+[[src/debugger/prompt/command.rs:stop_commands]] The words after a breakpoint's target,
 a watchpoint's place and size, or `breakerror`'s codes (which end at the first
 word that is a command name, `COMMAND_NAMES`) are joined with spaces and split
 at `;` into commands; empty ones are dropped. Each is parsed now, and must be
@@ -1244,11 +1244,11 @@ were typed (no prompt or echo is written for them). A queued `finish` is the
 `x0` and `x1`, and the commands after it see the thread there. A stop heard
 while queued commands wait — a breakpoint inside the function being finished
 — discards them and runs or queues its own; the program's end discards them.
-[[src/debugger/prompt.rs:hear_stop]]
+[[src/debugger/prompt/stops.rs:hear_stop]]
 
 ### `breakerror`
 
-[[src/debugger/breakpoints.rs:ErrorCodes]] `breakerror <code>...` (`be`) watches
+[[src/debugger/breakpoints/errors.rs:ErrorCodes]] `breakerror <code>...` (`be`) watches
 for errors by code — each `<code>` an integer, or an `errorCode` constant's name
 with or without `errorCode::` (`runtime::error_code_by_name`) — and joins them
 to any already watched; `breakerror any` watches for every error; `breakerror
@@ -1275,7 +1275,7 @@ the raise is not), and a raise by another thread meanwhile is let go. A
 breakpoint of the user's on `_mfb_rt_park_error` shares the address: a stop there
 is theirs, and removing it keeps the watch's. `restart` places the watch again
 in the new process. A `finish` the raise stops ends early, as for any other
-stop. [[src/debugger/breakpoints.rs:Breakpoints]]
+stop. [[src/debugger/breakpoints/mod.rs:Breakpoints]]
 
 Errors the watch cannot see, since they do not pass through the park: an error
 re-raised from an `Error` value (`FAIL e`, a cleanup's re-raise), which stores
@@ -1286,7 +1286,7 @@ program stops the process for the comparison, watched or not.
 
 ### `jump`
 
-[[src/debugger/prompt.rs:jump]] `jump <where> [<register>=<value>]...` (`j`)
+[[src/debugger/prompt/actions.rs:jump]] `jump <where> [<register>=<value>]...` (`j`)
 moves the current thread — at a stop, the stopped one — to the value of
 `<where>` worked out for it, and gives up to 8 registers (`MAX_JUMP_REGISTERS`)
 new values: `x0`–`x28`, `fp`, `lr`, `sp`, `nzcv`, `fpsr`, `fpcr`
@@ -1313,8 +1313,8 @@ one.`) While any stays
 pending and the program has not been seen at its entry point, the entry point
 gets a breakpoint of the debugger's own (unless one is there): a stop at that
 breakpoint alone places the pending ones and runs on, unseen.
-[[src/debugger/breakpoints.rs:Ended]] Each stop is printed as it happens, after
-the notes made since the last, as one line per thread it stopped: [[src/debugger/prompt.rs:stop_lines]]
+[[src/debugger/breakpoints/mod.rs:Ended]] Each stop is printed as it happens, after
+the notes made since the last, as one line per thread it stopped: [[src/debugger/prompt/stops.rs:stop_lines]]
 
 | Stop | Line |
 | --- | --- |
@@ -1342,7 +1342,7 @@ name or is written as its symbol is spelled (`names::stop_name`:
 linked function bound exactly there (`runtime::locate_stop`), else a loaded
 library's (`(__cxa_finalize_ranges) ___cxa_finalize_ranges+0x8`), else `-`. The
 symbol is what tells apart functions that share a written name, and it is the
-spelling `breakpoint` takes. [[src/debugger/prompt.rs:stop_place]]
+spelling `breakpoint` takes. [[src/debugger/prompt/stops.rs:stop_place]]
 `T: - P: - F: -` stands for a thread no longer there. `<old>` and `<new>` are
 shown as watchpoint values are. The error's origin is not printed; `show
 error` reads it. A thread at breakpoints whose tests all fail is no stop and
@@ -1430,7 +1430,7 @@ and an ignored test compares a whole corpus against lldb
 
 ### `finish`
 
-[[src/debugger/breakpoints.rs:Breakpoints]] `finish` runs the current thread
+[[src/debugger/breakpoints/mod.rs:Breakpoints]] `finish` runs the current thread
 until the function holding its `pc` returns. It finds every return
 instruction (`ret`, `retaa`, `retab`) in the function (through its extent, or
 the first within 64 instructions as `dis` does, `disassemble::returns`), writes a breakpoint of its own on each that
@@ -1449,7 +1449,7 @@ the end — removes them and is reported as `run` reports it, and, unless the
 program ended, followed by `The finish from <function> did not complete; type 'finish'
 to run it again from here.` (`<function>` named as `dis` names it; `The finish
 did not complete; …` when the function has no name).
-[[src/debugger/breakpoints.rs:Finish]] With no function at the
+[[src/debugger/breakpoints/running.rs:Finish]] With no function at the
 `pc`: `cannot finish: no known function holds 0x…`; with no `ret` found:
 `cannot finish: no ret instruction found in the function at 0x…`.
 
@@ -1516,7 +1516,7 @@ forgotten. A number in a test (`[0x…]`) is not moved to the new process's
 layout. Every watchpoint is dropped first, as Watchpoints says. The
 current thread is 0 again, and the session runs on even after the program had
 ended. The program starts with the environment `env` has made for it, the
-debugger's own until `env` changes it. [[src/debugger/prompt.rs:restart]]
+debugger's own until `env` changes it. [[src/debugger/prompt/stops.rs:restart]]
 
 ### `env`
 
