@@ -15,6 +15,7 @@ IMPORT datetime
 IMPORT encoding
 IMPORT errorCode
 IMPORT fs
+IMPORT process
 IMPORT strings
 
 PRIVATE FUNC freshDir(tag AS String) AS String
@@ -254,6 +255,106 @@ TESTING
       removeTree(into)
     END TCASE
   END TGROUP
+  TGROUP "tar extractTo and links already on disk"
+    TCASE "a dangling link where a file goes is refused, and nothing is written through it"
+      LET into AS String = freshDir("dangling")
+      LET outside AS String = freshDir("dangling-outside")
+      makeLink(fs::pathJoin([into, "evil.txt"]), fs::pathJoin([outside, "victim.txt"]))
+      expectTrap(extractTo(open(oneFile("evil.txt", "pwned")), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(outside), 0)
+      removeTree(outside)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a link standing in for a directory on the path is refused"
+      LET into AS String = freshDir("linkdir")
+      LET outside AS String = freshDir("linkdir-outside")
+      makeLink(fs::pathJoin([into, "linkdir"]), outside)
+      expectTrap(extractTo(open(oneFile("linkdir/x.txt", "pwned")), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(outside), 0)
+      removeTree(outside)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a link to an existing file is not written through"
+      LET into AS String = freshDir("filelink")
+      LET outside AS String = freshDir("filelink-outside")
+      LET victim AS String = fs::pathJoin([outside, "victim.txt"])
+      fs::writeText(victim, "original")
+      makeLink(fs::pathJoin([into, "f.txt"]), victim)
+      expectTrap(extractTo(open(oneFile("f.txt", "pwned")), into), errorCode::ErrInvalidPath)
+      expectString(fs::readText(victim), "original")
+      removeTree(outside)
+      removeTree(into)
+    END TCASE
+
+    TCASE "an existing regular file is replaced and an existing directory is reused"
+      LET into AS String = freshDir("replace")
+      fs::writeText(fs::pathJoin([into, "top.txt"]), "old")
+      fs::createDirectories(fs::pathJoin([into, "docs"]))
+      expectInteger(extractTo(open(goodArchive()), into), 2)
+      expectString(fs::readText(fs::pathJoin([into, "top.txt"])), "at the top")
+      expectString(fs::readText(fs::pathJoin([into, "docs", "readme.txt"])), "read me")
+      removeTree(into)
+    END TCASE
+
+    TCASE "a file that would replace an existing directory is refused before writing"
+      LET into AS String = freshDir("filedir")
+      fs::createDirectories(fs::pathJoin([into, "d"]))
+      expectTrap(extractTo(open(oneFile("d", "x")), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(into), 1)
+      removeTree(into)
+    END TCASE
+  END TGROUP
+
+  TGROUP "tar extractTo conflicts and failures"
+    TCASE "a file and a directory of the same name in one archive is refused before writing"
+      LET into AS String = freshDir("both")
+      MUT b AS Builder = create()
+      b = addText(b, "safe.txt", "harmless")
+      b = addText(b, "a", "a file")
+      b = addText(b, "a/b.txt", "beneath it")
+      expectTrap(extractTo(open(finish(b)), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a directory entry replacing a file entry in one archive is refused before writing"
+      LET into AS String = freshDir("replaced")
+      MUT b AS Builder = create()
+      b = addText(b, "a/b.txt", "beneath it")
+      b = addText(b, "a/b.txt/", "nope")
+      expectTrap(extractTo(open(finish(b)), into), errorCode::ErrInvalidPath)
+      expectInteger(countIn(into), 0)
+      removeTree(into)
+    END TCASE
+
+    TCASE "a write that fails part way leaves no partial file"
+      LET into AS String = freshDir("partial")
+      LET source AS String = fs::pathJoin([fs::tempDirectory(), "tartest-partial-" & toString(datetime::monotonicNanos()) & ".tar"])
+      LET raw AS List OF Byte = oneFile("big.txt", strings::repeat("x", 4000))
+      fs::writeBytes(source, raw)
+      RES f AS fs::File = fs::openFile(source)
+      ' Truncate the archive underneath the open handle: the header walk has
+      ' already run, so the entry's data is now short when the copy reads it.
+      fs::writeBytes(source, collections::mid(raw, 0, 600))
+      expectTrap(extractTo(open(f), into), errorCode::ErrInvalidFormat)
+      expectEqual(fs::exists(fs::pathJoin([into, "big.txt"])), FALSE)
+      fs::close(f)
+      fs::deleteFile(source)
+      removeTree(into)
+    END TCASE
+
+    TCASE "the archive root entry is accepted and writes under the target"
+      LET into AS String = freshDir("root")
+      MUT b AS Builder = create()
+      b = addDirectory(b, "./")
+      b = addText(b, "./a.txt", "rooted")
+      expectInteger(extractTo(open(finish(b)), into), 1)
+      expectString(fs::readText(fs::pathJoin([into, "a.txt"])), "rooted")
+      removeTree(into)
+    END TCASE
+  END TGROUP
 END TESTING
 
 PRIVATE FUNC fixtureLinks() AS List OF Byte
@@ -263,4 +364,16 @@ PRIVATE FUNC fixtureLinks() AS List OF Byte
     END IF
   NEXT
   FAIL error(errorCode::ErrNotFound, "test: no links fixture")
+END FUNC
+
+PRIVATE FUNC oneFile(name AS String, text AS String) AS List OF Byte
+  RETURN finish(addText(create(), name, text))
+END FUNC
+
+' Create a symbolic link with `ln -s`. `fs` cannot create one, so the test does.
+PRIVATE FUNC makeLink(link AS String, target AS String) AS Nothing
+  LET code AS Integer = process::waitFor(process::shell("ln -s '" & target & "' '" & link & "'"))
+  IF code <> 0 THEN
+    FAIL error(errorCode::ErrWriteFailed, "test: ln -s failed for " & link)
+  END IF
 END FUNC

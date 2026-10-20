@@ -108,7 +108,7 @@ TESTING
       LET archive AS Archive = open(raw)
       expectInteger(len(entries(archive)), 3)
       expectString(readText(archive, find(archive, "readme.txt")), "a readme\n")
-      expectEqual(find(archive, "docs/").isDirectory, TRUE)
+      expectEqual(find(archive, "docs").isDirectory, TRUE)
       expectString(readText(archive, find(archive, "docs/inner.txt")), "inside docs\n")
     END TCASE
 
@@ -199,7 +199,7 @@ TESTING
     TCASE "reading a directory entry is refused"
       LET raw AS List OF Byte = fixtureNamed("ustar").bytes
       LET archive AS Archive = open(raw)
-      expectTrap(read(archive, find(archive, "docs/")), errorCode::ErrUnsupported)
+      expectTrap(read(archive, find(archive, "docs")), errorCode::ErrUnsupported)
     END TCASE
 
     TCASE "maxBytes below the entry size is refused"
@@ -274,8 +274,9 @@ TESTING
       ' name -- is block 3, at offset 1536. Plant a NUL after `long/`.
       LET broken AS List OF Byte = collections::set(raw, 1536 + 5, toByte(0))
       LET archive AS Archive = open(broken)
-      ' "long/" -- the five bytes before the NUL, and nothing after it.
-      expectEqual(has(archive, "long/"), TRUE)
+      ' "long" -- the four bytes before the NUL, and nothing after it. A directory
+      ' entry, since a trailing slash marks one.
+      expectEqual(has(archive, "long"), TRUE)
       expectEqual(has(archive, longName()), FALSE)
     END TCASE
 

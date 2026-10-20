@@ -3,12 +3,11 @@
 ' through.
 '
 ' An archive is either a `List OF Byte` already in memory or an open
-' `fs::File`. Everything above this file — the end-of-central-directory scan,
-' the central directory parse, the local header parse, the entry read — is
-' written against `readAt` and `sizeOf` and never against either concrete
-' source. That is what makes "the file form and the memory form produce
-' identical results" true by construction rather than by two parsers that
-' happen to agree today.
+' `fs::File`. Everything above this file -- the header walk, the entry read,
+' the extractor -- is written against `readAt` and `sizeOf` and never against
+' either concrete source. That is what makes "the file form and the memory form
+' produce identical results" true by construction rather than by two parsers
+' that happen to agree today.
 '
 ' The file branch never reads the whole file. `fs::readBytesAt` reads exactly
 ' the requested window and leaves the handle's read position where it found it
@@ -22,70 +21,77 @@
 ' put an internal type in two packages' public surfaces and make each depend on
 ' a version of the other; the duplication is the cheaper cost.
 '
-' `readAt` bounds-checks against `sizeOf` before it reads. Callers are expected
-' to have checked already — every offset in a zip comes from the archive's own
-' untrusted bytes, so the parsers check before they trust — and this is the
-' backstop that turns a missed check into a refused archive instead of a read
-' past the end of a file.
+' The length of a file is taken once, when the archive is opened, and kept. It
+' is not asked for again on each read: a read is the hot path, and a listing
+' makes several per entry. `readAt` still checks every window against it, and a
+' file that shrinks after opening is caught there, as a short read.
 ' ---------------------------------------------------------------------------
 
 IMPORT fs
 IMPORT collections
 IMPORT errorCode
 
-' An archive's bytes, already in memory.
+' Where an archive's bytes come from.
 '
-' Internal — use `open`. It is exported only because `Archive` has a field of
-' this type, and an exported record's field type must be nameable by importers.
+' The bytes of a memory archive are NOT held here. They sit in a plain field of
+' `Archive`, and the union only says which kind of archive this is. The reason is
+' cost, not tidiness: binding a union member by `MATCH` copies the member's
+' contents, so a `List OF Byte` held in a member is copied on every read -- once
+' per header, which makes opening an archive quadratic in its size. A list passed
+' as a parameter is not copied, so the bytes are kept where they are passed from.
+'
+' Internal -- use `open`. The members are exported only because `Archive` has a
+' field of this type, and an exported record's field type must be nameable by
+' importers.
 EXPORT TYPE MemorySource
-  bytes AS List OF Byte
 END TYPE
 
-' An archive's bytes, in a file the caller has open.
+' An archive whose bytes are in a file the caller has open.
 '
 ' The handle belongs to the caller: this package never closes it. Closing it
 ' while an `Archive` still refers to it makes later reads fail with
 ' `errorCode::ErrResourceClosed`.
 '
-' Internal — use `open`.
+' The length is taken once, when the archive is opened, and kept. A read is the
+' hot path, and a listing makes several per entry. `readAt` still checks every
+' window against it, and a file that shrinks after opening is caught there, as a
+' short read.
 EXPORT TYPE FileSource
-  handle AS RES fs::File
+  PUBLIC handle AS RES fs::File
+  PUBLIC length AS Integer
 END TYPE
 
-' Where an archive's bytes come from.
-'
-' Internal — use `open`.
 EXPORT UNION Source
   MemorySource
   FileSource
 END UNION
 
 ' How many bytes the archive holds.
-FUNC sizeOf(source AS Source) AS Integer
-  MATCH source
-    CASE MemorySource(m)
-      RETURN len(m.bytes)
+FUNC sizeOf(archive AS Archive) AS Integer
+  MATCH archive.source
+    CASE MemorySource
+      RETURN len(archive.bytes)
     CASE FileSource(f)
-      RETURN fs::size(f.handle)
+      RETURN f.length
   END MATCH
 END FUNC
 
 ' The `count` bytes at `offset`.
 '
 ' Raises `errorCode::ErrInvalidFormat` when the window is not wholly inside the
-' archive — including the case where a file was truncated underneath an open
+' archive -- including the case where a file was truncated underneath an open
 ' handle, which shows up as a short read.
-FUNC readAt(source AS Source, offset AS Integer, count AS Integer) AS List OF Byte
+FUNC readAt(archive AS Archive, offset AS Integer, count AS Integer) AS List OF Byte
   IF offset < 0 OR count < 0 THEN
     FAIL error(errorCode::ErrInvalidFormat, "tar: read of " & toString(count) & " bytes at " & toString(offset) & " is out of range")
   END IF
-  LET total AS Integer = sizeOf(source)
+  LET total AS Integer = sizeOf(archive)
   IF offset + count > total THEN
     FAIL error(errorCode::ErrInvalidFormat, "tar: read of " & toString(count) & " bytes at " & toString(offset) & " runs past the end of a " & toString(total) & "-byte archive")
   END IF
-  MATCH source
-    CASE MemorySource(m)
-      RETURN collections::mid(m.bytes, offset, count)
+  MATCH archive.source
+    CASE MemorySource
+      RETURN collections::mid(archive.bytes, offset, count)
     CASE FileSource(f)
       LET got AS List OF Byte = fs::readBytesAt(f.handle, offset, count)
       IF len(got) <> count THEN

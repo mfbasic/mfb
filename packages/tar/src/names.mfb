@@ -1,0 +1,52 @@
+' ---------------------------------------------------------------------------
+' tar/names.mfb — which entry names are safe to write.
+'
+' One rule, used by both the writer (so this package never builds an archive its
+' own extractor refuses) and the extractor (which applies it to untrusted input).
+' It is purely lexical. Whether a name lands inside the target directory on disk
+' is decided separately, at the point of writing, by `fs::openWithin`.
+'
+' A name is refused when it is empty, absolute, contains a backslash or a NUL
+' byte, names a Windows drive, or has a `..` component anywhere. Refusing every
+' `..` is stricter than resolving it, and it is the rule Python's `tarfile`
+' "data" filter applies in practice: no legitimate archive written by a tool
+' relies on climbing out of the directory it names.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+PUBLIC FUNC isSafeEntryName(name AS String) AS Boolean
+  IF len(name) = 0 THEN
+    RETURN FALSE
+  END IF
+  IF strings::contains(name, "\\") OR strings::startsWith(name, "/") THEN
+    RETURN FALSE
+  END IF
+  FOR EACH scalar IN strings::toScalars(name)
+    IF toInt(scalar) = 0 THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  IF looksLikeDrive(name) THEN
+    RETURN FALSE
+  END IF
+  FOR EACH part IN strings::split(name, "/")
+    IF part = ".." THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' `C:` at the start of a name, which Windows reads as a drive-relative path.
+PRIVATE FUNC looksLikeDrive(name AS String) AS Boolean
+  LET scalars AS List OF Scalar = strings::toScalars(name)
+  IF len(scalars) < 2 THEN
+    RETURN FALSE
+  END IF
+  IF toInt(collections::get(scalars, 1)) <> 58 THEN
+    RETURN FALSE
+  END IF
+  RETURN strings::isLetter(collections::get(scalars, 0))
+END FUNC

@@ -19,8 +19,9 @@
 ' defaults for every following entry until replaced.
 '
 ' Numbers have two spellings. Normally they are octal text. When a value does
-' not fit -- a size over 8 GiB, a timestamp after 2242 -- GNU writes it as
-' base-256 big-endian with the high bit of the first byte set. Both are read.
+' not fit -- a size over 8 GiB, a timestamp after 2242, a timestamp before 1970
+' -- GNU writes it as base-256: big-endian, the first byte 0x80 for a
+' non-negative value or 0xFF for a negative one (two's complement). Both are read.
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
@@ -30,8 +31,13 @@ IMPORT strings
 
 PUBLIC LET BLOCK AS Integer = 512
 
-' The largest PAX or GNU long-name record this reader will hold.
-PRIVATE LET MAX_RECORD AS Integer = 1048576
+' The largest PAX or GNU long-name record this reader will hold. A record
+' claiming more is refused before any of its bytes are read.
+PUBLIC LET MAX_RECORD AS Integer = 1048576
+
+' The largest magnitude a base-256 field may carry. Keeping under 2^55 means the
+' accumulator never overflows an Integer, whatever the field's width.
+PRIVATE LET MAX_BASE256 AS Integer = 36028797018963967
 
 ' Field offsets in the 512-byte header (POSIX.1-2017 `pax`, ustar layout).
 PRIVATE LET OFF_NAME AS Integer = 0
@@ -85,7 +91,9 @@ FUNC verifyChecksum(block AS List OF Byte, offset AS Integer) AS Nothing
   END IF
 END FUNC
 
-' A numeric field, in whichever of the two spellings it uses.
+' A numeric field, in whichever of the two spellings it uses. The result may be
+' negative only when the field is base-256 with the negative marker; callers
+' that cannot use a negative value pass it through `requireNonNegative`.
 FUNC readNumber(block AS List OF Byte, at AS Integer, width AS Integer, field AS String) AS Integer
   LET first AS Integer = toInt(collections::get(block, at))
   IF first >= 128 THEN
@@ -94,33 +102,55 @@ FUNC readNumber(block AS List OF Byte, at AS Integer, width AS Integer, field AS
   RETURN readOctal(block, at, width, field)
 END FUNC
 
-' GNU's base-256 form: big-endian, with the high bit of the first byte set as
-' the marker. Only non-negative values are read; a negative one (first byte
-' 0xFF) is outside anything this package can address.
-PRIVATE FUNC readBase256(block AS List OF Byte, at AS Integer, width AS Integer, field AS String) AS Integer
-  IF toInt(collections::get(block, at)) <> 128 THEN
-    FAIL error(errorCode::ErrTooLarge, "tar: " & field & " is a base-256 value too large to address")
+' A field that can only be a size, count or id: a negative value is corrupt.
+FUNC requireNonNegative(value AS Integer, field AS String) AS Integer
+  IF value < 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "tar: " & field & " is negative")
   END IF
-  MUT value AS Integer = 0
-  FOR i = 1 TO width - 1
-    LET b AS Integer = toInt(collections::get(block, at + i))
-    IF value > 36028797018963967 THEN
-      FAIL error(errorCode::ErrTooLarge, "tar: " & field & " is a base-256 value too large to address")
-    END IF
-    value = value * 256 + b
-  NEXT
   RETURN value
 END FUNC
 
-' Octal text, terminated by a NUL or a space, with leading spaces allowed. An
-' entirely blank field reads as 0, which is what tar writers emit for a field
-' they do not use.
+' GNU's base-256 form. The first byte is a marker: 0x80 for a non-negative
+' value, 0xFF for a negative one, which is stored in two's complement across the
+' whole field. For a negative value the magnitude is the one's complement of the
+' remaining bytes, plus one.
+PRIVATE FUNC readBase256(block AS List OF Byte, at AS Integer, width AS Integer, field AS String) AS Integer
+  LET marker AS Integer = toInt(collections::get(block, at))
+  IF marker <> 128 AND marker <> 255 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "tar: " & field & " is not a valid base-256 number")
+  END IF
+  LET negative AS Boolean = marker = 255
+  MUT value AS Integer = 0
+  FOR i = 1 TO width - 1
+    LET b AS Integer = toInt(collections::get(block, at + i))
+    MUT digit AS Integer = b
+    IF negative THEN
+      digit = 255 - b
+    END IF
+    IF value > MAX_BASE256 THEN
+      FAIL error(errorCode::ErrTooLarge, "tar: " & field & " is a base-256 value too large to address")
+    END IF
+    value = value * 256 + digit
+  NEXT
+  IF negative THEN
+    RETURN 0 - value - 1
+  END IF
+  RETURN value
+END FUNC
+
+' Octal text, terminated by a NUL or by a space once digits have been read, with
+' leading spaces allowed. A NUL always ends the field, even before any digit,
+' and an entirely blank field reads as 0, which is what tar writers emit for a
+' field they do not use.
 PRIVATE FUNC readOctal(block AS List OF Byte, at AS Integer, width AS Integer, field AS String) AS Integer
   MUT value AS Integer = 0
   MUT seen AS Boolean = FALSE
   FOR i = 0 TO width - 1
     LET b AS Integer = toInt(collections::get(block, at + i))
-    IF b = 0 OR b = 32 THEN
+    IF b = 0 THEN
+      RETURN value
+    END IF
+    IF b = 32 THEN
       IF seen THEN
         RETURN value
       END IF
@@ -194,21 +224,22 @@ FUNC readName(block AS List OF Byte) AS String
 END FUNC
 
 FUNC headerMode(block AS List OF Byte) AS Integer
-  RETURN readNumber(block, OFF_MODE, 8, "mode")
+  RETURN requireNonNegative(readNumber(block, OFF_MODE, 8, "mode"), "mode")
 END FUNC
 
 FUNC headerUid(block AS List OF Byte) AS Integer
-  RETURN readNumber(block, OFF_UID, 8, "uid")
+  RETURN requireNonNegative(readNumber(block, OFF_UID, 8, "uid"), "uid")
 END FUNC
 
 FUNC headerGid(block AS List OF Byte) AS Integer
-  RETURN readNumber(block, OFF_GID, 8, "gid")
+  RETURN requireNonNegative(readNumber(block, OFF_GID, 8, "gid"), "gid")
 END FUNC
 
 FUNC headerSize(block AS List OF Byte) AS Integer
-  RETURN readNumber(block, OFF_SIZE, 12, "size")
+  RETURN requireNonNegative(readNumber(block, OFF_SIZE, 12, "size"), "size")
 END FUNC
 
+' A modification time may legitimately be before the epoch.
 FUNC headerMtime(block AS List OF Byte) AS Integer
   RETURN readNumber(block, OFF_MTIME, 12, "mtime")
 END FUNC
@@ -249,14 +280,15 @@ END FUNC
 ' record including its own digits and the newline. The length is what makes a
 ' value containing `=` or a newline unambiguous, so it is used rather than
 ' splitting on punctuation.
-FUNC parsePaxRecords(data AS List OF Byte) AS Map OF String TO String
+PUBLIC FUNC parsePaxRecords(data AS List OF Byte) AS Map OF String TO String
   IF len(data) > MAX_RECORD THEN
     FAIL error(errorCode::ErrTooLarge, "tar: PAX header of " & toString(len(data)) & " bytes exceeds the " & toString(MAX_RECORD) & "-byte limit")
   END IF
   MUT out AS Map OF String TO String = Map OF String TO String {}
   MUT at AS Integer = 0
   WHILE at < len(data)
-    ' The record length, as decimal digits up to the first space.
+    ' The record length, as decimal digits up to the first space. Bounded by
+    ' the record limit, so no digit count can overflow it.
     MUT length AS Integer = 0
     MUT cursor AS Integer = at
     MUT digits AS Integer = 0
@@ -266,6 +298,9 @@ FUNC parsePaxRecords(data AS List OF Byte) AS Map OF String TO String
         FAIL error(errorCode::ErrInvalidFormat, "tar: PAX record length is not a number")
       END IF
       length = length * 10 + (b - 48)
+      IF length > MAX_RECORD THEN
+        FAIL error(errorCode::ErrInvalidFormat, "tar: PAX record has an impossible length")
+      END IF
       digits = digits + 1
       cursor = cursor + 1
     END WHILE
@@ -291,4 +326,51 @@ FUNC parsePaxRecords(data AS List OF Byte) AS Map OF String TO String
     at = at + length
   END WHILE
   RETURN out
+END FUNC
+
+' A numeric PAX value, such as `size`, `uid` or `mtime`.
+'
+' PAX values are decimal text. A value that is not one is refused rather than
+' replaced by the ustar field it was meant to override: the ustar field is the
+' one a PAX writer already declared wrong. `allowFraction` admits the fractional
+' seconds POSIX allows in `mtime` (the fraction is dropped), and `allowNegative`
+' admits a sign, which only a pre-epoch `mtime` needs.
+PUBLIC FUNC parsePaxNumber(text AS String, field AS String, allowFraction AS Boolean, allowNegative AS Boolean) AS Integer
+  LET bytes AS List OF Byte = encoding::utf8Encode(text)
+  MUT at AS Integer = 0
+  MUT negative AS Boolean = FALSE
+  MUT value AS Integer = 0
+  MUT digits AS Integer = 0
+  MUT fraction AS Boolean = FALSE
+  IF len(bytes) > 0 AND toInt(collections::get(bytes, 0)) = 45 THEN
+    IF NOT allowNegative THEN
+      FAIL error(errorCode::ErrInvalidFormat, "tar: PAX " & field & " is not a valid number")
+    END IF
+    negative = TRUE
+    at = 1
+  END IF
+  FOR i = at TO len(bytes) - 1
+    LET b AS Integer = toInt(collections::get(bytes, i))
+    IF b = 46 AND allowFraction AND NOT fraction AND digits > 0 THEN
+      fraction = TRUE
+    ELSE
+      IF b < 48 OR b > 57 THEN
+        FAIL error(errorCode::ErrInvalidFormat, "tar: PAX " & field & " is not a valid number")
+      END IF
+      IF NOT fraction THEN
+        IF value > MAX_BASE256 / 10 THEN
+          FAIL error(errorCode::ErrTooLarge, "tar: PAX " & field & " is too large to address")
+        END IF
+        value = value * 10 + (b - 48)
+        digits = digits + 1
+      END IF
+    END IF
+  NEXT
+  IF digits = 0 THEN
+    FAIL error(errorCode::ErrInvalidFormat, "tar: PAX " & field & " is not a valid number")
+  END IF
+  IF negative THEN
+    RETURN 0 - value
+  END IF
+  RETURN value
 END FUNC

@@ -57,7 +57,7 @@ TESTING
       LET archive AS Archive = open(raw)
       expectInteger(len(entries(archive)), 4)
       expectString(readText(archive, find(archive, "readme.txt")), "a readme\n")
-      expectEqual(find(archive, "docs/").isDirectory, TRUE)
+      expectEqual(find(archive, "docs").isDirectory, TRUE)
       expectInteger(len(read(archive, find(archive, "docs/data.bin"))), 3)
       expectString(find(archive, "link").linkTarget, "readme.txt")
     END TCASE

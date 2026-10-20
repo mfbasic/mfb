@@ -14,11 +14,15 @@
 ' aliased, which is why a `RES fs::File` can be passed freely and a
 ' `List OF Byte` cannot.
 '
-' Output is ustar by default and PAX only when it has to be: a name that does
-' not fit the 155-byte prefix plus 100-byte name split, a link target over 100
-' bytes, a size over 8 GiB, or a non-ASCII name. That keeps ordinary archives
-' readable by the oldest tools, and reaches for the extension exactly when the
-' fixed fields cannot say what is needed.
+' Output is ustar by default and PAX only when it has to be: a name that does not
+' fit the 155-byte prefix plus 100-byte name split, a link target over 100 bytes,
+' a size over 8 GiB, or a non-ASCII name. That keeps ordinary archives readable
+' by the oldest tools, and reaches for the extension exactly when the fixed
+' fields cannot say what is needed.
+'
+' Numbers are octal, except a modification time the octal field cannot carry --
+' before the epoch, or past 2242 -- which is written as GNU base-256, the same
+' form the reader accepts.
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
@@ -27,12 +31,11 @@ IMPORT errorCode
 IMPORT strings
 
 ' The largest value the 12-byte octal size field can hold: 8^11 - 1.
-PRIVATE LET MAX_OCTAL_SIZE AS Integer = 8589934591
+PRIVATE LET MAX_OCTAL_12 AS Integer = 8589934591
 PRIVATE LET MAX_NAME_FIELD AS Integer = 100
 PRIVATE LET MAX_PREFIX_FIELD AS Integer = 155
 
 PRIVATE LET TYPE_FILE AS Integer = 48
-PRIVATE LET TYPE_HARDLINK AS Integer = 49
 PRIVATE LET TYPE_SYMLINK AS Integer = 50
 PRIVATE LET TYPE_DIRECTORY AS Integer = 53
 PRIVATE LET TYPE_PAX AS Integer = 120
@@ -41,52 +44,60 @@ PRIVATE LET TYPE_PAX AS Integer = 120
 '
 ' Internal -- use the `add*` functions. Exported only because `Builder` has a
 ' field of this type, and an exported record's field type must be nameable by
-' importers.
+' importers. Its fields are visible to this package only.
 EXPORT TYPE PendingEntry
-  name AS String
-  typeFlag AS Integer
-  mode AS Integer
-  modifiedSeconds AS Integer
-  linkTarget AS String
-  payload AS List OF Byte
+  PUBLIC name AS String
+  PUBLIC typeFlag AS Integer
+  PUBLIC mode AS Integer
+  PUBLIC modifiedSeconds AS Integer
+  PUBLIC linkTarget AS String
+  PUBLIC payload AS List OF Byte
 END TYPE
 
 ' An archive under construction.
+'
+' Its field is visible to this package only: build it with `create` and the
+' `add*` functions, and read the result from `finish`.
 EXPORT TYPE Builder
-  pending AS List OF PendingEntry
+  PUBLIC pending AS List OF PendingEntry
 END TYPE
 
-FUNC createBuilder() AS Builder
-  RETURN Builder[[]]
-END FUNC
+' A name as the header's `prefix` and `name` fields carry it.
+PRIVATE TYPE NameFields
+  name AS String
+  prefix AS String
+  fits AS Boolean
+END TYPE
 
-FUNC addFileEntry(builder AS Builder, name AS String, data AS List OF Byte, mode AS Integer, modifiedSeconds AS Integer) AS Builder
+' The entries the `add*` functions in lib.mfb append. Each one checks its
+' arguments and returns the entry; the caller appends it with a `WITH` update of
+' its own builder.
+'
+' That split is for speed, not style. A function that takes a builder, updates
+' it, and returns it is grown in place only when the update is written directly
+' in the function that returns it. Passing the builder through a second function
+' copies the whole pending list on every add, which makes building an archive
+' quadratic in its entry count.
+PUBLIC FUNC fileEntry(name AS String, data AS List OF Byte, mode AS Integer, modifiedSeconds AS Integer) AS PendingEntry
   requireSafeName(name)
-  LET record AS PendingEntry = PendingEntry[name, TYPE_FILE, mode, modifiedSeconds, "", data]
-  RETURN WITH builder { pending := collections::append(builder.pending, record) }
+  RETURN PendingEntry[name, TYPE_FILE, mode, modifiedSeconds, "", data]
 END FUNC
 
-FUNC addTextEntry(builder AS Builder, name AS String, text AS String, mode AS Integer, modifiedSeconds AS Integer) AS Builder
-  RETURN addFileEntry(builder, name, encoding::utf8Encode(text), mode, modifiedSeconds)
-END FUNC
-
-FUNC addDirectoryEntry(builder AS Builder, name AS String, mode AS Integer, modifiedSeconds AS Integer) AS Builder
+PUBLIC FUNC directoryEntry(name AS String, mode AS Integer, modifiedSeconds AS Integer) AS PendingEntry
   requireSafeName(name)
   MUT full AS String = name
   IF NOT strings::endsWith(full, "/") THEN
     full = full & "/"
   END IF
-  LET record AS PendingEntry = PendingEntry[full, TYPE_DIRECTORY, mode, modifiedSeconds, "", []]
-  RETURN WITH builder { pending := collections::append(builder.pending, record) }
+  RETURN PendingEntry[full, TYPE_DIRECTORY, mode, modifiedSeconds, "", []]
 END FUNC
 
-FUNC addSymlinkEntry(builder AS Builder, name AS String, target AS String, modifiedSeconds AS Integer) AS Builder
+PUBLIC FUNC symlinkEntry(name AS String, target AS String, modifiedSeconds AS Integer) AS PendingEntry
   requireSafeName(name)
   IF len(target) = 0 THEN
     FAIL error(errorCode::ErrInvalidPath, "tar: symlink \"" & name & "\" has an empty target")
   END IF
-  LET record AS PendingEntry = PendingEntry[name, TYPE_SYMLINK, 511, modifiedSeconds, target, []]
-  RETURN WITH builder { pending := collections::append(builder.pending, record) }
+  RETURN PendingEntry[name, TYPE_SYMLINK, 511, modifiedSeconds, target, []]
 END FUNC
 
 ' Finish the archive and return its bytes.
@@ -97,10 +108,11 @@ END FUNC
 FUNC finishBuilder(builder AS Builder) AS List OF Byte
   MUT out AS List OF Byte = []
   FOR EACH entry IN builder.pending
-    ' A PAX header, when the fixed fields cannot carry the name or link target.
+    ' A PAX header, when the fixed fields cannot carry the name, link target or
+    ' size.
     LET extended AS List OF Byte = paxRecordsFor(entry)
     IF len(extended) > 0 THEN
-      FOR EACH b IN headerBlock("PaxHeader/" & shortNameOf(entry.name), TYPE_PAX, 420, entry.modifiedSeconds, len(extended), "")
+      FOR EACH b IN headerBlock("PaxHeader/" & shortNameOf(entry.name), "", TYPE_PAX, 420, entry.modifiedSeconds, len(extended), "")
         out = collections::append(out, b)
       NEXT
       FOR EACH b IN paddedBlocks(extended)
@@ -108,9 +120,9 @@ FUNC finishBuilder(builder AS Builder) AS List OF Byte
       NEXT
     END IF
 
-    LET storedName AS String = truncatedName(entry.name)
+    LET fields AS NameFields = storedNameFor(entry.name)
     LET storedLink AS String = truncatedLink(entry.linkTarget)
-    FOR EACH b IN headerBlock(storedName, entry.typeFlag, entry.mode, entry.modifiedSeconds, len(entry.payload), storedLink)
+    FOR EACH b IN headerBlock(fields.name, fields.prefix, entry.typeFlag, entry.mode, entry.modifiedSeconds, ustarSizeField(len(entry.payload)), storedLink)
       out = collections::append(out, b)
     NEXT
     FOR EACH b IN paddedBlocks(entry.payload)
@@ -123,6 +135,22 @@ FUNC finishBuilder(builder AS Builder) AS List OF Byte
     out = collections::append(out, toByte(0))
   NEXT
   RETURN out
+END FUNC
+
+' Whether a file of this size needs a PAX `size` record, because the 12-byte
+' octal size field cannot carry it. Such a file is over 8 GiB.
+PUBLIC FUNC needsPaxSize(size AS Integer) AS Boolean
+  RETURN size > MAX_OCTAL_12
+END FUNC
+
+' What the ustar `size` field holds for a file of this size. When the real size
+' goes in a PAX record the field is zero, which is what POSIX readers that honour
+' PAX overrides expect; a value written there would only be wrong.
+PUBLIC FUNC ustarSizeField(size AS Integer) AS Integer
+  IF needsPaxSize(size) THEN
+    RETURN 0
+  END IF
+  RETURN size
 END FUNC
 
 ' `data` followed by enough zero bytes to reach a block boundary.
@@ -143,7 +171,7 @@ END FUNC
 ' The PAX records an entry needs, or an empty list when ustar suffices.
 PRIVATE FUNC paxRecordsFor(entry AS PendingEntry) AS List OF Byte
   MUT records AS List OF Byte = []
-  IF NOT fitsUstarName(entry.name) OR NOT isAscii(entry.name) THEN
+  IF NOT splitName(entry.name).fits OR NOT isAscii(entry.name) THEN
     records = appendPaxRecord(records, "path", entry.name)
   END IF
   IF strings::byteLen(entry.linkTarget) > MAX_NAME_FIELD OR NOT isAscii(entry.linkTarget) THEN
@@ -151,7 +179,7 @@ PRIVATE FUNC paxRecordsFor(entry AS PendingEntry) AS List OF Byte
       records = appendPaxRecord(records, "linkpath", entry.linkTarget)
     END IF
   END IF
-  IF len(entry.payload) > MAX_OCTAL_SIZE THEN
+  IF needsPaxSize(len(entry.payload)) THEN
     records = appendPaxRecord(records, "size", toString(len(entry.payload)))
   END IF
   RETURN records
@@ -180,45 +208,37 @@ END FUNC
 
 ' Whether the name fits the ustar `prefix`/`name` split at a `/` boundary.
 PRIVATE FUNC fitsUstarName(name AS String) AS Boolean
-  LET bytes AS Integer = strings::byteLen(name)
-  IF bytes <= MAX_NAME_FIELD THEN
-    RETURN TRUE
-  END IF
-  IF bytes > MAX_NAME_FIELD + MAX_PREFIX_FIELD + 1 THEN
-    RETURN FALSE
-  END IF
-  RETURN splitPoint(name) >= 0
+  RETURN splitName(name).fits
 END FUNC
 
-' The index of the `/` that splits a long name into a prefix and a name that
-' each fit their field, or -1.
-PRIVATE FUNC splitPoint(name AS String) AS Integer
-  LET parts AS List OF String = strings::split(name, "/")
-  MUT prefixLength AS Integer = 0
-  FOR i = 0 TO len(parts) - 2
-    prefixLength = prefixLength + strings::byteLen(collections::get(parts, i)) + 1
-    LET remaining AS Integer = strings::byteLen(name) - prefixLength
-    IF prefixLength - 1 <= MAX_PREFIX_FIELD AND remaining <= MAX_NAME_FIELD THEN
-      RETURN prefixLength - 1
+' The name as the header stores it: whole when it fits, otherwise a truncation
+' that a PAX `path` record, written alongside, overrides.
+PRIVATE FUNC storedNameFor(name AS String) AS NameFields
+  LET split AS NameFields = splitName(name)
+  IF split.fits THEN
+    RETURN split
+  END IF
+  RETURN NameFields[clampBytes(name, MAX_NAME_FIELD), "", TRUE]
+END FUNC
+
+' Split a name at the `/` that lets the prefix and the name each fit their
+' fields. Working on the UTF-8 bytes -- `/` is a single byte and never appears
+' inside a multi-byte character -- means both halves are whole characters too.
+' The shortest prefix that leaves a name of at most 100 bytes is chosen.
+PRIVATE FUNC splitName(name AS String) AS NameFields
+  LET bytes AS List OF Byte = encoding::utf8Encode(name)
+  IF len(bytes) <= MAX_NAME_FIELD THEN
+    RETURN NameFields[name, "", TRUE]
+  END IF
+  FOR i = 0 TO len(bytes) - 1
+    IF i > MAX_PREFIX_FIELD THEN
+      RETURN NameFields["", "", FALSE]
+    END IF
+    IF toInt(collections::get(bytes, i)) = 47 AND len(bytes) - i - 1 <= MAX_NAME_FIELD THEN
+      RETURN NameFields[bytesText(collections::mid(bytes, i + 1, len(bytes) - i - 1)), bytesText(collections::mid(bytes, 0, i)), TRUE]
     END IF
   NEXT
-  RETURN -1
-END FUNC
-
-' The name as the fixed fields will carry it. When a PAX record is also written
-' the fixed fields hold a truncation, which is what readers that ignore PAX see.
-PRIVATE FUNC truncatedName(name AS String) AS String
-  IF fitsUstarName(name) AND isAscii(name) THEN
-    RETURN name
-  END IF
-  RETURN clampBytes(name, MAX_NAME_FIELD)
-END FUNC
-
-PRIVATE FUNC truncatedLink(link AS String) AS String
-  IF strings::byteLen(link) <= MAX_NAME_FIELD AND isAscii(link) THEN
-    RETURN link
-  END IF
-  RETURN clampBytes(link, MAX_NAME_FIELD)
+  RETURN NameFields["", "", FALSE]
 END FUNC
 
 ' The longest prefix of `text` whose UTF-8 is at most `limit` bytes, cut at a
@@ -237,6 +257,18 @@ PRIVATE FUNC clampBytes(text AS String, limit AS Integer) AS String
   RETURN strings::fromScalars(kept)
 END FUNC
 
+' Text of bytes that were split on a `/`, so they are always valid UTF-8.
+PRIVATE FUNC bytesText(bytes AS List OF Byte) AS String
+  RETURN encoding::utf8Decode(bytes)
+END FUNC
+
+PRIVATE FUNC truncatedLink(link AS String) AS String
+  IF strings::byteLen(link) <= MAX_NAME_FIELD AND isAscii(link) THEN
+    RETURN link
+  END IF
+  RETURN clampBytes(link, MAX_NAME_FIELD)
+END FUNC
+
 PRIVATE FUNC shortNameOf(name AS String) AS String
   LET parts AS List OF String = strings::split(name, "/")
   RETURN clampBytes(collections::get(parts, len(parts) - 1), 60)
@@ -251,27 +283,20 @@ PRIVATE FUNC isAscii(text AS String) AS Boolean
   RETURN TRUE
 END FUNC
 
-' One 512-byte header block, with its checksum filled in.
-PRIVATE FUNC headerBlock(name AS String, typeFlag AS Integer, mode AS Integer, modifiedSeconds AS Integer, size AS Integer, linkTarget AS String) AS List OF Byte
+' One 512-byte header block, with its checksum filled in. `name` and `prefix` are
+' already split; `size` is what the size field holds, see `ustarSizeField`.
+PRIVATE FUNC headerBlock(name AS String, prefix AS String, typeFlag AS Integer, mode AS Integer, modifiedSeconds AS Integer, size AS Integer, linkTarget AS String) AS List OF Byte
   MUT block AS List OF Byte = []
   FOR i = 1 TO BLOCK
     block = collections::append(block, toByte(0))
   NEXT
 
-  MUT storedName AS String = name
-  MUT prefix AS String = ""
-  LET cut AS Integer = splitPoint(name)
-  IF strings::byteLen(name) > MAX_NAME_FIELD AND cut > 0 THEN
-    prefix = strings::left(name, cut)
-    storedName = strings::mid(name, cut + 1, len(name) - cut - 1)
-  END IF
-
-  block = putText(block, 0, 100, storedName)
+  block = putText(block, 0, 100, name)
   block = putOctal(block, 100, 8, mode)
   block = putOctal(block, 108, 8, 0)
   block = putOctal(block, 116, 8, 0)
   block = putOctal(block, 124, 12, size)
-  block = putOctal(block, 136, 12, modifiedSeconds)
+  block = putTime(block, 136, 12, modifiedSeconds)
   ' The checksum field reads as spaces while the sum is computed.
   block = putText(block, 148, 8, "        ")
   block = collections::set(block, 156, toByte(typeFlag))
@@ -313,6 +338,39 @@ PRIVATE FUNC putOctal(block AS List OF Byte, at AS Integer, width AS Integer, va
   RETURN collections::set(out, at + width - 1, toByte(0))
 END FUNC
 
+' A modification time. The octal form is used whenever it can carry the value;
+' a time before the epoch, or past what the field holds, is written as base-256
+' the way GNU does, with a 0xFF marker for a negative value.
+PRIVATE FUNC putTime(block AS List OF Byte, at AS Integer, width AS Integer, value AS Integer) AS List OF Byte
+  IF value >= 0 AND value <= MAX_OCTAL_12 THEN
+    RETURN putOctal(block, at, width, value)
+  END IF
+  RETURN putBase256(block, at, width, value)
+END FUNC
+
+' GNU base-256: a marker byte, then the value big-endian in two's complement
+' across the rest of the field. A negative value is stored as the complement of
+' its magnitude minus one, byte by byte, so decoding it yields the same value.
+PRIVATE FUNC putBase256(block AS List OF Byte, at AS Integer, width AS Integer, value AS Integer) AS List OF Byte
+  LET negative AS Boolean = value < 0
+  MUT bits AS Integer = value
+  MUT marker AS Integer = 128
+  IF negative THEN
+    bits = 0 - value - 1
+    marker = 255
+  END IF
+  MUT out AS List OF Byte = collections::set(block, at, toByte(marker))
+  FOR i = 1 TO width - 1
+    MUT digit AS Integer = bits MOD 256
+    bits = bits / 256
+    IF negative THEN
+      digit = 255 - digit
+    END IF
+    out = collections::set(out, at + width - i, toByte(digit))
+  NEXT
+  RETURN out
+END FUNC
+
 PRIVATE FUNC putOctalFixed(block AS List OF Byte, at AS Integer, digits AS Integer, value AS Integer) AS List OF Byte
   IF value < 0 THEN
     FAIL error(errorCode::ErrInvalidFormat, "tar: cannot write a negative numeric field")
@@ -341,23 +399,10 @@ PRIVATE FUNC putOctalFixed(block AS List OF Byte, at AS Integer, digits AS Integ
   RETURN out
 END FUNC
 
-' plan-139-B §4.3 rules 1-3, applied at write time so this package cannot build
-' the archive its own `extractTo` refuses.
+' Refuse a name the extractor would refuse, so this package never writes an
+' archive it cannot read back out. The rule is `isSafeEntryName`.
 PRIVATE FUNC requireSafeName(name AS String) AS Nothing
-  IF len(name) = 0 THEN
-    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"\"")
-  END IF
-  IF strings::contains(name, "\\") OR strings::startsWith(name, "/") THEN
+  IF NOT isSafeEntryName(name) THEN
     FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
   END IF
-  FOR EACH scalar IN strings::toScalars(name)
-    IF toInt(scalar) = 0 THEN
-      FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
-    END IF
-  NEXT
-  FOR EACH part IN strings::split(name, "/")
-    IF part = ".." THEN
-      FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
-    END IF
-  NEXT
 END FUNC

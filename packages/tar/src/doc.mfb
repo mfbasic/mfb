@@ -22,9 +22,10 @@ DOC
   INFO so unlike a zip this package cannot tell you whether an entry's data was
   INFO corrupted. That is a property of the format, worth knowing before
   INFO trusting an archive.
-  SEC `extractTo` treats an archive as untrusted input: it validates every entry
-  SEC before writing any byte, so an archive with one unsafe name leaves your
-  SEC directory exactly as it was.
+  SEC `extractTo` treats an archive as untrusted input. It checks every entry --
+  SEC its name, its kind, what the archive does to itself, and what is already on
+  SEC disk -- before it writes any byte, and it never writes through a symbolic
+  SEC link that is already in the directory.
 END DOC
 
 DOC
@@ -34,14 +35,12 @@ DOC
   DESC An `Archive` over a file refers to the file you opened without taking it
   DESC over. Closing that file makes later reads through this archive fail with
   DESC `errorCode::ErrResourceClosed`.
-  PROP source Where the archive's bytes come from. Internal.
-  PROP entries Every entry, in the order the archive lists them.
 END DOC
 
 DOC
   TYPE Entry
   DESC One entry in an archive.
-  PROP name The entry's name, with `/` separating directories.
+  PROP name The entry's name, with `/` between the parts of a path. A directory's name has no trailing `/`, so `find(archive, "docs")` finds the directory `docs/`.
   PROP kind One of `KindFile`, `KindDirectory`, `KindSymlink`, `KindHardlink` or `KindOther`.
   PROP isDirectory Whether this entry is a directory.
   PROP size The entry's size in bytes. Always 0 for anything that is not a regular file.
@@ -52,7 +51,6 @@ DOC
   PROP user The user name recorded for the entry, or the empty string.
   PROP group The group name recorded for the entry, or the empty string.
   PROP linkTarget Where a link points, or the empty string for anything else.
-  PROP dataOffset Where the entry's data begins in the archive. Used by `read`.
 END DOC
 
 DOC
@@ -61,30 +59,21 @@ DOC
   DESC
   DESC Start one with `create`, add to it, and call `finish`. Each `add` call
   DESC gives you back a new builder; the one you passed in is unchanged.
-  PROP pending The entries added so far. Internal.
 END DOC
 
 DOC INTERNAL
   TYPE PendingEntry
   DESC One entry a `Builder` is holding until `finish` lays the archive out.
-  PROP name The entry's name.
-  PROP typeFlag The tar type flag to record.
-  PROP mode The Unix permission bits.
-  PROP modifiedSeconds The modification time, in seconds since the Unix epoch.
-  PROP linkTarget Where a link points, or the empty string.
-  PROP payload The entry's contents.
 END DOC
 
 DOC INTERNAL
   TYPE MemorySource
   DESC An archive's bytes, already in memory. Use `open` instead.
-  PROP bytes The archive's bytes.
 END DOC
 
 DOC INTERNAL
   TYPE FileSource
   DESC An archive's bytes, in a file you have open. Use `open` instead.
-  PROP handle The file the archive is read from.
 END DOC
 
 DOC INTERNAL
@@ -167,9 +156,9 @@ DOC
   DESC The entry with exactly this name.
   DESC
   DESC Tar permits the same name more than once -- that is how an archive
-  DESC records a file being replaced. This returns the first, which is the one
-  DESC `bsdtar -t` lists first; extracting applies them in order, so the last
-  DESC one wins on disk.
+  DESC records a file being replaced. This returns the last, which is the version
+  DESC the archive ends up with: `extractTo` applies them in order, so the last
+  DESC one wins on disk, and Python's `tarfile.getmember` returns the same one.
   ARG archive The archive to search.
   ARG name The name to look for, matched exactly.
   RET The matching entry.
@@ -245,7 +234,7 @@ DOC
   ARG mode The Unix permission bits. Defaults to 420, which is 0o644.
   ARG modifiedSeconds The modification time in seconds since the Unix epoch.
   RET A builder holding the new entry.
-  ERROR 7-705-0013 The name is unsafe: empty, absolute, containing `..`, a backslash or a NUL byte.
+  ERROR 7-705-0013 The name is unsafe: empty, absolute, containing `..`, a backslash, a NUL byte or a Windows drive.
 END DOC
 
 DOC
@@ -258,13 +247,13 @@ DOC
   ARG mode The Unix permission bits. Defaults to 420, which is 0o644.
   ARG modifiedSeconds The modification time in seconds since the Unix epoch.
   RET A builder holding the new entry.
-  ERROR 7-705-0013 The name is unsafe.
+  ERROR 7-705-0013 The name is unsafe, as for `addFile`.
 END DOC
 
 DOC
   FUNC addDirectory
   GROUP Writing
-  DESC Add a directory entry. A trailing `/` is added when the name lacks one.
+  DESC Add a directory entry. A trailing `/` is written when the name lacks one.
   ARG builder The builder to add to.
   ARG name The directory's name.
   ARG mode The Unix permission bits. Defaults to 493, which is 0o755.
@@ -298,13 +287,12 @@ DOC
   DESC
   DESC Entries are written as ustar, with a PAX extended header only where the
   DESC fixed fields cannot carry the name, link target or size. Reaching for the
-  DESC extension every time would produce archives older tools cannot read.
+  DESC extension every time would produce archives older tools cannot read. A
+  DESC modification time before the epoch, or past 2242, is written in GNU's
+  DESC base-256 form, which the reader also accepts.
   DESC
   DESC The result is deterministic: the same calls in the same order always
   DESC produce the same bytes.
-  WARN Adding an entry costs more as the archive grows, because each `add` call
-  WARN takes the whole builder and returns a new one. A few thousand entries is
-  WARN comfortable; tens of thousands takes minutes. Reading has no such limit.
   ARG builder The builder to finish.
   RET The archive's bytes.
 END DOC
@@ -314,15 +302,23 @@ DOC
   GROUP Writing
   DESC Extract every entry into `directory`, returning how many files were written.
   DESC
-  DESC Directories in the archive are created but not counted.
-  SEC Every entry is validated before any byte is written, so an archive with one
-  SEC unsafe entry leaves the directory exactly as it was. A name is refused when
-  SEC it is empty, absolute, contains `..`, a backslash or a NUL byte, names a
-  SEC Windows drive, or resolves outside `directory` once symlinks already on
-  SEC disk are followed.
+  DESC Directories in the archive are created but not counted. An entry for the
+  DESC archive root (`./`) is accepted and writes nothing.
+  SEC Every entry is checked before any byte is written, so an archive with one
+  SEC unsafe entry leaves the directory exactly as it was. The checks are: the
+  SEC name is not empty, absolute, containing `..`, a backslash, a NUL byte or a
+  SEC Windows drive; the archive does not contain both a file and a directory at
+  SEC one path, or a file beneath a file; nothing already on disk at a path is in
+  SEC the way, which includes a symbolic link anywhere along it, a non-regular file,
+  SEC or a directory where a file would go.
+  SEC Nothing is written through a symbolic link. Files are opened beneath the
+  SEC directory with `fs::openWithin`, which refuses a link at any component.
   WARN An archive containing a symbolic link, a hard link or a device node is
   WARN refused entirely, because `fs` cannot create any of them. Skipping them
   WARN would hand back a directory that looks complete and is not.
+  WARN A write that fails part way (an I/O error, or a file that changes under the
+  WARN extraction) removes the partial file and raises the error. Entries written
+  WARN before it, and directories created, are left in place.
   INFO File permissions and modification times are not restored, because `fs` has
   INFO no way to set either.
   ARG archive The archive to extract.
@@ -330,7 +326,7 @@ DOC
   ARG maxTotalBytes The largest total size to write. Defaults to 1 GiB.
   RET The number of files written.
   ERROR 7-705-0003 The directory does not exist.
-  ERROR 7-705-0013 An entry name is unsafe to write.
+  ERROR 7-705-0013 An entry name is unsafe, conflicts with another entry, or conflicts with something already on disk.
   ERROR 7-705-0050 The archive contains a link or a device node.
   ERROR 7-705-0027 The archive's total size is over `maxTotalBytes`.
   EXAMPLE
