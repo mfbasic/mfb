@@ -790,9 +790,21 @@ Commit: —
 The MIR move needs the guard change and lands with it. The other three engine moves share the
 gate.
 
-- [ ] `tests/guards/architecture_guards.rs`: apply §4.1, so that `is_physical_scan_exempt`,
+- [x] `tests/guards/architecture_guards.rs`: apply §4.1, so that `is_physical_scan_exempt`,
       `no_hand_picked_vreg` and `emission_lines` treat a manifest-relative path containing
       `/tests/` as test code. The commit message carries the 4-point justification of §4.1.
+      Done: `manifest_relative()` (forward slashes on every host) and an inline `rel.contains("/tests/")` in each of
+      the three (`grep -n 'contains("/tests/")'` → 3 hits, one per function). RED: the old guard over the moved MIR
+      tests → `no_hand_picked_vreg` and `physical_registers_stay_in_the_backends` FAIL (`102` vreg literals).
+- [x] (discovered) `code_above_tests` cut every file at its FIRST `#[cfg(test)]` of any kind, so an
+      item-level helper (e.g. `handover.rs:116`'s indented `#[cfg(test)] fn len`) hid the rest of the file:
+      52,502 production lines in 66 files (`python3 -I target/p176/archprobe.py`). It now cuts only at the test
+      module (a column-0 `#[cfg(test)]` gating a `mod`, or a column-0 `mod tests`). The one violation that was
+      hiding, `src/codegen/runtime/canvas/vulkan_handoff.rs:204` building `x19`–`x28` with `format!("x{n}")`,
+      now takes `aapcs64_callee_saved_int_registers()` without its last entry (`x29`): the same `Reg`s in the
+      same order. RED: the old `vulkan_handoff.rs` under the new guard → FAILS at :204. Byte identity:
+      `bash target/p176/bytecmp.sh <release mfb before> <after> examples/canvas-demo linux-aarch64` → both
+      AppImages SAME.
 - [ ] Move `src/codegen/engine/mir/mir.rs`'s inline tests → `mir/mir/tests/mod.rs` per §4.15.
 - [ ] Move `src/codegen/engine/analysis/borrow_get.rs`'s inline tests per §4.12.
 - [ ] Move `src/codegen/engine/analysis/handover.rs`'s inline tests per §4.13.

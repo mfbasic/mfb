@@ -28,24 +28,62 @@
 
 use std::path::{Path, PathBuf};
 
+/// `path` relative to the manifest, with `/` separators on every host.
+fn manifest_relative(manifest: &Path, path: &Path) -> String {
+    path.strip_prefix(manifest)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 /// Files exempt from the physical-register scan: the pure test-fixture files and
 /// the two that DEFINE the physical namespace (`abi.rs` = token realization
-/// tables, `regalloc/analysis.rs` = the per-ISA occupancy name tables).
-fn is_physical_scan_exempt(path: &Path) -> bool {
+/// tables, `regalloc/analysis.rs` = the per-ISA occupancy name tables). `rel` is
+/// the manifest-relative path: a file under a `tests/` directory is test code
+/// (every `src/**/tests/` module is declared under `#[cfg(test)]`, plan-176-H).
+fn is_physical_scan_exempt(path: &Path, rel: &str) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let is_regalloc_analysis =
         name == "analysis.rs" && path.parent().is_some_and(|p| p.ends_with("regalloc"));
-    matches!(name, "tests.rs" | "test_support.rs" | "abi.rs") || is_regalloc_analysis
+    matches!(name, "tests.rs" | "test_support.rs" | "abi.rs")
+        || is_regalloc_analysis
+        || rel.contains("/tests/")
 }
 
-/// The scannable slice of a source file: everything above the first
-/// `#[cfg(test)]` / `mod tests` marker. Register-literal test fixtures (needle
-/// lists, round-trip corpora) live below it and are not real emission code.
+/// The scannable slice of a source file: everything above its test module, the
+/// first column-0 `#[cfg(test)]` that gates a `mod` declaration (or a column-0
+/// `mod tests`). Register-literal test fixtures (needle lists, round-trip corpora)
+/// live below it and are not real emission code. An item-level `#[cfg(test)]`
+/// helper (an indented accessor, a test-only `fn` or `use`) does not end the scan:
+/// cutting at the first `#[cfg(test)]` of any kind hid 52,502 production lines in
+/// 66 files, one of which built `x19`–`x28` with `format!` (plan-176-H).
 fn code_above_tests(src: &str) -> &str {
-    match src.find("#[cfg(test)]").or_else(|| src.find("mod tests")) {
-        Some(i) => &src[..i],
-        None => src,
+    fn declares_mod(line: &str) -> bool {
+        let line = line.trim_start();
+        let line = match line.strip_prefix("pub") {
+            Some(rest) if rest.starts_with('(') => rest.split_once(')').map_or("", |(_, r)| r),
+            Some(rest) => rest,
+            None => line,
+        };
+        line.trim_start().starts_with("mod ")
     }
+    let lines: Vec<&str> = src.split_inclusive('\n').collect();
+    let mut offset = 0;
+    for (k, line) in lines.iter().enumerate() {
+        let test_module = match line.strip_prefix("#[cfg(test)]") {
+            Some(rest) if declares_mod(rest) => true,
+            Some(_) => lines[k + 1..]
+                .iter()
+                .find(|l| !l.trim_start().starts_with("#["))
+                .is_some_and(|l| declares_mod(l)),
+            None => line.starts_with("mod tests") || line.starts_with("pub(crate) mod tests"),
+        };
+        if test_module {
+            return &src[..offset];
+        }
+        offset += line.len();
+    }
+    src
 }
 
 /// Recursively collect every `.rs` file under `roots`.
@@ -129,7 +167,7 @@ fn shared_lowering_names_no_physical_register() {
 
     let mut offenders: Vec<String> = Vec::new();
     for path in rs_files(&roots) {
-        if is_physical_scan_exempt(&path) {
+        if is_physical_scan_exempt(&path, &manifest_relative(manifest, &path)) {
             continue;
         }
         let src = std::fs::read_to_string(&path).expect("read source");
@@ -183,7 +221,8 @@ fn no_hand_picked_vreg() {
     let mut sample: Vec<String> = Vec::new();
     for path in rs_files(&roots) {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if name == "test_support.rs" || name.ends_with("tests.rs") {
+        let rel = manifest_relative(manifest, &path);
+        if name == "test_support.rs" || name.ends_with("tests.rs") || rel.contains("/tests/") {
             continue;
         }
         let src = std::fs::read_to_string(&path).expect("read source");
@@ -221,7 +260,8 @@ fn emission_lines(manifest: &Path) -> Vec<(String, usize, String)> {
     let mut out = Vec::new();
     for path in rs_files(&[manifest.join("src")]) {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if name == "test_support.rs" || name.ends_with("tests.rs") {
+        let rel = manifest_relative(manifest, &path);
+        if name == "test_support.rs" || name.ends_with("tests.rs") || rel.contains("/tests/") {
             continue;
         }
         let src = std::fs::read_to_string(&path).expect("read source");

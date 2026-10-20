@@ -194,15 +194,20 @@ pub(crate) fn emit_vulkan_is_ready(
 /// writes `r12`). Saving the whole bank is the rule that needs no audit of the body.
 /// The build uses no floating-point register.
 pub(crate) fn builder_entry_saved(arch: &str, windows: bool) -> Vec<abi::Reg> {
+    use crate::arch::aarch64::regmodel::aapcs64_callee_saved_int_registers;
     use crate::arch::x86_64::regmodel::{
         sysv_nonvolatile_int_registers, win64_nonvolatile_int_registers,
     };
     match (arch, windows) {
         ("x86_64", true) => win64_nonvolatile_int_registers(),
         ("x86_64", false) => sysv_nonvolatile_int_registers(),
-        _ => (19..=28)
-            .map(|n| abi::Reg::physical(&format!("x{n}")))
-            .collect(),
+        _ => {
+            // `x19`–`x28`: the AAPCS64 callee-saved bank without its last entry, the
+            // frame pointer `x29`.
+            let mut bank = aapcs64_callee_saved_int_registers();
+            bank.pop();
+            bank
+        }
     }
 }
 
