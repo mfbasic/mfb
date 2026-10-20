@@ -34,6 +34,11 @@ package, work = sys.argv[1], sys.argv[2]
 source = open(os.path.join(package, "src", "lib.mfb"), encoding="utf-8").read()
 blocks = re.findall(r"^  EXAMPLE\n(.*?)^  END EXAMPLE\n", source, flags=re.S | re.M)
 
+# A file with no examples would pass every check below vacuously, so an empty
+# match is a failure of the checker itself, not a clean run.
+if not blocks:
+    sys.exit("no EXAMPLE blocks found in src/lib.mfb: the checker's pattern no longer matches the DOC layout")
+
 for index, block in enumerate(blocks):
     body = "\n".join(
         line[4:] if line.startswith("    ") else line for line in block.split("\n")
@@ -47,15 +52,18 @@ for index, block in enumerate(blocks):
             '{"name":"ex%d","version":"0.1.0","mfb":"1.0","kind":"executable",'
             '"description":"a DOC example",'
             '"sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],'
-            '"packages":[{"name":"mustache","version":"=0.1.0","source":"local://%s","direct":true,"requiredBy":[]}],'
+            '"packages":[{"name":"mustache","version":"=1.0.0","source":"local://%s","direct":true,"requiredBy":[]}],'
             '"entry":"main","targets":["native"]}\n' % (index, package)
         )
     with open(os.path.join(project, "src", "main.mfb"), "w", encoding="utf-8") as out:
         out.write(body)
-print(len(blocks))
 PY
 
 count=$(ls -d "$WORK"/ex* 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$count" -eq 0 ]]; then
+  echo "no examples were extracted from src/lib.mfb" >&2
+  exit 1
+fi
 failures=0
 for project in "$WORK"/ex*; do
   name="$(basename "$project")"

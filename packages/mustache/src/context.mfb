@@ -1,53 +1,163 @@
 ' ---------------------------------------------------------------------------
-' mustache/context.mfb — name resolution against the context stack, the
-' truthiness rule sections turn on, and the text an interpolated value renders
-' as.
+' mustache/context.mfb — the context a template renders against, flattened once,
+' and the name resolution, truthiness and text rules that read it.
 '
-' The context stack is a `List OF json::Json` ordered bottom to top: element 0
-' is the value passed to `render`, and every open section has pushed one frame
-' above it. A lookup walks it from the top down.
+' Why flatten. A `json::Json` value is a recursive union, and in MFBASIC a
+' collection of one copies its elements. Keeping a stack of `json::Json` frames
+' therefore made every section push copy the whole stack -- including the root
+' context, which for `{{#items}}` over a 20 000-element array is the whole array
+' -- so rendering cost grew with the square of the data. The context is turned
+' once into a `Doc`: a flat list of `Entry` records, whose children are integer
+' indices into the same list. A frame stack is then a `List OF Integer`, which
+' copies in O(depth), and no lookup, push or truthiness test copies a subtree.
 '
-' A name that resolves to nothing comes back as `json::JsonNull`. Mustache draws
-' no distinction anywhere between an absent name and one explicitly set to null
-' -- both interpolate as the empty string, both are falsey to a section, and
-' both make an inverted section render -- so representing "absent" as null loses
-' nothing and saves every caller a second return value.
+' Layout. `entries` holds one record per JSON value; the root is entry 0. An
+' array's elements are a contiguous run of `slots` starting at `start`, so
+' `{{#items}}` walks `slots` by index. An object's members are also a run of
+' `slots`, in the order the object's `Map` iterates -- which is the order
+' `json::stringify` writes them -- and each member is found by name through
+' `members`, keyed by the parent's index and the member's name.
+'
+' A name that resolves to nothing is the index -1. Mustache draws no distinction
+' between an absent name and one explicitly set to null -- both interpolate as
+' the empty string, both are falsey to a section, and both make an inverted
+' section render -- so both are represented by a value that is simply not
+' truthy, and -1 is the one "no such name" answer every caller tests for.
 ' ---------------------------------------------------------------------------
 
 IMPORT json
 IMPORT collections
 IMPORT strings
 
-' The JSON null, which is also this package's "no such name".
-PUBLIC FUNC absent() AS json::Json
-  RETURN json::JsonNull[NOTHING]
+' The kind of an `Entry`.
+PUBLIC LET V_NULL AS Integer = 0
+PUBLIC LET V_BOOL AS Integer = 1
+PUBLIC LET V_NUM AS Integer = 2
+PUBLIC LET V_STR AS Integer = 3
+PUBLIC LET V_ARR AS Integer = 4
+PUBLIC LET V_OBJ AS Integer = 5
+
+' One JSON value, without its children. `flag`, `number` and `text` carry a
+' scalar's value; `key` is the member name when the entry is an object member,
+' and `""` otherwise; `start` and `length` locate an array's or object's children
+' in `slots`.
+TYPE Entry
+  kind AS Integer
+  flag AS Boolean
+  number AS Float
+  text AS String
+  key AS String
+  start AS Integer
+  length AS Integer
+END TYPE
+
+' The flattened context. See the file header.
+TYPE Doc
+  entries AS List OF Entry
+  slots AS List OF Integer
+  members AS Map OF String TO Integer
+END TYPE
+
+' The entry for one value with no children filled in: a scalar is complete, and
+' a container's `start` and `length` are set once its children are appended.
+PRIVATE FUNC leafOf(value AS json::Json, key AS String) AS Entry
+  MATCH value
+    CASE json::JsonNull(n) : RETURN Entry[V_NULL, FALSE, 0.0, "", key, 0, 0]
+    CASE json::JsonBool(b) : RETURN Entry[V_BOOL, b.value, 0.0, "", key, 0, 0]
+    CASE json::JsonNum(m) : RETURN Entry[V_NUM, FALSE, m.value, "", key, 0, 0]
+    CASE json::JsonStr(s) : RETURN Entry[V_STR, FALSE, 0.0, s.value, key, 0, 0]
+    CASE json::JsonArr(a) : RETURN Entry[V_ARR, FALSE, 0.0, "", key, 0, 0]
+    CASE json::JsonObj(o) : RETURN Entry[V_OBJ, FALSE, 0.0, "", key, 0, 0]
+  END MATCH
 END FUNC
 
-' TRUE when `value` is an object carrying a member called `key`.
-PUBLIC FUNC hasField(value AS json::Json, key AS String) AS Boolean
+' TRUE for the two kinds that have children to visit.
+PRIVATE FUNC isContainer(value AS json::Json) AS Boolean
   MATCH value
-    CASE json::JsonObj(o) : RETURN collections::hasKey(o.fields, key)
+    CASE json::JsonArr(a) : RETURN TRUE
+    CASE json::JsonObj(o) : RETURN TRUE
     CASE json::JsonNull(n) : RETURN FALSE
     CASE json::JsonBool(b) : RETURN FALSE
     CASE json::JsonNum(m) : RETURN FALSE
     CASE json::JsonStr(s) : RETURN FALSE
-    CASE json::JsonArr(a) : RETURN FALSE
   END MATCH
 END FUNC
 
-' The member `key` of an object, or null when there is none.
-PUBLIC FUNC fieldOf(value AS json::Json, key AS String) AS json::Json
-  MATCH value
-    CASE json::JsonObj(o) : RETURN collections::getOr(o.fields, key, absent())
-    CASE json::JsonNull(n) : RETURN absent()
-    CASE json::JsonBool(b) : RETURN absent()
-    CASE json::JsonNum(m) : RETURN absent()
-    CASE json::JsonStr(s) : RETURN absent()
-    CASE json::JsonArr(a) : RETURN absent()
-  END MATCH
+' The key of a member of `parent` called `name`. The parent index is all digits,
+' so the first `:` ends it and the name is whatever follows, whatever it holds.
+PRIVATE FUNC memberKey(parent AS Integer, name AS String) AS String
+  RETURN toString(parent) & ":" & name
 END FUNC
 
-' Resolve `name` against the context stack.
+' Flatten `root` into a Doc.
+'
+' Breadth-first, with a queue of the containers still to visit. A container is
+' taken out of the queue when it is visited -- its slot is cleared -- so the
+' queue holds only the frontier, and memory stays proportional to the document
+' rather than to the document times its depth.
+PUBLIC FUNC buildDoc(root AS json::Json) AS Doc
+  MUT entries AS List OF Entry = [leafOf(root, "")]
+  MUT slots AS List OF Integer = []
+  MUT members AS Map OF String TO Integer = Map OF String TO Integer {}
+  MUT pending AS List OF json::Json = [root]
+  MUT pendingAt AS List OF Integer = [0]
+  MUT head AS Integer = 0
+  WHILE head < len(pending)
+    LET value AS json::Json = collections::get(pending, head)
+    LET at AS Integer = collections::get(pendingAt, head)
+    pending = collections::set(pending, head, json::JsonNull[NOTHING])
+    head = head + 1
+    MATCH value
+      CASE json::JsonArr(a)
+        LET first AS Integer = len(slots)
+        LET total AS Integer = len(a.items)
+        FOR i = 0 TO total - 1
+          LET child AS json::Json = collections::get(a.items, i)
+          LET childAt AS Integer = len(entries)
+          entries = collections::append(entries, leafOf(child, ""))
+          slots = collections::append(slots, childAt)
+          IF isContainer(child) THEN
+            pending = collections::append(pending, child)
+            pendingAt = collections::append(pendingAt, childAt)
+          END IF
+        NEXT
+        LET here AS Entry = collections::get(entries, at)
+        entries = collections::set(entries, at, WITH here { start := first, length := total })
+      CASE json::JsonObj(o)
+        LET names AS List OF String = collections::keys(o.fields)
+        LET first AS Integer = len(slots)
+        LET total AS Integer = len(names)
+        FOR i = 0 TO total - 1
+          LET name AS String = collections::get(names, i)
+          LET child AS json::Json = collections::get(o.fields, name)
+          LET childAt AS Integer = len(entries)
+          entries = collections::append(entries, leafOf(child, name))
+          slots = collections::append(slots, childAt)
+          members = collections::set(members, memberKey(at, name), childAt)
+          IF isContainer(child) THEN
+            pending = collections::append(pending, child)
+            pendingAt = collections::append(pendingAt, childAt)
+          END IF
+        NEXT
+        LET here AS Entry = collections::get(entries, at)
+        entries = collections::set(entries, at, WITH here { start := first, length := total })
+      CASE json::JsonNull(n)
+      CASE json::JsonBool(b)
+      CASE json::JsonNum(m)
+      CASE json::JsonStr(s)
+    END MATCH
+  END WHILE
+  RETURN Doc[entries, slots, members]
+END FUNC
+
+' The member of `parent` called `name`, or -1 when `parent` is not an object or
+' has no such member. Only objects are ever the parent of a member, so an array
+' or a scalar -- or -1 itself -- can never answer.
+PUBLIC FUNC childNamed(flat AS Doc, parent AS Integer, name AS String) AS Integer
+  RETURN collections::getOr(flat.members, memberKey(parent, name), -1)
+END FUNC
+
+' Resolve `name` against the context stack, and return the entry it names or -1.
 '
 ' Three forms, and the difference between the last two is the whole of the
 ' specification's "Dotted Names" module:
@@ -72,8 +182,8 @@ END FUNC
 ' A leading dot is NOT a dotted name: `{{.a}}` looks up the single key `.a`,
 ' matching the reference implementation, which treats a name as dotted only when
 ' it holds a dot somewhere after the first character.
-PUBLIC FUNC lookup(stack AS List OF json::Json, name AS String) AS json::Json
-  IF len(stack) = 0 THEN RETURN absent()
+PUBLIC FUNC resolve(flat AS Doc, stack AS List OF Integer, name AS String) AS Integer
+  IF len(stack) = 0 THEN RETURN -1
   IF name = "." THEN RETURN collections::get(stack, len(stack) - 1)
 
   MUT parts AS List OF String = [name]
@@ -84,24 +194,27 @@ PUBLIC FUNC lookup(stack AS List OF json::Json, name AS String) AS json::Json
 
   MUT frame AS Integer = len(stack) - 1
   WHILE frame >= 0
-    LET view AS json::Json = collections::get(stack, frame)
-    IF hasField(view, head) THEN
-      MUT value AS json::Json = fieldOf(view, head)
+    LET found AS Integer = childNamed(flat, collections::get(stack, frame), head)
+    IF found >= 0 THEN
+      MUT value AS Integer = found
       MUT segment AS Integer = 1
-      WHILE segment < len(parts)
-        LET part AS String = collections::get(parts, segment)
-        IF NOT hasField(value, part) THEN RETURN absent()
-        value = fieldOf(value, part)
+      WHILE segment < len(parts) AND value >= 0
+        value = childNamed(flat, value, collections::get(parts, segment))
         segment = segment + 1
       END WHILE
       RETURN value
     END IF
     frame = frame - 1
   END WHILE
-  RETURN absent()
+  RETURN -1
 END FUNC
 
-' TRUE when a section over `value` renders nothing.
+' The entry at `at`, which must be a valid index. Callers test for -1 first.
+PUBLIC FUNC entryAt(flat AS Doc, at AS Integer) AS Entry
+  RETURN collections::get(flat.entries, at)
+END FUNC
+
+' TRUE when a section over `at` renders nothing.
 '
 ' The specification does not say which values are falsey beyond null, false and
 ' a missing name, so this follows the reference implementation (mustache.js) and
@@ -115,73 +228,44 @@ END FUNC
 ' over an array renders its body once per element and an empty array has none.
 ' The distinction matters only to `isEmptyList` below, which an inverted section
 ' needs.
-PUBLIC FUNC isFalsey(value AS json::Json) AS Boolean
-  MATCH value
-    CASE json::JsonNull(n) : RETURN TRUE
-    CASE json::JsonBool(b) : RETURN NOT b.value
-    CASE json::JsonNum(m) : RETURN m.value = 0.0
-    CASE json::JsonStr(s) : RETURN s.value = ""
-    CASE json::JsonArr(a) : RETURN FALSE
-    CASE json::JsonObj(o) : RETURN FALSE
-  END MATCH
+PUBLIC FUNC isFalsey(flat AS Doc, at AS Integer) AS Boolean
+  IF at < 0 THEN RETURN TRUE
+  LET e AS Entry = entryAt(flat, at)
+  IF e.kind = V_NULL THEN RETURN TRUE
+  IF e.kind = V_BOOL THEN RETURN NOT e.flag
+  IF e.kind = V_NUM THEN RETURN e.number = 0.0
+  IF e.kind = V_STR THEN RETURN e.text = ""
+  RETURN FALSE
 END FUNC
 
-' TRUE when `value` is an array with no elements. An inverted section renders on
+' TRUE when `at` is an array with no elements. An inverted section renders on
 ' this as well as on a falsey value: `{{^items}}nothing here{{/items}}` is the
 ' idiom for an empty list, and an empty list is not otherwise falsey.
-PUBLIC FUNC isEmptyList(value AS json::Json) AS Boolean
-  MATCH value
-    CASE json::JsonArr(a) : RETURN len(a.items) = 0
-    CASE json::JsonNull(n) : RETURN FALSE
-    CASE json::JsonBool(b) : RETURN FALSE
-    CASE json::JsonNum(m) : RETURN FALSE
-    CASE json::JsonStr(s) : RETURN FALSE
-    CASE json::JsonObj(o) : RETURN FALSE
-  END MATCH
+PUBLIC FUNC isEmptyList(flat AS Doc, at AS Integer) AS Boolean
+  IF at < 0 THEN RETURN FALSE
+  LET e AS Entry = entryAt(flat, at)
+  RETURN e.kind = V_ARR AND e.length = 0
 END FUNC
 
-' TRUE when a section over `value` should push it as a new context frame.
+' TRUE when `at` is an array.
+PUBLIC FUNC isList(flat AS Doc, at AS Integer) AS Boolean
+  IF at < 0 THEN RETURN FALSE
+  RETURN entryAt(flat, at).kind = V_ARR
+END FUNC
+
+' TRUE when a section over `at` should push it as a new context frame.
 '
 ' An object, a string, a number and an array each become the frame their body
 ' sees. A boolean `true` does NOT: `{{#ready}}{{name}}{{/ready}}` has to keep
 ' seeing the enclosing object, or the body of every boolean-guarded section
 ' would resolve against nothing.
-PUBLIC FUNC pushesFrame(value AS json::Json) AS Boolean
-  MATCH value
-    CASE json::JsonBool(b) : RETURN FALSE
-    CASE json::JsonNull(n) : RETURN FALSE
-    CASE json::JsonNum(m) : RETURN TRUE
-    CASE json::JsonStr(s) : RETURN TRUE
-    CASE json::JsonArr(a) : RETURN TRUE
-    CASE json::JsonObj(o) : RETURN TRUE
-  END MATCH
+PUBLIC FUNC pushesFrame(flat AS Doc, at AS Integer) AS Boolean
+  IF at < 0 THEN RETURN FALSE
+  LET kind AS Integer = entryAt(flat, at).kind
+  RETURN kind = V_NUM OR kind = V_STR OR kind = V_ARR OR kind = V_OBJ
 END FUNC
 
-' The elements of an array, or an empty list for anything else.
-PUBLIC FUNC itemsOf(value AS json::Json) AS List OF json::Json
-  MATCH value
-    CASE json::JsonArr(a) : RETURN a.items
-    CASE json::JsonNull(n) : RETURN []
-    CASE json::JsonBool(b) : RETURN []
-    CASE json::JsonNum(m) : RETURN []
-    CASE json::JsonStr(s) : RETURN []
-    CASE json::JsonObj(o) : RETURN []
-  END MATCH
-END FUNC
-
-' TRUE when `value` is an array.
-PUBLIC FUNC isList(value AS json::Json) AS Boolean
-  MATCH value
-    CASE json::JsonArr(a) : RETURN TRUE
-    CASE json::JsonNull(n) : RETURN FALSE
-    CASE json::JsonBool(b) : RETURN FALSE
-    CASE json::JsonNum(m) : RETURN FALSE
-    CASE json::JsonStr(s) : RETURN FALSE
-    CASE json::JsonObj(o) : RETURN FALSE
-  END MATCH
-END FUNC
-
-' The text an interpolation writes for `value`.
+' The text an interpolation writes for `at`.
 '
 ' A string writes itself and null writes nothing -- those two are the whole of
 ' the specification's interpolation module, which never interpolates anything
@@ -202,15 +286,40 @@ END FUNC
 '   on every platform, it loses nothing, and it is legible in the one place this
 '   comes up in practice, which is a template printing a value the author
 '   thought was a scalar.
-PUBLIC FUNC textOfValue(value AS json::Json) AS String
-  MATCH value
-    CASE json::JsonStr(s) : RETURN s.value
-    CASE json::JsonNull(n) : RETURN ""
-    CASE json::JsonBool(b)
-      IF b.value THEN RETURN "true"
-      RETURN "false"
-    CASE json::JsonNum(m) : RETURN json::stringify(value)
-    CASE json::JsonArr(a) : RETURN json::stringify(value)
-    CASE json::JsonObj(o) : RETURN json::stringify(value)
-  END MATCH
+PUBLIC FUNC textOfValue(flat AS Doc, at AS Integer) AS String
+  IF at < 0 THEN RETURN ""
+  LET e AS Entry = entryAt(flat, at)
+  IF e.kind = V_STR THEN RETURN e.text
+  IF e.kind = V_BOOL THEN
+    IF e.flag THEN RETURN "true"
+    RETURN "false"
+  END IF
+  IF e.kind = V_NUM THEN RETURN json::stringify(json::JsonNum[e.number])
+  IF e.kind = V_ARR OR e.kind = V_OBJ THEN RETURN json::stringify(rebuild(flat, at))
+  RETURN ""
+END FUNC
+
+' The JSON value `at` stands for, rebuilt from the Doc. Used only to write a
+' collection as JSON, which is rare, so its cost is the output's cost.
+PUBLIC FUNC rebuild(flat AS Doc, at AS Integer) AS json::Json
+  LET e AS Entry = entryAt(flat, at)
+  IF e.kind = V_BOOL THEN RETURN json::JsonBool[e.flag]
+  IF e.kind = V_NUM THEN RETURN json::JsonNum[e.number]
+  IF e.kind = V_STR THEN RETURN json::JsonStr[e.text]
+  IF e.kind = V_ARR THEN
+    MUT items AS List OF json::Json = []
+    FOR i = 0 TO e.length - 1
+      items = collections::append(items, rebuild(flat, collections::get(flat.slots, e.start + i)))
+    NEXT
+    RETURN json::JsonArr[items]
+  END IF
+  IF e.kind = V_OBJ THEN
+    MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+    FOR i = 0 TO e.length - 1
+      LET child AS Integer = collections::get(flat.slots, e.start + i)
+      fields = collections::set(fields, entryAt(flat, child).key, rebuild(flat, child))
+    NEXT
+    RETURN json::JsonObj[fields]
+  END IF
+  RETURN json::JsonNull[NOTHING]
 END FUNC

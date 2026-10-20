@@ -2,48 +2,53 @@
 ' mustache/render.mfb — walking the parsed nodes and producing text.
 '
 ' Every function here builds and returns ITS OWN output, and its caller appends
-' that to the caller's own accumulator. The obvious alternative -- thread one
-' accumulator through the whole walk, so each level takes the text so far and
-' returns it extended -- is what this file used to do, and it is quadratic:
-' handing a String to a function and assigning it to a fresh local copies it, so
-' a template producing 16 MB across 4096 section iterations copied about 34 GB.
-' `x = x & piece`, where `x` is the same local being assigned, appends in place;
-' that is the one shape that stays linear, so every accumulation here is written
-' as exactly that, with any call result taken into a temporary first.
+' that to the caller's own accumulator. Threading one accumulator through the
+' whole walk would be quadratic: handing a String to a function and assigning it
+' to a fresh local copies it. `x = x & piece`, where `x` is the same local being
+' assigned, appends in place; that is the one shape that stays linear, so every
+' accumulation here is written as exactly that, with any call result taken into
+' a temporary first.
 '
-' The cost of the change is that the output limit is checked per LEVEL rather
-' than globally. It is still exact where it matters: a level checks after every
-' append, so no accumulator can pass the limit by more than one piece, and the
-' outermost level accumulates every level's output, so the total is checked
-' there. A template that expands without bound stops at roughly the limit
-' instead of after exhausting memory, which is the whole point of having one.
+' The output limit is checked after every append, so no accumulator can pass it
+' by more than one piece, and the outermost level accumulates every level's
+' output, so the total is checked there too. A template that expands without
+' bound stops at roughly the limit instead of after exhausting memory.
+'
+' The frame stack is a `List OF Integer` of entry indices into the Doc (see
+' context.mfb), so pushing a frame copies a few integers, never a value.
 ' ---------------------------------------------------------------------------
 
+IMPORT errorCode
 IMPORT json
 IMPORT collections
 IMPORT strings
 
-' Parse `template` and render it. The entry point both public API functions use.
-PUBLIC FUNC renderSource(template AS String, context AS json::Json, partials AS Map OF String TO String) AS String
+' Everything a render reads and never changes, bundled so each recursive call
+' passes one lent record rather than four loose arguments.
+TYPE Scope
+  flat AS Doc
+  partials AS Map OF String TO String
+  maxBytes AS Integer
+END TYPE
+
+' Parse `template`, flatten `context`, and render the one against the other. The
+' template is parsed first, so a malformed template is refused before any work
+' is done on the context.
+PUBLIC FUNC renderSource(template AS String, context AS json::Json, partials AS Map OF String TO String, maxBytes AS Integer) AS String
   LET nodes AS List OF Node = parseTemplate(template)
-  LET stack AS List OF json::Json = [context]
-  RETURN renderNodes(nodes, 0, len(nodes), stack, partials, 0)
+  LET scope AS Scope = Scope[buildDoc(context), partials, maxBytes]
+  RETURN renderNodes(nodes, 0, len(nodes), [0], scope, 0)
 END FUNC
 
-' Refuse an accumulator that has grown past OUTPUT_LIMIT.
-'
-' Called after every append rather than at the end, because the thing it guards
-' against -- a partial that includes itself inside a section over a non-empty
-' list, so each level multiplies -- reaches gigabytes in a handful of levels.
-' Checking afterwards means never getting there.
-PUBLIC FUNC guardOutput(out AS String) AS Nothing
-  IF strings::byteLen(out) > OUTPUT_LIMIT THEN
-    FAIL error(ErrorLimit, "mustache: the rendered output passed the " & toString(OUTPUT_LIMIT) & "-byte limit")
+' Refuse an accumulator that has grown past the caller's limit.
+PRIVATE FUNC guardOutput(out AS String, maxBytes AS Integer) AS Nothing
+  IF strings::byteLen(out) > maxBytes THEN
+    FAIL error(errorCode::ErrTooLarge, "mustache: the rendered output passed the " & toString(maxBytes) & "-byte limit")
   END IF
 END FUNC
 
 ' Render nodes [from, stop) and return what they produced.
-PUBLIC FUNC renderNodes(nodes AS List OF Node, from AS Integer, stop AS Integer, stack AS List OF json::Json, partials AS Map OF String TO String, partialDepth AS Integer) AS String
+PUBLIC FUNC renderNodes(nodes AS List OF Node, from AS Integer, stop AS Integer, stack AS List OF Integer, scope AS Scope, partialDepth AS Integer) AS String
   MUT result AS String = ""
   MUT at AS Integer = from
   WHILE at < stop
@@ -52,27 +57,27 @@ PUBLIC FUNC renderNodes(nodes AS List OF Node, from AS Integer, stop AS Integer,
     IF here.kind = K_TEXT THEN
       result = result & here.name
     ELSEIF here.kind = K_VAR THEN
-      LET escaped AS String = escapeText(textOfValue(lookup(stack, here.name)))
+      LET escaped AS String = escapeText(textOfValue(scope.flat, resolve(scope.flat, stack, here.name)))
       result = result & escaped
     ELSEIF here.kind = K_RAW THEN
-      LET raw AS String = textOfValue(lookup(stack, here.name))
+      LET raw AS String = textOfValue(scope.flat, resolve(scope.flat, stack, here.name))
       result = result & raw
     ELSEIF here.kind = K_SECTION THEN
-      LET body AS String = renderSection(nodes, at, stack, partials, partialDepth)
+      LET body AS String = renderSection(nodes, at, stack, scope, partialDepth)
       result = result & body
       advance = here.jump + 1
     ELSEIF here.kind = K_INVERTED THEN
-      LET value AS json::Json = lookup(stack, here.name)
-      IF isFalsey(value) OR isEmptyList(value) THEN
-        LET body AS String = renderNodes(nodes, at + 1, here.jump, stack, partials, partialDepth)
+      LET found AS Integer = resolve(scope.flat, stack, here.name)
+      IF isFalsey(scope.flat, found) OR isEmptyList(scope.flat, found) THEN
+        LET body AS String = renderNodes(nodes, at + 1, here.jump, stack, scope, partialDepth)
         result = result & body
       END IF
       advance = here.jump + 1
     ELSEIF here.kind = K_PARTIAL THEN
-      LET body AS String = renderPartial(here, stack, partials, partialDepth)
+      LET body AS String = renderPartial(here, stack, scope, partialDepth)
       result = result & body
     END IF
-    guardOutput(result)
+    guardOutput(result, scope.maxBytes)
     at = advance
   END WHILE
   RETURN result
@@ -85,30 +90,29 @@ END FUNC
 ' element pushed; an object, string or number renders it once with the value
 ' pushed; and `true` renders it once with NO new frame, so that
 ' `{{#ready}}{{name}}{{/ready}}` still sees the enclosing object.
-PRIVATE FUNC renderSection(nodes AS List OF Node, at AS Integer, stack AS List OF json::Json, partials AS Map OF String TO String, partialDepth AS Integer) AS String
+PRIVATE FUNC renderSection(nodes AS List OF Node, at AS Integer, stack AS List OF Integer, scope AS Scope, partialDepth AS Integer) AS String
   LET here AS Node = collections::get(nodes, at)
-  LET value AS json::Json = lookup(stack, here.name)
-  IF isFalsey(value) THEN RETURN ""
+  LET found AS Integer = resolve(scope.flat, stack, here.name)
+  IF isFalsey(scope.flat, found) THEN RETURN ""
 
-  IF isList(value) THEN
-    LET items AS List OF json::Json = itemsOf(value)
+  IF isList(scope.flat, found) THEN
+    LET span AS Entry = entryAt(scope.flat, found)
     MUT result AS String = ""
-    MUT index AS Integer = 0
-    WHILE index < len(items)
-      LET inner AS List OF json::Json = collections::append(stack, collections::get(items, index))
-      LET body AS String = renderNodes(nodes, at + 1, here.jump, inner, partials, partialDepth)
+    FOR index = 0 TO span.length - 1
+      LET item AS Integer = collections::get(scope.flat.slots, span.start + index)
+      LET inner AS List OF Integer = collections::append(stack, item)
+      LET body AS String = renderNodes(nodes, at + 1, here.jump, inner, scope, partialDepth)
       result = result & body
-      guardOutput(result)
-      index = index + 1
-    END WHILE
+      guardOutput(result, scope.maxBytes)
+    NEXT
     RETURN result
   END IF
 
-  IF pushesFrame(value) THEN
-    LET inner AS List OF json::Json = collections::append(stack, value)
-    RETURN renderNodes(nodes, at + 1, here.jump, inner, partials, partialDepth)
+  IF pushesFrame(scope.flat, found) THEN
+    LET inner AS List OF Integer = collections::append(stack, found)
+    RETURN renderNodes(nodes, at + 1, here.jump, inner, scope, partialDepth)
   END IF
-  RETURN renderNodes(nodes, at + 1, here.jump, stack, partials, partialDepth)
+  RETURN renderNodes(nodes, at + 1, here.jump, stack, scope, partialDepth)
 END FUNC
 
 ' Render one `{{>name}}`.
@@ -123,17 +127,17 @@ END FUNC
 ' `{{{content}}}` must indent the `|` and the tag, and must NOT indent the
 ' newlines inside whatever `content` holds. Indenting the source and then
 ' parsing is the only order that gets that right.
-PRIVATE FUNC renderPartial(here AS Node, stack AS List OF json::Json, partials AS Map OF String TO String, partialDepth AS Integer) AS String
-  IF NOT collections::hasKey(partials, here.name) THEN RETURN ""
+PRIVATE FUNC renderPartial(here AS Node, stack AS List OF Integer, scope AS Scope, partialDepth AS Integer) AS String
+  IF NOT collections::hasKey(scope.partials, here.name) THEN RETURN ""
   IF partialDepth >= PARTIAL_DEPTH_LIMIT THEN
-    FAIL error(ERR_DEPTH, "mustache: partial `" & here.name & "` expands more than " & toString(PARTIAL_DEPTH_LIMIT) & " levels deep, which is how a partial that reaches itself is reported")
+    FAIL error(errorCode::ErrDepthExceeded, "mustache: partial `" & here.name & "` expands more than " & toString(PARTIAL_DEPTH_LIMIT) & " levels deep, which is how a partial that reaches itself is reported")
   END IF
-  MUT source AS String = collections::get(partials, here.name)
+  MUT source AS String = collections::get(scope.partials, here.name)
   IF here.firstTag AND here.indent <> "" THEN
     source = indentPartial(source, here.indent, here.lineHasText)
   END IF
   LET nodes AS List OF Node = parseTemplate(source)
-  RETURN renderNodes(nodes, 0, len(nodes), stack, partials, partialDepth + 1)
+  RETURN renderNodes(nodes, 0, len(nodes), stack, scope, partialDepth + 1)
 END FUNC
 
 ' Re-indent a partial's body by the whitespace that preceded its tag.

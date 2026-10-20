@@ -1,0 +1,84 @@
+' ---------------------------------------------------------------------------
+' Tests: the flattened context (context.mfb) and the caller's output limit.
+'
+' The context is flattened once and resolved by index, so these cases pin what
+' that representation must not change: member names with any characters, the
+' order a collection is written in, the frames a list of lists and a list with a
+' null element push, the root that is not an object, and the output budget the
+' caller sets. The last case is the one a copying frame stack once failed: a long
+' list must render every element exactly once.
+' ---------------------------------------------------------------------------
+
+IMPORT errorCode
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+TESTING
+  TGROUP "the flattened context"
+    TCASE "member names are found whatever characters they hold"
+      LET c AS json::Json = json::parse("{\"0:a\":1,\"a\":2,\"x:y\":3,\"0\":{\"a\":4}}")
+      expectString(render("{{0:a}}|{{a}}|{{x:y}}|{{0.a}}", c), "1|2|3|4")
+    END TCASE
+
+    TCASE "a collection interpolates in the order json::stringify writes it"
+      LET c AS json::Json = json::parse("{\"o\":{\"z\":1,\"a\":[true,null,\"q\\\"\",2.5]}}")
+      expectString(render("{{{o}}}", c), "{\"z\":1,\"a\":[true,null,\"q\\\"\",2.5]}")
+    END TCASE
+
+    TCASE "a list of lists walks the inner lists by the implicit iterator"
+      LET c AS json::Json = json::parse("{\"rows\":[[1,2],[],[3]]}")
+      expectString(render("{{#rows}}{{#.}}{{.}}{{/.}};{{/rows}}", c), "12;;3;")
+    END TCASE
+
+    TCASE "a null element is a frame that satisfies no name"
+      LET c AS json::Json = json::parse("{\"x\":\"o\",\"l\":[null,{\"x\":\"i\"}]}")
+      expectString(render("{{#l}}{{x}}{{/l}}", c), "oi")
+    END TCASE
+
+    TCASE "a root that is not an object still interpolates, and its names are empty"
+      expectString(render("{{a}}[{{.}}]", json::parse("[1]")), "[[1]]")
+      expectString(render("{{a}}[{{.}}]", json::parse("5")), "[5]")
+    END TCASE
+
+    TCASE "a long list renders every element once, in order"
+      MUT items AS String = ""
+      MUT expected AS String = ""
+      FOR i = 1 TO 20000
+        IF i > 1 THEN items = items & ","
+        items = items & toString(i)
+        expected = expected & toString(i)
+      NEXT
+      expectString(render("{{#items}}{{.}}{{/items}}", json::parse("{\"items\":[" & items & "]}")), expected)
+    END TCASE
+  END TGROUP
+
+  TGROUP "the caller's output limit"
+    TCASE "maxBytes is the output limit, and output exactly at it is kept"
+      expectString(render("abcde", json::parse("{}"), 5), "abcde")
+      expectTrap(render("abcdef", json::parse("{}"), 5), errorCode::ErrTooLarge)
+    END TCASE
+
+    TCASE "zero allows only empty output"
+      expectString(render("", json::parse("{}"), 0), "")
+      expectTrap(render("x", json::parse("{}"), 0), errorCode::ErrTooLarge)
+    END TCASE
+
+    TCASE "a negative maxBytes is refused as an invalid argument"
+      expectTrap(render("x", json::parse("{}"), -1), errorCode::ErrInvalidArgument)
+    END TCASE
+
+    TCASE "renderWith takes the same limit, and it covers partial output too"
+      MUT partials AS Map OF String TO String = Map OF String TO String {}
+      partials = collections::set(partials, "p", "abcdef")
+      expectTrap(renderWith("{{>p}}", json::parse("{}"), partials, 5), errorCode::ErrTooLarge)
+      expectString(renderWith("{{>p}}", json::parse("{}"), partials, 6), "abcdef")
+    END TCASE
+
+    TCASE "the limit is checked as a section grows, not only at its end"
+      LET c AS json::Json = json::parse("{\"l\":[1,2,3,4,5,6,7,8,9,10]}")
+      expectTrap(render("{{#l}}0123456789{{/l}}", c, 99), errorCode::ErrTooLarge)
+      expectString(render("{{#l}}0123456789{{/l}}", c, 100), strings::repeat("0123456789", 10))
+    END TCASE
+  END TGROUP
+END TESTING
