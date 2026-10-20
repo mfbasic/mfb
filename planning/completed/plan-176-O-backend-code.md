@@ -813,7 +813,7 @@ the owned-cleanup parts.
   556, link_thunk 389/2 + 922/322/122/397.
   Letter end (Validation Plan): `bash scripts/artifact-gate.sh target/release/mfb all` → `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`; plus the Phase 3
   `.mfp` and Phase 4 executable/`--debug` differentials; budget pattern → no row; ceiling file → no O row.
-Commit: —
+Commit: c26aee924
 
 ## Validation Plan
 
