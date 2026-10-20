@@ -76,7 +76,7 @@ fn is_excluded_from_scan(rel: &str) -> bool {
 
 /// Test-only files: a test's *input* may legitimately be a spelling — the
 /// `legacy_*` promotion oracles in `src/numeric.rs` are deliberately frozen
-/// name-keyed copies, and `src/ir/binary.rs`'s decode tests hand-assemble bytes
+/// name-keyed copies, and `src/ir/binary/mod.rs`'s decode tests hand-assemble bytes
 /// carrying operator strings a hostile `.mfp` could contain. Mirrors
 /// `tests/no_type_strings.rs::is_test_file`.
 fn is_test_file(rel: &str) -> bool {

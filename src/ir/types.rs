@@ -54,7 +54,7 @@ pub(crate) struct IrVariant {
     /// holds the parsed type — `lower_variant` used to keep only `.name()` from it — so
     /// carrying it costs nothing and makes `Named(_)` vs a built-in a pure type-domain
     /// test. Not on the wire: `decode_variant` rebuilds it from the encoded name, which
-    /// `src/ir/binary.rs` is a sanctioned boundary to do, so the format is unchanged.
+    /// `src/ir/binary/` is a sanctioned boundary to do, so the format is unchanged.
     pub(crate) type_: ParameterType,
     pub(crate) fields: Vec<IrField>,
     // Source location of the variant declaration.

@@ -482,7 +482,10 @@ fn boundary_list_is_closed() {
             // #1 the parser's own recursion
             "src/types.rs",
             // #2 the IR binary codec
-            "src/ir/binary.rs",
+            "src/ir/binary/mod.rs",
+            "src/ir/binary/link_codec.rs",
+            "src/ir/binary/op_codec.rs",
+            "src/ir/binary/value_codec.rs",
             // #3 the AST -> HIR elaboration seam
             "src/hir/mod.rs",
             "src/hir/build.rs",

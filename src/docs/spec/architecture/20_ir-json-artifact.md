@@ -195,7 +195,7 @@ Record-update node (used by `with`):[[src/ir/types.rs:IrRecordUpdate]]
 ## Notes
 
 - `version` is `1` and independent of the MFBR `BINARY_REPR_VERSION`; bump one
-  without the other.[[src/ir/json.rs:to_json]][[src/ir/binary.rs:BINARY_REPR_VERSION]]
+  without the other.[[src/ir/json.rs:to_json]][[src/ir/binary/mod.rs:BINARY_REPR_VERSION]]
 - Native back-end IR fields on `IrProject` (`native_resources`,
   `link_functions`, `link_aliases`, `docs`) are part of the in-memory model but
   are **not** serialized into the `.ir` dump.[[src/ir/json.rs:to_json]]

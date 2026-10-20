@@ -24,7 +24,7 @@ point of the boundary:
 - The **Binary Representation** is the stable on-disk contract. It carries its own
   format versions (`MFBR` payload version 6 and `MFPC` container major 2).
   The MFBR decoder requires the exact supported version.
-  [[src/ir/binary.rs:BINARY_REPR_VERSION]] [[src/ir/binary.rs:decode_binary_repr]] Because the encoding is a faithful, structure-preserving
+  [[src/ir/binary/mod.rs:BINARY_REPR_VERSION]] [[src/ir/binary/mod.rs:decode_binary_repr]] Because the encoding is a faithful, structure-preserving
   serialization, a consumer **decodes it straight back into IR** and lowers it
   through the single `IR → NIR → native` codegen used for the executable's own
   code — no second, package-only code path.[[src/binary_repr/reader.rs:read_binary_repr_package]]

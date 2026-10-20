@@ -406,7 +406,7 @@ pub(crate) struct IrLinkFunction {
     /// Wrapper parameters in declared order: `(name, mfb_type)`.
     ///
     /// plan-111-B: typed. The `.mfp`/IR **wire** encoding is unchanged — it
-    /// still carries the spelling, which `src/ir/binary.rs` (boundary #2)
+    /// still carries the spelling, which `src/ir/binary/` (boundary #2)
     /// renders on encode and parses on decode. Only the in-memory shape moved,
     /// so `ir::verify::link` and `ir::lower` stop re-deriving structure from a
     /// string they were handed.

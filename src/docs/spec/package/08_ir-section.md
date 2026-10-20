@@ -17,17 +17,17 @@ Required `magic`:
 M  F  B  R
 ```
 
-The Binary Representation `version` is **`7`**. The decoder requires `MFBR` magic and exactly this version, independently of MFPC major version `2`. Version 7 spells the internal fallible result `#Result OF T` in every inline type string (a v6 `Result OF T` would read as a user template, so v6 is refused). [[src/ir/binary.rs:BINARY_REPR_VERSION]] [[src/ir/binary.rs:decode_binary_repr]]
+The Binary Representation `version` is **`7`**. The decoder requires `MFBR` magic and exactly this version, independently of MFPC major version `2`. Version 7 spells the internal fallible result `#Result OF T` in every inline type string (a v6 `Result OF T` would read as a user template, so v6 is refused). [[src/ir/binary/mod.rs:BINARY_REPR_VERSION]] [[src/ir/binary/mod.rs:decode_binary_repr]]
 
-Statements, case arms, and declarations carry source locations as `u32` line and column. A binding encodes its location, declaring `file`, then `explicit_type`; a type declaration encodes its location then `file`. A `Bind` statement writes `explicit_type` immediately before its trailing location. `explicit_type` distinguishes a source annotation from an inferred type. [[src/ir/binary.rs:encode_binding]] [[src/ir/binary.rs:encode_type]] [[src/ir/binary.rs:encode_op]]
+Statements, case arms, and declarations carry source locations as `u32` line and column. A binding encodes its location, declaring `file`, then `explicit_type`; a type declaration encodes its location then `file`. A `Bind` statement writes `explicit_type` immediately before its trailing location. `explicit_type` distinguishes a source annotation from an inferred type. [[src/ir/binary/mod.rs:encode_binding]] [[src/ir/binary/mod.rs:encode_type]] [[src/ir/binary/op_codec.rs:encode_op]]
 
-A function encodes its source file and location, followed by a `u32`-counted ownership map sorted by binding name. Each entry has a name string and an owner tag: `0` = `Local`, `1` = `Float` followed by the owning binding name. These ownership decisions accompany decoded package IR; they are not re-derived from source syntax. [[src/ir/binary.rs:encode_function]] [[src/ir/binary.rs:decode_resource_owners]]
+A function encodes its source file and location, followed by a `u32`-counted ownership map sorted by binding name. Each entry has a name string and an owner tag: `0` = `Local`, `1` = `Float` followed by the owning binding name. These ownership decisions accompany decoded package IR; they are not re-derived from source syntax. [[src/ir/binary/mod.rs:encode_function]] [[src/ir/binary/mod.rs:decode_resource_owners]]
 
-The payload is self-contained: integers are little-endian, strings are inline length-prefixed (`u32` byte length followed by UTF-8 bytes). Crucially, the payload does **not** reference the container's `STRING_POOL` or other interned tables — every name and type inside the `IrProject` is written inline, so a function body is fully reconstructable from this payload alone. The container's metadata sections (type table, const pool, function table, exports, ABI, …) are a **parallel, derived** view used for fast scanning, ABI compatibility, and identity checks; the consumer reconstructs executable IR from the `MFBR` payload, not from those tables. The in-memory IR is free to change behind this format; the encoding is the stable contract, and carries executable declarations and bodies; documentation and native-library locators are stored in separate sections. [[src/ir/binary.rs:decode_project]]
+The payload is self-contained: integers are little-endian, strings are inline length-prefixed (`u32` byte length followed by UTF-8 bytes). Crucially, the payload does **not** reference the container's `STRING_POOL` or other interned tables — every name and type inside the `IrProject` is written inline, so a function body is fully reconstructable from this payload alone. The container's metadata sections (type table, const pool, function table, exports, ABI, …) are a **parallel, derived** view used for fast scanning, ABI compatibility, and identity checks; the consumer reconstructs executable IR from the `MFBR` payload, not from those tables. The in-memory IR is free to change behind this format; the encoding is the stable contract, and carries executable declarations and bodies; documentation and native-library locators are stored in separate sections. [[src/ir/binary/mod.rs:decode_project]]
 
 ## Payload structure (`IrProject`)
 
-`encode_project`/`decode_project` lay the project out as: [[src/ir/binary.rs:encode_project]]
+`encode_project`/`decode_project` lay the project out as: [[src/ir/binary/mod.rs:encode_project]]
 
 ```text
 name            str
@@ -43,7 +43,7 @@ linkCstructs    vec<(alias str, name str, mapsTo str, fields vec<(name str, ctyp
 linkState       vec<(alias str, name str, returnStateType optional str, bindState optional str)>
 ```
 
-`vec<T>` is a `u32` count followed by that many elements. The native trailer is emitted when any of `linkFunctions`, `linkAliases`, or `linkCstructs` is non-empty. End-of-buffer after `functions` means there is no native trailer. The STATE trailer is emitted only when a native function has a return state type or a state binding. [[src/ir/binary.rs:encode_project]] [[src/ir/binary.rs:encode_link_state_trailer]]
+`vec<T>` is a `u32` count followed by that many elements. The native trailer is emitted when any of `linkFunctions`, `linkAliases`, or `linkCstructs` is non-empty. End-of-buffer after `functions` means there is no native trailer. The STATE trailer is emitted only when a native function has a return state type or a state binding. [[src/ir/binary/mod.rs:encode_project]] [[src/ir/binary/link_codec.rs:encode_link_state_trailer]]
 
 ## Structured control flow (no jumps)
 
@@ -63,7 +63,7 @@ Structured exit out of these regions is itself encoded as leaf ops rather than j
 
 ## Statements / ops
 
-`IrOp` is encoded faithfully, one tag byte per kind (`encode_op`). The current tag assignment is: [[src/ir/binary.rs:encode_op]]
+`IrOp` is encoded faithfully, one tag byte per kind (`encode_op`). The current tag assignment is: [[src/ir/binary/op_codec.rs:encode_op]]
 
 ```text
 0  = Bind            1  = Assign          2  = AssignGlobal
@@ -79,13 +79,13 @@ Every op ends with its `loc` (trailing `u32` line + `u32` column — the source 
 
 ## Expressions stay nested
 
-`IrValue` is encoded as a tree, with one tag byte per kind and kind-specific fields. `Call` and `CallResult` carry a target and arguments; `Checked` carries a success type and a call-free value whose local errors it captures. `SetLiteral` uses tag `21`; an observing `Checked` uses tag `22` and a capture-only `Checked` (`observe` FALSE) uses tag `23`, so a package with no capture-only node encodes exactly as before that tag existed. Unknown tags are rejected. Built-in calls use the same call nodes as other functions. [[src/ir/binary.rs:encode_value]] [[src/ir/binary.rs:decode_value_body]]
+`IrValue` is encoded as a tree, with one tag byte per kind and kind-specific fields. `Call` and `CallResult` carry a target and arguments; `Checked` carries a success type and a call-free value whose local errors it captures. `SetLiteral` uses tag `21`; an observing `Checked` uses tag `22` and a capture-only `Checked` (`observe` FALSE) uses tag `23`, so a package with no capture-only node encodes exactly as before that tag existed. Unknown tags are rejected. Built-in calls use the same call nodes as other functions. [[src/ir/binary/value_codec.rs:encode_value]] [[src/ir/binary/value_codec.rs:decode_value_body]]
 
-Computed IR nodes carry canonical type-name annotations: calls, checked expressions, arithmetic, member access, and extracted result values encode their result types. Locals and globals resolve through declarations. These annotations and declaration fields let the semantic checker validate decoded IR without source syntax, but they remain untrusted input and checks may skip types they cannot reconstruct. [[src/ir/binary.rs:encode_value]] [[src/ir/verify/compat.rs:check_call_result_type]]
+Computed IR nodes carry canonical type-name annotations: calls, checked expressions, arithmetic, member access, and extracted result values encode their result types. Locals and globals resolve through declarations. These annotations and declaration fields let the semantic checker validate decoded IR without source syntax, but they remain untrusted input and checks may skip types they cannot reconstruct. [[src/ir/binary/value_codec.rs:encode_value]] [[src/ir/verify/compat.rs:check_call_result_type]]
 
 ## Tables and references
 
-Unlike the container metadata sections, the `MFBR` payload does **not** reference declarations by index into the container's interned tables. Names and types inside IR nodes are written inline as strings (type references are canonical type-name strings such as `"List OF Integer"` or `"#Result OF Out"`, the same canonical names the `TYPE_TABLE` interns). The `TYPE_TABLE`, `CONST_POOL`, and friends are derived from the same IR for scanning and ABI purposes, but the payload itself carries everything needed to rebuild the IR standalone. Executable IR decoding does not consult the other sections. [[src/ir/binary.rs:decode_project]]
+Unlike the container metadata sections, the `MFBR` payload does **not** reference declarations by index into the container's interned tables. Names and types inside IR nodes are written inline as strings (type references are canonical type-name strings such as `"List OF Integer"` or `"#Result OF Out"`, the same canonical names the `TYPE_TABLE` interns). The `TYPE_TABLE`, `CONST_POOL`, and friends are derived from the same IR for scanning and ABI purposes, but the payload itself carries everything needed to rebuild the IR standalone. Executable IR decoding does not consult the other sections. [[src/ir/binary/mod.rs:decode_project]]
 
 ## Consumption
 

@@ -8,7 +8,7 @@ EXPORT FUNC add(a AS Integer, b AS Integer) AS Integer
 END FUNC
 ```
 
-Produces conceptually (MFBR version from `BINARY_REPR_VERSION`): [[src/ir/binary.rs:BINARY_REPR_VERSION]]
+Produces conceptually (MFBR version from `BINARY_REPR_VERSION`): [[src/ir/binary/mod.rs:BINARY_REPR_VERSION]]
 
 ```text
 MFPHeader

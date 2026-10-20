@@ -183,7 +183,19 @@ const BOUNDARY_FILES: &[(&str, &str)] = &[
     ("src/types.rs", "the type grammar itself; `parse` recurses"),
     // 2 — IR wire/JSON decode: a serialized type arrives as text by definition.
     (
-        "src/ir/binary.rs",
+        "src/ir/binary/mod.rs",
+        "IR wire/JSON decode reads types as text",
+    ),
+    (
+        "src/ir/binary/link_codec.rs",
+        "IR wire/JSON decode reads types as text",
+    ),
+    (
+        "src/ir/binary/op_codec.rs",
+        "IR wire/JSON decode reads types as text",
+    ),
+    (
+        "src/ir/binary/value_codec.rs",
         "IR wire/JSON decode reads types as text",
     ),
     // 3 — AST -> HIR elaborate: the AST boundary, where spellings become types.
@@ -411,7 +423,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// table — and both are keyed by the spelling the section ENCODES. Converting
 /// one without the other would be incoherent, and converting `ids` would stop
 /// the wire codec speaking wire names, which is the opposite of what boundary
-/// #4 is for. Same reasoning as `ir/binary.rs`'s `seen_types`.
+/// #4 is for. Same reasoning as `ir/binary/mod.rs`'s `seen_types`.
 /// **Synthetic instantiation keys**: `monomorph`'s `emitted_type_keys` and
 /// `emitted_function_keys` hold `"Pair<Integer,String>"` — a `name<args>` key
 /// minted to be unambiguous where the mangled symbol is lossy (bug-226 /
@@ -424,7 +436,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// and the value is a declaration rather than type information:
 /// `ir/docs.rs`'s and `resolver/resolution/docs.rs`'s `types` / `resources`,
 /// `src/doc/`'s `type_meta` / `resource_meta`, `ir/shape.rs`'s `union_decls`,
-/// and `ir/binary.rs`'s `seen_types` (a duplicate-NAME detector on the wire).
+/// and `ir/binary/mod.rs`'s `seen_types` (a duplicate-NAME detector on the wire).
 const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     // `TypeModel` — codegen's whole picture of the module's declared types,
     // keyed by rendered name. plan-111-C re-keys these.
@@ -1083,7 +1095,7 @@ fn scan_tree() -> BTreeMap<(String, String), Vec<String>> {
         record("spelling_compares", spelling_compares(&src));
         record("string_keyed_type_maps", string_keyed_type_maps(&rel, &src));
         // plan-113: a DECISION class, so it is not exempt in a boundary file
-        // either — `ir/binary.rs` may parse and render a ctype, and does, but it
+        // either — `ir/binary/` may parse and render a ctype, and does, but it
         // may not compare one.
         record("c_type_strings", c_type_strings(&rel, &src));
     }

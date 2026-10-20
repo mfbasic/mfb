@@ -93,7 +93,7 @@ pub(crate) fn qualify_package_types(
     let package = pir.name.clone();
     // `owners` comes from the `.mfp` (its type-export and RESOURCE tables), which
     // is the only place a native `RESOURCE`'s name survives — a decoded package
-    // IR carries no `native_resources` (`ir/binary.rs` drops them by contract),
+    // IR carries no `native_resources` (`ir/binary/` drops them by contract),
     // so `sqlite3.Db` would otherwise stay bare here while every consumer-side
     // table qualified it. A type this package declares but the `.mfp` did not
     // surface (a PRIVATE one) is owned by this package.

@@ -691,7 +691,7 @@ impl TypeModel {
             );
             // bug-374: an imported binding's resource drops at scope exit in the
             // importing program too, but a decoded package carries no
-            // `native_resources` (`ir/binary.rs` drops them by contract), so the
+            // `native_resources` (`ir/binary/` drops them by contract), so the
             // close op comes from the package's RESOURCE_TABLE instead.
             //
             // The name there is package-internal (the bare re-export alias

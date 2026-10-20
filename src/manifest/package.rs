@@ -335,7 +335,7 @@ pub(crate) fn installed_package_files(
 /// `ir::verify`'s resource rules recognize an imported package's resources
 /// (bug-377).
 ///
-/// A decoded package carries no `native_resources` (`ir/binary.rs` drops them by
+/// A decoded package carries no `native_resources` (`ir/binary/` drops them by
 /// contract), so `IrProject::native_resources` holds the *current* project's
 /// declarations only. Without this, `close_op_for` returns `None` for an
 /// imported type, `is_resource_or_resource_union` is false, and every resource

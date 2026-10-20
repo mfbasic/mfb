@@ -212,7 +212,7 @@ Invariant — `TypeTable.foreign_types` is keyed by BARE exported name: the writ
 
 ### Imported native-resource close-op: 4 starved layers, 2 spellings
 
-`ir/binary.rs` drops `native_resources` by contract, so an importer's `IrProject::native_resources` holds only the CURRENT project's `RESOURCE T CLOSE BY` decls — anything deriving resource knowledge from it is inert for an imported package's resources. There are **four** such layers, each failing differently (fix one, the others stay silent):
+`ir/binary/` drops `native_resources` by contract, so an importer's `IrProject::native_resources` holds only the CURRENT project's `RESOURCE T CLOSE BY` decls — anything deriving resource knowledge from it is inert for an imported package's resources. There are **four** such layers, each failing differently (fix one, the others stay silent):
 1. `ir::verify` `resource_closers` → every resource rule skips the type.
 2. `code::validation` closer table → no `ActiveCleanup::Resource`, handle **leaks** with no diagnostic.
 3. `link_thunk` close-op set → thunk never sets `RESOURCE_CLOSED_BIT`, so once (2) is fixed the drop-path close becomes a **double free**.

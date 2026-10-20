@@ -23,7 +23,7 @@
 //! verbatim into three committed sinks — the `.ast` JSON
 //! (`src/ast/serialize/body.rs`), the `.ir` JSON (`src/ir/json.rs`), and the
 //! length-prefixed operator string in the IR binary package format
-//! (`src/ir/binary.rs`) — and pinned by the `tests/**` golden corpus. Changing
+//! (`src/ir/binary/`) — and pinned by the `tests/**` golden corpus. Changing
 //! a returned string is a format break, not a rename.
 
 use crate::lexer::{Keyword, TokenKind};
@@ -122,7 +122,7 @@ impl BinaryOp {
     /// Recover an operator from its spelling.
     ///
     /// This exists for **decode boundaries only** — the IR binary package
-    /// format (`src/ir/binary.rs`), which carries the operator as a
+    /// format (`src/ir/binary/`), which carries the operator as a
     /// length-prefixed string and must reject anything outside the set rather
     /// than silently mis-lower it (bug-403). No compiler stage should reach for
     /// `parse` to make a decision: the stages carry the enum.

@@ -56,9 +56,9 @@ The coverage check tests each library's locators against every `(os, arch, libc)
 
 ## The interface trailer
 
-The native interface trailer follows the `functions` vector when the project has any LINK functions, aliases, or CSTRUCT declarations. It contains `linkFunctions`, `linkAliases`, then `linkCstructs`, each as a counted vector. A CSTRUCT row is `(alias str, name str, mapsTo str, fields vec<(name str, ctype str)>)`; offsets and sizes are recomputed by the consumer. Decoding caps the table at `256` CSTRUCTs with at most `64` fields each. [[src/ir/binary.rs:encode_project]] [[src/ir/binary.rs:decode_cstructs]]
+The native interface trailer follows the `functions` vector when the project has any LINK functions, aliases, or CSTRUCT declarations. It contains `linkFunctions`, `linkAliases`, then `linkCstructs`, each as a counted vector. A CSTRUCT row is `(alias str, name str, mapsTo str, fields vec<(name str, ctype str)>)`; offsets and sizes are recomputed by the consumer. Decoding caps the table at `256` CSTRUCTs with at most `64` fields each. [[src/ir/binary/mod.rs:encode_project]] [[src/ir/binary/link_codec.rs:decode_cstructs]]
 
-If any LINK function has a return STATE type or `BIND STATE`, a further counted vector follows: `(alias str, name str, returnStateType optional str, bindState optional str)`. The reader patches the first matching LINK function, ignores unmatched rows, and applies repeated matching rows in order. End-of-buffer after the CSTRUCT table means no STATE rows. [[src/ir/binary.rs:encode_link_state_trailer]] [[src/ir/binary.rs:decode_link_state_trailer]]
+If any LINK function has a return STATE type or `BIND STATE`, a further counted vector follows: `(alias str, name str, returnStateType optional str, bindState optional str)`. The reader patches the first matching LINK function, ignores unmatched rows, and applies repeated matching rows in order. End-of-buffer after the CSTRUCT table means no STATE rows. [[src/ir/binary/link_codec.rs:encode_link_state_trailer]] [[src/ir/binary/link_codec.rs:decode_link_state_trailer]]
 
 The trailer layout is:
 
@@ -73,7 +73,7 @@ linkState       optional trailing vec<StateRow>
 
 ## `IrLinkFunction`
 
-Each `IrLinkFunction` is encoded in this exact field order: [[src/ir/binary.rs:encode_link_function]]
+Each `IrLinkFunction` is encoded in this exact field order: [[src/ir/binary/link_codec.rs:encode_link_function]]
 
 ```text
 alias            str          MFBASIC-facing wrapper name as exported
@@ -99,7 +99,7 @@ free             optional (slot str, symbol str)  paired free/close for a return
 
 `direction` is a `u8`: `0` = in, `1` = out, `2` = inout. A value outside `0..=2` is a decode **error**, never a silent default — it decides whether the callee writes through the slot.
 
-`buffers` records the `BUFFER <slot> SIZE <expr>` clauses sizing an `OUT CBuffer` slot, and `resultLength` the returned byte count. The decoder caps buffers at **16** per function. [[src/ir/binary.rs:MAX_LINK_BUFFERS]] [[src/ir/binary.rs:decode_link_function]]
+`buffers` records the `BUFFER <slot> SIZE <expr>` clauses sizing an `OUT CBuffer` slot, and `resultLength` the returned byte count. The decoder caps buffers at **16** per function. [[src/ir/binary/link_codec.rs:MAX_LINK_BUFFERS]] [[src/ir/binary/link_codec.rs:decode_link_function]]
 
 The allocation **ceiling** for a `CBuffer` is deliberately *not* in this record. It is the consuming project's `options.maxBuffer` (./mfb spec tooling project-manifest), because `LINK` thunks are emitted when an executable links — so a package cannot raise an application's memory ceiling on its behalf.
 
@@ -107,7 +107,7 @@ The allocation **ceiling** for a `CBuffer` is deliberately *not* in this record.
 
 ## `IrLinkExpr`
 
-`successOn`, `result`, `resultLength` and each buffer's `size` are small predicate/mapping expression trees (`encode_link_expr`), one tag byte per node: [[src/ir/binary.rs:encode_link_expr]]
+`successOn`, `result`, `resultLength` and each buffer's `size` are small predicate/mapping expression trees (`encode_link_expr`), one tag byte per node: [[src/ir/binary/link_codec.rs:encode_link_expr]]
 
 ```text
 0 = Var(name str)             the value of a named ABI slot, or of the ABI return
@@ -121,7 +121,7 @@ The allocation **ceiling** for a `CBuffer` is deliberately *not* in this record.
 8 = Sub(lhs, rhs)
 ```
 
-`Var` carries the name of the ABI slot or return value it reads. [[src/ir/binary.rs:encode_link_expr]]
+`Var` carries the name of the ABI slot or return value it reads. [[src/ir/binary/link_codec.rs:encode_link_expr]]
 
 An unknown tag is a decode **error**, never a defaulted node, which is what lets tags be appended without a compatibility window.
 

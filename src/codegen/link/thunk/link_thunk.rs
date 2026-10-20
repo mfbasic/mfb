@@ -361,7 +361,7 @@ pub(crate) fn emit_link_support(
     // the scope-drop call site uses, NOT from `native_resources`.
     //
     // `native_resources` holds the current project's `RESOURCE T CLOSE BY`
-    // declarations only — a decoded package contributes none (`ir/binary.rs`
+    // declarations only — a decoded package contributes none (`ir/binary/`
     // drops them by contract) — so an imported package's close thunk was left out
     // of this set and never set the closed bit. An explicit `sqlite3::close(db)`
     // then released the handle while leaving the record looking open, and the

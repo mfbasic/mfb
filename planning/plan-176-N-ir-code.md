@@ -607,20 +607,28 @@ remains.
   Verified 2026-10-19: old-path grep → 0; `ir::verify` → `ok. 493 passed`; `test-accept.sh … '*-invalid'` → 208
   passed; G2 thread → 0 diffs; check warnings 0; `spec_citations_resolve` ok; budget before the tighten → one row
   `STALE code (ceiling 1153) src/ir/verify/resources.rs`, no `NEW`; after → none; census → 580, 269, 175, 144.
-Commit: —
+Commit: 18c724935
 
 ### Phase 3 — `binary.rs` → `binary/`
 
-- [ ] `git mv src/ir/binary.rs src/ir/binary/mod.rs`; create `link_codec.rs`, `op_codec.rs`,
+- [x] `git mv src/ir/binary.rs src/ir/binary/mod.rs`; create `link_codec.rs`, `op_codec.rs`,
       `value_codec.rs` with the §4.3 ranges; the 13 `pub(super)` edits; the three private `use`
       lines in `mod.rs`; the one added `use` line in `link_expr_op_tests`.
-- [ ] `tests/guards/no_type_strings.rs`: replace the `src/ir/binary.rs` row in `BOUNDARY_FILES`,
+      Done: `codesplit.py` → link_codec 14, op_codec 8, value_codec 5 items, none left unlisted; `pub(super)` from
+      the compiler's errors → exactly §4.3's 13; `motion.py` → only the wiring, the imports and the 13.
+- [x] `tests/guards/no_type_strings.rs`: replace the `src/ir/binary.rs` row in `BOUNDARY_FILES`,
       and in `tests/guards/no_type_strings/self_checks.rs`: `boundary_list_is_closed`, with the four `src/ir/binary/…` rows, same position, same
       reason (§4.3 justification in the commit message); repoint prose 411, 424, 1078;
       `tests/guards/no_operator_strings.rs:79` prose.
-- [ ] Spec: rewrite all 40 `[[src/ir/binary.rs:…]]` citations per §4.3.
-- [ ] `.ai/resources-packages.md:215`, `.ai/codegen-invariants.md:87-88` → `ir/binary/`.
-- [ ] Tighten and commit the ceiling file.
+      Done: before the edit `no_type_strings` → 2 FAILED (`no_type_strings`, `boundary_files_exist_and_are_justified`);
+      after → 7 passed + 1 ignored; prose (now 414, 427, 1086) and `no_operator_strings.rs:79` repointed.
+- [x] Spec: rewrite all 40 `[[src/ir/binary.rs:…]]` citations per §4.3.
+- [x] `.ai/resources-packages.md:215`, `.ai/codegen-invariants.md:87-88` → `ir/binary/`.
+      Done: those 3 plus 9 code comments §4.3 did not list (`validation.rs`, `link_thunk.rs`, `ir/link.rs`,
+      `ir/package.rs`, `ir/types.rs`, `manifest/package.rs`, `operators.rs` ×2, `rt_imported_resource_scope_drop.rs`)
+      → `ir/binary/`; `git grep 'ir/binary\.rs'` → 0 outside the ceiling file. `citesweep.py` → 40, `citedef.py` →
+      0 not defined.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: the IR wire codec writes and reads the same bytes.
   Check: `cargo build --release && cargo test -p mfb --bin mfb -- ir::binary ir::variant_corpus_tests`
@@ -632,6 +640,11 @@ Acceptance: the IR wire codec writes and reads the same bytes.
   `cargo check --all-targets` → no new warning; `spec_citations_resolve` → pass.
   `cargo test --test file_size_budget 2>&1 | grep 'src/ir/binary'` → one `STALE` row for
   `src/ir/binary.rs` before the tighten, none after (est. 2 min).
+  Verified 2026-10-19: `ir::binary ir::variant_corpus_tests` → `ok. 38 passed`, whole list 5017 (= baseline);
+  `test-accept.sh … 'package-*' 'native-library-*' 'native-resource-*' 'roundtrip-package'` → `acceptance tests
+  passed (42 test(s) ran)`; G2 thread → 0 diffs; guards → 8 / 7 + 1 ignored; check warnings 0;
+  `spec_citations_resolve` ok; budget → one `STALE code (ceiling 1448) src/ir/binary.rs` before, none after; census
+  → 490/118, 333, 313, 324.
 Commit: —
 
 ### Phase 4 — `shape.rs` → `shape/`

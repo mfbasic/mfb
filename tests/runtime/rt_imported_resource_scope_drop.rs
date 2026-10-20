@@ -6,7 +6,7 @@
 //! bug-374's fix reached `RESOURCE T CLOSE BY op` in the current project, and
 //! its tests only ever exercised that shape. Everything keyed on a resource
 //! being *known* stayed inert across a package boundary, because a decoded
-//! package carries no `native_resources` (`ir/binary.rs` drops them by
+//! package carries no `native_resources` (`ir/binary/` drops them by
 //! contract) and nothing repopulated them in the consumer.
 //!
 //! Three independent failures rode on that one gap:

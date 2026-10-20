@@ -72,7 +72,7 @@ dependency contributes can relax the chain a compiled dependency is held to.
 
 ### IR payload
 
-* `decode_binary_repr` checks the `MFBR` magic and `version == 6` (the current `BINARY_REPR_VERSION`), then structurally decodes the whole `IrProject`; truncation or invalid UTF-8 anywhere in the payload is an error. [[src/ir/binary.rs:decode_binary_repr]]
+* `decode_binary_repr` checks the `MFBR` magic and `version == 6` (the current `BINARY_REPR_VERSION`), then structurally decodes the whole `IrProject`; truncation or invalid UTF-8 anywhere in the payload is an error. [[src/ir/binary/mod.rs:decode_binary_repr]]
 
 ## Merge-time semantic verification (enforced before native lowering)
 
@@ -115,7 +115,7 @@ The format anticipates these, but the current reader does **not** check them. An
 * At *import/read* time the reader does not re-check the decoded IR; the semantic invariants are instead re-established at *merge* time, before native lowering (see "Merge-time semantic verification" above). That pass is the semantic checker — it re-derives flow-sensitive resource linearity (cross-branch use-after-move, invalidation by a non-owner), match exhaustiveness, the full type system, literal ranges, visibility, and the `LINK` ABI. The only rules it does not re-derive are the source-syntax ones that cannot appear in a package at all (see "Compile-time guarantees" above).
 * No separate import-time native-binding *interface* verifier — the per-function `LINK` metadata rides in the IR payload trailer and is checked by the IR semantic verifier when that IR is merged, before native lowering. The `NATIVE_LIBRARY_TABLE` (id 10) *is* structurally validated on decode, though: `libc`/`type` range, `hash` present iff `vendor`, string ids in range, and `source` re-checked as a bare filename — the `.mfp` is untrusted input and `source` feeds a `dlopen` string and a `vendor/` path join (see `native-bindings`).
 * No standalone signature verification in the reader (delegated to the package manager).
-* `decode_binary_repr` does not require end-of-buffer after a decoded STATE trailer; trailing bytes there are not rejected. [[src/ir/binary.rs:decode_project]]
+* `decode_binary_repr` does not require end-of-buffer after a decoded STATE trailer; trailing bytes there are not rejected. [[src/ir/binary/mod.rs:decode_project]]
 
 ## See Also
 
