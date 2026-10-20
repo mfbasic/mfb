@@ -40,10 +40,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-K is complete and archived | `ls planning/plan-176-K-* planning/completed/plan-176-K-*` → only `planning/completed/…` | NOT MET (2026-10-14) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-14) |
-| L's files have no uncommitted changes | `git status --porcelain -- repository/src src/cli src/debugger src/manifest scripts/coverage-exceptions.txt` → empty | MET (2026-10-14) |
-| Box 2223 (Kali aarch64 glibc) has cargo | `ssh -p 2223 test@127.0.0.1 'command -v cargo'` → `/usr/bin/cargo` | MET per `.ai/remote_systems.md` (verified 2026-09-10); re-run before Phase 4 |
+| plan-176-K is complete and archived | `ls planning/plan-176-K-* planning/completed/plan-176-K-*` → only `planning/completed/…` | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| L's files have no uncommitted changes | `git status --porcelain -- repository/src src/cli src/debugger src/manifest scripts/coverage-exceptions.txt` → empty | MET (2026-10-19) |
+| Box 2223 (Kali aarch64 glibc) has cargo | `ssh -p 2223 test@127.0.0.1 'command -v cargo'` → `/usr/bin/cargo` | Moot (owner, 2026-10-19: "no test machines are up... just check compile and running on macOS"); see Phase 4 |
 
 Everything below is written against the world where these hold.
 
@@ -734,15 +734,25 @@ Common gate, used by every phase:
 
 ### Phase 1 — Manifest validator
 
-- [ ] Split `src/manifest/mod.rs` into `mod.rs`, `fields.rs`, `locator_check.rs` per §4.11.
-- [ ] Repoint the 11 citations of moved symbols (§4.11).
-- [ ] `.ai/build-tooling.md:84` → `check_libraries` in `src/manifest/locator_check.rs`.
-- [ ] G4.
+- [x] Split `src/manifest/mod.rs` into `mod.rs`, `fields.rs`, `locator_check.rs` per §4.11.
+      Done: `python3 -I target/p176/items.py split` (items by name) → fields 11 items, locator_check 6; motion → only the
+      4 wiring lines differ; `pub(super)` on the 10 items the compiler asked for (§4.11's list less
+      `LibraryFinding::wrong_type`, used only inside `locator_check.rs`).
+- [x] Repoint the 11 citations of moved symbols (§4.11).
+      Done: `python3 -I target/p176/citesweep.py` (each cite → the file that defines its symbol) → the 11 moved symbols'
+      22 cites now name `fields.rs` / `locator_check.rs`; `bash target/p176/citecheck.sh src/manifest` → no output.
+- [x] `.ai/build-tooling.md:84` → `check_libraries` in `src/manifest/locator_check.rs`.
+- [x] G4.
+      Done: → `TIGHTEN code 362 (ceiling 1092) src/manifest/mod.rs` only; tighten drops it; re-run → 0.
 
 Acceptance: manifest validation behaves identically; the citations name the defining files.
   Check: G1; `cargo test -p mfb --bin mfb manifest::` → 0 failed;
   `cargo test --test cli_build_config` → pass; G2 (the sweep check over `src/manifest/`); G3;
   G5 (est. 8 min).
+  Verified 2026-10-19: G1 → mfb list 5017 = 5017, leaves SAME, check warnings 0, clippy 37065 = G0 37065 (`target/p176/l0/`);
+  `manifest::` → `ok. 222 passed`; `cli_build_config` (in the fast tier) → `ok. 9 passed`; G2 `spec_citations_resolve` →
+  `ok. 1 passed` + the sweep check → no output; G3 fast tier → `test-fast: ok` (guards 8, 7 + 1 ignored, 8); census →
+  362, 452, 284; G5 → exit 0.
 Commit: —
 
 ### Phase 2 — Package CLI

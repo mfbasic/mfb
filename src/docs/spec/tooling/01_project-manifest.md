@@ -54,14 +54,14 @@ ignored by the builder. (The per-dependency `identKey` *pin* inside
 ¹ `kind` is required by `validate_project_manifest`, but a present-and-string
 value that is *neither* `executable` nor `package` only **warns**
 (`PROJECT_JSON_UNKNOWN_KIND`) and validation continues; a missing or non-string
-`kind` is a hard error. [[src/manifest/mod.rs:validate_kind]]
+`kind` is a hard error. [[src/manifest/fields.rs:validate_kind]]
 
 ² `mode` composes with the `--app` CLI flag: app mode is requested if **either**
 is set (`--app` is additive, never subtractive). Like `kind`, a present-and-string
 `mode` that is neither `console` nor `app` only **warns**
 (`PROJECT_JSON_UNKNOWN_MODE`) and continues; a non-string `mode` is a hard error.
 App mode still requires `kind: "executable"` and an app-capable target (macOS/Linux).
-[[src/manifest/mod.rs:validate_mode]] [[src/manifest/mod.rs:build_mode_is_app]]
+[[src/manifest/fields.rs:validate_mode]] [[src/manifest/mod.rs:build_mode_is_app]]
 
 ³ `icon` is resolved and existence-checked only when app mode is active; a path
 that does not resolve to a readable file is a hard error
@@ -82,7 +82,7 @@ optional `entry`/`author`/`url`/`icon` strings, `description`, `kind`, `mode`,
 `ident` and `options` are read lazily. `targets` and per-source `role` are emitted
 by `mfb init` but are not consulted by selection or build stages.
 [[src/manifest/mod.rs:validate_project_manifest]]
-[[src/manifest/mod.rs:validate_sources]] [[src/manifest/package.rs:package_metadata]]
+[[src/manifest/fields.rs:validate_sources]] [[src/manifest/package.rs:package_metadata]]
 
 ⁴ `options` holds runtime tunables baked into the compiled executable.
 Three keys are read: `canvasAutoPaintMS`, how long a `canvas::AutoPaint` holds its
@@ -108,8 +108,8 @@ There is no alias. [[src/manifest/mod.rs:validate_config]]
 most 4096 bytes; an empty string is accepted. A package that omits it emits
 `PROJECT_JSON_DESCRIPTION_MISSING`. Package builds carry it in the signed
 `PACKAGE_META` payload; see `./mfb spec package package-meta-section`.
-[[src/manifest/mod.rs:MAX_DESCRIPTION_BYTES]]
-[[src/manifest/mod.rs:validate_description]]
+[[src/manifest/fields.rs:MAX_DESCRIPTION_BYTES]]
+[[src/manifest/fields.rs:validate_description]]
 
 ## AutoPaint flash length (`options.canvasAutoPaintMS`)
 
@@ -267,7 +267,7 @@ Each element of `sources[]` is an object describing one source root:
 when present, must each be an **array of strings** — any non-array value, or an
 array containing a non-string element, is a `PROJECT_JSON_FIELD_TYPE` error.
 A `sources[]` element that is not a JSON object is a `PROJECT_JSON_FIELD_TYPE`
-error reported as `Source entry #N must be an object.`. [[src/manifest/mod.rs:validate_sources]] [[src/manifest/mod.rs:validate_source_pattern_field]]
+error reported as `Source entry #N must be an object.`. [[src/manifest/fields.rs:validate_sources]] [[src/manifest/fields.rs:validate_source_pattern_field]]
 
 The glob algorithm that turns these patterns into the `.mfb` input set is
 `./mfb spec tooling source-selection`. The selector does not read `role` — every source root is treated the
@@ -427,7 +427,7 @@ Because `vendor/` is flat, **one filename means one file**: two `vendor` locator
 sharing a `source` anywhere in the section — across *all* logical names — is
 `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT`. The check is scoped to `vendor` locators only: `system` sonames legitimately repeat,
 and `linux/x86_64` and `linux/aarch64` both asking for `libsqlite3.so.0` is the
-normal case. [[src/manifest/mod.rs:validate_libraries]]
+normal case. [[src/manifest/locator_check.rs:validate_libraries]]
 
 The section is validated for *shape* only — it is not checked against the
 filesystem here. Whether a vendored file exists and what it hashes to is resolved
@@ -448,7 +448,7 @@ The validator checks path components textually: `src` must not escape the
 project root and `dst` must not escape the output tree. `copy_resources`
 additionally canonicalizes source paths at copy time, rejecting a symlink
 inside the project that points outside it.
-[[src/manifest/mod.rs:validate_resources]] [[src/cli/build/resources.rs:copy_resources]]
+[[src/manifest/fields.rs:validate_resources]] [[src/cli/build/resources.rs:copy_resources]]
 
 At runtime a program locates a copied resource with `os::appResourcePath` — see
 `./mfb spec stdlib os`.
@@ -504,19 +504,19 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0002` | `PROJECT_JSON_READ_FAILED` | error | file present but unreadable |
 | `2-200-0003` | `PROJECT_JSON_PARSE_FAILED` | error | not valid JSON |
 | `2-200-0004` | `PROJECT_JSON_ROOT_TYPE` | error | top-level value is not an object |
-| `2-200-0005` | `PROJECT_JSON_REQUIRED_FIELD` | error | a required field (`name`/`version`/`mfb`/`sources`/`kind`/source `root`) is missing [[src/manifest/mod.rs:validate_required_string]] |
-| `2-200-0006` | `PROJECT_JSON_FIELD_TYPE` | error | a field has the wrong type (non-string scalar, non-array `sources`/`include`/`exclude`, non-object source entry) [[src/manifest/mod.rs:validate_optional_string]] |
-| `2-200-0007` | `PROJECT_JSON_EMPTY_FIELD` | error | a required string is empty after trim [[src/manifest/mod.rs:validate_required_string]] |
-| `2-200-0008` | `PROJECT_JSON_EMPTY_SOURCES` | error | `sources` is present but an empty array [[src/manifest/mod.rs:validate_sources]] |
-| `2-200-0009` | `PROJECT_JSON_UNKNOWN_KIND` | warn | `kind` is a string other than `executable`/`package` (non-fatal) [[src/manifest/mod.rs:validate_kind]] |
+| `2-200-0005` | `PROJECT_JSON_REQUIRED_FIELD` | error | a required field (`name`/`version`/`mfb`/`sources`/`kind`/source `root`) is missing [[src/manifest/fields.rs:validate_required_string]] |
+| `2-200-0006` | `PROJECT_JSON_FIELD_TYPE` | error | a field has the wrong type (non-string scalar, non-array `sources`/`include`/`exclude`, non-object source entry) [[src/manifest/fields.rs:validate_optional_string]] |
+| `2-200-0007` | `PROJECT_JSON_EMPTY_FIELD` | error | a required string is empty after trim [[src/manifest/fields.rs:validate_required_string]] |
+| `2-200-0008` | `PROJECT_JSON_EMPTY_SOURCES` | error | `sources` is present but an empty array [[src/manifest/fields.rs:validate_sources]] |
+| `2-200-0009` | `PROJECT_JSON_UNKNOWN_KIND` | warn | `kind` is a string other than `executable`/`package` (non-fatal) [[src/manifest/fields.rs:validate_kind]] |
 | `2-200-0010` | `PROJECT_JSON_VALID` | info | reserved; not emitted — a successful validation is silent |
 | `2-200-0011` | `PROJECT_ENTRY_INVALID` | error | executable entry-point resolution failed [[src/manifest/entry.rs:validate_entry_point]] |
-| `2-200-0012` | `PROJECT_JSON_UNKNOWN_MODE` | warn | string `mode` is neither `console` nor `app` [[src/manifest/mod.rs:validate_mode]] |
+| `2-200-0012` | `PROJECT_JSON_UNKNOWN_MODE` | warn | string `mode` is neither `console` nor `app` [[src/manifest/fields.rs:validate_mode]] |
 | `2-200-0013` | `PROJECT_JSON_ICON_MISSING` | error | app icon path does not resolve to a file [[src/manifest/mod.rs:icon_path]] |
-| `2-200-0014` | `PROJECT_JSON_LIBRARY_INVALID` | error | a `libraries` locator is malformed, carries an unknown `os`/`arch`/`libc`/`type` token, sets `libc` on macOS, omits `arch`/`libc` on a Linux `vendor` entry, or names a `source` that is not a bare filename [[src/manifest/mod.rs:validate_libraries]] |
-| `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two `vendor` locators declare the same `source` filename (see *Library Locator Entries*) [[src/manifest/mod.rs:validate_libraries]] |
-| `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | `kind` is `package` and no `description` is declared [[src/manifest/mod.rs:validate_description]] |
-| `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | `name` is not a single safe path component (`[A-Za-z0-9_][A-Za-z0-9_.-]*`): it contains a path separator, starts with `.`, or is `..`. Every artifact writer joins the name onto a directory, so a traversing name would place a `0755` executable outside the project [[src/manifest/mod.rs:validate_name]] |
+| `2-200-0014` | `PROJECT_JSON_LIBRARY_INVALID` | error | a `libraries` locator is malformed, carries an unknown `os`/`arch`/`libc`/`type` token, sets `libc` on macOS, omits `arch`/`libc` on a Linux `vendor` entry, or names a `source` that is not a bare filename [[src/manifest/locator_check.rs:validate_libraries]] |
+| `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two `vendor` locators declare the same `source` filename (see *Library Locator Entries*) [[src/manifest/locator_check.rs:validate_libraries]] |
+| `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | error | `kind` is `package` and no `description` is declared [[src/manifest/fields.rs:validate_description]] |
+| `2-200-0017` | `PROJECT_JSON_NAME_INVALID` | error | `name` is not a single safe path component (`[A-Za-z0-9_][A-Za-z0-9_.-]*`): it contains a path separator, starts with `.`, or is `..`. Every artifact writer joins the name onto a directory, so a traversing name would place a `0755` executable outside the project [[src/manifest/fields.rs:validate_name]] |
 | `2-200-0018` | `PROJECT_JSON_CONFIG_MOVED_OPTION` | error | the `config` object holds a `stdinLogCap` member; the tunable moved to `options.stdinLogCap` [[src/manifest/mod.rs:validate_config]] |
 | `2-200-0019` | `PROJECT_JSON_CONFIG_SHAPE` | error | `config` is not an object, or a named config's value is not an object (see *Named configs*) [[src/manifest/config.rs:parse_config]] |
 | `2-200-0020` | `PROJECT_JSON_CONFIG_RELEASE_MISSING` | error | `config` is present without a `release` member |
@@ -553,7 +553,7 @@ token, and the accepted set.
 through `validate_required_string` on the source object), and
 `PROJECT_JSON_EMPTY_FIELD` for a blank one. Diagnostic spans point at the
 offending field's position in the raw source text (or a fallback position when
-the field is absent). [[src/manifest/mod.rs:validate_sources]]
+the field is absent). [[src/manifest/fields.rs:validate_sources]]
 
 ## See Also
 

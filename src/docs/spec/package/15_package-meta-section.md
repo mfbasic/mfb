@@ -4,7 +4,7 @@ The optional `PACKAGE_META` section (id `18`) carries the package description.
 It is independent of `STRING_POOL` and does not contribute to ABI hashes.
 The writer omits it when the description is empty. Source package manifests must
 contain a `description` string, but an empty string is permitted.
-[[src/binary_repr/reader.rs:encode_package_meta]] [[src/manifest/mod.rs:validate_description]]
+[[src/binary_repr/reader.rs:encode_package_meta]] [[src/manifest/fields.rs:validate_description]]
 
 ## Layout
 

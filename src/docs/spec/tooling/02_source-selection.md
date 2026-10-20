@@ -27,7 +27,7 @@ list is substituted (nothing excluded). [[src/ast/manifest.rs:source_entries]]
 
 These permissive extraction rules apply to `source_entries` itself; CLI project
 loading first rejects malformed entries through `validate_project_manifest`.
-[[src/manifest/mod.rs:validate_sources]]
+[[src/manifest/fields.rs:validate_sources]]
 
 Selection iterates the entries in manifest order, building one combined,
 de-duplicated set. The two public entry points share the same collector:
