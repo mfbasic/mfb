@@ -57,7 +57,7 @@ another thread's arena — that thread may be allocating from its own at the sam
 instant, and the allocator's free-list pop is unsynchronized. `thread::start`'s
 seed and the worker's result cross the same way. `./mfb spec threading
 control-block` owns the block arena, and `queue-semantics` the queue side.
-[[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/runtime/thread/control_block.rs:emit_call_in_block_arena]] [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_value_to_current_arena]]
+[[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/runtime/thread/control_block.rs:emit_call_in_block_arena]] [[src/codegen/memory/arena/builder_arena_transfer/transfer.rs:copy_value_to_current_arena]]
 
 So `thread::start` and `thread::send` never consume their value: the caller keeps
 it. A resource crosses only on a resource plane, by `thread::transfer`, which

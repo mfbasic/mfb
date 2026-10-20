@@ -251,7 +251,7 @@ easy to get wrong:
   `copy_collection_tight`).
 
   Exactly one did neither: `copy_collection_to_current_arena`
-  (`memory/arena/builder_arena_transfer.rs`), the **thread-transfer deep copy for
+  (`memory/arena/builder_arena_transfer/collection_transfer.rs`), the **thread-transfer deep copy for
   a non-flat collection**, computed the size inline and left the bucket region
   out — then byte-copied the source block over it, so the destination inherited
   `BUCKETS_READY = 1` while owning no bucket region. The first probe read past the

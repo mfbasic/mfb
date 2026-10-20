@@ -158,7 +158,7 @@ with `perf_start`/`perf_end` (regions `mfb_alloc` / `mfb_free`), so `perf_done`
 prints its timing table as the report's `perf` section, from `_mfb_debug_report_perf`
 (called by `_mfb_debug_shutdown`, the last call of `_mfb_shutdown`). The perf helpers themselves never touch the
 arena (their region is the `emit_arena_map` mmap seam), so bracketing arena code
-cannot recurse. [[src/codegen/memory/arena/arena.rs:lower_arena_alloc]]
+cannot recurse. [[src/codegen/memory/arena/arena/alloc.rs:lower_arena_alloc]]
 
 ## Required-Helper Analysis
 

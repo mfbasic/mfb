@@ -904,7 +904,7 @@ fn every_tcp_member_declares_exactly_the_errors_its_lowering_raises() {
 // census proves total from an empty `errors` list), so each needs a sweep before
 // that empty list counts as proof (`totality_proof::RAISE_CHECKED_PACKAGES`).
 
-/// `_mfb_simd_alloc_list` (`memory/arena/arena.rs:lower_simd_alloc_list`) returns
+/// `_mfb_simd_alloc_list` (`memory/arena/arena/alloc.rs:lower_simd_alloc_list`) returns
 /// `0` when its arena allocation fails and the caller raises; it has no raise
 /// site of its own.
 const MATH_RAISES_NOTHING: &[(&str, &str)] = &[

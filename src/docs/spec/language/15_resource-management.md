@@ -347,7 +347,7 @@ Function-level trap routing separately invalidates locally owned resources whose
 scopes it cleans up. This is why permission to reuse a resource in an **inline**
 failure handler is not permission to reuse a local resource after unwinding.
 [[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
-[[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
+[[src/codegen/memory/arena/builder_arena_transfer/transfer.rs:copy_resource_to_current_arena]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:retire_moved_resource_cleanup]]
 [[src/ir/verify/resources/mod.rs:check_resource_moves]]
 

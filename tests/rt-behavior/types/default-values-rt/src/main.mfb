@@ -4,7 +4,7 @@
 ' succeeded, so codegen materializes a DEFAULT of the bound type to hold the
 ' slot -- superseded by the `RECOVER` value on the taken error path, so no
 ' program ever observes it. It still has to be buildable, and
-' `builder_value_semantics/default_value.rs::lower_default_value_inner` is what builds it.
+' `builder_value_semantics.rs::lower_default_value_inner` is what builds it.
 '
 ' `MUT x AS T` with no initializer will not do: the front end has its own,
 ' STRICTER defaultability rule (`TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`) that

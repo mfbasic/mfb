@@ -97,12 +97,12 @@ on failure it remains the sender's. An inline `TRAP` can therefore use the
 resource on the failure path. A subsequent operation through a moved alias
 reports `ErrResourceMoved`.
 [[src/codegen/cleanup/thread/builder_thread_cleanup.rs:claim_moved_thread_arg_temp]]
-[[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
+[[src/codegen/memory/arena/builder_arena_transfer/transfer.rs:copy_resource_to_current_arena]]
 
 A read materializes the returned value in the receiver's arena. For a resource,
 this copies the record and its `STATE` and marks the queued record moved/closed;
 it does not duplicate ownership of the OS handle.
-[[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
+[[src/codegen/memory/arena/builder_arena_transfer/transfer.rs:copy_resource_to_current_arena]]
 
 ## Cancellation and readiness
 

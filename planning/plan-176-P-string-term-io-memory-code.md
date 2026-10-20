@@ -602,20 +602,26 @@ Acceptance: static data and value semantics emit identical code.
   strings, collections, fs → 0 diffs; check warnings 0; `spec_citations_resolve` ok; `no_type_strings` → 7 + 1
   ignored; old-path grep → 0; budget → two STALE rows (1496, 1336) before, none after; census → data_objects
   666/176 + 464/191/188, builder_value_semantics 229 + 385/272/462.
-Commit: —
+Commit: e75b035ee
 
 ### Phase 5 — Arena: `arena/arena.rs`, `builder_arena_transfer.rs` (largest blast radius)
 
-- [ ] §4.3: split `arena.rs` into `arena/arena/{mod,alloc,free}.rs`; the two `pub(crate) use`
+- [x] §4.3: split `arena.rs` into `arena/arena/{mod,alloc,free}.rs`; the two `pub(crate) use`
       lines; rewrite the 8 citations.
-- [ ] §4.4: split `builder_arena_transfer.rs` into `builder_arena_transfer/{mod,result,transfer,collection_transfer}.rs`;
+      Done: `codesplit.py` → 2, 3 items; 0 visibility edits; `citesweep.py` → 8.
+- [x] §4.4: split `builder_arena_transfer.rs` into `builder_arena_transfer/{mod,result,transfer,collection_transfer}.rs`;
       5 `pub(super)` edits; the `include_str!` → `"../../../error/constants/error_constants.rs"`;
       the old-909 comment fix; rewrite the 13 citations; `.ai/collections.md:254`,
       `.ai/resources-packages.md:123, 193, 608`.
-- [ ] §4.4: `tests/codegen/codegen_trap_result_wrapper.rs` expected path →
+      Done: `items.py split` → 8, 13 (incl. `union_variants_by_tag`, the "fn at old 1547"), 10 methods; exactly the 5
+      `pub(super)`; `include_str!` one level deeper; `citesweep.py` → 13; three unlisted comments
+      (`declared_errors_all.rs:907`, `fixture_projects.rs:20`, `graph_drop.rs:21`) repointed.
+- [x] §4.4: `tests/codegen/codegen_trap_result_wrapper.rs` expected path →
       `src/codegen/memory/arena/builder_arena_transfer/result.rs` (4-point justification in the
       commit message).
-- [ ] Tighten and commit the ceiling file.
+      Done: before the edit `the_result_wrapper_has_exactly_one_constructor` FAILED; the one
+      `type_: ParameterType::result_of(` site is `result.rs:400` (in `fresh_trapped_result_value`); after → 4 passed.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: every program's allocator and every cross-arena copy emit identical code.
   Check: `cargo build --release && cargo test -p mfb --bin mfb codegen::memory::arena` → pass
@@ -623,6 +629,12 @@ Acceptance: every program's allocator and every cross-arena copy emit identical 
   `cargo test --test codegen_trap_result_wrapper` → pass (est. 2 min).
   `sh scripts/artifact-gate.sh target/release/mfb <s>` for `s` in `general`, `thread`,
   `resource-xfer-slots`, `collections`, `vector` (SIMD list alloc) → 0 diffs each (est. 1 min each).
+  Verified 2026-10-19: `codegen::memory::arena` → `ok. 8 passed` (= G0's 8); `codegen_trap_result_wrapper` → 4 passed;
+  G2 general, thread, resource-xfer-slots, collections, vector → 0 diffs; guards → 9, 8, 7 + 1 ignored; overflow
+  scan ok; check warnings 0; clippy 37065; list 5018 (= baseline); `spec_citations_resolve` ok; budget → two STALE
+  rows (1614, 1569) before, none after; census → arena 273/80 + 800/547, transfer 63/81 + 441/585/491.
+  Letter end: `bash scripts/artifact-gate.sh target/release/mfb all` → `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`; budget pattern → no row; ceiling
+  file → no P row.
 Commit: —
 
 ## Validation Plan
@@ -668,6 +680,9 @@ Commit: —
 
 ## Corrections
 
+- 2026-10-19 — Phase 4 repointed the `'` comment in `tests/rt-behavior/types/default-values-rt/src/main.mfb`; plan Q
+  (§1 Non-goals) treats fixture sources as golden inputs that are not edited, so Phase 5 restores it (byte-identical
+  to its pre-P text).
 - 2026-10-19 — Every `sh scripts/artifact-gate.sh` runs as `bash` (the script needs bash; M's Corrections).
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text restated; `io/input/corpus.rs` (903) is no longer an exempt file J splits — it stays whole and untouched.

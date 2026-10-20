@@ -18,7 +18,7 @@
 //!   ever read.
 //! * **edges** — the per-block enumerations are the copy's own (`record_pointer_edges`,
 //!   `union_variants_by_tag`, `collection_payload_edges` and `payload_edge_shape` in
-//!   `builder_arena_transfer.rs`), and the push decision is the copy's
+//!   `builder_arena_transfer/`), and the push decision is the copy's
 //!   `graph_copy_edge_kind`. The copy allocates one block per block it copies; the drop
 //!   frees exactly those. `graph_drop_edges_match_the_copy_edges` pins the pushed edges kind
 //!   by kind; `tests/runtime/rt_recursive_value_drop_symmetry.rs` pins the bytes.

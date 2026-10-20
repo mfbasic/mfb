@@ -354,7 +354,7 @@ function values is not a flat block. An owning insert stores a closure the colle
 owns (a fresh one, or a copy of an aliased one), `get` hands back a copy, copying the
 collection copies every closure in it, and dropping it frees them
 (`_mfb_rt_closure_drop`). A record **field** of function type is likewise a pointer edge
-of its record. [[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]] [[src/codegen/memory/arena/builder_arena_transfer.rs:payload_edge_shape]] [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_pointer]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
+of its record. [[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]] [[src/codegen/memory/arena/builder_arena_transfer/collection_transfer.rs:payload_edge_shape]] [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_pointer]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
 
 ### Capacity Headroom and Growth
 
@@ -574,7 +574,7 @@ base from count. Maps and sets start with `bucketsReady = 0`; bucket contents
 are not copied. Dead data bytes and payload permutations are preserved. For
 recursive element types, owning copies additionally copy their graph edges.
 [[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
-[[src/codegen/memory/arena/builder_arena_transfer.rs:own_collection_payload_edges]]
+[[src/codegen/memory/arena/builder_arena_transfer/collection_transfer.rs:own_collection_payload_edges]]
 
 ### `get`
 
@@ -1130,7 +1130,7 @@ count)`. `Map` and `Set` have no overload.
   payload's edges on the result (`own_collection_payload_edges`), which gives
   each repeated position a graph of its own.
   [[src/codegen/collection/list/list_mutate.rs:lower_list_set_in_place_with]]
-  [[src/codegen/memory/arena/builder_arena_transfer.rs:own_collection_payload_edges]]
+  [[src/codegen/memory/arena/builder_arena_transfer/collection_transfer.rs:own_collection_payload_edges]]
 
 ### Map Updates
 

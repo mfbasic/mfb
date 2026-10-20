@@ -132,7 +132,7 @@ holders share one, so no reference counting is needed and none is done.
   `LAMBDA` just evaluated, a call's result) is taken over by its first owner. A
   value that holds function values — a record or union with a `FUNC` field, a
   collection of them, a `Result` of one — is copied by the same deep-copy walker as
-  a value whose type reaches a cycle, which copies each function value it meets. [[src/codegen/memory/arena/closure_ops.rs:lower_closure_copy]] [[src/codegen/engine/value/builder_values.rs:needs_graph_copy]] [[src/codegen/memory/arena/builder_arena_transfer.rs:emit_thread_copy_real]]
+  a value whose type reaches a cycle, which copies each function value it meets. [[src/codegen/memory/arena/closure_ops.rs:lower_closure_copy]] [[src/codegen/engine/value/builder_values.rs:needs_graph_copy]] [[src/codegen/memory/arena/builder_arena_transfer/transfer.rs:emit_thread_copy_real]]
 - **Drop.** Dropping a holder frees its closure: `_mfb_rt_closure_drop` runs the
   environment's routine to drop it, then frees the 16-byte object. A binding drops
   at its scope's exits, a reassignment drops the old value, and a record, union,

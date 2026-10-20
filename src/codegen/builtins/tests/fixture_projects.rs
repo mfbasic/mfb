@@ -17,7 +17,7 @@
 //! and their signatures and type tables reach lowering. What that buys is not
 //! the two fixtures: it is the shape they carry. A resource-bearing composite
 //! handed to a thread is the only thing that reaches
-//! `memory/arena/builder_arena_transfer.rs`'s four inline copiers —
+//! `memory/arena/builder_arena_transfer/`'s four inline copiers —
 //! `emit_thread_copy_real` sends every flat value to `copy_flat_block` and
 //! leaves "resources and the collections / unions that embed them" to
 //! `copy_resource_to_current_arena` (197 lines), `copy_collection_to_current_arena`,

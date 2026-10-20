@@ -158,7 +158,7 @@ time and kept as a reserved field; the bins, carve chunk and free-list drive pla
 ## `arena_alloc(size, align)`
 
 `arena_alloc` (symbol `_mfb_arena_alloc`) takes a byte `size` in `x0` and a power-
-of-two `align` in `x1`, and returns a fallible result: [[src/codegen/memory/arena/arena.rs:lower_arena_alloc]] `x0` is `0` on success
+of-two `align` in `x1`, and returns a fallible result: [[src/codegen/memory/arena/arena/alloc.rs:lower_arena_alloc]] `x0` is `0` on success
 with the aligned pointer in `x1`, or an error code in `x0` with `x1 = 0` on
 failure. Its register contract is the standard runtime-helper one: **all
 caller-saved integer registers (x0–x17) are clobbered**; callee-saved registers
@@ -206,7 +206,7 @@ The algorithm:
    remainder parks on its quick bin (≤ 2048) or its size class. This is O(1)
    per request (at most 16 nodes and 63 heads), and a freed block serves any
    later request it fits, not only one of its exact size. A miss falls through
-   to step 3. [[src/codegen/memory/arena/arena.rs:emit_large_bin_slot]]
+   to step 3. [[src/codegen/memory/arena/arena/mod.rs:emit_large_bin_slot]]
    [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_BIN_SCAN_LIMIT]]
 3. **First-fit walk.** Walk the address-ordered free-list for the first chunk
    where the request fits after alignment: `aligned = align_up(start, align)`
@@ -240,7 +240,7 @@ The algorithm:
    The flush gathers the list and every quick-bin and large-bin chain, merge
    sorts them by address, merges physically adjacent chunks in one pass, and
    re-parks each result on its quick bin (≤ 2048) or its large-bin size class;
-   the list is left empty. [[src/codegen/memory/arena/arena.rs:lower_arena_flush_coalesce]]
+   the list is left empty. [[src/codegen/memory/arena/arena/free.rs:lower_arena_flush_coalesce]]
 5. **Grow.** If nothing fits after that, map a new block sized
    `max(4096, round_up(size + align + 32 + slack, 4096))`, write its header,
    link it at the head, and **carve the request directly from the fresh
@@ -265,7 +265,7 @@ source as ordinary language-level errors (see the language spec §14.3.1).
 ## `arena_free(ptr, size)`
 
 `arena_free` (symbol `_mfb_arena_free`) takes the chunk pointer in `x0` and its
-byte `size` in `x1` and returns nothing; [[src/codegen/memory/arena/arena.rs:lower_arena_free]] like every runtime helper it
+byte `size` in `x1` and returns nothing; [[src/codegen/memory/arena/arena/free.rs:lower_arena_free]] like every runtime helper it
 clobbers all caller-saved integer registers (it carries a frame, saves the link
 register, and calls `arena_fill_zero`). `size` is
 normalized exactly as `arena_alloc` normalizes it (zero → 1, rounded up to 16),
@@ -277,7 +277,7 @@ larger chunk (> 2048) instead **parks on its large-bin size class**, also an
 O(1) head push, and adds its bytes to `largeFlushCredit`. The 64 classes split
 each power of two from 2 KiB into four: for `2^k ≤ size < 2^(k+1)` the class is
 `(k - 11) * 4 + ((size >> (k - 2)) & 3)`, and every size from 112 MiB up shares
-the last. [[src/codegen/memory/arena/arena.rs:emit_large_bin_slot]] In either bin path the chunk is then zero-filled (see *Zero Fill*) over
+the last. [[src/codegen/memory/arena/arena/mod.rs:emit_large_bin_slot]] In either bin path the chunk is then zero-filled (see *Zero Fill*) over
 `[ptr+16, ptr+size)` — every payload byte past the 16-byte `FreeNode` overlay
 just written, so the scrub can never destroy live free-list metadata. An
 **immediate repeated free of the same address is a no-op**: the push finds the
@@ -316,7 +316,7 @@ OS handed over or a previous run of the arena left can be read through it.
 the FreeNode words (see `arena_free` above); the node's own `{next, size}` overwrite
 the first 16 bytes, so every freed byte is overwritten. `arena_alloc` calls it on a
 freshly mapped block's usable region before first use.
-[[src/codegen/memory/arena/arena.rs:lower_arena_fill_zero]]
+[[src/codegen/memory/arena/arena/mod.rs:lower_arena_fill_zero]]
 
 **Arena memory is not guaranteed zero.** A chunk handed out again begins with its
 free-list node's two words, and a chunk split from a larger free one carries that
@@ -335,7 +335,7 @@ A `--debug` build counts both kinds of fill for each arena in the debug report:
 ## Cleanup and Reclamation
 
 An arena is reclaimed whole. `arena_destroy` (symbol `_mfb_arena_destroy`) walks
-the block chain from `blockHead` through each `prevBlock`, [[src/codegen/memory/arena/arena.rs:lower_arena_destroy]] unmapping every block
+the block chain from `blockHead` through each `prevBlock`, [[src/codegen/memory/arena/arena/mod.rs:lower_arena_destroy]] unmapping every block
 with the platform `munmap`/`VirtualFree` hook, then clears **both list heads** —
 `blockHead` and `freeListHead` — and every word from `ARENA_QUICK_BIN_BASE_OFFSET` through
 `ARENA_STATE_SIZE` to `0`. This includes quick/large bins, the designated
@@ -456,7 +456,7 @@ close/reclamation distinction.
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_block_reclaim]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:retire_moved_resource_cleanup]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_moved_resource_record_free]]
-[[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
+[[src/codegen/memory/arena/builder_arena_transfer/transfer.rs:copy_resource_to_current_arena]]
 
 **What a call hands its caller's statement.** When a call to a function body
 returns a value that reaches resources, the statement the call sits in takes, at

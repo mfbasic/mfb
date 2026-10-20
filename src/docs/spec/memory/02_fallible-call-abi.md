@@ -64,7 +64,7 @@ The `Error` is built only on the error path, so in the frame-slot form a
 successful trapped call allocates nothing for its outcome.
 [[src/codegen/error/emission/builder_error_emission.rs:emit_adopt_current_error_block]]
 [[src/codegen/engine/control/builder_exits.rs:route_current_result_to_trap]]
-[[src/codegen/memory/arena/builder_arena_transfer.rs:emit_trapped_error_result]]
+[[src/codegen/memory/arena/builder_arena_transfer/result.rs:emit_trapped_error_result]]
 [[src/codegen/error/result/unboxed_trap.rs:finish_unboxed_trap_result]]
 
 Error propagation preserves the parked ownership until a catcher takes it.

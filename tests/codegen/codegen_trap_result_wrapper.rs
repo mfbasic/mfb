@@ -284,7 +284,7 @@ fn the_result_wrapper_has_exactly_one_constructor() {
         .collect();
     assert_eq!(
         files,
-        vec!["src/codegen/memory/arena/builder_arena_transfer.rs".to_string()],
+        vec!["src/codegen/memory/arena/builder_arena_transfer/result.rs".to_string()],
         "a `Result`-typed ValueResult must be built only by \
          `fresh_trapped_result_value`, because bug-568's fix binds one WITHOUT a \
          deep copy on the strength of it being this frame's fresh block. Sites \
