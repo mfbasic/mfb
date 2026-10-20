@@ -1010,7 +1010,7 @@ Acceptance: the debugger tests run from their new modules.
   Final gate: `spec_citations_resolve` and the guards ran in the fast tier (pass); the banner → 0 rows; the ceiling file
   holds no `inline`/`test` row for a K path; clippy — no G0 count was recorded, so per path: K's new directories carry
   only content lints of text moved verbatim (17 unneeded `..` patterns, 1 too-many-arguments), so pre-existing.
-Commit: —
+Commit: c8d64f20d
 
 ## Validation Plan
 
