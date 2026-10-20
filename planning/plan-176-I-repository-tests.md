@@ -804,17 +804,22 @@ from `main/tests/mod.rs`.
   (local, trust, client, server), bin `ok. 24 passed`; list counts → 37 and 24; G3 + landing tier → `test-fast: ok`
   (mfb unit `4998 passed`; `mfb_repository` `450 passed`; `mfb-repo` `24 passed`); G4 → 0; G5 → both workspaces
   clean; G6 → new files 454, 517, 630; hosts inline 2, 2, 3.
-Commit: —
+Commit: 24be46317
 
 ### Phase 3 — `store`
 
-- [ ] Split `repository/src/store.rs`'s tests per §4.11 into `store/tests/mod.rs` + `accounts.rs`,
+- [x] Split `repository/src/store.rs`'s tests per §4.11 into `store/tests/mod.rs` + `accounts.rs`,
       `packages.rs`, `blobs.rs`, `transfers.rs`, `registry_tables.rs` (declaration stays
       `pub(crate)`; the 13 cross-host helpers stay in `mod.rs`; the five production-position
       cfg(test) items stay).
-- [ ] `repository/src/store/tests/accounts.rs`: `include_str!("store.rs")` →
+      Done: `python3 -I target/p176/planparts.py` reads §4.11's own per-part lists (every named item assigned once)
+      → 27, 26, 10, 13, 12 tests; the 13 shared helpers stay in `mod.rs`; `items.py extract` (112 string-literal lines
+      kept byte for byte); motion → only the module lines and the 5 part `mod` lines differ.
+- [x] `repository/src/store/tests/accounts.rs`: `include_str!("store.rs")` →
       `include_str!("../../store.rs")`.
-- [ ] G4: tighten the ceiling for `store.rs`.
+      Done: → 1 hit; `key_insertion_has_exactly_one_writer` → `ok. 1 passed`.
+- [x] G4: tighten the ceiling for `store.rs`.
+      Done: → `TIGHTEN inline 62 (ceiling 3468)` only; tighten drops it; re-run → 0.
 
 Acceptance: store's tests and the three hosts that import its helpers pass, and the
 single-writer scan still reads `store.rs`.
@@ -824,6 +829,9 @@ single-writer scan still reads `store.rs`.
   (a wrong path fails to compile, so G1 already proves it names an existing file, and
   `key_insertion_has_exactly_one_writer` passing proves it found the one writer in `store.rs`);
   G3; G4; G5; G6 over `repository/src/store/tests/*.rs` (largest `accounts.rs` 864) (est. 10 min).
+  Verified 2026-10-19: G1 → lib 450 = 450, bin 24 = 24, leaves SAME, clippy 21 = 21; G2 → `ok. 248 passed`; list
+  count → 88; G3 + landing tier → `test-fast: ok` (mfb unit `4998 passed`; `mfb_repository` `450 passed`; `mfb-repo`
+  `24 passed`); G4 → 0; G5 → both workspaces clean; G6 → 195, 864, 760, 394, 656, 544; store.rs inline 62.
 Commit: —
 
 ### Phase 4 — `client`
