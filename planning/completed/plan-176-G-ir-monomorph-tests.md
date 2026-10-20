@@ -1021,7 +1021,7 @@ Acceptance: every verifier test runs from its part, and the count did not move.
   `cargo clippy --all-targets` warnings under G's new directories → 3, all pre-existing in the moved text (two
   `empty line after doc comment` at blank lines that sat between doc blocks in the originals, `resource_escape.rs`
   L1131 and `verify/tests.rs` L8042; one auto-deref in an unchanged builder).
-Commit: —
+Commit: 490921098
 
 ## Validation Plan
 
