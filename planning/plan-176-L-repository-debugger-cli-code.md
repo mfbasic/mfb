@@ -818,14 +818,25 @@ Acceptance: the debugger prompt, breakpoints and value views behave identically.
   `ok. 180 passed`; `cli_dbg` (fast tier) → `ok. 21 passed`; G2 → `spec_citations_resolve` in the unit run (pass) +
   `citedef.py` clean; G3 → guards 8, 7 + 1 ignored, 8; census → values 646/210/218, breakpoints 595/518/198, prompt
   346/743/256/255/547; G5 → exit 0.
-Commit: —
+Commit: 845221155
 
 ### Phase 4 — Debugger backends (macOS on the host, Linux on box 2223)
 
-- [ ] Split `src/debugger/macos.rs` per §4.8.
-- [ ] Split `src/debugger/linux.rs` per §4.7.
-- [ ] Sweep the 25 citations (12 + 13).
-- [ ] G4.
+- [x] Split `src/debugger/macos.rs` per §4.8.
+      Done: `items.py split` with method-level entries (the first `impl Task` cut into mod/libraries/threads, the
+      second, `classify`, whole into threads) → libraries 12 methods + `uleb128`, threads 16 methods + 13 items,
+      exceptions 5, inferior 1; `motion.py` → only the wiring, `use super::shown;` and `pub(super)`; `pub(super)` on
+      §4.8's set + `ThreadPorts` and its field (crossed into inferior) + `Exception.{thread, kind, codes}`;
+      `libraries` is not glob-imported (its one free item, `uleb128`, is used only there).
+- [x] Split `src/debugger/linux.rs` per §4.7.
+      Done: `items.py split` → process 11, images 10 methods, threads 27 methods, inferior 1; the emptied `impl Tracee`
+      shell removed from mod.rs; `motion.py` → only the wiring, `use super::{environment, shown};` and the 39
+      `pub(super)` of §4.7 (none more); `use process::*;` is private (nothing outside `linux` needs it).
+- [x] Sweep the 25 citations (12 + 13).
+      Done: `citesweep.py` → 12 + 13; `citedef.py src/debugger/macos/ src/debugger/linux/` → 25 cites, 0 not defined
+      where cited; `citecheck.sh` → 0 old-path cites for both.
+- [x] G4.
+      Done: → 2 STALE `code` rows (linux 1711, macos 1999); tighten drops them; re-run → 0.
 
 Acceptance: both backends compile and the macOS backend runs.
   Check: G1; `cargo test --test cli_dbg` → pass (drives the macOS backend on the host); G2;
@@ -834,6 +845,11 @@ Acceptance: both backends compile and the macOS backend runs.
   `git archive HEAD | ssh -p 2223 test@127.0.0.1 'rm -rf ~/mfb-176l && mkdir ~/mfb-176l && tar -x -C ~/mfb-176l && cd ~/mfb-176l && cargo check --all-targets 2>&1 | grep -E "^(error|warning)|src/debugger/linux|Finished"'`
   → a `Finished` line, no `error` line, and no line naming `src/debugger/linux` (est. 15 min). A failure there is
   fixed in a follow-up commit of this phase.
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, check warnings 0, clippy 37065 = G0, repo list 474; `debugger::`
+  → `ok. 180 passed`; `cli_dbg` (fast tier) → `ok. 21 passed`; G2 → `spec_citations_resolve` in the fast tier's unit
+  run (4998 passed) + `citedef.py` clean; G3 → 8, 8, 7 + 1 ignored; census → macos 460/454/542/143/419, linux
+  221/210/315/577/408; G5 → exit 0. Linux (box 2223 down, Corrections): `cargo check --all-targets` in the
+  `rust:1-bookworm` aarch64 Linux container → `Finished`, no `error`, no `src/debugger/linux` line, 0 warnings.
 Commit: —
 
 ### Phase 5 — Repository client and server
@@ -929,6 +945,14 @@ Commit: —
   `confirm`, `commit_staged_package`, `install_vendor_file`, `stage_package_blob`) and `resolve` (`pkg`,
   `local_paths_for_repo`). Phase 1 needed 10 `pub(super)` (§4.11 listed 11; `LibraryFinding::wrong_type`
   is used only inside `locator_check.rs`).
+- Phase 4: box 2223 was down (no remote machine was up; the owner said check on macOS). `linux/` was type-checked
+  instead with `cargo check --all-targets` in a podman `docker.io/library/rust:1-bookworm` container on the Mac
+  (`uname -sm` → `Linux aarch64`), which compiles `src/debugger/linux/` the same way box 2223 would. That run
+  showed 5 Linux-only dead-code warnings older than plan-176 (`median` in `rt_compress_throughput`, `Command` in
+  `rt_debug_arena`, `run`/`ERR_NOT_FOUND`/`EVERY_FONT` in `rt_canvas_system_fonts`: each used only by a
+  macOS-gated test); each now carries its user's `cfg`, and the re-run is warning-free. §4.8 missed
+  `ThreadPorts` (its `.0` is read in inferior) and `Exception`'s three fields; `libraries::*` would be an unused
+  import and is left out.
 
 ## Summary
 

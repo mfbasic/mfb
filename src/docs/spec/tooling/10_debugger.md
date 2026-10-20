@@ -96,12 +96,12 @@ it is debugged through the executable inside it (`usr/bin/<name>` of
 
 For a `<pid>`, the executable is the one the kernel reports for the process
 (`proc_pidpath` on macOS, `/proc/<pid>/exe` on Linux); a process that does not exist fails with
-`no process with PID <pid>`.[[src/debugger/macos.rs:MacOs]] Every path printed
+`no process with PID <pid>`.[[src/debugger/macos/mod.rs:MacOs]] Every path printed
 by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:shown]]
 
 ## macOS backend
 
-[[src/debugger/macos.rs:MacOs]]
+[[src/debugger/macos/mod.rs:MacOs]]
 
 - **Launch.** `posix_spawn` with `POSIX_SPAWN_START_SUSPENDED` (`0x0080`), the
   operand as `argv[0]`, the arguments after `--`, the session's environment
@@ -119,13 +119,13 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   a target without the hardened runtime; `mfb build`'s ad-hoc Mach-O signature
   does not enable the hardened runtime. On refusal the error names the Mach
   error and the signing command `sh scripts/sign-debugger.sh <current_exe>`,
-  and a launched child is killed and reaped.[[src/debugger/macos.rs:task_port]]
+  and a launched child is killed and reaped.[[src/debugger/macos/mod.rs:task_port]]
 - **Ending.** `quit` on a launched program first reaps it if it has already
   exited (`AlreadyExited`), otherwise sends `SIGKILL` and reaps it (`Killed`). On
   an attached program it calls `task_resume` (`Detached`); if that fails and the
   process is gone, `AlreadyExited`. The task port's send right is released
   either way. An `Inferior` dropped without `end` ends itself.
-  [[src/debugger/macos.rs:Task]]
+  [[src/debugger/macos/mod.rs:Task]]
 - **Symbols.** `list func` reads the executable's `LC_SYMTAB` from the file
   (`super::macho::read`): every `nlist_64` that is not a stab and is either
   `N_SECT` in a section with `S_ATTR_PURE_INSTRUCTIONS` or
@@ -143,7 +143,7 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   section with `S_ATTR_PURE_INSTRUCTIONS` or `S_ATTR_SOME_INSTRUCTIONS`. A
   framework that libSystem's own dependencies reach (CoreFoundation, Security,
   Network) is loaded with the program, so a `dlopen` of it names no new
-  library. [[src/debugger/macos.rs:loaded_functions]]
+  library. [[src/debugger/macos/libraries.rs:loaded_functions]]
 - **Addresses.** A defined function's address is its `n_value` plus the load
   offset: the live address of the first readable region (walking
   `mach_vm_region`) that starts with an `MH_MAGIC_64` header of filetype
@@ -153,7 +153,7 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   through `LC_DYSYMTAB`'s indirect symbol table: a slot whose live bytes still
   equal the file's is unbound (`-`), otherwise its 64-bit value is the bound
   function. A launched program has run no `dyld` code, so every import is
-  unbound there. [[src/debugger/macos.rs:Task]]
+  unbound there. [[src/debugger/macos/mod.rs:Task]]
 - **Data symbols.** `data_symbol` answers a symbol `LC_SYMTAB` defines in a
   section without instructions, plus the load offset.
 - **Threads.** `threads` lists `task_threads` in the kernel's order (index 0 is
@@ -170,7 +170,7 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   kept), and writes it back with `thread_set_state`; `fpsr` and `fpcr` are read,
   replaced and written back the same way in `ARM_NEON_STATE64`, only when one
   is named. The process is paused, so the thread runs from its new state when
-  the program next runs. [[src/debugger/macos.rs:set_thread_state]]
+  the program next runs. [[src/debugger/macos/threads.rs:set_thread_state]]
 - **Step.** `step` takes a set of threads and a round count. It holds every
   thread outside the set with `thread_suspend`, installs an exception port for
   `EXC_BAD_ACCESS`, `EXC_BAD_INSTRUCTION`, `EXC_ARITHMETIC` and
@@ -196,7 +196,7 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   every hold is given back and the program's own exception handlers put back,
   and — unless the program ended — every breakpoint is written again and the
   stepped threads' watchpoints turned back on, a step that failed included.
-  [[src/debugger/macos.rs:ExceptionPort]] [[src/debugger/macos.rs:Task]]
+  [[src/debugger/macos/exceptions.rs:ExceptionPort]] [[src/debugger/macos/mod.rs:Task]]
 - **Breakpoints.** `insert_breakpoint` saves the 4 bytes at the address and
   writes `brk #0` (`0xd4200000`): the page (`getpagesize()`, aligned down) is
   made `VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY` with `mach_vm_protect` —
@@ -209,7 +209,7 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   a stepped thread runs the original instructions. Ending an attached session
   lifts them before `task_resume`, so the program never meets a `brk` with no
   debugger. `entry` is `LC_MAIN`'s `entryoff` plus `__TEXT`'s address and the
-  load offset. [[src/debugger/macos.rs:Task]]
+  load offset. [[src/debugger/macos/mod.rs:Task]]
 - **Watchpoints.** `insert_watchpoint` takes one of the processor's watchpoint
   register pairs: as many as `sysctlbyname("hw.optional.watchpoint")` says
   (4 on Apple silicon), the next past those in use failing with `all <n> of the
@@ -224,7 +224,7 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   stepping thread's are written disabled for the step and enabled after it,
   so a step can carry a thread past a watched store. Ending an attached
   session clears them before `task_resume`, so the program never meets a
-  watchpoint with no debugger. [[src/debugger/macos.rs:write_watchpoints]]
+  watchpoint with no debugger. [[src/debugger/macos/threads.rs:write_watchpoints]]
 - **Run.** `run` first steps every thread whose `pc` is on a breakpoint one
   instruction (so it does not stop on the breakpoint it is paused at — nor on
   one `jump` has put it on), then
@@ -258,7 +258,7 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   `S_SYMBOL_STUBS` section is the stub named through the indirect symbol table
   (`symbol stub for: <symbol>`). The list is re-read when its count changes;
   each library's starts and symbols are read on first use.
-  [[src/debugger/macos.rs:Library]]
+  [[src/debugger/macos/mod.rs:Library]]
 - **Restart.** `restart` refuses an attached program. For a launched one it
   kills and reaps the process (unless it has already ended), releases its task
   port, spawns the program again with the same arguments and the environment
@@ -282,7 +282,7 @@ build relinks `mfb` and drops the signature, so it is re-run after each build.
 
 ## Linux backend
 
-[[src/debugger/linux.rs:LinuxAarch64]] Linux on AArch64, the `ET_DYN`
+[[src/debugger/linux/mod.rs:LinuxAarch64]] Linux on AArch64, the `ET_DYN`
 executables of `./mfb spec linker linux-aarch64` in either libc world. Linux
 needs no signing: a process may trace its own children, and others as
 `kernel.yama.ptrace_scope` allows.
@@ -296,14 +296,14 @@ needs no signing: a process may trace its own children, and others as
   (`PTRACE_SEIZE` with `PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC |
   PTRACE_O_EXITKILL`), continues it, and waits for `PTRACE_EVENT_EXEC`: the
   program is stopped at its exec, before the loader (`ld.so`) runs.
-  [[src/debugger/linux.rs:spawn]] [[src/debugger/linux.rs:seize_launched]]
+  [[src/debugger/linux/process.rs:spawn]] [[src/debugger/linux/process.rs:seize_launched]]
 - **Attach.** Every thread in `/proc/<pid>/task` is seized with
   `PTRACE_O_TRACECLONE` (again until no new one appears), then interrupted
   (`PTRACE_INTERRUPT`) and waited for. A refused seize names its errno; for
   `EPERM` with `ptrace_scope` not 0 the message adds that the system lets a
   debugger attach only to its own children, and to launch the program instead
-  or run `mfb dbg` as root. [[src/debugger/linux.rs:seize_all]]
-  [[src/debugger/linux.rs:seize_refusal]]
+  or run `mfb dbg` as root. [[src/debugger/linux/process.rs:seize_all]]
+  [[src/debugger/linux/process.rs:seize_refusal]]
 - **Threads.** The session holds every traced thread, leader first. A thread
   the program starts is traced from its first instruction and appended when
   its first stop, or its parent's `PTRACE_EVENT_CLONE`, is seen; one that ends
@@ -316,10 +316,10 @@ needs no signing: a process may trace its own children, and others as
   naming `musl`), less the gap at which the descriptor's first word, `self`,
   holds its own address, tried in steps of 8 up to 4096 (`MAX_PTHREAD_SIZE`);
   0 when neither is found, as before libc has set the thread pointer.
-  [[src/debugger/linux.rs:GLIBC_PTHREAD_SIZE]] [[src/debugger/linux.rs:Tracee]]
+  [[src/debugger/linux/mod.rs:GLIBC_PTHREAD_SIZE]] [[src/debugger/linux/mod.rs:Tracee]]
 - **Memory.** `/proc/<pid>/mem`, read and written at an offset; a breakpoint's
   `brk #0` is written over read-only code through it, and the kernel makes the
-  page a private copy. [[src/debugger/linux.rs:BREAKPOINT_INSTRUCTION]]
+  page a private copy. [[src/debugger/linux/mod.rs:BREAKPOINT_INSTRUCTION]]
 - **Symbols.** The executable is read by `super::elf`: `.symtab`'s functions
   and objects (a `--debug` build); each undefined dynamic symbol, an import,
   with the GOT slot an `R_AARCH64_JUMP_SLOT` or `R_AARCH64_GLOB_DAT` relocation
@@ -361,7 +361,7 @@ needs no signing: a process may trace its own children, and others as
   the faulting instruction instead. A job-control stop (`PTRACE_EVENT_STOP`)
   is continued. The program has ended when its leader's end is reaped: its
   exit status or signal, for an attached program too.
-  [[src/debugger/linux.rs:signal_stop]]
+  [[src/debugger/linux/threads.rs:signal_stop]]
 - **Step.** Every breakpoint is lifted and the stepping threads' watchpoints
   turned off, as on macOS. Each round, every stepping thread gets
   `PTRACE_SINGLESTEP` and the session polls (`waitpid(WNOHANG)`) in 2000 ms
@@ -370,23 +370,23 @@ needs no signing: a process may trace its own children, and others as
   `/proc/<pid>/task/<tid>/stat`) or 30 s (`STEP_LIMIT`) have passed: they are
   interrupted and are `Waiting`. A signal that stops a stepping thread is held
   and the instruction tried again; a clone event lets the step finish.
-  [[src/debugger/linux.rs:step_rounds]]
+  [[src/debugger/linux/threads.rs:step_rounds]]
 - **Watchpoints.** The processor's watchpoint register pairs (`dbg_info`'s
   count, from `NT_ARM_HW_WATCH`), encoded as on macOS and written into every
   thread with `PTRACE_SETREGSET`; the kernel does not copy them into a new
   thread, so each gets them at its first stop.
-  [[src/debugger/linux.rs:set_thread_watchpoints]]
+  [[src/debugger/linux/threads.rs:set_thread_watchpoints]]
 - **Ending.** A launched program is killed (`SIGKILL`; `PTRACE_O_EXITKILL`
   kills it too if `mfb` dies) and every thread reaped until the leader is. An
   attached one has its breakpoints lifted and watchpoints cleared, and every
   thread is detached (`PTRACE_DETACH`) with any signal held for it.
-  [[src/debugger/linux.rs:kill_and_reap]]
+  [[src/debugger/linux/process.rs:kill_and_reap]]
 - **Ctrl-C.** A `SIGINT` handler installed without `SA_RESTART` sets a flag;
   landing on any thread but the session's — `mfb` runs a command on a thread
   of its own, and the session's thread is the one that waits — it sends the
   signal on to it with `tgkill`, so the wait returns `EINTR`. A `run` that sees
   the flag interrupts every thread and answers `RunStop::Interrupted`.
-  [[src/debugger/linux.rs:on_interrupt]]
+  [[src/debugger/linux/mod.rs:on_interrupt]]
 - **Restart.** The old process is killed and reaped, the program launched
   again with the session's environment, and everything about the old process
   forgotten, as on macOS.
