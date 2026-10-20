@@ -201,7 +201,7 @@ Acceptance: money-demo builds for every example target and runs the same on the 
   139, 413, 418, 272, 211.
   Verified 2026-10-19: the five-target loop → no output; the pty run (`mdrun.sh target/p176/md-after.ts`) →
   `exit=0`, `welcome=1`; census → 139, 413, 418, 272, 211.
-Commit: —
+Commit: c2908101a
 
 ### Phase 2 — `money.mfb` keyword spelling (pre-existing defect)
 
@@ -212,13 +212,19 @@ Commit: —
 (AGENTS.md: never leave a bug). The fix does not change behavior, because keyword matching
 is case-insensitive (`src/docs/spec/language/02_lexical-structure.md:3`).
 
-- [ ] Before the edit: `$M test tests/acceptance | grep '^Tests:'` → record the line (est. 2 min).
-- [ ] `$M fmt tests/acceptance/src/money.mfb`, then `git diff --stat tests/acceptance/src/money.mfb`
+- [x] Before the edit: `$M test tests/acceptance | grep '^Tests:'` → record the line (est. 2 min).
+      Done: `Tests: 785  Pass: 785  Fail: 0`; `$M fmt --check tests/acceptance` → `Not formatted: …/money.mfb`.
+- [x] `$M fmt tests/acceptance/src/money.mfb`, then `git diff --stat tests/acceptance/src/money.mfb`
       → 10 lines changed, every one only `true` → `TRUE`.
+      Done: `1 file changed, 10 insertions(+), 10 deletions(-)`; the 10 removed lines with `\btrue\b` → `TRUE`
+      equal the 10 added lines as a multiset → `True`.
 
 Acceptance: the file is formatter-clean and the acceptance suite is unchanged.
   Check: `$M fmt --check tests/acceptance/src/money.mfb` → exit 0;
   `$M test tests/acceptance | grep '^Tests:'` → the same line as before the edit (est. 2 min).
+  Verified 2026-10-19: `$M fmt --check tests/acceptance` → `All 21 file(s) already formatted`;
+  `Tests: 785  Pass: 785  Fail: 0` (same).
+  Final gate: budget rows → 0 (after Phase 1's tighten); `grep -c 'examples/money-demo/' tests/guards/file_size_ceilings.txt` → 0.
 Commit: —
 
 ## Validation Plan

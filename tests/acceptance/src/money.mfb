@@ -106,13 +106,13 @@ TESTING
         expectString(typeName(10.00m DIV 4), "Float")
       END TCASE
       TCASE "all six comparison operators"
-        expectEqual(1.25m < 2.50m, true)
-        expectEqual(3.00m > 2.00m, true)
-        expectEqual(2.50m <= 2.50m, true)
-        expectEqual(2.50m >= 2.50m, true)
-        expectEqual(1.25m = 1.25m, true)
-        expectEqual(2.50m <> 1.25m, true)
-        expectEqual(92233720368547.75807m > -92233720368547.75808m, true)
+        expectEqual(1.25m < 2.50m, TRUE)
+        expectEqual(3.00m > 2.00m, TRUE)
+        expectEqual(2.50m <= 2.50m, TRUE)
+        expectEqual(2.50m >= 2.50m, TRUE)
+        expectEqual(1.25m = 1.25m, TRUE)
+        expectEqual(2.50m <> 1.25m, TRUE)
+        expectEqual(92233720368547.75807m > -92233720368547.75808m, TRUE)
       END TCASE
     END TGROUP
 
@@ -263,9 +263,9 @@ TESTING
     TGROUP "rounding mode state"
       TCASE "getRounding reflects the installed mode"
         money::setRounding(money::Rounding.Banker)
-        expectEqual(money::getRounding() = money::Rounding.Banker, true)
+        expectEqual(money::getRounding() = money::Rounding.Banker, TRUE)
         money::setRounding(money::Rounding.Commercial)
-        expectEqual(money::getRounding() = money::Rounding.Commercial, true)
+        expectEqual(money::getRounding() = money::Rounding.Commercial, TRUE)
       END TCASE
     END TGROUP
 
@@ -303,7 +303,7 @@ TESTING
       END TCASE
       TCASE "rand stays within the requested range"
         LET r AS Money = math::rand(1.00m, 10.00m)
-        expectEqual(r >= 1.00m AND r <= 10.00m, true)
+        expectEqual(r >= 1.00m AND r <= 10.00m, TRUE)
       END TCASE
     END TGROUP
   END TGROUP
