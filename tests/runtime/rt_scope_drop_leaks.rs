@@ -29,6 +29,8 @@ mod closures_errors_and_concats;
 mod helper_results_and_raised_errors;
 #[path = "rt_scope_drop_leaks/loops_and_condition_temps.rs"]
 mod loops_and_condition_temps;
+#[path = "rt_scope_drop_leaks/named_loop_exits.rs"]
+mod named_loop_exits;
 #[path = "rt_scope_drop_leaks/return_and_string_shapes.rs"]
 mod return_and_string_shapes;
 #[path = "rt_scope_drop_leaks/trap_binds_hofs_and_for_each.rs"]

@@ -1,0 +1,62 @@
+IMPORT io
+
+FUNC main AS Integer
+  ' EXIT FOR i from inside the inner FOR j leaves the outer loop.
+  FOR i = 1 TO 3
+    FOR j = 1 TO 3
+      IF i = 2 AND j = 2 THEN
+        EXIT FOR i
+      END IF
+      io::print("A " & toString(i) & " " & toString(j))
+    NEXT
+  NEXT
+  io::print("A done")
+
+  ' EXIT FOR i from inside a WHILE nested in the inner FOR j.
+  FOR i = 1 TO 2
+    FOR j = 1 TO 3
+      MUT k AS Integer = 0
+      WHILE k < 5
+        k = k + 1
+        IF k = 2 AND i = 1 THEN
+          EXIT FOR i
+        END IF
+        io::print("B " & toString(i) & " " & toString(j) & " " & toString(k))
+      END WHILE
+    NEXT
+  NEXT
+  io::print("B done")
+
+  ' EXIT FOR x from inside the inner FOR j leaves a FOR EACH loop.
+  FOR EACH x IN [10, 20, 30]
+    FOR j = 1 TO 2
+      IF x = 20 AND j = 2 THEN
+        EXIT FOR x
+      END IF
+      io::print("C " & toString(x) & " " & toString(j))
+    NEXT
+  NEXT
+  io::print("C done")
+
+  ' CONTINUE FOR i from inside the inner FOR j restarts the outer loop once.
+  FOR i = 1 TO 3
+    FOR j = 1 TO 2
+      IF i = 2 AND j = 1 THEN
+        CONTINUE FOR i
+      END IF
+      io::print("D " & toString(i) & " " & toString(j))
+    NEXT
+    io::print("D end " & toString(i))
+  NEXT
+
+  ' A bare EXIT FOR still leaves only the innermost FOR.
+  FOR i = 1 TO 2
+    FOR j = 1 TO 3
+      IF j = 2 THEN
+        EXIT FOR
+      END IF
+      io::print("E " & toString(i) & " " & toString(j))
+    NEXT
+  NEXT
+  RETURN 0
+END FUNC

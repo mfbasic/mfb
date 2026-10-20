@@ -1,0 +1,193 @@
+{
+  "project": "exit_for_named_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "3" },
+        "step": null,
+        "line": 5,
+        "body": [
+        {
+          "kind": "for",
+          "name": "j",
+          "start": { "kind": "number", "value": "1" },
+          "end": { "kind": "number", "value": "3" },
+          "step": null,
+          "line": 6,
+          "body": [
+          {
+            "kind": "if",
+            "condition": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "2" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "2" } } },
+            "line": 7,
+            "then": [
+            { "kind": "exit", "target": "for", "line": 8, "var": "i" }
+            ],
+            "else": [
+            ]
+          },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "A " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "j" }] } }] }, "line": 10 }
+          ]
+        }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "A done" }] }, "line": 13 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "2" },
+        "step": null,
+        "line": 16,
+        "body": [
+        {
+          "kind": "for",
+          "name": "j",
+          "start": { "kind": "number", "value": "1" },
+          "end": { "kind": "number", "value": "3" },
+          "step": null,
+          "line": 17,
+          "body": [
+          { "kind": "binding", "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 18 },
+          {
+            "kind": "while",
+            "loop": "while",
+            "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "5" } },
+            "line": 19,
+            "body": [
+            { "kind": "assignment", "name": "k", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "1" } }, "line": 20 },
+            {
+              "kind": "if",
+              "condition": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "2" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } } },
+              "line": 21,
+              "then": [
+              { "kind": "exit", "target": "for", "line": 22, "var": "i" }
+              ],
+              "else": [
+              ]
+            },
+            { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "B " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "j" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "k" }] } }] }, "line": 24 }
+            ]
+          }
+          ]
+        }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "B done" }] }, "line": 28 },
+      {
+        "kind": "forEach",
+        "name": "x",
+        "iterable": { "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] },
+        "line": 31,
+        "body": [
+        {
+          "kind": "for",
+          "name": "j",
+          "start": { "kind": "number", "value": "1" },
+          "end": { "kind": "number", "value": "2" },
+          "step": null,
+          "line": 32,
+          "body": [
+          {
+            "kind": "if",
+            "condition": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "20" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "2" } } },
+            "line": 33,
+            "then": [
+            { "kind": "exit", "target": "for", "line": 34, "var": "x" }
+            ],
+            "else": [
+            ]
+          },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "C " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "x" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "j" }] } }] }, "line": 36 }
+          ]
+        }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "C done" }] }, "line": 39 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "3" },
+        "step": null,
+        "line": 42,
+        "body": [
+        {
+          "kind": "for",
+          "name": "j",
+          "start": { "kind": "number", "value": "1" },
+          "end": { "kind": "number", "value": "2" },
+          "step": null,
+          "line": 43,
+          "body": [
+          {
+            "kind": "if",
+            "condition": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "2" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "1" } } },
+            "line": 44,
+            "then": [
+            { "kind": "continue", "loop": "for", "line": 45, "var": "i" }
+            ],
+            "else": [
+            ]
+          },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "D " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "j" }] } }] }, "line": 47 }
+          ]
+        },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "D end " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }] }, "line": 49 }
+        ]
+      },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "2" },
+        "step": null,
+        "line": 53,
+        "body": [
+        {
+          "kind": "for",
+          "name": "j",
+          "start": { "kind": "number", "value": "1" },
+          "end": { "kind": "number", "value": "3" },
+          "step": null,
+          "line": 54,
+          "body": [
+          {
+            "kind": "if",
+            "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "2" } },
+            "line": 55,
+            "then": [
+            { "kind": "exit", "target": "for", "line": 56 }
+            ],
+            "else": [
+            ]
+          },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "E " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "j" }] } }] }, "line": 58 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 61 }
+      ]
+    }
+    ]
+  }
+  ]
+}

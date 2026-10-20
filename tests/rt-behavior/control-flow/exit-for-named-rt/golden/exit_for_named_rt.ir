@@ -1,0 +1,292 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "exit_for_named_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 5, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 5,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 5, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "bind", "line": 6, "mutable": false, "name": "$for_end4", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+      { "op": "bind", "line": 6, "mutable": false, "name": "$for_step5", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+      {
+        "op": "for",
+        "line": 6,
+        "name": "$for_iter3",
+        "type": "Integer",
+        "start": { "kind": "const", "type": "Integer", "value": "1" },
+        "end": { "kind": "local", "name": "$for_end4" },
+        "step": { "kind": "local", "name": "$for_step5" },
+        "body": [
+        { "op": "bind", "line": 6, "mutable": false, "name": "j", "type": "Integer", "value": { "kind": "local", "name": "$for_iter3" } },
+        {
+          "op": "if",
+          "line": 7,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } },
+          "then": [
+          { "op": "exitLoop", "line": 8, "loop": "for", "target": "$for_iter0" }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "A " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "j" }] } }] } }
+        ]
+      }
+      ]
+    },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "A done" }] } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "$for_end7", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "$for_step8", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 16,
+      "name": "$for_iter6",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end7" },
+      "step": { "kind": "local", "name": "$for_step8" },
+      "body": [
+      { "op": "bind", "line": 16, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter6" } },
+      { "op": "bind", "line": 17, "mutable": false, "name": "$for_end10", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+      { "op": "bind", "line": 17, "mutable": false, "name": "$for_step11", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+      {
+        "op": "for",
+        "line": 17,
+        "name": "$for_iter9",
+        "type": "Integer",
+        "start": { "kind": "const", "type": "Integer", "value": "1" },
+        "end": { "kind": "local", "name": "$for_end10" },
+        "step": { "kind": "local", "name": "$for_step11" },
+        "body": [
+        { "op": "bind", "line": 17, "mutable": false, "name": "j", "type": "Integer", "value": { "kind": "local", "name": "$for_iter9" } },
+        { "op": "bind", "line": 18, "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+        {
+          "op": "while",
+          "line": 19,
+          "loop": "while",
+          "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "5" } },
+          "body": [
+          { "op": "assign", "line": 20, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+          {
+            "op": "if",
+            "line": 21,
+            "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+            "then": [
+            { "op": "exitLoop", "line": 22, "loop": "for", "target": "$for_iter6" }
+            ],
+            "else": [
+            ]
+          },
+          { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "B " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "j" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "k" }] } }] } }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "B done" }] } },
+    {
+      "op": "forEach",
+      "line": 31,
+      "name": "x",
+      "type": "Integer",
+      "iterable": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] },
+      "body": [
+      { "op": "bind", "line": 32, "mutable": false, "name": "$for_end13", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+      { "op": "bind", "line": 32, "mutable": false, "name": "$for_step14", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+      {
+        "op": "for",
+        "line": 32,
+        "name": "$for_iter12",
+        "type": "Integer",
+        "start": { "kind": "const", "type": "Integer", "value": "1" },
+        "end": { "kind": "local", "name": "$for_end13" },
+        "step": { "kind": "local", "name": "$for_step14" },
+        "body": [
+        { "op": "bind", "line": 32, "mutable": false, "name": "j", "type": "Integer", "value": { "kind": "local", "name": "$for_iter12" } },
+        {
+          "op": "if",
+          "line": 33,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "x" }, "right": { "kind": "const", "type": "Integer", "value": "20" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } },
+          "then": [
+          { "op": "exitLoop", "line": 34, "loop": "for", "target": "x" }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "C " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "x" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "j" }] } }] } }
+        ]
+      }
+      ]
+    },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "C done" }] } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "$for_end16", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "$for_step17", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 42,
+      "name": "$for_iter15",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end16" },
+      "step": { "kind": "local", "name": "$for_step17" },
+      "body": [
+      { "op": "bind", "line": 42, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter15" } },
+      { "op": "bind", "line": 43, "mutable": false, "name": "$for_end19", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+      { "op": "bind", "line": 43, "mutable": false, "name": "$for_step20", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+      {
+        "op": "for",
+        "line": 43,
+        "name": "$for_iter18",
+        "type": "Integer",
+        "start": { "kind": "const", "type": "Integer", "value": "1" },
+        "end": { "kind": "local", "name": "$for_end19" },
+        "step": { "kind": "local", "name": "$for_step20" },
+        "body": [
+        { "op": "bind", "line": 43, "mutable": false, "name": "j", "type": "Integer", "value": { "kind": "local", "name": "$for_iter18" } },
+        {
+          "op": "if",
+          "line": 44,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+          "then": [
+          { "op": "continueLoop", "line": 45, "loop": "for", "target": "$for_iter15" }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "D " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "j" }] } }] } }
+        ]
+      },
+      { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "D end " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } }
+      ]
+    },
+    { "op": "bind", "line": 53, "mutable": false, "name": "$for_end22", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "2" } },
+    { "op": "bind", "line": 53, "mutable": false, "name": "$for_step23", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 53,
+      "name": "$for_iter21",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end22" },
+      "step": { "kind": "local", "name": "$for_step23" },
+      "body": [
+      { "op": "bind", "line": 53, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter21" } },
+      { "op": "bind", "line": 54, "mutable": false, "name": "$for_end25", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+      { "op": "bind", "line": 54, "mutable": false, "name": "$for_step26", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+      {
+        "op": "for",
+        "line": 54,
+        "name": "$for_iter24",
+        "type": "Integer",
+        "start": { "kind": "const", "type": "Integer", "value": "1" },
+        "end": { "kind": "local", "name": "$for_end25" },
+        "step": { "kind": "local", "name": "$for_step26" },
+        "body": [
+        { "op": "bind", "line": 54, "mutable": false, "name": "j", "type": "Integer", "value": { "kind": "local", "name": "$for_iter24" } },
+        {
+          "op": "if",
+          "line": 55,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+          "then": [
+          { "op": "exitLoop", "line": 56, "loop": "for" }
+          ],
+          "else": [
+          ]
+        },
+        { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "E " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "j" }] } }] } }
+        ]
+      }
+      ]
+    },
+    { "op": "return", "line": 61, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

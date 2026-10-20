@@ -239,20 +239,20 @@ Commit: 817f7d262
 Acceptance: named exits parse, resolve and report.
   Check: `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180c
   'exit-for-unknown-identifier-invalid'` → pass (est. 1 min).
-Commit: —
+Commit: f6d51bc3d
 
 ### Phase 4 — runtime behaviour (largest blast radius)
 
-- [ ] `tests/rt-behavior/control-flow/exit-for-named-rt/` with `.run` golden: `EXIT FOR i`
+- [x] `tests/rt-behavior/control-flow/exit-for-named-rt/` with `.run` golden: `EXIT FOR i`
       from inside `FOR j`, from inside `WHILE` inside `FOR j`, from a `FOR EACH`, and
       `CONTINUE FOR i` from inside `FOR j` (inner loop restarts, outer increments once);
       prints the visited `(i, j)` pairs. Plus a case whose inner loop owns a `RES` and a
       `List` temp, exited by `EXIT FOR i`, run under the leak checker the rt-behavior
       harness uses (`tests/runtime/rt_scope_drop_leaks.rs` pattern) → no leak.
-- [ ] Run it at every optimization level and on the remote targets per
+- [~] Run it at every optimization level and on the remote targets per
       `.ai/remote_systems.md` (native aarch64 box 2223 for Linux; x86_64/riscv64 cross
       builds' `.run` via the standard harness).
-- [ ] `src/docs/spec/language/10_control-flow.md`: the named form, its resolution rule,
+- [x] `src/docs/spec/language/10_control-flow.md`: the named form, its resolution rule,
       `UNKNOWN_FOR_IDENTIFIER`; `mfb man flow` guide topic gets one example
       (`src/docs/man/flow/`).
 - [ ] Rebuild the committed `.mfp` files per the `cfd159f10` procedure
@@ -349,6 +349,23 @@ Commit: —
   `cargo test --bin mfb fmt` → 70 passed (includes `named_exit_and_continue_targets_do_not_open_blocks`).
 - **Spec updated in this phase.** `src/docs/spec/language/10_control-flow.md` gained the named-form
   paragraph here, because the syntax is observable; the Phase 4 doc item covers only `mfb man flow`.
+
+- **Phase 4 remote targets are unreachable from this environment (measured).**
+  `ssh -p 2223 -o BatchMode=yes test@127.0.0.1 "uname -m"` → `Connection refused` (exit 255); the same
+  for 2227 and 2229. The plan's remote items (`.ai/remote_systems.md`: 2223 Linux aarch64, plus
+  x86_64/riscv64) therefore have no run. The host proof is done: `MFB_OPT=0`/`MFB_OPT=3`
+  harness runs pass, and the program's stdout matches the golden at `-O0` and `-O3` (diffed,
+  19 lines each). The `MFB_OPT=0` harness run skips level-variant golden comparison
+  (`level_variant_skip_for`, `scripts/test-accept.sh`), so the diff is the proof, not the harness pass.
+- **Phase 4 leak test is a separate module.** The plan put the leak run in the rt-behavior fixture; the
+  leak harness is peak-RSS (`assert_flat`, `tests/runtime/rt_scope_drop_leaks.rs`), so the two cases live in
+  `tests/runtime/rt_scope_drop_leaks/named_loop_exits.rs`. `cargo test --test rt_scope_drop_leaks a_named_` →
+  2 passed (87.5 s). This pins that the outer loop is flat, not that the leak check would catch a
+  missing cleanup; no negative control was run.
+- **Phase 4 `.run` is a marker.** `golden/<pkg>.run` is only the "execute" marker (`scripts/test-accept.sh`
+  note at the `<pkg>.run` marker); the program's output is compared through `golden/build.log`.
+- **Phase 4 man topic.** `src/docs/man/flow/for.md` gained the named form and one example. The example was
+  built and run from `/tmp/p180/manex`: output `1,1 1,2 1,3 2,1`.
 
 ## Summary
 
