@@ -954,17 +954,26 @@ Acceptance: the 34 corpus tests run under the unchanged module path.
   Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 34 passed`; list count → 34; census →
   536, 640, 576; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; architecture_guards 8,
   no_operator_strings 8, no_type_strings 7 + 1 ignored); G4 → 0; G5 → exit 0.
-Commit: —
+Commit: 4c1601ae3
 
 ### Phase 4 — `src/ir/tests.rs`
 
-- [ ] Replace `src/ir/tests.rs` with `src/ir/tests/mod.rs` (four inline modules kept),
+- [x] Replace `src/ir/tests.rs` with `src/ir/tests/mod.rs` (four inline modules kept),
       `binary_repr_tests.rs`, `lower_tests/` (`mod.rs` + 4 parts) and `lower_pipeline_tests/`
       (`mod.rs` + 3 parts) per §4.1. `inline_trap_short_circuit.rs` is untouched.
-- [ ] The two fn-local `use` edits (one more `super::`) for external and write-IR
+      Done: `git mv src/ir/tests.rs src/ir/tests/mod.rs`, then three `items.py extract` runs bottom-up
+      (`lower_pipeline_tests` 32 + 26 + 45, `lower_tests` 45 + 31 + 37 + 30, `binary_repr_tests` 20; 1052 lines
+      inside string literals kept byte for byte); `motion.py --strip` over the 11 files → only the 3 `mod … {`/`}` →
+      `mod …;` swaps and the 7 part `mod` lines differ.
+      Added (see Corrections): `use super::{write_ir, EntryPoint, ExternalFunctionParam, ExternalSignature, IrBinding,
+      IrProject};` in `lower_pipeline_tests/mod.rs`, with a comment.
+- [x] ~~The two fn-local `use` edits (one more `super::`) for external and write-IR
       (`builtin_resolution_and_captures.rs`) and named argument normalization
-      (`type_inference_and_named_arguments.rs`).
-- [ ] G4: tighten (the `ceiling test … src/ir/tests.rs` row is STALE).
+      (`type_inference_and_named_arguments.rs`).~~ — moot: both `use super::super::…` paths still resolve from the
+      part through `ir::tests`'s glob import (`cargo check -p mfb --bin mfb --tests` → no error at either), so the
+      bodies are not edited.
+- [x] G4: tighten (the `ceiling test … src/ir/tests.rs` row is STALE).
+      Done: → `STALE test (ceiling 6386) src/ir/tests.rs` only; tighten drops it; re-run → 0.
 
 Acceptance: the IR lowering tests run from their new modules, and the external helper path
 still resolves.
@@ -978,6 +987,11 @@ still resolves.
   - `cargo test -p mfb --bin mfb target::shared::config_fold` → 0 failed. It is the caller of
     `crate::ir::tests::helpers::lower_src`.
   - G3; G4; G5 (est. 8 min).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 `cargo test -p mfb --bin mfb ir::tests::` →
+  `ok. 320 passed` (the filter is a substring, so it also runs other modules' `ir::tests::` paths); list count of
+  `^ir::tests::` → 290; kept-path count → 39 (G0 list → 39); `target::shared::config_fold` → `ok. 6 passed`;
+  census → mod.rs 480, binary_repr_tests 538, lower_tests 45/744/839/784/583, lower_pipeline_tests 21/753/763/837;
+  G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8, 8, 7 + 1 ignored); G4 → 0; G5 → exit 0.
 Commit: —
 
 ### Phase 5 — `src/ir/verify/tests.rs` (largest blast radius)
@@ -1081,6 +1095,12 @@ Commit: —
   only the count; G1 compares the count and the leaf names (a moved test gains a part segment).
   Per the owner (2026-10-18) G2/G3 run through `bash scripts/test-fast.sh`, and (2026-10-19) every
   check runs on macOS only.
+- 2026-10-19 (execution) — Phase 4: `lower_pipeline_tests`' part bodies spell `super::IrProject`,
+  `super::IrBinding`, `super::write_ir`, `super::EntryPoint`, `super::ExternalSignature` and
+  `super::ExternalFunctionParam` (6 compile errors after the move; §4.1 only foresaw `lower_src`).
+  As in §4.7's `lower.rs` line, `lower_pipeline_tests/mod.rs` imports those six names from
+  `ir::tests`, so the bodies stay byte for byte. The two fn-local `use` edits §4.1 planned in
+  `lower_tests` were not needed (moot task).
 
 ## Summary
 
