@@ -23,7 +23,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-180-A complete | `grep -c "Commit: —" planning/plan-180-A-os-exit.md` → 0 (or the file is in `planning/completed/`) | MET (2026-10-20: 0) |
+| plan-180-A complete | `grep -c "Commit: 0db5cd302" planning/plan-180-A-os-exit.md` → 0 (or the file is in `planning/completed/`) | MET (2026-10-20: 0) |
 | `ExitTarget::Program` is gone | `grep -rn "ExitTarget::Program" src` → no matches | MET (2026-10-20: 0) |
 
 If plan-180-A is not complete, this plan cannot start, full stop.
@@ -196,6 +196,12 @@ Commit: —
 - **Phase 1 gate run.** `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180b '*-unknown-invalid'
   'exit-loop-invalid' 'continue-loop-invalid' 'control-flow-*'` → "acceptance tests passed (29 test(s) ran)".
   The byte-identity gate (`artifact-gate.sh all`) is the final gate, below.
+- **Final gates (Validation Plan), measured on 0db5cd302's tree.** `bash scripts/test-fast.sh` → `test-fast: ok`
+  (fmt, check, build, skips, tests all ok). `bash scripts/artifact-gate.sh target/release/mfb all` →
+  `artifact-gate [all]: 1705 tests, 1884 build(s), 2364 golden(s) checked, 0 diff(s)`: no valid
+  fixture's IR, NIR or code moved. `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180b-full` →
+  `acceptance tests passed (1739 test(s) ran)`. The one extra test over plan A's 1738 is the
+  `syntax/control-flow/continue-unknown-invalid` fixture.
 
 ## Summary
 
