@@ -220,7 +220,7 @@ pub fn concrete_hir_from_src(source: &str) -> crate::hir::HirProject {
 /// The entry is not cosmetic. `lower_module_for_platform` emits the program
 /// entry — and, in an `-app` build, the whole toolkit bootstrap that DEFINES the
 /// callbacks the reconcile seam relocates against — only inside
-/// `if let Some(entry) = &module.entry` (`src/codegen/engine/builder/lower_module.rs`).
+/// `if let Some(entry) = &module.entry` (`src/codegen/engine/builder/module_layout.rs`, `emit_program_entries`).
 /// Lowering an app program with `None` therefore fails validation on a dangling
 /// `_mfb_gtkapp_reconcile_idle`, which reads as a codegen bug.
 pub fn lower_src_concrete(source: &str, entry: Option<crate::ir::EntryPoint>) -> IrProject {

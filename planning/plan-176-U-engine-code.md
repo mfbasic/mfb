@@ -1288,24 +1288,24 @@ Acceptance: every value expression lowers to the same code.
   `rt_callback_failure_reaches_trap` 1 → all passed; census → lower_inner 503, lower_call 382, lower_construct 357;
   fns → `lower_value_inner` 500, `lower_closure_value` 247, `lower_call_result_value` 244, `lower_call_value` 135,
   `lower_union_wrap_value` 107; budget after tighten → only `NEW code 1849 > 1000 …/builder/lower_module.rs`.
-Commit: —
+Commit: 835aa1d4b
 
 ### Phase 7 — Extract `lower_module_for_platform` regions (largest blast radius last)
 
-- [ ] `lower_module.rs`: hoist the `ClosureHelperTables` literal to after the `string_symbols`
+- [x] `lower_module.rs`: hoist the `ClosureHelperTables` literal to after the `string_symbols`
       statement (old 1645) as `tables`; replace regions B–L with the calls of §4.12 in source
       order; add private `lower_module_functions` (E).
-- [ ] `builder/module_layout.rs`: `ModuleLayout`, `module_data_objects` (B), `plan_arena_layout`
+- [x] `builder/module_layout.rs`: `ModuleLayout`, `module_data_objects` (B), `plan_arena_layout`
       (C + `register_signal_handlers`, with the `#[cfg(test)]` statement), `emit_program_entries`
       (`debug_features` + D).
-- [ ] `builder/module_helpers.rs`: `CoreHelperFlags`, `lower_graph_and_closure_helpers` (F),
+- [x] `builder/module_helpers.rs`: `CoreHelperFlags`, `lower_graph_and_closure_helpers` (F),
       `lower_core_runtime_helpers` (G), `lower_runtime_helpers_and_threads` (I).
-- [ ] `builder/module_finish.rs`: `add_companion_runtime_symbols` (H),
+- [x] `builder/module_finish.rs`: `add_companion_runtime_symbols` (H),
       `lower_relocation_gated_helpers` (J), `lower_canvas_and_link_support` (K),
       `add_relocation_gated_data_objects` (L).
-- [ ] `builder/mod.rs`: `mod module_layout; mod module_helpers; mod module_finish;` (private).
-- [ ] Repoint the §4.12 citations (9 move, 6 stay at `lower_module.rs`).
-- [ ] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
+- [x] `builder/mod.rs`: `mod module_layout; mod module_helpers; mod module_finish;` (private).
+- [x] Repoint the §4.12 citations (9 move, 6 stay at `lower_module.rs`).
+- [x] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
 
 Acceptance: the whole module plan — data objects, functions, runtime symbols, imports, in order —
 is byte-identical, including the canvas/app path.
@@ -1315,6 +1315,31 @@ is byte-identical, including the canvas/app path.
   tighten: NO row for any `src/codegen/engine/{analysis,builder,control,convert,function,operators,value}/`
   path, and `grep -cE 'engine/(control/builder_control|builder/mod|value/builder_values|function/function_lowering|function/entry|operators/builder_numeric|analysis/borrow_get|analysis/module_analysis|convert/builder_conversions)' tests/guards/file_size_ceilings.txt`
   → 0 (est. 30 min).
+- [x] Repoint the 8 code/test comments Phase 4 pointed at `lower_module.rs` to the part now holding the code
+      (`&module.entry` → `module_layout.rs` `emit_program_entries`; the `gen_cert` gate and `module_uses_canvas` →
+      `module_data_objects`; the `process.detach` reaper ×2 → `module_helpers.rs` `lower_core_runtime_helpers`; the
+      `_mfb_rt_fail_status` gate ×2 → `module_finish.rs`; the app-mode `io.input` force-emit →
+      `add_companion_runtime_symbols`); `handover.rs`'s `variant_demand` stays (`grep -lF <construct>
+      src/codegen/engine/builder/*.rs` for each).
+- [x] `lower_module_functions` returns `ModuleFunctions`, a type alias for `(Vec<(ParameterType, usize)>,
+      Vec<ClosureEnvLayout>)`: the bare tuple raised clippy `type_complexity` (37066 → 37065 with the alias).
+  Done: `u7extract.py` asserted every region boundary of the Phase 6 `lower_module.rs` (P 12–140, B 141–399,
+  P2 400–412, C 413–715 + 716–720/725–727, D 721–724 + 728–875, E 876–1079, F 1080–1137 + 1148–1262, G 1263–1444,
+  H 1445–1671, I 1672–1883, J 1884–2182, K 2183–2252, L 2253–2398, Z 2399–2439) and moved each region unchanged
+  into its fn. Instead of renaming every use to `tables.x`/`layout.x`, each fn opens with a destructure of
+  `*tables` / `*layout` / `flags` binding only the fields its body reads (the T Phase 5 pattern), so the body text
+  keeps its names; the only body edits are the borrow fix-ups for names that became references and the two §4.12
+  renames (`&closure_tables` → `tables`; F's and J's `module.build_mode` → `tables.build_mode`, the same value).
+  `ModuleLayout` has exactly the 19 fields §4.12 lists (all are read downstream). rustfmt re-indented.
+  Verified 2026-10-20: `u7verify.py` → token-level substitutions only `&`→`` (147), ``→`*` (4), `& closure_tables`
+  →`tables` (3), `module`→`tables` (11), 0 outside those forms; every region's code present (modulo rustfmt) and its
+  comments in order in its file; P, P2 and Z verbatim in the orchestrator; `cargo check` → 0 warnings; clippy →
+  37065; N = 5018; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; artifact gates `general`, `thread`,
+  `term`, `tls`, `audio`, `io`, `link-const-pins`, `collections`, `strings` → 0 diffs each; `test-accept.sh …
+  app-mouse-surface` → 1 passed (the canvas/LINK region K); cites → 10 repointed by (file, line), 6 stay at
+  `lower_module.rs`; census → lower_module 463, module_layout 535 + 3 test, module_helpers 557, module_finish 615;
+  fns → `lower_relocation_gated_helpers` 275 (largest), `lower_runtime_helpers_and_threads` 219, the orchestrator
+  210, `plan_arena_layout` 202; budget → no row under `src/codegen/engine/`; the ceiling grep → 0.
 Commit: —
 
 ## Validation Plan
@@ -1367,6 +1392,11 @@ Commit: —
   — owner rule (AGENTS.md "never leave a bug"), applied by the author.
 
 ## Corrections
+
+- 2026-10-20 — §4.12: the extracted bodies keep their local names behind a destructuring prologue (`let
+  ClosureHelperTables { … } = *tables;`, `let ModuleLayout { …, ref global_initializer_symbol, .. } = *layout;`)
+  rather than the per-use `tables.x` / `layout.x` renames §4.12 describes — same values, fewer body edits.
+  `lower_module_for_platform` was 1849 code LOC at Phase 4, not 1801, with every region where §4.12 puts it.
 
 - 2026-10-20 — §4.1: 21 `pub(super)` edits, not 22 — `replace_field_admitted` stays private (only `field_with.rs`
   calls it). `emit_defer_walked_block` (bug-1036) did not exist at planning; it moves to `for_each.rs`.

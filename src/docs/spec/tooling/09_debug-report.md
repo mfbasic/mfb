@@ -42,7 +42,7 @@ An exit that does **not** reach `_mfb_shutdown` prints no report. That includes 
 crash (a fatal signal or access violation), Ctrl-C on a Windows console program
 (no console control handler is installed), and a signal delivered to an app-mode
 build (app builds install no console signal handlers).
-[[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
+[[src/codegen/engine/builder/module_layout.rs:plan_arena_layout]]
 
 The report helper runs after the main arena has been destroyed, so it never
 allocates and never reads the arena register; each line it writes is assembled

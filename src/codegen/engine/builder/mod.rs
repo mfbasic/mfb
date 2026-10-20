@@ -74,6 +74,9 @@ use crate::codegen::engine::mir::MirPlan;
 mod error_messages;
 mod link_resolution;
 mod lower_module;
+mod module_finish;
+mod module_helpers;
+mod module_layout;
 mod runtime_helpers;
 
 pub(crate) use error_messages::{

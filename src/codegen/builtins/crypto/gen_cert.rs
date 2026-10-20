@@ -9,7 +9,7 @@
 //!
 //! Data objects (framework paths, dlsym names, PKCS#8 templates, CNG wide ids) are
 //! owned here too, under a single `_mfb_crypto_cert_*` symbol space (the union of every
-//! name generate/sign/verify reference). The driver gate in `engine/builder/lower_module.rs`
+//! name generate/sign/verify reference). The driver gate in `engine/builder/module_layout.rs` (`module_data_objects`)
 //! emits [`data_objects`] once when any of those members is in the plan.
 
 use crate::codegen::engine::operand::*;

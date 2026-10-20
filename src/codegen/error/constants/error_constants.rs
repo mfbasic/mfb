@@ -1565,7 +1565,7 @@ pub(crate) const ERROR_STATUS_PREFIX_SYMBOL_PREFIX: &str = "_mfb_str_errstatus_"
 /// (`runtime_helper_may_park_error`); every other helper returns loose errors
 /// only, so its call sites carry no tag-3 branch. The module build refuses a
 /// function outside this list that calls `_mfb_rt_fail_status`
-/// (`builder/lower_module.rs`), so the two sides cannot drift apart.
+/// (`builder/module_finish.rs`, `lower_relocation_gated_helpers`), so the two sides cannot drift apart.
 pub(crate) const PARKING_HELPER_PACKAGES: &[&str] = &["audio"];
 
 /// Whether a runtime helper call to `target` (`"audio.write"`) may return a

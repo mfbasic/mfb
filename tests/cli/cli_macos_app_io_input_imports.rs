@@ -6,7 +6,8 @@
 //! ```
 //!
 //! App-mode `io.input` composes the *unchanged console* `io.readLine` body
-//! (`src/codegen/engine/builder/lower_module.rs`, the `build_mode.is_app()` force-emit) to
+//! (`src/codegen/engine/builder/module_finish.rs`, the `build_mode.is_app()` force-emit in
+//! `add_companion_runtime_symbols`) to
 //! read the window input pipe. That body probes the tty via `isatty`/`tcgetattr`,
 //! but the macOS plan only declared those two symbols in the import row for
 //! programs calling `io.readLine` (or the other readers) *directly* — so an
