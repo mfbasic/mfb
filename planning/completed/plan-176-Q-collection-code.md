@@ -722,21 +722,24 @@ Acceptance: the module is split with byte-identical codegen.
   `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → only the fixture; budget → one STALE row
   (4202) before, none after; census → mod 417, insert 386, append 399, inline_append 517, inline_bulk_append 541,
   bulk_append 643, splice 532, set 390, remove 409.
-Commit: —
+Commit: bdf10321b
 
 ### Phase 7: letter gate
 
-- [ ] `sh scripts/artifact-gate.sh target/release/mfb all` on the Phase 6 binary (est. 15–20 min).
+- [x] `sh scripts/artifact-gate.sh target/release/mfb all` on the Phase 6 binary (est. 15–20 min).
+      Done (as `bash`): `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`.
       This is justified once per letter: code motion in codegen can change emission for any
       fixture on any target, and only `all` covers every fixture's native goldens on all five targets.
-- [ ] `cargo test --test rt_self_update_cost --test rt_map_fifo_removal_flat --test rt_inplace_self_update`
+- [x] `cargo test --test rt_self_update_cost --test rt_map_fifo_removal_flat --test rt_inplace_self_update`
       (the runtime suites that exercise the moved in-place paths; est. 10 min).
-- [ ] `cargo test --test file_size_budget 2>&1 | grep -E 'src/codegen/collection/'` → no row, and
+      Done: → `ok. 1 passed … 3 ignored`, `ok. 1 passed`, `ok. 13 passed`, 0 failed.
+- [x] `cargo test --test file_size_budget 2>&1 | grep -E 'src/codegen/collection/'` → no row, and
       `grep -E 'src/codegen/collection/' tests/guards/file_size_ceilings.txt` → no `ceiling` line.
+      Done: → 0 rows; 0 ceiling lines.
 
 Acceptance: the whole letter is byte-identical on every target and the budget is clean.
   Check: the three commands above. They print a pass, all tests passed, and no output, respectively.
-Commit: —
+Commit: (this commit; letter gate only)
 
 ## Validation Plan
 
