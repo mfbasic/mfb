@@ -1,5 +1,6 @@
 {
   "name": "logger",
+  "ident": "jzaun#logger",
   "version": "1.0.0",
   "mfb": "1.0",
   "kind": "package",
@@ -8,7 +9,9 @@
     {
       "root": "src",
       "role": "package",
-      "include": ["**/*.mfb"]
+      "include": [
+        "**/*.mfb"
+      ]
     }
   ]
 }
