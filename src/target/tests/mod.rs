@@ -11,6 +11,7 @@
 
 use super::*;
 
+mod app_window;
 mod cross_executables;
 
 /// The app-mode-capable targets, as a `(name, supports_app_mode)` table.
