@@ -1161,6 +1161,12 @@ fn lower_entry() -> CodeFunction {
         abi::branch(&cand_loop),
         abi::label(&cand_up),
         abi::add_immediate(&candidate, &candidate, 1),
+        // Stepping up from the largest finite double reaches +inf, which is the
+        // answer: the patterns above it are NaNs, and walking on into them
+        // never terminates (`exact` in the reference stops here too).
+        abi::move_immediate(&scratch, "Integer", "9218868437227405312"), // +inf
+        abi::compare_registers(&candidate, &scratch),
+        abi::branch_eq(&cand_final),
         abi::branch(&cand_loop),
         abi::label(&cand_final),
         abi::move_register(&bits, &candidate),

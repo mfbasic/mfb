@@ -1,0 +1,11 @@
+FUNC main AS Integer
+  ' Eisel-Lemire declines this input (its 128-bit product's low word is all
+  ' ones, outside the window where that is harmless), so the exact fallback
+  ' decides it. The value, ~9.7e310, is past the largest double: the fallback's
+  ' walk steps up from the largest finite double to infinity and must stop
+  ' there. It once kept stepping into the NaN patterns above infinity and the
+  ' program hung. Infinity is then ErrOverflow (77050010), like any other
+  ' string too large for a Float.
+  LET v AS Float = toFloat("9724429689633648307e292")
+  RETURN 0
+END FUNC

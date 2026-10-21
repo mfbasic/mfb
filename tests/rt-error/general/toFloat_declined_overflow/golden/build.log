@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-error/general/toFloat_declined_overflow
+Wrote AST to tests/rt-error/general/toFloat_declined_overflow/func_general_toFloat_declined_overflow.ast
+Wrote IR to tests/rt-error/general/toFloat_declined_overflow/func_general_toFloat_declined_overflow.ir
+[exit 0]
+$ mfb build tests/rt-error/general/toFloat_declined_overflow
+Wrote executable to tests/rt-error/general/toFloat_declined_overflow/build/func_general_toFloat_declined_overflow.out
+[exit 0]
+$ tests/rt-error/general/toFloat_declined_overflow/build/func_general_toFloat_declined_overflow.out
+Thread:   0x00000000
+Error:    7-705-0010
+Message:  Arithmetic overflow or numeric conversion outside the destination range.
+Location: src/main.mfb:9:20
+
+[exit 255]
