@@ -152,15 +152,18 @@ impl ElementBinding {
             .find(|site| update.is_some() && site.update == update)
             .map_or(&self.template, |site| &site.template);
         let mut op = template.clone();
-        let value = match &mut op {
-            NirOp::Assign { value, .. } => value,
-            NirOp::StoreGlobal {
-                value: Some(value), ..
-            } => value,
-            _ => unreachable!("an element write-back is an Assign or a StoreGlobal"),
-        };
-        if let NirValue::Call { args, .. } = value {
-            args[2] = item;
+        // A template is a statement `predicates::write_back_of` matched:
+        // `c = set(c, i, item)`, an `Assign` or a `StoreGlobal` with its value.
+        match &mut op {
+            NirOp::Assign {
+                value: NirValue::Call { args, .. },
+                ..
+            }
+            | NirOp::StoreGlobal {
+                value: Some(NirValue::Call { args, .. }),
+                ..
+            } => args[2] = item,
+            _ => unreachable!("an element write-back is `c = set(c, i, item)`"),
         }
         op
     }
