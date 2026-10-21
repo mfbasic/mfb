@@ -137,6 +137,7 @@ pub(crate) fn lower_abi_function_helper(
     arena_global_slots: usize,
     uses_rng: bool,
     debug_arena_registry: bool,
+    arena_cap: bool,
 ) -> Result<
     (
         CodeFrame,
@@ -303,6 +304,7 @@ pub(crate) fn lower_abi_function_helper(
         arena_global_slots,
         uses_rng,
         debug_arena_registry,
+        arena_cap,
     };
     let result = lower(&mut builder, &args, &ctx)?;
 

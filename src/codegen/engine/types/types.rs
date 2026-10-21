@@ -1468,6 +1468,8 @@ pub(crate) struct ArenaLayout {
     /// plan-130-C: whether the `--debug` arena registry is active, so the thread and
     /// canvas start paths register the arenas they create.
     pub(crate) debug_arena_registry: bool,
+    /// plan-179-C: whether the arena memory cap is on; see `AbiCtx::arena_cap`.
+    pub(crate) arena_cap: bool,
 }
 
 /// The compiler-internal name for the runtime `app::Mode` presentation mode

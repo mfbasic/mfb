@@ -237,6 +237,9 @@ pub(crate) fn lower_arena_fill_zero() -> CodeFunction {
 pub(crate) fn lower_arena_destroy(
     platform: &dyn CodegenPlatform,
     debug_arena: bool,
+    // plan-179-C: give each unmapped block's bytes back to the arena memory cap.
+    arena_cap: bool,
+    platform_imports: &std::collections::HashMap<String, String>,
 ) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2): walk the block list and `munmap` each
     // block. `head` (the loop cursor) and `next` are loop-carried across the
@@ -292,6 +295,21 @@ pub(crate) fn lower_arena_destroy(
             &mut instructions,
             &mut vregs,
         );
+    }
+    if arena_cap {
+        let block_size = vregs.next();
+        instructions.push(abi::load_u64(&block_size, &head, 8));
+        crate::codegen::runtime::arena_cap::emit_unmap_refund(
+            &mut crate::codegen::runtime::arena_cap::CapSite {
+                symbol: ARENA_DESTROY_SYMBOL,
+                platform,
+                platform_imports,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            &block_size,
+            &mut vregs,
+        )?;
     }
     instructions.extend([
         abi::load_u64(abi::c_arg(1), &head, 8),
@@ -385,8 +403,14 @@ mod zero_fill_tests {
     #[test]
     fn fresh_blocks_and_freed_chunks_are_zero_filled() {
         select_backend();
-        let alloc = lower_arena_alloc(&crate::target::macos_aarch64::code::Platform, false, false)
-            .expect("arena_alloc");
+        let alloc = lower_arena_alloc(
+            &crate::target::macos_aarch64::code::Platform,
+            false,
+            false,
+            false,
+            &std::collections::HashMap::new(),
+        )
+        .expect("arena_alloc");
         let free = lower_arena_free(false, false);
         for (name, function) in [("arena_alloc", &alloc), ("arena_free", &free)] {
             assert!(

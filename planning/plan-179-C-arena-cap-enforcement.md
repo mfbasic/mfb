@@ -20,7 +20,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-179-B landed | `grep -n "^Commit:" planning/plan-179-B-arena-cap-startup-check.md` → a hash, not `—` | NOT MET (B's Commit line is `—` until it lands) |
+| plan-179-B landed | `grep -n "^Commit:" planning/plan-179-B-arena-cap-startup-check.md` → a hash, not `—` | MET (2026-10-20: `Commit: 16b5f4312`) |
 
 Everything below is written against the world where this holds.
 
@@ -126,13 +126,16 @@ For each block: load `blockSize` from the block header (+8), lock, `mapped -= bl
 
 ### Phase 1 — Counter, lock, map and unmap accounting
 
-- [ ] `src/codegen/memory/arena/arena.rs`: the map-site charge and refund (§4.2) at `arena.rs:907` and its failure branch, gated on the cap being enabled.
-- [ ] `src/codegen/memory/arena/arena.rs`: the unmap refund in `lower_arena_destroy` (§4.3) at `arena.rs:1986`.
-- [ ] `src/codegen/engine/function/entry.rs`: the two data symbols and the `pthread_mutex_init` call (§4.1), gated on the cap being enabled, placed after the plan-179-B probe.
-- [ ] `src/docs/spec/memory/04_arenas.md`: a new section "Process memory cap" (the counter, the lock, the check, the refund on unmap, the non-counted mappings listed in §1), and the one-line addition to step 5 (Grow) pointing to it.
-- [ ] `src/docs/spec/memory/08_program-startup.md`: the mutex initialization step.
-- [ ] `Cargo.toml`: a `[[test]]` entry for each new runtime test file, following the entries at lines 609 and 613.
-- [ ] `tests/runtime/rt_arena_memory_cap.rs`: three tests, §Validation.
+- [x] `src/codegen/memory/arena/arena.rs`: the map-site charge and refund (§4.2) at `arena.rs:907` and its failure branch, gated on the cap being enabled. In `arena/alloc.rs` (`lower_arena_alloc`), calling `emit_map_charge`/`emit_map_refund` from the new `src/codegen/runtime/arena_cap/accounting.rs`; the charge has the carry check the notes asked for.
+- [x] `src/codegen/memory/arena/arena.rs`: the unmap refund in `lower_arena_destroy` (§4.3) at `arena.rs:1986`. In `arena/mod.rs`, `emit_unmap_refund` before each block's unmap.
+- [x] `src/codegen/engine/function/entry.rs`: the two data symbols and the `pthread_mutex_init` call (§4.1), gated on the cap being enabled, placed after the plan-179-B probe. The symbols come from `arena_cap::data_objects`; there is no `pthread_mutex_init` call, because the lock is a statically initialized data object (Correction 2).
+- [x] `src/docs/spec/memory/04_arenas.md`: a new section "Process memory cap" (the counter, the lock, the check, the refund on unmap, the non-counted mappings listed in §1), and the one-line addition to step 5 (Grow) pointing to it. `mfb spec memory arenas | grep -c '\[\['` → 0.
+- [x] `src/docs/spec/memory/08_program-startup.md`: the mutex initialization step. Stated as "no initialization step: statically initialized", plus `_mfb_shutdown` zeroing the limit first (Corrections 2, 3).
+- [x] `Cargo.toml`: a `[[test]]` entry for each new runtime test file, following the entries at lines 609 and 613. `rt_arena_memory_cap`, after `rt_arena_large_block_reuse`.
+- [x] `tests/runtime/rt_arena_memory_cap.rs`: three tests, §Validation. Four: the three plus the Linux-only `a_failed_map_gives_its_charge_back` (Correction 4). `cargo test --test rt_arena_memory_cap` on macOS → 3 passed (the fourth is `cfg(target_os = "linux")`).
+- [x] Added: `_mfb_shutdown` stores 0 into `_mfb_rt_arena_map_limit` first (`lower_shutdown`, `arena_cap::emit_disable_accounting`) — the SIGINT/SIGTERM self-deadlock hazard from the notes. 40 SIGINTs at 10–280 ms into the worker-churn program on macOS: `runs=40 hangs=0` (39 × exit 130, 1 finished first).
+- [x] Added: the POSIX `process::spawn`/`process::shell` fork child stores 0 into the limit before it allocates (`emit_spawn_tail`, threaded by the new `AbiCtx::arena_cap` / `ArenaLayout::arena_cap`) — the fork-child deadlock hazard from the notes. `process::shell("exit 7")` and the four-argument `process::spawn` with an env map under the cap: `shell=7 spawn=3`, rc=0, on macOS and on 2227.
+- [x] Added: the lock/unlock imports, attributed to the entry like the `--debug` registry lock (`src/target/shared/plan/symbols.rs`, the shared `arena_lock_imports`).
 
 Acceptance:
   Check (macOS, local): `cargo test --test rt_arena_memory_cap` → all tests pass. Covers the cap, the disable, and the worker churn.
@@ -142,6 +145,14 @@ Acceptance:
   Check (refund): temporarily remove the refund in §4.2 step 5 → the failure-path test fails (it passes the mapping failure through a charge that is never returned). Restore it. This proves the refund is exercised.
   Check (performance): `./benchmark/language/run.sh --run 50` → the `arena` group's mfb rows are within the noise of the baseline in `benchmark/language/baseline/`. The grow path changed; the fast path did not. If a row moved beyond the noise, the change is in the wrong place; diagnose before continuing.
   Check (goldens): `scripts/artifact-gate.sh <mfb> all` → diffs only in the grow and unmap paths of fixtures that map arena blocks, on all five targets. Inspect one fixture to confirm the diff is the new charge, refund and lock calls, then re-baseline only those lines (AGENTS.md).
+  Result (macOS): `cargo test --test rt_arena_memory_cap` → `3 passed; 0 failed`. The cap case stops at `held 15` under 16 MiB and prints `out of memory`, rc=0; the disabled case reaches `done 64`; the churn case prints `workers 50 total 30450`.
+  Result (Linux aarch64, 2223): the same test built there (`cargo test --test rt_arena_memory_cap`) → `4 passed; 0 failed` (includes the failed-map refund under `ulimit -v 524288`).
+  Result (Linux x86-64 musl, 2227; also riscv64 musl, 2229): the three programs cross-built and run → cap `held 15` + `out of memory` rc=0, disabled `done 64`, churn `workers 50 total 30450` (Correction 5).
+  Result (Windows x86-64, 192.168.1.206): the same three cross-built programs → `held 15`/`out of memory` rc=0, `done 64` rc=0, `workers 50 total 30450` rc=0.
+  Result (refund): with `emit_map_refund` neutered the refund program on 2223 under `ulimit -v 524288` prints `-1 -1 -1` (the 256 MiB request is refused); restored, `-1 -1 268435456`. With `emit_unmap_refund` neutered the churn program dies with `7-701-0001 Allocation failed` at `src/main.mfb:6:23`; restored, it completes. Both mutations were reverted (`grep -c "P179 MUTATION"` → 0).
+  Result (zero limit, 2223, `LD_PRELOAD` failing `sysinfo`): `warn` with no MiB key stores 0 and the dive reaches `done 64`; `warn` with `maxArenaMemoryMiB: 16` stores 16 MiB and stops at `held 15`.
+  Result (performance): A/B on this Mac, the benchmark built -O1 with the cap on and with `maxArenaMemoryDisable: true` (byte-identical to the pre-plan compiler's code, see plan-179-B), `--run 50`, two alternating runs each, medians in ms: transient 0.037 / 0.037, mixed 0.041 / 0.041, growshrink 0.093–0.094 / 0.093. Baseline `benchmark/language/baseline/mfb-O1.log`: 0.037 / 0.042 / 0.096. Within noise (Correction 6).
+  Result (goldens): before regenerating, `scripts/artifact-gate.sh target/release/mfb all` → 207 diffs, the same 207 files as after plan-179-B, all native dumps; a main-tip (`b2499aca0`) baseline → 0 diffs. Full `scripts/test-accept.sh target/release/mfb` → 50 mismatches, every one a native dump (23 `.nplan`, 18 `.nobj`, 7 `.ncode`, 2 `.mir`) and no output, exit-code or build-log mismatch, so every runtime fixture behaves as before. One fixture (`byte-identity/strings`, macos-aarch64): with `maxArenaMemoryDisable: true` its sha is the golden's; the default build adds the B helper and data plus, for C, the lock imports, the counter/lock data, the charge/refund code in `_mfb_arena_alloc`, the unmap refund in `_mfb_arena_destroy` and the limit store in `_mfb_shutdown`; its only removed lines are register/frame reshuffles inside those two helpers. `bash scripts/regen-native-goldens.sh target/release/mfb` → `179 build(s), 230 golden(s) rewritten, 0 failure(s)`; the working tree then shows 207 changed goldens (macos 72 + 10 app, linux-aarch64 29 + 3 app, linux-x86_64 29 + 3 app, linux-riscv64 29, windows 27 + 5 app). Gate re-run → `2366 golden(s) checked, 0 diff(s)`.
 Commit: —
 
 Landing tier (once, at the end of this sub-plan): `scripts/artifact-gate.sh <mfb> all` and a full `scripts/test-accept.sh`, with the golden diff described above.
@@ -185,7 +196,13 @@ A first attempt implemented this sub-plan on branch `worktree-P-179`; the owner 
 
 ## Corrections
 
-_None yet. Filled in during execution._
+1. **Stale citations** (as the notes said): the map site is `lower_arena_alloc` in `src/codegen/memory/arena/arena/alloc.rs`, the unmap site `lower_arena_destroy` in `arena/mod.rs`, the entry `entry/mod.rs`. The accounting emitters live in `src/codegen/runtime/arena_cap/accounting.rs` (alloc.rs is near its 1000-line ceiling), and the call sites take `arena_cap` and `platform_imports` parameters.
+2. **No `pthread_mutex_init`.** The lock is a 64-byte data object initialized to each platform's static initializer (`os_env_lock_init_hex`: `0x32AAABA7` on macOS, zero on Linux, zero = `SRWLOCK_INIT` on Windows), the same image the `os::` env lock and the thread table use. That needs no runtime call, no `pthread_mutex_init` import, and cannot run too late.
+3. **Signal and fork hazards handled** by zeroing the limit (the notes' remedy): `_mfb_shutdown` does it first; the POSIX spawn/shell fork child does it before allocating. With the limit 0 the allocator neither charges nor refunds, so it never takes the lock. Added tasks above.
+4. **A fourth test.** The failed-map refund cannot be reached with an oversized request (the cap refuses it first), so the plan's mutation check needs a real map failure: `ulimit -v` on Linux (the notes' design). macOS does not enforce `RLIMIT_AS` and Windows has none, so the test is `cfg(target_os = "linux")`.
+5. **Remote rows are cross-built except 2223.** 2223 ran `cargo test` itself; 2227 (QEMU, hours per cargo build) and Windows (no Rust toolchain) ran the test programs cross-built on the Mac, which is the same emitted code. 2229 (riscv64) was added. 2228 (x86-64 glibc) was unreachable (`scp: Connection closed`).
+6. **Perf check scoped to the arena group as an A/B.** The full `./benchmark/language/run.sh --run 50` builds and runs every group for three languages; the plan's criterion is the `arena` group's mfb rows, and an A/B of the same benchmark with the cap on and off on the same machine fails on the same mistake (a slowed fast path) with less noise than a comparison against a baseline taken on another day.
+7. **The cap check counts the whole mapping**, header and grow slack included, as §4.4 says; the limit word is also read on every unmap (spec says so, per the notes).
 
 ## Summary
 

@@ -199,7 +199,8 @@ A disabled build emits no call, no helper, no limit word and no probe imports.
    no RAM to compare with), or 0 (not enforced) when it is not.
 6. **Store the cap** in the writable u64 `_mfb_rt_arena_map_limit`. `0` means no
    enforcement, and only step 5 stores it. The allocator's use of it is in
-   `./mfb spec memory arenas`.
+   `./mfb spec memory arenas`, *Process Memory Cap*. The cap's map lock needs no
+   initialization step: it is a statically initialized data object.
    [[src/codegen/runtime/arena_cap/mod.rs:ARENA_MAP_LIMIT_SYMBOL]]
 
 The helper is a vreg-allocated runtime helper with a 5376-byte frame buffer, so
@@ -302,6 +303,15 @@ The exit path (`entry_exit`) parks the exit code in the arena-state scratch word
 at offset `32` (which lives in the stack-resident entry frame, not the mmap'd
 arena blocks that teardown unmaps), calls `_mfb_shutdown` (`SHUTDOWN_SYMBOL`),
 reloads the exit code, and calls the platform process-exit. [[src/codegen/error/constants/error_constants.rs:SHUTDOWN_SYMBOL]]
+
+When the arena memory cap is on, `_mfb_shutdown`'s very first act is to store 0
+into `_mfb_rt_arena_map_limit`, which turns the cap's accounting off for the rest
+of the process. A SIGINT/SIGTERM can land on a thread that holds the cap's map lock
+(inside a block charge, refund or destroy); the handler runs `_mfb_shutdown` on that
+thread, and with the limit 0 the arena destroy below gives no bytes back and so
+never takes the lock it would otherwise wait on forever
+(`./mfb spec memory arenas`, *Process Memory Cap*).
+[[src/codegen/runtime/arena_cap/accounting.rs:emit_disable_accounting]]
 
 `_mfb_shutdown` reads the arena address from `_mfb_rt_main_arena`, **clears that
 global first** (so a signal arriving mid-teardown re-enters as a no-op), and skips

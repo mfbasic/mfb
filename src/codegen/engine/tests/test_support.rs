@@ -362,6 +362,7 @@ impl<'a> BuilderHarness<'a> {
             arena_global_slots: 0,
             uses_rng: false,
             debug_arena_registry: false,
+            arena_cap: false,
         }
     }
 }

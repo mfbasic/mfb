@@ -351,6 +351,8 @@ pub(crate) fn emit_spawn_tail(
     alloc_fail: &str,
     fork_fail: &str,
     done: &str,
+    // plan-179-C: the arena memory cap is on, so the child turns its accounting off.
+    arena_cap: bool,
     platform: &dyn CodegenPlatform,
     platform_imports: &HashMap<String, String>,
     instructions: &mut Vec<CodeInstruction>,
@@ -621,6 +623,19 @@ pub(crate) fn emit_spawn_tail(
     ]);
     // ---- child ----
     instructions.push(abi::label(&child));
+    // plan-179-C: before the child allocates (`emit_copy_to_cstring`,
+    // `emit_child_apply_env`), stop the arena memory cap's accounting. Another
+    // parent thread may have held the map lock at `fork()`, and the child's copy of
+    // it would stay locked forever; with the limit 0 the child never takes it.
+    if arena_cap {
+        let scratch = v.next();
+        crate::codegen::runtime::arena_cap::emit_disable_accounting(
+            symbol,
+            &scratch,
+            instructions,
+            relocations,
+        );
+    }
     for (off, hi, target) in [
         (STDIN_P, false, "0"),
         (STDOUT_P, true, "1"),

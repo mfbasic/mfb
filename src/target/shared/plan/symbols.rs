@@ -283,6 +283,27 @@ pub(super) fn platform_imports(
     // accepts only plan-defined symbols (entry, functions, runtime and link symbols,
     // data), and a code-layer debug helper is none of those — the report's own `_write`
     // rides the entry's attribution the same way.
+    // plan-179-C: the arena memory cap's map lock, taken by `_mfb_arena_alloc` and
+    // `_mfb_arena_destroy` (code-layer helpers, so attributed to the entry like the
+    // debug registry's lock below).
+    if crate::codegen::runtime::arena_cap::arena_cap_enabled(module) {
+        if let Some(entry) = platform
+            .entry_imports(module)
+            .first()
+            .map(|import| import.required_by.clone())
+        {
+            for import in arena_lock_imports(platform) {
+                push_platform_import(
+                    &mut imports,
+                    PlatformImport {
+                        library: import.library,
+                        symbol: import.symbol,
+                        required_by: entry.clone(),
+                    },
+                );
+            }
+        }
+    }
     for feature in crate::codegen::debug::active_features(module) {
         if feature.lock_helpers().is_empty() {
             continue;
@@ -294,19 +315,7 @@ pub(super) fn platform_imports(
         else {
             continue;
         };
-        let lock_imports: Vec<PlatformImport> =
-            platform_imports_for_runtime_call(platform, "thread.drop")
-                .into_iter()
-                .filter(|import| {
-                    [
-                        "pthread_mutex_lock",
-                        "pthread_mutex_unlock",
-                        "AcquireSRWLockExclusive",
-                        "ReleaseSRWLockExclusive",
-                    ]
-                    .contains(&import.symbol.trim_start_matches('_'))
-                })
-                .collect();
+        let lock_imports = arena_lock_imports(platform);
         for import in &lock_imports {
             push_platform_import(
                 &mut imports,
@@ -944,4 +953,21 @@ pub(super) fn push_unique(values: &mut Vec<String>, value: String) {
     if !values.contains(&value) {
         values.push(value);
     }
+}
+
+/// The lock/unlock imports (pthread mutex, or the Win32 SRW pair) out of the thread
+/// runtime's import set, so the platform-correct names and libraries come along.
+fn arena_lock_imports(platform: &dyn NativePlanPlatform) -> Vec<PlatformImport> {
+    platform_imports_for_runtime_call(platform, "thread.drop")
+        .into_iter()
+        .filter(|import| {
+            [
+                "pthread_mutex_lock",
+                "pthread_mutex_unlock",
+                "AcquireSRWLockExclusive",
+                "ReleaseSRWLockExclusive",
+            ]
+            .contains(&import.symbol.trim_start_matches('_'))
+        })
+        .collect()
 }

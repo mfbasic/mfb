@@ -67,6 +67,11 @@ pub(crate) struct AbiCtx<'a> {
     /// `canvas.startGraphics` consume it to register the arena they create; `false` on
     /// the inline (`abi_inline`) path.
     pub(crate) debug_arena_registry: bool,
+    /// plan-179-C: whether the arena memory cap is on (the program has an entry and no
+    /// `maxArenaMemoryDisable`). The POSIX `process.spawn`/`process.shell` fork child
+    /// consumes it to turn the cap's accounting off before it allocates; `false` on the
+    /// inline (`abi_inline`) path.
+    pub(crate) arena_cap: bool,
 }
 
 /// Whether a [`Parameter`] is required, or optional with a default — mirrors

@@ -172,8 +172,17 @@ fn debug_helpers_reference_no_arena_symbol() {
 #[test]
 fn shutdown_calls_debug_report_after_the_done_label() {
     mir::set_backend(MacosPlatform.backend());
-    let with =
-        lower_shutdown(false, false, false, false, &imports(), &MacosPlatform, true).unwrap();
+    let with = lower_shutdown(
+        false,
+        false,
+        false,
+        false,
+        &imports(),
+        &MacosPlatform,
+        true,
+        false,
+    )
+    .unwrap();
     let stream = Stream::of(&with);
     let done = stream.label_at("shutdown_done");
     let call = stream.index_of("the call to the debug report", |instruction| {
@@ -196,6 +205,7 @@ fn shutdown_calls_debug_report_after_the_done_label() {
         false,
         &imports(),
         &MacosPlatform,
+        false,
         false,
     )
     .unwrap();

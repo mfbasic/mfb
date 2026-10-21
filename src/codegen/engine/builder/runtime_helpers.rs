@@ -48,6 +48,7 @@ pub(crate) fn lower_runtime_helper(
                 arena_layout.global_slots,
                 uses_rng,
                 arena_layout.debug_arena_registry,
+                arena_layout.arena_cap,
             )?
         // (`term.*` members are `Body::abi_function` since the clean-room migration —
         // each member's own per-member body (`func_*.rs::lower_<name>`) calls the shared
