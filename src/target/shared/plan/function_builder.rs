@@ -284,8 +284,10 @@ impl FunctionPlanBuilder<'_> {
                 for arg in args {
                     self.lower_value(arg)?;
                 }
-                if runtime::is_native_direct_call(target) {
-                    // direct call: nothing to register.
+                if runtime::is_native_direct_call(target) || target == "typeName" {
+                    // direct call: nothing to register. `typeName` folds to a string
+                    // constant (the `RuntimeCall` arm below), so the `CallResult` an
+                    // inline `TRAP` makes of it owns no helper symbol either.
                 } else if let Some(helper) = runtime::helper_for_call(target) {
                     // An inline `TRAP` on a helper-backed built-in (a
                     // helper-targeted `CallResult`) needs the runtime helper

@@ -922,8 +922,9 @@ pub(super) fn collect_runtime_symbols_from_value(
         NirValue::CallResult { target, args, .. } => {
             // A helper-backed `CallResult` (inline `TRAP` on a built-in) invokes
             // the runtime helper directly, so its symbol must be defined just
-            // like the equivalent `RuntimeCall`.
-            if !runtime::is_native_direct_call(target) {
+            // like the equivalent `RuntimeCall` — except `typeName`, which folds to a
+            // string constant and owns no helper symbol.
+            if target != "typeName" && !runtime::is_native_direct_call(target) {
                 if let Some(helper) = runtime::helper_for_call(target) {
                     push_unique(symbols, runtime::symbol_for_call(helper, target));
                 }
