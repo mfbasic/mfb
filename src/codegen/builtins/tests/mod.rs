@@ -105,6 +105,7 @@ mod nir_fault_operators;
 mod nir_json;
 mod nir_validation;
 mod numeric_forms;
+mod opt_aggcopy;
 mod opt_fuse;
 mod opt_loop_facts;
 mod optimizer;
