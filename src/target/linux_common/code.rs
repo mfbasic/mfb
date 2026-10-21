@@ -510,6 +510,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
             spec.needs_winsock,
             spec.seed_presentation_mode_offset,
             spec.debug_features,
+            spec.arena_cap_init,
         )
     }
 
@@ -1335,6 +1336,44 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         self.arch.emit_arena_unmap(instructions)
     }
 
+    /// plan-179-B: `sysinfo(&struct sysinfo)` into the 112-byte structure at +0;
+    /// the host RAM is `totalram` (u64 at +32) times `mem_unit` (u32 at +104), the
+    /// LP64 layout every supported Linux ISA shares. The cgroup limit is applied by
+    /// the caller (`arena_cap::cgroup`).
+    fn emit_host_memory_probe(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        ram: abi::Reg,
+        scratch: abi::Reg,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        use crate::target::shared::abi as shared;
+        instructions.push(shared::add_immediate(
+            shared::c_arg(0),
+            shared::stack_pointer(),
+            0,
+        ));
+        self.emit_external_call("sysinfo", from, platform_imports, instructions, relocations)?;
+        let done = format!("{from}_host_memory_probe_done");
+        instructions.extend([
+            shared::move_register(scratch.clone(), shared::c_return(0)),
+            shared::move_immediate(ram.clone(), "Integer", "0"),
+            shared::compare_immediate(scratch.clone(), "0"),
+            shared::branch_ne(&done),
+            shared::load_u64(ram.clone(), shared::stack_pointer(), 32),
+            shared::load_u32(scratch.clone(), shared::stack_pointer(), 104),
+            shared::multiply_registers(ram.clone(), ram, scratch),
+            shared::label(&done),
+        ]);
+        Ok(())
+    }
+
+    fn host_memory_probe_name(&self) -> &'static str {
+        "sysinfo"
+    }
+
     /// bug-789: a thread this runtime created has a known stack (the workers); the
     /// app-mode worker the GTK bootstrap starts asks `pthread_getattr_np`. The main thread asks
     /// `RLIMIT_STACK` through the raw `prlimit64(0, RLIMIT_STACK, NULL, &old)` syscall
@@ -1720,6 +1759,7 @@ mod tests {
             needs_winsock: false,
             seed_presentation_mode_offset: None,
             debug_features: &[],
+            arena_cap_init: false,
         };
         // The entry's always-on arena-start-time block and its seed_rng block call
         // libc, so provide the imports they resolve against.

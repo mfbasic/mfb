@@ -955,6 +955,22 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String>;
     fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String>;
+    /// plan-179-B: read the machine's physical RAM, for the arena memory cap.
+    /// Stage the platform's OS call against the
+    /// `arena_cap::HOST_MEMORY_PROBE_BUFFER_BYTES` buffer at `sp + 0`, then leave
+    /// the byte count in `ram`, or 0 when the call failed. `scratch` may be
+    /// clobbered. Emitted only into `_mfb_rt_arena_cap_init`, a vreg helper.
+    fn emit_host_memory_probe(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        ram: crate::target::shared::abi::Reg,
+        scratch: crate::target::shared::abi::Reg,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String>;
+    /// The OS call `emit_host_memory_probe` makes, named in the probe-failure line.
+    fn host_memory_probe_name(&self) -> &'static str;
     /// Byte offset of `ai_addr` within `struct addrinfo`. macOS orders
     /// `ai_canonname` before `ai_addr` (offset 32); Linux orders `ai_addr` first
     /// (offset 24).
@@ -1575,6 +1591,10 @@ pub(crate) struct ProgramEntrySpec<'a> {
     /// plan-130: the active `--debug` features, whose `emit_entry_start` runs right after
     /// the entry publishes the main arena address. Empty for a normal build.
     pub(crate) debug_features: &'a [&'static dyn crate::codegen::debug::DebugFeature],
+    /// plan-179-B: call `_mfb_rt_arena_cap_init` before the first allocation, and
+    /// exit with status 1 when it says to stop. False when the build has
+    /// `maxArenaMemoryDisable: true`.
+    pub(crate) arena_cap_init: bool,
 }
 
 #[derive(Clone, Copy)]

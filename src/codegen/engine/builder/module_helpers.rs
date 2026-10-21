@@ -383,6 +383,15 @@ pub(super) fn lower_core_runtime_helpers(
             )?,
         );
     }
+    // plan-179-B: the arena memory cap's startup check, which the program entry
+    // calls before the first allocation.
+    if crate::codegen::runtime::arena_cap::arena_cap_enabled(module) {
+        code_functions.push(crate::codegen::runtime::arena_cap::lower_arena_cap_init(
+            &module.arena_memory,
+            platform_imports,
+            platform,
+        )?);
+    }
     if module.entry.is_some() {
         code_functions.push(lower_shutdown(
             uses_term,

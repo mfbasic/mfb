@@ -122,6 +122,13 @@ impl LinuxPlan<'_> {
         for base in ["fcntl", "open", "abort"] {
             imports.push(self.libc_import(base, "_main"));
         }
+        // plan-179-B: the arena memory cap's startup check reads the RAM (`sysinfo`)
+        // and the cgroup limit files (`open`, above, then `read`/`close`).
+        if crate::codegen::runtime::arena_cap::arena_cap_enabled(module) {
+            for base in ["sysinfo", "read", "close"] {
+                imports.push(self.libc_import(base, "_main"));
+            }
+        }
         imports
     }
 

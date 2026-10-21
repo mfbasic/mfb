@@ -131,7 +131,7 @@ Acceptance: every manifest test in the new set passes, and a build of a project 
   Check: `cargo test --bin mfb manifest::` → all manifest tests pass (est. 5 min; a scoped run is the cheapest check that fails if a validator is wrong).
   Check: a `project.json` with `"maxArenaMemoryPercent": 101` → build fails with a message naming `maxArenaMemoryPercent`.
   Result: `cargo test --bin mfb manifest::` → 226 passed, 0 failed. `mfb build /tmp/p179a` with `"maxArenaMemoryPercent": 101` → `error[2-200-0006 PROJECT_JSON_FIELD_TYPE] … Field \`maxArenaMemoryPercent\` must be a whole number from 1 to 100`, rc=1. `scripts/artifact-gate.sh target/debug/mfb strings` → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)` (the full gate runs once at the end of the plan, §5 of follow-plan).
-Commit: —
+Commit: 0ed6f7b2b
 
 Landing tier (once, at the end of this sub-plan): `scripts/artifact-gate.sh <mfb> all` and a full `scripts/test-accept.sh`. Expected result: zero diff, because this sub-plan emits no code. Any diff is a bug in this sub-plan (AGENTS.md: "Unexpected diff in a golden … = bug-hunt trigger"); inspect one fixture to localize it.
 

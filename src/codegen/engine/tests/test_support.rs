@@ -74,6 +74,8 @@ impl CodegenPlatform for TestPlatform {
     fn emit_realpath(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_realpath") }
     fn emit_arena_map(&self, _size_reg: abi::Reg, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TestPlatform::emit_arena_map") }
     fn emit_arena_unmap(&self, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TestPlatform::emit_arena_unmap") }
+    fn emit_host_memory_probe(&self, _from: &str, _platform_imports: &HashMap<String, String>, _ram: abi::Reg, _scratch: abi::Reg, _instructions: &mut Vec<CodeInstruction>, _relocations: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_host_memory_probe") }
+    fn host_memory_probe_name(&self) -> &'static str { unimplemented!("TestPlatform::host_memory_probe_name") }
     fn addrinfo_addr_offset(&self) -> usize { 24 }
     fn sol_socket(&self) -> &'static str { "1" }
     fn so_reuseaddr(&self) -> &'static str { "2" }

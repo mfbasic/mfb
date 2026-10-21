@@ -41,6 +41,8 @@ pub(crate) fn lower_program_entry(
     seed_presentation_mode_offset: Option<usize>,
     // plan-130: active `--debug` features; each emits its entry work below.
     debug_features: &[&'static dyn crate::codegen::debug::DebugFeature],
+    // plan-179-B: run the arena memory cap's startup check.
+    arena_cap_init: bool,
 ) -> Result<CodeFunction, String> {
     // bug-175 I: the `entry_exit_range_error` handler (and its label) is emitted
     // only for an `Integer` entry, but the range-check branch to it is emitted for
@@ -290,6 +292,31 @@ pub(crate) fn lower_program_entry(
                 )
             },
         )?;
+    }
+    // plan-179-B: the arena memory cap's startup check — probe the RAM, apply the
+    // 90% check, store the limit — after the arena state is zeroed and the standard
+    // descriptors are reserved (its messages go to fd 2), and before the `--debug`
+    // entry work and the first allocation. Status 1 means `halt`: the program exits
+    // with status 1 through the ordinary exit path, with no program code run. The
+    // call clobbers the caller-saved registers, like the descriptor reservation
+    // above; argc/argv are parked in callee-saved SCRATCH[17]/SCRATCH[18] or not yet
+    // needed.
+    if arena_cap_init {
+        let cap_ok = "entry_arena_cap_ok";
+        instructions.push(abi::branch_link(
+            crate::codegen::runtime::arena_cap::ARENA_CAP_INIT_SYMBOL,
+        ));
+        relocations.push(internal_branch(
+            entry_symbol,
+            crate::codegen::runtime::arena_cap::ARENA_CAP_INIT_SYMBOL,
+        ));
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(cap_ok),
+            abi::move_immediate(abi::return_register(), "Integer", "1"),
+            abi::branch(exit_label),
+            abi::label(cap_ok),
+        ]);
     }
     // plan-130: each active `--debug` feature's entry work (the perf section maps its
     // region and opens the whole-program span). The calls clobber x0–x17, but argc/argv

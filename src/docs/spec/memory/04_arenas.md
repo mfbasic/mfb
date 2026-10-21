@@ -259,7 +259,12 @@ The algorithm:
    `ErrOutOfMemory` rather than mapping an undersized block.
 
 A failed mapping (the platform `mmap`/`VirtualAlloc` hook) reports
-`ErrOutOfMemory`. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
+`ErrOutOfMemory`.
+
+The program entry's arena memory cap check stores the process-wide cap in the
+u64 data word `_mfb_rt_arena_map_limit` before the first allocation
+(`./mfb spec memory program-startup`, *The Arena Memory Cap Check*); it is not
+part of the arena state. The grow step does not read it yet. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
 source as ordinary language-level errors (see the language spec §14.3.1).
 
 ## `arena_free(ptr, size)`
