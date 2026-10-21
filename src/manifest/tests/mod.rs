@@ -47,6 +47,8 @@ fn resource_paths_may_not_escape_the_project() {
 }
 
 use super::*;
+
+mod edges;
 use std::io::Write;
 use tempfile::TempDir;
 
