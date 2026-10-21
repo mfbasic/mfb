@@ -38,6 +38,7 @@ mod corpus;
 mod data_layout;
 mod declared_errors_all;
 mod declared_errors_sweep;
+mod default_union;
 mod diagnostics;
 mod entry;
 mod fixture_projects;
