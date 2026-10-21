@@ -41,6 +41,9 @@ fn run_with_stats(name: &str, source: &str, env: &[(&str, &str)]) -> (String, St
 
 /// A program body, wrapped in the canvas-mode boilerplate, with `stats(tag)` printing
 /// every field of a snapshot on one line.
+///
+/// `frameSeconds` is printed in nanoseconds as `frameNanos`: `toString` keeps two
+/// decimals, so a software frame drawn in under 5 ms printed `0.00` on a fast host.
 fn program(body: &str) -> String {
     format!(
         "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT io\nIMPORT os\n\n\
@@ -50,8 +53,8 @@ fn program(body: &str) -> String {
          IF s.renderer = canvas::Renderer.Metal THEN\n    r = \"metal\"\n  END IF\n  \
          IF s.renderer = canvas::Renderer.Vulkan THEN\n    r = \"vulkan\"\n  END IF\n  \
          io::print(tag & \" dt=\" & toString(s.dt) & \" pps=\" & toString(s.pps) & \" fps=\" & \
-         toString(s.fps) & \" displayHz=\" & toString(s.displayHz) & \" frameSeconds=\" & \
-         toString(s.frameSeconds) & \" presents=\" & toString(s.presents) & \" frames=\" & \
+         toString(s.fps) & \" displayHz=\" & toString(s.displayHz) & \" frameNanos=\" & \
+         toString(s.frameSeconds * 1000000000.0) & \" presents=\" & toString(s.presents) & \" frames=\" & \
          toString(s.frames) & \" renderer=\" & r)\nEND FUNC\n\n\
          FUNC box(x AS Float) AS canvas::DrawItem\n  \
          RETURN canvas::Rectangle[id := \"\", position := vector::Float2[x := x, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 20.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\nEND FUNC\n\n\
@@ -93,7 +96,7 @@ fn before_any_present_every_field_is_zero() {
         &program("  stats(\"before\")\n"),
         &[("MFB_CANVAS_DISPLAY_HZ", "90")],
     );
-    for name in ["dt", "pps", "fps", "frameSeconds", "presents", "frames"] {
+    for name in ["dt", "pps", "fps", "frameNanos", "presents", "frames"] {
         assert_eq!(number(&out, "before", name), 0.0, "{name}:\n{out}");
     }
     assert_eq!(field(&out, "before", "renderer"), "software", "{out}");
@@ -211,7 +214,7 @@ fn frame_seconds_and_renderer_after_a_drawn_frame() {
         &program(body),
         &[("MFB_CANVAS_SYNC", "1")],
     );
-    assert!(number(&out, "drawn", "frameSeconds") > 0.0, "{out}");
+    assert!(number(&out, "drawn", "frameNanos") > 0.0, "{out}");
     assert_eq!(number(&out, "drawn", "frames"), 1.0, "{out}");
     assert_eq!(field(&out, "drawn", "renderer"), "software", "{out}");
 
@@ -229,7 +232,7 @@ fn frame_seconds_and_renderer_after_a_drawn_frame() {
             .is_some_and(|l| l.contains("metalReady=TRUE"))
         {
             assert_eq!(field(&out, "drawn", "renderer"), "metal", "{out}\n{stats}");
-            assert!(number(&out, "drawn", "frameSeconds") > 0.0, "{out}");
+            assert!(number(&out, "drawn", "frameNanos") > 0.0, "{out}");
         }
     }
 }
