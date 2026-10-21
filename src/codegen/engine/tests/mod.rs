@@ -9,7 +9,21 @@ pub(crate) mod test_support;
 #[cfg(test)]
 pub(crate) use test_support::*;
 #[cfg(test)]
+mod arena_symbols;
+#[cfg(test)]
+mod borrowed_resources;
+#[cfg(test)]
+mod concat_spine;
+#[cfg(test)]
+mod data_layout;
+#[cfg(test)]
+mod platform_family;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transfer_temps;
+#[cfg(test)]
+mod union_tags;
 
 // The per-package builtin codegen suites, declared from HERE rather than from
 // `codegen::builtins::mod` on purpose. A `#[cfg(test)] mod` line makes the file

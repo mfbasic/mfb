@@ -132,7 +132,7 @@ pub(crate) struct CodeDataObject {
 
 /// Page size the read-only/writable data boundary aligns to (bug-187), matching
 /// the linker's `PAGE_SIZE` so the two partitions land on independent pages.
-const DATA_PAGE_SIZE: usize = 0x1000;
+pub(crate) const DATA_PAGE_SIZE: usize = 0x1000;
 
 /// Size of the `sp`-relative scratch window [`CodegenPlatform::emit_temp_directory`]
 /// may use, reserved for it by `lower_fs_temp_directory_helper` (bug-360). Two
@@ -1614,88 +1614,4 @@ pub(crate) struct CodeStackSlot {
     pub(crate) name: String,
     pub(crate) type_: String,
     pub(crate) offset: i32,
-}
-
-#[cfg(test)]
-mod data_layout_tests {
-    use super::*;
-
-    fn obj(symbol: &str, kind: &str, align: usize, value: &str) -> CodeDataObject {
-        CodeDataObject {
-            symbol: symbol.to_string(),
-            kind: kind.to_string(),
-            layout: String::new(),
-            align,
-            size: 0,
-            value: value.to_string(),
-        }
-    }
-
-    #[test]
-    fn partitions_constants_before_writable_with_page_boundary() {
-        // A constant and a writable (raw) object: the constant lands in the
-        // read-only prefix, the raw object in the writable region on a fresh page.
-        let objects = vec![
-            obj("_arena", "raw", 8, "0000000000000000"),
-            obj("_str", "constant", 8, "hi"),
-        ];
-        let (bytes, rodata_size, symbols) = layout_data_objects(&objects).unwrap();
-        let str_off = symbols.iter().find(|(n, _)| n == "_str").unwrap().1;
-        let arena_off = symbols.iter().find(|(n, _)| n == "_arena").unwrap().1;
-        // The constant is first (offset 0); the writable object is past the
-        // page-aligned boundary.
-        assert_eq!(str_off, 0);
-        assert!(rodata_size > 0 && rodata_size % DATA_PAGE_SIZE == 0);
-        assert!(
-            arena_off >= rodata_size,
-            "arena must be in the writable region"
-        );
-        // The constant's bytes (u64 len prefix + "hi" + NUL) sit at offset 0.
-        assert_eq!(&bytes[0..8], &2u64.to_le_bytes());
-        assert_eq!(&bytes[8..10], b"hi");
-    }
-
-    #[test]
-    fn no_constants_means_no_rodata() {
-        let objects = vec![obj("_arena", "raw", 8, "0000000000000000")];
-        let (_, rodata_size, _) = layout_data_objects(&objects).unwrap();
-        assert_eq!(rodata_size, 0);
-    }
-
-    #[test]
-    fn align_zero_does_not_divide_by_zero() {
-        // bug-18: a malformed plan could carry align 0; treat 0/1 as "no align".
-        assert_eq!(align(1, 0), 1);
-        assert_eq!(align(0, 0), 0);
-        assert_eq!(align(7, 1), 7);
-        assert_eq!(align(1, 8), 8);
-        assert_eq!(align(17, 16), 32);
-        // And a data object with align 0 lays out without panicking.
-        let objects = vec![obj("_x", "raw", 0, "ff")];
-        assert!(layout_data_objects(&objects).is_ok());
-    }
-}
-
-#[cfg(test)]
-mod platform_family_tests {
-    use super::*;
-
-    #[test]
-    fn derives_family_for_every_registered_target() {
-        // The four strings in `crate::target::NATIVE_BACKENDS`. If a backend is
-        // added, its target must gain an arm here (and in `platform_family`).
-        assert_eq!(platform_family("linux-x86_64"), PlatformFamily::Linux);
-        assert_eq!(platform_family("linux-aarch64"), PlatformFamily::Linux);
-        assert_eq!(platform_family("linux-riscv64"), PlatformFamily::Linux);
-        assert_eq!(platform_family("macos-aarch64"), PlatformFamily::MacOS);
-        // Not yet registered, but the derivation already recognizes it so 47-B
-        // can register `windows-x86_64` without touching this function.
-        assert_eq!(platform_family("windows-x86_64"), PlatformFamily::Windows);
-    }
-
-    #[test]
-    #[should_panic(expected = "unregistered target")]
-    fn panics_on_unregistered_target() {
-        let _ = platform_family("plan9-riscv64");
-    }
 }
