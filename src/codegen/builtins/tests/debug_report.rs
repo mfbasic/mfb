@@ -293,3 +293,82 @@ fn each_debug_section_refuses_the_imports_it_calls() {
         }
     }
 }
+
+/// A canvas program: the graphics thread owns an arena of its own.
+const CANVAS: &str = "\
+IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET size = canvas::getSize()
+  LET word = canvas::profileWord(0)
+  io::print(toString(word))
+  RETURN 0
+END FUNC
+";
+
+/// The same program without the internal profile read, which only a `--debug` build can
+/// lower (`canvas::profileWord` names the profile block, which a normal build omits).
+const CANVAS_PLAIN: &str = "\
+IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET size = canvas::getSize()
+  io::print(\"x\")
+  RETURN 0
+END FUNC
+";
+
+/// A `--debug` canvas build carries the render profile block and registers the graphics
+/// thread's arena with the arena registry; the same program without `--debug` carries
+/// neither.
+#[test]
+fn a_debug_canvas_build_profiles_the_renderer_and_registers_the_graphics_arena() {
+    use crate::codegen::debug::DEBUG_ARENA_REGISTER_SYMBOL;
+    // The profile block's symbol (`runtime::canvas::entry::CANVAS_PROFILE_SYMBOL`).
+    const CANVAS_PROFILE_SYMBOL: &str = "_mfb_rt_canvas_profile";
+    // Two backends, not five: lowering a canvas program injects the whole canvas
+    // package, which is the slow part of this suite.
+    for target in [CodeTarget::MacosAarch64, CodeTarget::LinuxX86_64] {
+        let mode = target.app_mode().expect("both have an app mode");
+        let (_, debug) = lowered(CANVAS, target, mode);
+        let registers = |plan: &NativeCodePlan| {
+            plan.functions.iter().any(|function| {
+                function
+                    .relocations
+                    .iter()
+                    .any(|relocation| relocation.to == DEBUG_ARENA_REGISTER_SYMBOL)
+            })
+        };
+        assert!(
+            debug
+                .data_objects
+                .iter()
+                .any(|object| object.symbol == CANVAS_PROFILE_SYMBOL),
+            "{}: a --debug canvas build carries the profile block",
+            target.name()
+        );
+        assert!(
+            registers(&debug),
+            "{}: the graphics thread's arena is registered with the --debug registry",
+            target.name()
+        );
+    }
+    let normal = crate::testutil::app_code_cached(CANVAS_PLAIN, CodeTarget::LinuxX86_64);
+    assert!(
+        !normal
+            .data_objects
+            .iter()
+            .any(|object| object.symbol == CANVAS_PROFILE_SYMBOL)
+            && !normal.functions.iter().any(|function| function
+                .relocations
+                .iter()
+                .any(|relocation| relocation.to == DEBUG_ARENA_REGISTER_SYMBOL)),
+        "a build without --debug carries neither"
+    );
+}

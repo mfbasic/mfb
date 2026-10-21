@@ -106,6 +106,102 @@ FUNC main() AS Integer
 END FUNC
 "#;
 
+/// Resource-union bindings that alias one another, wrap a concrete resource, are
+/// returned, floated into a collection through an inline `TRAP` and returned with a
+/// `STATE`.
+const UNION_ALIASES: &str = r#"IMPORT io
+IMPORT fs
+IMPORT tcp
+IMPORT collections
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE Cur
+  n AS Integer
+END TYPE
+
+FUNC mkHandle() AS RES Handle
+  RES h AS Handle = fs::createTempFile()
+  RETURN h
+END FUNC
+
+FUNC pickFail(n AS Integer) AS RES Handle
+  IF n < 0 THEN
+    FAIL error(77050001, "no handle")
+  END IF
+  RES h AS Handle = fs::createTempFile()
+  RETURN h
+END FUNC
+
+FUNC aliasChain() AS RES Handle
+  RES a AS Handle = mkHandle()
+  RES b AS Handle = a
+  RES c AS Handle = b
+  RETURN c
+END FUNC
+
+FUNC wrapConcrete() AS RES Handle
+  RES f AS fs::File = fs::createTempFile()
+  RES c AS Handle = f
+  RETURN c
+END FUNC
+
+FUNC wrapChain() AS RES Handle
+  RES f AS fs::File = fs::createTempFile()
+  RES c AS Handle = f
+  RES d AS Handle = c
+  RETURN d
+END FUNC
+
+FUNC parameterReturned(h AS Handle) AS Handle
+  RETURN h
+END FUNC
+
+FUNC floatedUnion() AS Integer
+  MUT hs AS List OF RES Handle = []
+  MUT n AS Integer = 0
+  WHILE n < 2
+    RES h AS Handle = mkHandle()
+    hs = collections::append(hs, h) TRAP(e)
+      RECOVER hs
+    END TRAP
+    n = n + 1
+  END WHILE
+  RETURN len(hs)
+END FUNC
+
+FUNC floatedUnionFromFailing() AS Integer
+  MUT hs AS List OF RES Handle = []
+  MUT n AS Integer = 0
+  WHILE n < 2
+    hs = collections::append(hs, pickFail(n - 1)) TRAP(e)
+      RECOVER hs
+    END TRAP
+    n = n + 1
+  END WHILE
+  RETURN len(hs)
+END FUNC
+
+FUNC stateReturned() AS RES fs::File STATE Cur
+  RES f AS fs::File STATE Cur = fs::createTempFile()
+  f.state.n = 3
+  RETURN f
+END FUNC
+
+FUNC main() AS Integer
+  RES a AS Handle = aliasChain()
+  RES b AS Handle = wrapConcrete()
+  RES c AS Handle = wrapChain()
+  RES d AS Handle = parameterReturned(a)
+  RES s AS fs::File STATE Cur = stateReturned()
+  io::print(toString(floatedUnion() + floatedUnionFromFailing() + s.state.n))
+  RETURN 0
+END FUNC
+"#;
+
 fn closes(plan: &NativeCodePlan) -> Vec<String> {
     plan.functions
         .iter()
@@ -190,5 +286,31 @@ fn module_level_stores_lower_and_a_resource_free_store_adds_no_list_work() {
         list_pushes("fromCall") > 0,
         "a call result stored into a resource global has no name to walk before the \
          store, so the whole global is walked after it and each resource listed"
+    );
+}
+
+/// Resource unions aliased, wrapped from a concrete resource, returned and floated into a
+/// collection lower on every backend, and the binding that finally owns them closes by
+/// variant.
+#[test]
+fn union_aliases_lower_and_the_owning_binding_closes_by_variant() {
+    for target in CodeTarget::ALL {
+        if let Err(err) = try_code_for_src(UNION_ALIASES, target, Console) {
+            panic!("union aliases must lower on {}: {err}", target.name());
+        }
+    }
+    let plan =
+        crate::testutil::code_for_src_cached(UNION_ALIASES, CodeTarget::LinuxX86_64, Console);
+    let closes_in = |name: &str| {
+        let function = crate::testutil::code_function(plan, name);
+        Stream::of(function)
+            .calls_between(0, function.instructions.len())
+            .into_iter()
+            .filter(|call| call == FS_CLOSE || call == TCP_CLOSE)
+            .count()
+    };
+    assert!(
+        closes_in("main") >= 2,
+        "main owns the unions it bound and closes each by variant (File and Socket)"
     );
 }
