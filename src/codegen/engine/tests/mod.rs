@@ -45,6 +45,8 @@ mod tests;
 #[cfg(test)]
 mod transfer_temps;
 #[cfg(test)]
+mod type_model_kinds;
+#[cfg(test)]
 mod type_oracle;
 #[cfg(test)]
 mod unicode_tables;

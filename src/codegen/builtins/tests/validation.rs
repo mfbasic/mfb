@@ -417,3 +417,35 @@ fn a_symbol_defined_twice_is_refused() {
     });
     assert!(refused.contains("more than once"), "{refused:?}");
 }
+
+/// The library half of the external and data bindings, against a symbol each
+/// table really holds (so only the library check can fire): an external
+/// relocation must name the library its import comes from, and a data
+/// relocation names none — it resolves inside the image.
+#[test]
+fn an_external_needs_its_library_and_data_names_none() {
+    let imported = plan().imports[0].symbol.clone();
+    let refused = refusal("an external relocation with no library", |p| {
+        let symbol = p.functions[0].symbol.clone();
+        p.functions[0]
+            .relocations
+            .push(reloc(&symbol, &imported, "external", None));
+    });
+    assert!(
+        refused.contains(&format!(
+            "external relocation '{imported}' must name a library"
+        )),
+        "{refused:?}"
+    );
+    let data = plan().data_objects[0].symbol.clone();
+    let refused = refusal("a data relocation that names a library", |p| {
+        let symbol = p.functions[0].symbol.clone();
+        p.functions[0]
+            .relocations
+            .push(reloc(&symbol, &data, "data", Some("libc.so.6")));
+    });
+    assert!(
+        refused.contains(&format!("data relocation '{data}' must not name a library")),
+        "{refused:?}"
+    );
+}
