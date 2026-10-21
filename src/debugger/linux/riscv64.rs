@@ -98,10 +98,18 @@ impl Tracee {
             if self.step_traps.iter().any(|(at, _)| *at == address) {
                 continue;
             }
-            let length = decode::length(&self.read(address, 2)?);
-            let original = self.read(address, length)?;
-            self.write(address, breakpoint(&original))?;
-            self.step_traps.push((address, original));
+            // An address no code is mapped at gets no breakpoint: the thread
+            // faults on reaching it, and the step reports that, as AArch64's
+            // does.
+            let Ok(first) = self.read(address, 2) else {
+                continue;
+            };
+            let Ok(original) = self.read(address, decode::length(&first)) else {
+                continue;
+            };
+            if self.write(address, breakpoint(&original)).is_ok() {
+                self.step_traps.push((address, original));
+            }
         }
         self.continue_step(index)?;
         Ok(true)
