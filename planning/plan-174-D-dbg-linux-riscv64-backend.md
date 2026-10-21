@@ -315,17 +315,28 @@ Commit: —
 
 A pure function with no caller. Safe alone, and tested on the Mac.
 
-- [ ] Add `src/debugger/linux_riscv64.rs`, declared in `mod.rs` under
+- [x] Add `src/debugger/linux_riscv64.rs`, declared in `mod.rs` under
       `any(all(target_os = "linux", target_arch = "riscv64"), test)`, with
-      `next_addresses` per §3.
-- [ ] Tests in `linux_riscv64.rs`: `next_addresses` for a straight instruction
+      `next_addresses` per §3. (As `debugger/riscv64/step.rs`, inside the
+      riscv64 module, which has that `cfg` already: see Corrections. It takes
+      the code's bytes and decodes them, and answers `Next::To(addresses)` or
+      `Next::Breakpoint` for an `ebreak`, which a step reports without
+      running.)
+- [x] Tests in `linux_riscv64.rs`: `next_addresses` for a straight instruction
       of each length, `beq` taken and not, `jal`, `jalr` through a register,
       `ret`, `c.jr`, `c.beqz`, `ecall`, `ecall` with `a7` = 139 reading
       `sp + 304`, an `lr.w` … `sc.w` loop with a branch out, an `lr.w` with no
-      `sc` in 16 instructions, and an undecoded word.
+      `sc` in 16 instructions, and an undecoded word. (In
+      `riscv64/step/tests.rs`, seven tests over real corpus words: the
+      `lr`/`sc` loop is glibc's compare-and-swap at 0x28bb2, which answers
+      the address after `sc.w` and the `bnez`'s exit; `ebreak` and `c.ebreak`
+      answer `Next::Breakpoint`.)
 
 Acceptance: every row of §3's table answers the addresses the table gives.
   Check: `cargo test --bin mfb debugger::linux_riscv64` → 0 failed (est. 2 min).
+  Measured 2026-10-21 (filter `debugger::riscv64`, the module's place): `11
+  passed; 0 failed` (the four register tests of plan-174-C and these seven);
+  `cargo check --all-targets` → no warnings.
 Commit: —
 
 ### Phase 3 — the riscv64 backend (largest blast radius)

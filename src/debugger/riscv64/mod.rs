@@ -6,6 +6,7 @@
 //! compiler and `objdump` name them; `x10` and `fp` name nothing.
 
 mod registers;
+pub(crate) mod step;
 pub(crate) use registers::*;
 
 use super::arch::{Arch, ArchHelp, Decoded, Effect, ElfArch, Reg};
