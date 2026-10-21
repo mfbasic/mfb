@@ -11,6 +11,7 @@ mod edges;
 mod expressions_and_types;
 mod parse_errors;
 mod serialize_and_signatures;
+mod statements;
 
 #[test]
 fn glob_patterns_match_nested_and_root_files() {
