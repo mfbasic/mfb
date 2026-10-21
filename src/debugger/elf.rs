@@ -550,7 +550,7 @@ mod tests {
     use crate::arch::image::{
         EncodedImage, EncodedImport, EncodedSection, EncodedSymbol, ImportKind,
     };
-    use crate::debugger::arm64::ELF;
+    use crate::debugger::arm64::AARCH64;
     use crate::os::linux::flavor::LinuxFlavor;
 
     /// A two-function image importing `write` and `exit`, linked by the
@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn a_debug_build_names_its_functions_data_imports_and_stubs() {
         let bytes = linked(true);
-        let image = executable(&bytes, &ELF).expect("an ELF the linker wrote");
+        let image = executable(&bytes, &AARCH64.elf).expect("an ELF the linker wrote");
         let elf = &image.elf;
         assert!(elf.position_independent);
         assert_eq!(elf.entry, 0x1000);
@@ -666,7 +666,7 @@ mod tests {
     #[test]
     fn a_build_without_debug_still_names_its_imports_through_pt_dynamic() {
         let bytes = linked(false);
-        let image = executable(&bytes, &ELF).unwrap();
+        let image = executable(&bytes, &AARCH64.elf).unwrap();
         assert!(image.elf.symbols.is_empty());
         assert_eq!(
             image
@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn the_code_and_defined_functions_are_listed_and_an_executable_has_no_plt() {
-        let image = executable(&linked(true), &ELF).unwrap();
+        let image = executable(&linked(true), &AARCH64.elf).unwrap();
         let elf = &image.elf;
         let code = elf.code();
         assert_eq!(code.len(), 1);
@@ -700,7 +700,7 @@ mod tests {
 
     #[test]
     fn a_plt_entry_is_named_by_its_jump_slot_relocation() {
-        let mut elf = read(&linked(false), &ELF).unwrap();
+        let mut elf = read(&linked(false), &AARCH64.elf).unwrap();
         // A library's `.plt`: a 32-byte header, then 16 bytes per jump slot,
         // in the order of the `R_AARCH64_JUMP_SLOT` relocations.
         elf.plt = Some((0x2000, PLT_HEADER + 2 * PLT_ENTRY));
@@ -718,11 +718,11 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_an_aarch64_elf_is_refused() {
-        assert_eq!(read(b"not an elf at all", &ELF), None);
+        assert_eq!(read(b"not an elf at all", &AARCH64.elf), None);
         let mut bytes = linked(false);
         bytes[18] = 62; // EM_X86_64
-        assert_eq!(read(&bytes, &ELF), None);
+        assert_eq!(read(&bytes, &AARCH64.elf), None);
         let truncated = &linked(true)[..200];
-        assert_eq!(read(truncated, &ELF), None);
+        assert_eq!(read(truncated, &AARCH64.elf), None);
     }
 }

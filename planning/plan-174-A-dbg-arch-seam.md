@@ -375,14 +375,20 @@ Commit: —
 
 ### Phase 4 — the unwinder (largest blast radius last)
 
-- [ ] Move `Effect` to `arch.rs` with register roles; move `Effect::of`,
+- [x] Move `Effect` to `arch.rs` with register roles; move `Effect::of`,
       `pair_effect`, `sign_extend` and the A64 constants to `arm64.rs` as
       `effect`; `backtrace::state_at`, `saved`, `moved`, `base_offset` track
-      roles.
-- [ ] `backtrace.rs`: `ADDRESS_MASK` from `arch.address_mask`; `frames` reads
+      roles. (`arm64::effect` landed in Phase 1; here `backtrace.rs` drops its
+      own copy, `state_at` takes `arch` and the code's bytes and walks them with
+      `disassemble::instructions`, and the bases array is `backtrace::Bases`,
+      keyed by `Reg`.)
+- [x] `backtrace.rs`: `ADDRESS_MASK` from `arch.address_mask`; `frames` reads
       the registers named `arch.pc`, `arch.sp`, `arch.frame`, `arch.link`.
-- [ ] Tests: the seven `backtrace::tests` keep their 16 named A64 words and
+- [x] Tests: the seven `backtrace::tests` keep their 16 named A64 words and
       expectations; only the call that turns a word into an `Effect` changes.
+      (The `state` helper turns its words into bytes and calls `state_at(&AARCH64,
+      …)`; no word and no expectation changed. `cargo test --bin mfb
+      debugger::backtrace` → `7 passed; 0 failed`.)
 
 Acceptance: every backtrace test passes unedited, and real backtraces are the
 same on both hosts.
@@ -398,6 +404,11 @@ Commit: —
 - Coverage check: `grep -rn 'arch::aarch64\|"x[0-9]\+"\|\bINSTRUCTION\b'
   src/debugger --include='*.rs' | grep -v 'arm64.rs\|macos.rs\|#\[cfg(test)\]'`
   lists only test code, so the shared files no longer name the architecture.
+  Measured 2026-10-20 (with `arm64/` and `macos/` for the two files): every
+  hit is in `location.rs`'s test module, `prompt/tests/`, or
+  `breakpoints/{tests,report/tests}/`. Warnings: `cargo check --all-targets`
+  on macOS → none; `cargo check --target aarch64-unknown-linux-gnu --bin mfb`
+  → none; `--target riscv64gc-unknown-linux-gnu` → the 5 `main` has.
 - Runtime proof: Phase 4's `cli_dbg` runs on macOS and box 2226 drive real
   sessions (`bt`, `dis`, `finish`, `jump`, `be`).
 - Doc sync: `mfb spec tooling debugger`, "Host support", gains `arch` in its
