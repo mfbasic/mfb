@@ -11,6 +11,7 @@ use crate::arch::aarch64::encode::encode_instruction;
 use crate::codegen::engine::types::CodeInstruction;
 
 mod spellings;
+mod swept;
 
 const PC: u64 = 0x1_0000_1000;
 
