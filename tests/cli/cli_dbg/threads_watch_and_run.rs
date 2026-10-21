@@ -33,7 +33,11 @@ fn c_library() -> &'static str {
     if cfg!(target_os = "macos") {
         "libsystem_c.dylib"
     } else if host_libc_flavor() == "musl" {
-        "ld-musl-aarch64.so.1"
+        if cfg!(target_arch = "riscv64") {
+            "ld-musl-riscv64.so.1"
+        } else {
+            "ld-musl-aarch64.so.1"
+        }
     } else {
         "libc.so.6"
     }
@@ -319,12 +323,12 @@ fn show_type_reads_a_returned_string_from_the_arena() {
         returned.len() == 1 && returned[0].contains(" returned from formatLine "),
         "{returned:?}"
     );
-    session.send("show type string x1\n");
+    session.send(&format!("show type string {}\n", cpu::ARG1));
     assert_eq!(
         body(&session.until_prompt()),
         ["Length: 18 Value: \"round 1: 37 primes\""]
     );
-    session.send("show type int x1\n");
+    session.send(&format!("show type int {}\n", cpu::ARG1));
     assert_eq!(
         body(&session.until_prompt()),
         ["Value: 0x0000000000000012 (18)"]
@@ -388,6 +392,8 @@ fn env_gives_a_restarted_program_its_changes() {
 /// A write by the instruction under the breakpoint a thread is paused on
 /// is seen: `countPrimes` saves `lr` with its second instruction, and a
 /// breakpoint there, then `run`, stops for the write before anything else.
+// riscv64 Linux has no watchpoints: `watchpoints_are_refused_on_riscv64`.
+#[cfg(not(target_arch = "riscv64"))]
 #[test]
 fn a_watched_write_under_the_breakpoint_a_thread_is_paused_on_is_seen() {
     let mfb = signed_mfb();
@@ -441,6 +447,8 @@ fn a_watched_write_under_the_breakpoint_a_thread_is_paused_on_is_seen() {
 /// bytes. `countPrimes` opens its frame with `sub sp, sp, #<n>` and then
 /// saves `lr` at the new `sp`: a watchpoint at `sp - <n>`, set at the
 /// breakpoint on its first instruction, sees the return address arrive.
+// riscv64 Linux has no watchpoints: `watchpoints_are_refused_on_riscv64`.
+#[cfg(not(target_arch = "riscv64"))]
 #[test]
 fn a_watchpoint_stops_when_a_thread_changes_the_watched_bytes() {
     let mfb = signed_mfb();
@@ -524,11 +532,14 @@ fn a_breakpoint_with_commands_runs_them_and_runs_on() {
     let binary = debug_example();
     let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
     session.until_prompt();
-    session.send("bp countPrimes list reg x1; bt 1; run\n");
+    let arg1 = cpu::ARG1;
+    session.send(&format!("bp countPrimes list reg {arg1}; bt 1; run\n"));
     let set = body(&session.until_prompt());
     assert!(
         set.len() == 1
-            && set[0].ends_with(" in countPrimes. Each stop runs 'list reg x1; bt 1; run'."),
+            && set[0].ends_with(&format!(
+                " in countPrimes. Each stop runs 'list reg {arg1}; bt 1; run'."
+            )),
         "{set:?}"
     );
     session.send("run\n");
@@ -551,7 +562,7 @@ fn a_breakpoint_with_commands_runs_them_and_runs_on() {
         );
         assert_eq!(
             run[at + 2],
-            "x1       | 0x00000000000001f4 | (500)",
+            format!("{arg1:<8} | 0x00000000000001f4 | (500)"),
             "{run:?}"
         );
         assert_eq!(run[at + 3], "* thread #0, task = 'MFB Main'", "{run:?}");
@@ -626,10 +637,14 @@ fn a_tested_breakpoint_stops_once_and_a_jump_returns_early() {
     let binary = debug_example();
     let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
     session.until_prompt();
-    session.send("bpi x0 eq 824084 at countPrimes\n");
+    let (arg0, arg1, link) = (cpu::ARG0, cpu::ARG1, cpu::LINK);
+    session.send(&format!("bpi {arg0} eq 824084 at countPrimes\n"));
     let set = body(&session.until_prompt());
     assert!(
-        set.len() == 1 && set[0].ends_with(" in countPrimes if x0 eq 0x00000000000c9314 (824084)."),
+        set.len() == 1
+            && set[0].ends_with(&format!(
+                " in countPrimes if {arg0} eq 0x00000000000c9314 (824084)."
+            )),
         "{set:?}"
     );
     session.send("bpi [0x10] in at countPrimes bt 1\n");
@@ -648,7 +663,7 @@ fn a_tested_breakpoint_stops_once_and_a_jump_returns_early() {
                     "0".to_string(),
                     "_mfb_fn_countPrimes".to_string(),
                     "countPrimes".to_string(),
-                    "x0 eq 0x00000000000c9314 (824084)".to_string()
+                    format!("{arg0} eq 0x00000000000c9314 (824084)")
                 ],
         "{listed:?}"
     );
@@ -662,29 +677,31 @@ fn a_tested_breakpoint_stops_once_and_a_jump_returns_early() {
             && run[1].ends_with(" F: (countPrimes) _mfb_fn_countPrimes"),
         "{run:?}"
     );
-    session.send("list reg x0\n");
+    session.send(&format!("list reg {arg0}\n"));
     assert_eq!(
         table_rows(&session.until_prompt(), REGISTER_COLUMNS),
-        [["x0", "0x00000000000c9314", "(824084)"]]
+        [[arg0, "0x00000000000c9314", "(824084)"]]
     );
-    // At its first instruction the function has not touched its frame,
-    // so going to lr returns from it: no error (x0) and a count of 7 (x1).
-    session.send("j lr x0=0 x1=7\n");
+    // At its first instruction the function has not touched its frame, so
+    // going to the link register returns from it: no error (the first result
+    // register) and a count of 7 (the second).
+    session.send(&format!("j {link} {arg0}=0 {arg1}=7\n"));
     let moved = body(&session.until_prompt());
     assert!(
         moved.len() == 1
             && moved[0].starts_with("Moved thread 0 to 0x")
             && moved[0].contains(" in runRound+0x")
-            && moved[0]
-                .ends_with("; set x0 = 0x0000000000000000 (0), x1 = 0x0000000000000007 (7)."),
+            && moved[0].ends_with(&format!(
+                "; set {arg0} = 0x0000000000000000 (0), {arg1} = 0x0000000000000007 (7)."
+            )),
         "{moved:?}"
     );
-    session.send("list reg x0 x1\n");
+    session.send(&format!("list reg {arg0} {arg1}\n"));
     assert_eq!(
         table_rows(&session.until_prompt(), REGISTER_COLUMNS),
         [
-            ["x0", "0x0000000000000000", "(0)"],
-            ["x1", "0x0000000000000007", "(7)"]
+            [arg0, "0x0000000000000000", "(0)"],
+            [arg1, "0x0000000000000007", "(7)"]
         ]
     );
     session.send("run\n");
@@ -788,7 +805,7 @@ fn run_stops_at_breakpoints_and_at_the_end() {
     assert_eq!(function[0], format!("{}`isPrime:", image()), "{function:?}");
     assert!(function[1].starts_with("->  0x"), "{function:?}");
     // The prologue's frame allocation; its size is the compiler's to choose.
-    assert!(function[1].contains(" sub    sp, sp, #0x"), "{function:?}");
+    assert!(function[1].contains(cpu::PROLOGUE), "{function:?}");
     assert!(function.last().unwrap().ends_with("ret") || function.len() > 10);
     session.send("dis 3\n");
     let three = body(&session.until_prompt());
@@ -826,11 +843,11 @@ fn run_stops_at_breakpoints_and_at_the_end() {
     assert_eq!(body(&session.until_prompt()), frames[..3]);
 
     // The registers isPrime starts with, and the function's return.
-    session.send("list reg x0 sp\n");
+    session.send(&format!("list reg {} sp\n", cpu::ARG0));
     let registers = table_rows(&session.until_prompt(), REGISTER_COLUMNS);
     assert!(
         registers.len() == 2
-            && registers[0][0] == "x0"
+            && registers[0][0] == cpu::ARG0
             && registers[0][1].starts_with("0x")
             && registers[0][2].ends_with(')')
             && registers[1][0] == "sp"
@@ -847,7 +864,11 @@ fn run_stops_at_breakpoints_and_at_the_end() {
         returned.len() == 1
             && returned[0].starts_with("Thread 0 returned from isPrime to 0x")
             && returned[0].contains(" in countPrimes+0x")
-            && returned[0].contains(": x0 = 0x0000000000000000 (0), x1 = 0x"),
+            && returned[0].contains(&format!(
+                ": {} = 0x0000000000000000 (0), {} = 0x",
+                cpu::ARG0,
+                cpu::ARG1
+            )),
         "{returned:?}"
     );
     // countPrimes calls isPrime again before it returns: the breakpoint
@@ -923,4 +944,39 @@ fn run_stops_at_breakpoints_and_at_the_end() {
     let (code, rest) = session.finish();
     assert_eq!(code, Some(0));
     assert!(rest.contains("Killed process "), "{rest}");
+}
+
+/// riscv64 Linux has no watchpoints: `wp` says so, and none is set.
+#[cfg(target_arch = "riscv64")]
+#[test]
+fn watchpoints_are_refused_on_riscv64() {
+    let mfb = signed_mfb();
+    let binary = debug_example();
+    let mut child = Command::new(&mfb)
+        .args(["dbg", binary.to_str().unwrap(), "--", "2", "500"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start mfb dbg");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"wp sp 8\nlist watchpoint\nq\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let (stdout, stderr) = (
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert_eq!(output.status.code(), Some(0), "{stdout}{stderr}");
+    assert_eq!(
+        stderr,
+        "error: this system has no watchpoints: the riscv64 kernel does not provide them\n"
+    );
+    assert!(
+        stdout.contains("DBG> list watchpoint\nno watchpoints\n"),
+        "{stdout}"
+    );
 }

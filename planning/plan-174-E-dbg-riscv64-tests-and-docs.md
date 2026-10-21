@@ -220,8 +220,16 @@ None beyond plan-174-D's. This sub-plan changes tests and documentation.
 
 ### Phase 1 — `cli_dbg` on three hosts
 
-- [ ] `tests/cli/cli_dbg.rs`: the gates and `mod cpu` of §3, and the edits of
-      §4.1.
+- [x] `tests/cli/cli_dbg.rs`: the gates and `mod cpu` of §3, and the edits of
+      §4.1. (The edits are in `tests/cli/cli_dbg/session_launch_and_list.rs` and
+      `threads_watch_and_run.rs`, where plan-176 moved the sessions. Two
+      watchpoint tests now exist, `a_watchpoint_stops_…` and
+      `a_watched_write_under_the_breakpoint_…`; both are compiled out on
+      riscv64. The refusal test reads stderr, so it pipes its whole input
+      instead of using `Session`. `mod cpu` has no `ARCH`: `host_image` names
+      the processor itself. `cargo check --test cli_dbg` for
+      `riscv64gc-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` → no
+      warnings.)
 - [ ] On box 2229: `cargo build --release --bin mfb` (by hand, once), then
       `MFB_TEST_EXE=$PWD/target/release/mfb cargo test --test cli_dbg`.
 
