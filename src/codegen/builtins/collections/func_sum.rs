@@ -143,7 +143,9 @@ pub(crate) fn lower_sum(
     let scratch9 = builder.temporary_vreg();
     let scratch10 = builder.temporary_vreg();
     let scratch11 = builder.temporary_vreg();
-    let scratch12 = builder.temporary_vreg();
+    // Allocated though no live arm reads it any more: dropping the allocation would renumber
+    // every later virtual register and change the register assignment of the whole function.
+    let _scratch12 = builder.temporary_vreg();
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
     let scratch16 = builder.temporary_vreg();
@@ -192,18 +194,10 @@ pub(crate) fn lower_sum(
     builder.emit(abi::compare_registers(&scratch10, &scratch9));
     builder.emit(abi::branch_ge(&done));
     // kind 2: the cursor (scratch11) already walks the data region, so it IS
-    // the payload address — there is no entry to indirect through.
-    if kind2_payload_size(&element_type).is_some() {
-        builder.emit(abi::move_register(&scratch15, &scratch11));
-    } else {
-        builder.emit(abi::load_u64(
-            &scratch12,
-            &scratch11,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        builder.emit_collection_data_pointer_for(&scratch15, &scratch8, &element_type);
-        builder.emit(abi::add_registers(&scratch15, &scratch15, &scratch12));
-    }
+    // the payload address — there is no entry to indirect through. Integer, Float
+    // and Fixed, the only elements admitted above, are all fixed-width.
+    debug_assert!(kind2_payload_size(&element_type).is_some());
+    builder.emit(abi::move_register(&scratch15, &scratch11));
     match element_type {
         ParameterType::Integer => {
             builder.emit(abi::load_u64(&scratch16, &scratch15, 0));

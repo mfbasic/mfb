@@ -283,16 +283,12 @@ impl CodeBuilder<'_> {
         // s12 = a entry ptr / payload offset, s13 = b likewise, s17 = result
         // entry ptr. The result is a `List OF Pair`, a record element, so it is
         // variable-width and keeps its entry table either way.
-        if a_payload.is_some() {
-            self.emit(abi::move_immediate(&s12, "Integer", "0"));
-        } else {
-            self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
-        }
-        if b_payload.is_some() {
-            self.emit(abi::move_immediate(&s13, "Integer", "0"));
-        } else {
-            self.emit(abi::add_immediate(&s13, &s10, COLLECTION_HEADER_SIZE));
-        }
+        debug_assert!(
+            a_payload.is_some() && b_payload.is_some(),
+            "`try_inline_zip_op` admits only fixed-width inputs, which are kind 2"
+        );
+        self.emit(abi::move_immediate(&s12, "Integer", "0"));
+        self.emit(abi::move_immediate(&s13, "Integer", "0"));
         self.emit(abi::add_immediate(
             &s17,
             abi::mfb_return(1),
@@ -344,32 +340,16 @@ impl CodeBuilder<'_> {
             &s17,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        // a[i] value at a_blob + offset, where the offset is the entry's
-        // `valueOffset` (kind 0) or the running payload offset itself (kind 2).
-        if a_payload.is_some() {
-            self.emit(abi::move_register(&s15, &s12));
-        } else {
-            self.emit(abi::load_u64(
-                &s15,
-                &s12,
-                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-            ));
-        }
+        // a[i] value at a_blob + the running payload offset (kind 2: no entry to
+        // read an offset from).
+        self.emit(abi::move_register(&s15, &s12));
         self.emit(abi::add_registers(&s15, &s20, &s15));
         self.emit_zip_payload_load(&s15, a_payload);
         // dest = result_blob + running.
         self.emit(abi::add_registers(&s16, &s22, &s11));
         self.emit(abi::store_u64(&s15, &s16, 0));
         // b[i] value.
-        if b_payload.is_some() {
-            self.emit(abi::move_register(&s15, &s13));
-        } else {
-            self.emit(abi::load_u64(
-                &s15,
-                &s13,
-                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-            ));
-        }
+        self.emit(abi::move_register(&s15, &s13));
         self.emit(abi::add_registers(&s15, &s21, &s15));
         self.emit_zip_payload_load(&s15, b_payload);
         self.emit(abi::store_u64(&s15, &s16, 8));

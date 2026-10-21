@@ -35,6 +35,7 @@ mod byte_list_entry_free;
 mod canvas;
 mod closure_env_forms;
 mod collection_compare;
+mod collection_element_widths;
 mod collections;
 mod content_equal;
 mod control_forms;
