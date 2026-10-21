@@ -69,21 +69,7 @@ fn holds(name: &str, source: &str, at_10: &str, at_40: &str) {
     std::fs::write(&data, "hello\n").expect("write the data file");
     let source = source.replace("/tmp/g933/data.txt", &common::mfb_path_literal(&data));
     let project = common::temp_project(name, &source);
-    let built = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("--debug")
-        .arg(&project)
-        .output()
-        .expect("run mfb build --debug");
-    assert!(
-        built.status.success(),
-        "{name}: build failed:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let executable = project.join("build").join(format!(
-        "{name}{}",
-        if cfg!(windows) { ".exe" } else { ".out" }
-    ));
+    let executable = common::debug_report::build_debug_project(name, &project);
     let small = run(&executable, 10, false);
     let large = run(&executable, 40, false);
     for (run, expected, n) in [(&small, at_10, 10), (&large, at_40, 40)] {

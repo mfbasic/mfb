@@ -33,18 +33,7 @@ fn build(root: &Path, source: &str) -> PathBuf {
     )
     .expect("write manifest");
     fs::write(root.join("src/main.mfb"), source).expect("write source");
-    let out = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg(root)
-        .output()
-        .expect("run mfb build");
-    assert!(
-        out.status.success(),
-        "build failed:\n{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    root.join("build/trapxfer.out")
+    common::build_project(root)
 }
 
 /// Run `exe` with at most 64 open descriptors.

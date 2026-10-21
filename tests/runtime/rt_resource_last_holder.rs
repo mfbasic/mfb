@@ -154,20 +154,7 @@ fn check_built(case: &str, body: &str, per_iteration: u64, level: Option<&str>) 
         Some(level) => {
             let name = format!("last_holder_{case}");
             let project = common::temp_project(&name, &source);
-            let output = Command::new(common::mfb_exe())
-                .arg("build")
-                .arg("--debug")
-                .arg(level)
-                .arg(&project)
-                .output()
-                .expect("run mfb build --debug");
-            assert!(
-                output.status.success(),
-                "{case} failed to build at {level}:\n{}\n{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            project.join("build").join(format!("{name}.out"))
+            common::debug_report::build_debug_project_with(&name, &project, &[level])
         }
     };
     for n in [10, 20] {

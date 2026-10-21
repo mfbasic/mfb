@@ -68,20 +68,7 @@ END FUNC
 fn run(name: &str, functions: &str) {
     let source = format!("{PRELUDE}{functions}{MAIN}");
     let project = common::temp_project(name, &source);
-    let built = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg(&project)
-        .output()
-        .expect("run mfb build");
-    assert!(
-        built.status.success(),
-        "build failed:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let executable = project.join("build").join(format!(
-        "{name}{}",
-        if cfg!(windows) { ".exe" } else { ".out" }
-    ));
+    let executable = common::build_project(&project);
     let output = Command::new(&executable)
         .env("PROBE", project.join("probe.txt"))
         .output()

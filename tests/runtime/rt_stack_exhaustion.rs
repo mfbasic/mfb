@@ -17,20 +17,7 @@ use std::time::Duration;
 
 fn run(name: &str, source: &str) -> (Option<i32>, String, String) {
     let project = common::temp_project(name, source);
-    let built = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg(&project)
-        .output()
-        .expect("run mfb build");
-    assert!(
-        built.status.success(),
-        "build failed:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let executable = project.join("build").join(format!(
-        "{name}{}",
-        if cfg!(windows) { ".exe" } else { ".out" }
-    ));
+    let executable = common::build_project(&project);
     let mut child = Command::new(&executable)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

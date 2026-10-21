@@ -51,21 +51,8 @@ fn counter(stats: &str, key: &str) -> u64 {
 #[test]
 fn a_res_list_bound_from_take_or_drop_frees_its_block() {
     let project = common::temp_project("bug753_res_list_from_call", SOURCE);
-    let built = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("--debug")
-        .arg(&project)
-        .output()
-        .expect("run mfb build --debug");
-    assert!(
-        built.status.success(),
-        "build failed:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let executable = project.join("build").join(format!(
-        "bug753_res_list_from_call{}",
-        if cfg!(windows) { ".exe" } else { ".out" }
-    ));
+    let executable =
+        common::debug_report::build_debug_project("bug753_res_list_from_call", &project);
     let probe = project.join("probe.txt");
     let run = |n: u64| {
         let output = Command::new(&executable)
@@ -152,21 +139,8 @@ END FUNC
 #[test]
 fn a_res_list_bound_from_a_user_function_frees_its_block() {
     let project = common::temp_project("bug753_res_list_from_user_call", USER_SOURCE);
-    let built = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("--debug")
-        .arg(&project)
-        .output()
-        .expect("run mfb build --debug");
-    assert!(
-        built.status.success(),
-        "build failed:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let executable = project.join("build").join(format!(
-        "bug753_res_list_from_user_call{}",
-        if cfg!(windows) { ".exe" } else { ".out" }
-    ));
+    let executable =
+        common::debug_report::build_debug_project("bug753_res_list_from_user_call", &project);
     let probe = project.join("probe.txt");
     let run = |n: u64| {
         let output = Command::new(&executable)
@@ -245,21 +219,8 @@ END FUNC
 #[test]
 fn a_res_list_bound_from_a_native_member_frees_its_block() {
     let project = common::temp_project("bug753_res_list_from_member", MEMBER_SOURCE);
-    let built = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("--debug")
-        .arg(&project)
-        .output()
-        .expect("run mfb build --debug");
-    assert!(
-        built.status.success(),
-        "build failed:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let executable = project.join("build").join(format!(
-        "bug753_res_list_from_member{}",
-        if cfg!(windows) { ".exe" } else { ".out" }
-    ));
+    let executable =
+        common::debug_report::build_debug_project("bug753_res_list_from_member", &project);
     let probe = project.join("probe.txt");
     let run = |n: u64| {
         let output = Command::new(&executable)
@@ -328,21 +289,7 @@ END FUNC
 #[test]
 fn a_nested_res_list_from_chunks_or_window_frees_every_block() {
     let project = common::temp_project("bug753_res_list_nested", NESTED_SOURCE);
-    let built = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("--debug")
-        .arg(&project)
-        .output()
-        .expect("run mfb build --debug");
-    assert!(
-        built.status.success(),
-        "build failed:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let executable = project.join("build").join(format!(
-        "bug753_res_list_nested{}",
-        if cfg!(windows) { ".exe" } else { ".out" }
-    ));
+    let executable = common::debug_report::build_debug_project("bug753_res_list_nested", &project);
     let probe = project.join("probe.txt");
     let run = |n: u64| {
         let output = Command::new(&executable)

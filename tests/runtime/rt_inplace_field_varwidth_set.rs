@@ -125,21 +125,8 @@ fn summary(n: usize) -> String {
 fn a_field_list_set_runs_in_place_and_keeps_the_owner_exact() {
     let project = common::temp_project("bug759_field_varwidth_set", SOURCE);
     std::fs::write(project.join("probe.txt"), "x").expect("probe file");
-    let built = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("--debug")
-        .arg(&project)
-        .output()
-        .expect("run mfb build --debug");
-    assert!(
-        built.status.success(),
-        "build failed:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let executable = project.join("build").join(format!(
-        "bug759_field_varwidth_set{}",
-        if cfg!(windows) { ".exe" } else { ".out" }
-    ));
+    let executable =
+        common::debug_report::build_debug_project("bug759_field_varwidth_set", &project);
     let run = |n: usize, check: bool| {
         let output = Command::new(&executable)
             .env("N", n.to_string())

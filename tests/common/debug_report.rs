@@ -6,9 +6,16 @@ use std::process::Command;
 
 /// Build `project` with `--debug` and return the executable (the host libc's on Linux).
 pub fn build_debug_project(name: &str, project: &Path) -> PathBuf {
+    build_debug_project_with(name, project, &[])
+}
+
+/// [`build_debug_project`] with extra `mfb build` arguments (an `-O <level>`, say)
+/// placed between `--debug` and the project path.
+pub fn build_debug_project_with(name: &str, project: &Path, extra: &[&str]) -> PathBuf {
     let output = Command::new(super::mfb_exe())
         .arg("build")
         .arg("--debug")
+        .args(extra)
         .arg(project)
         .output()
         .expect("run mfb build --debug");
@@ -22,9 +29,11 @@ pub fn build_debug_project(name: &str, project: &Path) -> PathBuf {
         .lines()
         .filter_map(|line| line.strip_prefix("Wrote executable to "))
         .collect();
+    // A Linux build writes `-glibc.out` and `-musl.out`; only the host's one runs.
+    let flavored = format!("-{}.out", super::host_libc_flavor());
     let chosen = written
         .iter()
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(&flavored))
         .or_else(|| written.first())
         .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{stdout}"));
     PathBuf::from(chosen)

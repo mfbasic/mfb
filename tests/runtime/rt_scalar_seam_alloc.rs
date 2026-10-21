@@ -52,21 +52,7 @@ fn counter(stats: &str, key: &str) -> u64 {
 /// per call, checking the round trip on the way.
 fn allocations_per_call(name: &str, op: &str, text: &str) -> u64 {
     let project = common::temp_project(name, &source(op));
-    let built = Command::new(common::mfb_exe())
-        .arg("build")
-        .arg("--debug")
-        .arg(&project)
-        .output()
-        .expect("run mfb build --debug");
-    assert!(
-        built.status.success(),
-        "build failed:\n{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let executable = project.join("build").join(format!(
-        "{name}{}",
-        if cfg!(windows) { ".exe" } else { ".out" }
-    ));
+    let executable = common::debug_report::build_debug_project(name, &project);
     let run = |n: u64| {
         let output = Command::new(&executable)
             .env("N", n.to_string())
