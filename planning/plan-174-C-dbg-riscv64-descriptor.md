@@ -244,20 +244,27 @@ plan-174-D.
 
 ### Phase 1 — the register file
 
-- [ ] Add `src/debugger/riscv64.rs` with `General`, `Float`, `registers`,
+- [x] Add `src/debugger/riscv64.rs` with `General`, `Float`, `registers`,
       `role`, `slot`, `assign`, `is_register`, `settable`; declare `mod riscv64`
-      in `mod.rs` with no `cfg`.
-- [ ] Tests in `riscv64.rs`: `the_layouts_are_the_kernel_s` (`size_of::<General>()
+      in `mod.rs` with no `cfg`. (As `riscv64/mod.rs` and
+      `riscv64/registers.rs`, the shape `arm64/` took in plan-174-A; with
+      `holds`, `jump`'s value check, and `pc`/`sp` readers for the backend; and
+      under `cfg(any(all(linux, riscv64), test))`: see Corrections.)
+- [x] Tests in `riscv64.rs`: `the_layouts_are_the_kernel_s` (`size_of::<General>()
       == 256`, `size_of::<Float>()` rounded as the regset is, 264 bytes read);
       `roles_name_the_registers_the_compiler_uses`, checking `role` against
       `Riscv64RegisterModel::arena_base`, `closure_env`, `current_thread` and the
       argument and result counts of `abi_token`, as
       `arm64::tests::roles_name_the_registers_the_compiler_uses` does;
-      `registers_list_in_group_order`; `assign_writes_one_register`.
+      `registers_list_in_group_order`; `assign_writes_one_register`. (In
+      `riscv64/registers/tests.rs`. The role test maps each AArch64 position
+      to its riscv64 register with the selection's own
+      `select::remap_register`, made `pub(crate)` for it.)
 
 Acceptance: the register file matches the kernel layout and the compiler's
 register model.
   Check: `cargo test --bin mfb debugger::riscv64` → 4 passed (est. 2 min).
+  Measured 2026-10-20: `4 passed; 0 failed`.
 Commit: —
 
 ### Phase 2 — the descriptor, the decoder adapter and listings
@@ -341,6 +348,18 @@ Commit: —
   descriptor's `watch_span` is `None`. (§3; the refusal is plan-174-D)
 
 ## Corrections
+
+- **`mod riscv64` is compiled where it is read.** With no `cfg`, every item is
+  dead in a macOS build and stays so: only a riscv64 Linux backend uses it
+  (plan-174-D), and the macOS backend never will. Like the decoder it reads
+  (plan-174-B's Corrections), it is under `cfg(any(all(target_os = "linux",
+  target_arch = "riscv64"), test))`, so the Mac compiles it for its tests.
+  Phase 2's descriptor is reached on a riscv64 Linux host through the backend,
+  and in tests through the `Recorder` fake.
+- **The file layout follows plan-174-A's `arm64/`:** `riscv64/mod.rs` holds the
+  descriptor and its rules, `riscv64/registers.rs` the register file. A role
+  test's "register after" is by riscv64 number (`a7` is followed by `s2`),
+  since the compiler maps AArch64's `x8` to `a7`, the system call register.
 
 ## Summary
 

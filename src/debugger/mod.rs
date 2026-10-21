@@ -19,6 +19,10 @@ pub(crate) mod environment;
 pub(crate) mod location;
 pub(crate) mod names;
 pub(crate) mod prompt;
+// riscv64's registers and rules are read on a riscv64 Linux host, and by the
+// tests on every host.
+#[cfg(any(all(target_os = "linux", target_arch = "riscv64"), test))]
+mod riscv64;
 pub(crate) mod runtime;
 pub(crate) mod values;
 
