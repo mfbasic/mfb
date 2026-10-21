@@ -7,20 +7,17 @@ use super::*;
 impl CodeBuilder<'_> {
     /// Lower a capturing `NirValue::Closure` (the capture-less one stays in `lower_value_inner`):
     /// allocate the closure and its environment and copy each capture in.
-    pub(super) fn lower_closure_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
-        let NirValue::Closure {
-            name,
-            type_,
-            captures,
-        } = value
-        else {
-            unreachable!("lower_closure_value is called from the NirValue::Closure arm only")
-        };
+    pub(super) fn lower_closure_value(
+        &mut self,
+        name: &str,
+        type_: &ParameterType,
+        captures: &[NirValue],
+    ) -> Result<ValueResult, String> {
         let symbol = self
             .function_symbols
             .get(name)
             .cloned()
-            .unwrap_or_else(|| name.clone());
+            .unwrap_or_else(|| name.to_string());
         let ops_symbol = closure_env_ops_symbol(&symbol);
         let function_register = self.allocate_register();
         self.emit(abi::load_page_address(&function_register, &symbol));
@@ -285,7 +282,7 @@ impl CodeBuilder<'_> {
             origin: None,
             type_: type_.clone(),
             location: Operand::from(closure_register),
-            text: name.clone(),
+            text: name.to_string(),
         })
     }
 
@@ -293,18 +290,12 @@ impl CodeBuilder<'_> {
     /// `scratch10` are `lower_value_inner`'s two scratch vregs.
     pub(super) fn lower_union_wrap_value(
         &mut self,
+        union_type: &ParameterType,
+        member_type: &ParameterType,
         value: &NirValue,
         scratch9: &VirtualRegister,
         scratch10: &VirtualRegister,
     ) -> Result<ValueResult, String> {
-        let NirValue::UnionWrap {
-            union_type,
-            member_type,
-            value,
-        } = value
-        else {
-            unreachable!("lower_union_wrap_value is called from the NirValue::UnionWrap arm only")
-        };
         // plan-134-E: the variant is stored into the new union block.
         let wrapped = self.lower_value_stored_inline(value)?;
         let wrapped_slot = self.allocate_stack_object("union_wrap_source", 8);
@@ -318,17 +309,11 @@ impl CodeBuilder<'_> {
         // fields.
         // bug-851: a `RESOURCE`-declared variant is a bare handle as well.
         let is_resource_variant = self.is_resource_nominal(member_type);
-        let fields = if is_resource_variant {
-            Vec::new()
-        } else {
-            self.type_model
-                .record_fields
-                .get(member_type)
-                .cloned()
-                .ok_or_else(|| {
-                    format!("native code union wrap member '{member_type}' is not a record")
-                })?
-        };
+        if !is_resource_variant && !self.type_model.record_fields.contains_key(member_type) {
+            return Err(format!(
+                "native code union wrap member '{member_type}' is not a record"
+            ));
+        }
         let tag = self
             .type_model
             .union_variant_tags
@@ -340,7 +325,6 @@ impl CodeBuilder<'_> {
         // §4.3). Resource variants fall through to the fixed
         // `{tag, resource-ptr}` layout below.
         if !is_resource_variant {
-            let _ = &fields;
             let register = self.emit_wrap_record_in_union(member_type, tag, wrapped_slot)?;
             return Ok(ValueResult {
                 origin: None,
@@ -349,26 +333,10 @@ impl CodeBuilder<'_> {
                 text: format!("wrap {member_type} as {union_type}"),
             });
         }
-        // Payload words across all variants: a resource variant occupies
-        // one word (the handle pointer); a record variant occupies its
-        // field count.
-        let max_payload = self
-            .type_model
-            .variants_for_union(union_type)
-            .map(|variant| {
-                if self.is_resource_nominal(variant) {
-                    1
-                } else {
-                    self.type_model
-                        .union_variant_fields
-                        .get(variant)
-                        .map(Vec::len)
-                        .unwrap_or(0)
-                }
-            })
-            .max()
-            .unwrap_or(if is_resource_variant { 1 } else { fields.len() });
-        let union_size = 8 * (1 + max_payload.max(1));
+        // `{tag, resource-ptr}`: every variant of a resource union is a
+        // resource (TYPE_MIXED_RESOURCE_UNION refuses a mixed one), and a
+        // resource's payload is its one handle word.
+        let union_size = 16;
         let result_slot = self.allocate_stack_object("union_result", 8);
         let alloc_ok = self.label("union_construct_alloc_ok");
         self.emit(abi::move_immediate(

@@ -218,7 +218,11 @@ impl CodeBuilder<'_> {
                     type_: type_.clone(),
                 })
             }
-            NirValue::Closure { .. } => self.lower_closure_value(value),
+            NirValue::Closure {
+                name,
+                type_,
+                captures,
+            } => self.lower_closure_value(name, type_, captures),
             NirValue::Capture { index, type_, .. } => {
                 // Load the env slot's raw word. For a by-value capture this is the
                 // value/block pointer; for a by-ref capture (`by_ref`) it is the
@@ -388,7 +392,11 @@ impl CodeBuilder<'_> {
                      resource (which has no constructor)"
                 ))
             }
-            NirValue::UnionWrap { .. } => self.lower_union_wrap_value(value, scratch9, scratch10),
+            NirValue::UnionWrap {
+                union_type,
+                member_type,
+                value,
+            } => self.lower_union_wrap_value(union_type, member_type, value, scratch9, scratch10),
             NirValue::UnionExtract { type_, value } => {
                 // A resource-union variant's payload is the resource pointer
                 // itself (offset 8): extracting it yields that pointer directly.
