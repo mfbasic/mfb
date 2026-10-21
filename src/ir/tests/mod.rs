@@ -235,6 +235,7 @@ mod lowering_totality_tests {
 mod binary_repr_tests;
 
 #[cfg(test)]
+mod link_codec_corruption;
 mod os_exit_tests;
 
 #[cfg(test)]
