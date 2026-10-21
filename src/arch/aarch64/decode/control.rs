@@ -178,7 +178,9 @@ fn hint(number: u32) -> Instruction {
         0x10 => "esb",
         0x11 => "psb csync",
         0x12 => "tsb csync",
+        0x13 => "gcsb dsync",
         0x14 => "csdb",
+        0x16 => "clrbhb",
         0x18 => "paciaz",
         0x19 => "paciasp",
         0x1a => "pacibz",
@@ -191,6 +193,8 @@ fn hint(number: u32) -> Instruction {
         0x22 => "bti c",
         0x24 => "bti j",
         0x26 => "bti jc",
+        0x27 => "pacm",
+        0x28 => "chkfeat x16",
         _ => return instruction("hint", hex(u64::from(number))),
     };
     match name.split_once(' ') {
@@ -207,7 +211,7 @@ const BARRIER_OPTIONS: [&str; 16] = [
 
 fn barrier(crm: u32, op2: u32) -> Option<Instruction> {
     let option = || match BARRIER_OPTIONS[crm as usize] {
-        "" => hex(u64::from(crm)),
+        "" => format!("#{crm}"),
         name => name.to_string(),
     };
     Some(match op2 {
@@ -215,10 +219,11 @@ fn barrier(crm: u32, op2: u32) -> Option<Instruction> {
         0b010 => instruction("clrex", hex(u64::from(crm))),
         0b100 if crm == 0b0000 => instruction("ssbb", String::new()),
         0b100 if crm == 0b0100 => instruction("pssbb", String::new()),
+        0b100 if crm == 0b1100 => instruction("dfb", String::new()),
         0b100 => instruction("dsb", option()),
         0b101 => instruction("dmb", option()),
         0b110 if crm == 0xf => instruction("isb", String::new()),
-        0b110 => instruction("isb", hex(u64::from(crm))),
+        0b110 => instruction("isb", format!("#{crm}")),
         0b111 if crm == 0 => instruction("sb", String::new()),
         _ => return None,
     })

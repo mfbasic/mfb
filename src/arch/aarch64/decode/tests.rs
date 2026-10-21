@@ -10,6 +10,8 @@ use super::{decode, Flow};
 use crate::arch::aarch64::encode::encode_instruction;
 use crate::codegen::engine::types::CodeInstruction;
 
+mod spellings;
+
 const PC: u64 = 0x1_0000_1000;
 
 /// Encode `instruction` and decode each word it produced, at `PC` onwards.

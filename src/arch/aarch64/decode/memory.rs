@@ -369,6 +369,22 @@ fn register_offset(word: u32, size: u32, simd: bool, opc: u32) -> Option<Instruc
     if option & 0b010 == 0 {
         return None;
     }
+    if size == 3 && !simd && opc == 2 && rd(word) >> 3 == 0b11 {
+        // `rprfm`: the register-offset prefetch with a `11xxx` operation. Its
+        // 6-bit operation is `option<2>:option<0>:S:Rt<2:0>`, and the offset
+        // register is always an X register.
+        let operation =
+            (option >> 2) << 5 | (option & 1) << 4 | field(word, 12, 1) << 3 | rd(word) & 0b111;
+        return Some(instruction(
+            "rprfm",
+            format!(
+                "{}, {}, [{}]",
+                hex(u64::from(operation)),
+                x(rm(word), false),
+                x(rn(word), true)
+            ),
+        ));
+    }
     let (mnemonic, target, bytes) = single_kind(size, simd, opc, rd(word))?;
     let amount = if bit(word, 12) {
         bytes.trailing_zeros()

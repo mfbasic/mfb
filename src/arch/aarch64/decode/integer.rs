@@ -258,9 +258,12 @@ fn bitfield(word: u32, wide: bool) -> Option<Instruction> {
         0b00 if immr == 0 && imms == 31 => instruction("sxtw", format!("{dst}, {narrow_src}")),
         0b00 if insert => field_of("sbfiz", width - immr, imms + 1),
         0b00 => field_of("sbfx", immr, imms - immr + 1),
-        0b01 if insert && rn(word) == 31 => {
-            instruction("bfc", format!("{dst}, #{}, #{}", width - immr, imms + 1))
-        }
+        // `bfc` is `bfm` from the zero register: a lsb of 0 (`immr == 0`) is
+        // spelled `bfc` too, not `bfxil` of the zero register.
+        0b01 if rn(word) == 31 && (insert || immr == 0) => instruction(
+            "bfc",
+            format!("{dst}, #{}, #{}", (width - immr) % width, imms + 1),
+        ),
         0b01 if insert => field_of("bfi", width - immr, imms + 1),
         0b01 => field_of("bfxil", immr, imms - immr + 1),
         0b10 if imms == width - 1 => shift("lsr", immr),

@@ -164,7 +164,16 @@ fn sha_two(word: u32) -> Option<Instruction> {
 fn sha3(word: u32) -> Option<Instruction> {
     let pattern = |mask: u32, bits: u32| word & mask == bits;
     let (d, n, m) = (rd(word), rn(word), rm(word));
-    if pattern(0xffe0_b000, 0xce60_8000) {
+    // SM3PARTW1/2 and SM4EKEY share the `011` group with bit 14 set.
+    if pattern(0xffe0_f000, 0xce60_c000) {
+        return Some(match field(word, 10, 2) {
+            0b00 => three("sm3partw1", "4s", word),
+            0b01 => three("sm3partw2", "4s", word),
+            0b10 => three("sm4ekey", "4s", word),
+            _ => return None,
+        });
+    }
+    if pattern(0xffe0_f000, 0xce60_8000) {
         return Some(match field(word, 10, 2) {
             0b00 => instruction("sha512h.2d", format!("q{d}, q{n}, v{m}")),
             0b01 => instruction("sha512h2.2d", format!("q{d}, q{n}, v{m}")),
