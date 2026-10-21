@@ -1,4 +1,6 @@
 use super::*;
+
+mod patched;
 use crate::arch::image::{EncodedImage, EncodedImport, EncodedSection, EncodedSymbol, ImportKind};
 
 /// A linked Mach-O whose code defines `symbols` (at 4-byte steps) and
