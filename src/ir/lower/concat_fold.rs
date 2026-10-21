@@ -172,6 +172,8 @@ struct FoldSite {
     list: IrValue,
     /// The fold's seed.
     seed: IrValue,
+    /// The list's element type, known and not `Unknown`.
+    element_type: ParameterType,
     /// The recognized reducer's shape.
     reducer: ConcatReducer,
 }
@@ -185,6 +187,7 @@ struct FoldSite {
 fn take_concat_fold(
     value: &mut IrValue,
     tmp: &str,
+    locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
 ) -> Option<FoldSite> {
     // Effect-free operands cannot contain a call at all, so nothing to find and
@@ -206,7 +209,7 @@ fn take_concat_fold(
                 // hoistable.
                 for arg in args.iter_mut() {
                     if !ir_value_is_effect_free(arg) {
-                        return take_concat_fold(arg, tmp, context);
+                        return take_concat_fold(arg, tmp, locals, context);
                     }
                 }
                 return None;
@@ -233,6 +236,25 @@ fn take_concat_fold(
         if !ir_value_is_effect_free(&args[0]) || !ir_value_is_effect_free(&args[1]) {
             return None;
         }
+        // The list's element type. `IrValue::Local` and `IrValue::Global` carry
+        // no type of their own, so a local is resolved through `locals` and a
+        // global through the program's binding types — without this the
+        // element type came back `Unknown` and codegen refused the loop with
+        // "no storage class for type 'Unknown'". DECLINE rather than emit an
+        // `Unknown`-typed loop: a type this pass cannot name is a shape it has
+        // no business rewriting. The decline happens BEFORE the call is
+        // replaced by the read of `tmp`: declining after it left a read of a
+        // temp nothing binds.
+        let list_type = match &args[0] {
+            IrValue::Local(name) => locals.get(name).cloned(),
+            IrValue::Global(name) => context.binding_types.get(name).cloned(),
+            other => other.annotated_parameter_type(),
+        };
+        let element_type = list_type
+            .as_ref()
+            .and_then(crate::codegen::engine::types::typed_list_element_type)
+            .cloned()
+            .filter(|t| *t != ParameterType::Unknown)?;
         let list = args[0].clone();
         let seed = args[1].clone();
         *value = IrValue::Local(tmp.to_string());
@@ -240,6 +262,7 @@ fn take_concat_fold(
             reverse,
             list,
             seed,
+            element_type,
             reducer,
         });
     }
@@ -247,15 +270,15 @@ fn take_concat_fold(
     // effect-free: that operand contains the first effectful node, so the fold
     // must be inside it or it is not hoistable.
     match value {
-        IrValue::Unary { operand, .. } => take_concat_fold(operand, tmp, context),
+        IrValue::Unary { operand, .. } => take_concat_fold(operand, tmp, locals, context),
         IrValue::Binary { left, right, .. } => {
             if !ir_value_is_effect_free(left) {
-                take_concat_fold(left, tmp, context)
+                take_concat_fold(left, tmp, locals, context)
             } else {
-                take_concat_fold(right, tmp, context)
+                take_concat_fold(right, tmp, locals, context)
             }
         }
-        IrValue::MemberAccess { target, .. } => take_concat_fold(target, tmp, context),
+        IrValue::MemberAccess { target, .. } => take_concat_fold(target, tmp, locals, context),
         _ => None,
     }
 }
@@ -294,29 +317,12 @@ pub(super) fn rewrite_concat_folds(
             continue;
         };
         let tmp = context.next_temp_name("fold");
-        let Some(site) = take_concat_fold(value, &tmp, context) else {
+        let Some(site) = take_concat_fold(value, &tmp, locals, context) else {
             out.push(op);
             continue;
         };
         let item = context.next_temp_name("folditem");
-        // The list's type. `IrValue::Local` carries no type of its own, so a
-        // local is resolved through `locals` — without this the element type came
-        // back `Unknown` and codegen refused the loop with "no storage class for
-        // type 'Unknown'". DECLINE rather than emit an `Unknown`-typed loop: a
-        // type this pass cannot name is a shape it has no business rewriting.
-        let list_type = match &site.list {
-            IrValue::Local(name) => locals.get(name).cloned(),
-            other => other.annotated_parameter_type(),
-        };
-        let Some(element_type) = list_type
-            .as_ref()
-            .and_then(crate::codegen::engine::types::typed_list_element_type)
-            .cloned()
-            .filter(|t| *t != ParameterType::Unknown)
-        else {
-            out.push(op);
-            continue;
-        };
+        let element_type = site.element_type.clone();
 
         // `MUT <tmp> AS String = <seed>`
         out.push(IrOp::Bind {

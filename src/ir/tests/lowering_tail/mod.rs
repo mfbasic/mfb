@@ -10,6 +10,7 @@ use crate::ir::{IrOp, IrProject, IrValue};
 use crate::testutil::{check_src, lower_src_concrete};
 use crate::types::ParameterType;
 
+mod concat_fold;
 mod statement;
 
 /// The lowered function named `name`.
