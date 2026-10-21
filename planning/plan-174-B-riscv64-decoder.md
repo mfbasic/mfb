@@ -286,18 +286,31 @@ Commit: `a61c9d031`
 Acceptance: every 2-byte row decodes to `objdump`'s text with length 2.
   Check: `cargo test --bin mfb riscv64::decode` → 0 failed (est. 2 min).
   Measured 2026-10-20: `4 passed; 0 failed; 1 ignored`.
-Commit: —
+Commit: `30aeddb7d`
 
 ### Phase 4 — `F`/`D`, the vector subset, and the whole corpora
 
-- [ ] Add `float.rs` and `vector.rs`.
-- [ ] Tests: `decodes_every_form_the_encoder_emits`, which encodes each of the
+- [x] Add `float.rs` and `vector.rs`. (`float.rs` completes `F`/`D`: `OP-FP`
+      and the fused forms, with `objdump`'s rounding-mode rule: printed unless
+      dynamic, and for the exact conversions `fcvt.d.w`, `fcvt.d.wu`, `fcvt.d.s`
+      unless 0. `vector.rs` holds the encoder's vector forms, masked or not,
+      spelled as `objdump -M max` spells them: see Corrections.)
+- [x] Tests: `decodes_every_form_the_encoder_emits`, which encodes each of the
       131 operations through `src/arch/riscv64/encode` (as
       `encode/tests.rs` builds them) and asserts `decode` answers `Some` with
       the same length; the remaining rows of `objdump_words.txt`; the ignored
-      `decodes_a_corpus_as_objdump_does`.
-- [ ] Record in `tools/oracles/riscv64-decode/README.md` the rows and undecoded
-      counts for the three corpora, with the `objdump` version.
+      `decodes_a_corpus_as_objdump_does`. (In `decode/round_trip.rs`: 144
+      cases, the emitter's 79 operations with each branch condition, compare
+      kind and immediate size, and its 45 vector operations; every word of
+      each decodes, at its length, and the test fails if `emitter.rs` gains an
+      operation it has no case for. Its ignored sibling
+      `writes_the_encoder_s_words` feeds the new `encoder-corpus.sh`, so the
+      encoder's forms are also checked for `objdump`'s text: 538 rows.
+      `objdump_words.txt`, regenerated from the four corpora, holds 671 rows,
+      every one checked on every run.)
+- [x] Record in `tools/oracles/riscv64-decode/README.md` the rows and undecoded
+      counts for the three corpora, with the `objdump` version. (Four, with the
+      encoder's.)
 
 Acceptance: no row of the three corpora decodes to different text, and none is
 undecoded.
@@ -305,6 +318,11 @@ undecoded.
   --bin mfb decodes_a_corpus_as_objdump_does -- --ignored --nocapture` →
   `0 differing, 0 undecoded` (est. 5 min for the three; the corpora are copied
   to the Mac, where the test runs).
+  Measured 2026-10-20: `debug-glibc.txt: 25585 rows, 0 differing, 0
+  undecoded`; `libc.txt: 304077 rows, 0 differing, 0 undecoded`;
+  `ld-musl.txt: 106156 rows, 0 differing, 0 undecoded`; and `encoder.txt: 538
+  rows, 0 differing, 0 undecoded`. `cargo test --bin mfb riscv64::decode` →
+  `5 passed; 0 failed; 2 ignored`.
 Commit: —
 
 ## Validation Plan
@@ -361,6 +379,17 @@ Commit: —
   `c.fsdsp` expand to `fld` and `fsd`, so Phase 3's "every 2-byte row" needs
   them; `float.rs` starts there with `flw`/`fld`/`fsw`/`fsd` and Phase 4 adds
   the rest of `F`/`D`.
+- **Vector forms are spelled as `objdump -M max` spells them.** Debian's
+  `objdump` 2.44 does not enable `V` by default and prints every vector word as
+  `.insn 4, 0x…` (measured on box 2232 with the encoder's reference words). A
+  listing of `.insn` would tell the developer nothing, so the decoder follows
+  `-M max`, which also gives the aliases `vneg.v`, `vfneg.v` and `vfabs.v` and
+  the `,v0.t` of a masked form. The encoder corpus is written with `-M max`.
+- **A fourth corpus, the encoder's own forms.** No corpus of a real program
+  holds vector code, and `decodes_every_form_the_encoder_emits` checks only
+  that each form decodes, not its text. `encoder-corpus.sh` disassembles the
+  words that test encodes (wrapped in an ELF section, so jump targets print as
+  in a program), and `objdump_words.txt` samples it too.
 - **`Flow`** follows §3 with one change: `Call` is a direct `jal` that links,
   and an indirect jump is `Indirect { register, offset, link }` whether or not
   it links (`jalr` vs `jr`); `value` is an `i64`.

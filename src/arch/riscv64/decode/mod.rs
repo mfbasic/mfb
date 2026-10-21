@@ -16,7 +16,10 @@ mod atomic;
 mod compressed;
 mod float;
 mod integer;
+mod vector;
 
+#[cfg(test)]
+mod round_trip;
 #[cfg(test)]
 mod tests;
 
@@ -132,8 +135,11 @@ pub(crate) fn decode(bytes: &[u8], pc: u64) -> Option<Instruction> {
 /// for a compressed instruction it stands for).
 fn base(word: u32, pc: u64, length: usize) -> Option<Instruction> {
     let mut instruction = match word & 0x7f {
-        0x07 | 0x27 => float::load_store(word)?,
+        0x07 | 0x27 => float::load_store(word).or_else(|| vector::load_store(word))?,
         0x2f => atomic::decode(word)?,
+        0x43 | 0x47 | 0x4b | 0x4f => float::fused(word)?,
+        0x53 => float::op_fp(word)?,
+        0x57 => vector::op_v(word)?,
         _ => integer::decode(word, pc)?,
     };
     instruction.length = length;

@@ -22,6 +22,20 @@ the Mac.
   The test fails on any row the decoder spells differently from `objdump`, and
   prints the rows it leaves undecoded, by mnemonic.
 
+- **encoder-corpus.sh** — the same rows for the compiler's own instruction
+  forms: every operation the riscv64 encoder emits, as the ignored test
+  `writes_the_encoder_s_words` writes them to a raw file. The words are wrapped
+  in an ELF code section with `objcopy` (so a jump's target prints as `58c`,
+  not the `0x58c` `objdump` prints for a raw binary) and read with `-M max`,
+  since `objdump` does not decode the vector extension by default; the decoder
+  spells vector forms as `-M max` does.
+
+      # on the Mac
+      ENCODER_WORDS=/tmp/encoder.bin cargo test --bin mfb \
+          writes_the_encoder_s_words -- --ignored
+      # on box 2232, with encoder.bin and both scripts copied there
+      sh encoder-corpus.sh /tmp/rv-corpus/encoder.txt /tmp/encoder.bin
+
 - **sample-words.py** — picks the rows of `src/arch/riscv64/decode/objdump_words.txt`
   from corpora: up to three operand shapes for each mnemonic, instruction length
   and opcode class, so every compressed encoding that prints as the same base
@@ -31,10 +45,17 @@ the Mac.
 
       python3 sample-words.py /tmp/rv-corpus/*.txt > src/arch/riscv64/decode/objdump_words.txt
 
-The three corpora the decoder is measured against:
+Measured with GNU objdump (GNU Binutils for Debian) 2.44 on box 2232, on
+2026-10-20, with no row decoded differently from `objdump` and none left
+undecoded in any corpus:
 
-| Corpus | Where it comes from |
-|---|---|
-| `debug-glibc.txt` | `examples/debug` built with `mfb build --debug -O0 --target linux-riscv64` |
-| `libc.txt` | glibc's `/lib/riscv64-linux-gnu/libc.so.6` on box 2232 |
-| `ld-musl.txt` | musl's `/lib/ld-musl-riscv64.so.1` (libc and loader in one) from box 2229 |
+| Corpus | Where it comes from | Rows | Differing | Undecoded |
+|---|---|---|---|---|
+| `debug-glibc.txt` | `examples/debug` built with `mfb build --debug -O0 --target linux-riscv64` | 25,585 | 0 | 0 |
+| `libc.txt` | glibc 2.41's `/lib/riscv64-linux-gnu/libc.so.6` on box 2232 | 304,077 | 0 | 0 |
+| `ld-musl.txt` | musl's `/lib/ld-musl-riscv64.so.1` (libc and loader in one) from box 2229 | 106,156 | 0 | 0 |
+| `encoder.txt` | every operation the riscv64 encoder emits (`encoder-corpus.sh`) | 538 | 0 | 0 |
+
+`objdump` itself left no row of them undecoded (`grep -cE '\t\.(insn|word|short)'`
+→ 0 in each), so every row was compared. The four hold 227 distinct mnemonics;
+`objdump_words.txt` samples all of them in 671 rows.

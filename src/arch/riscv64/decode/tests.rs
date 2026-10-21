@@ -35,13 +35,6 @@ fn unknown_to_objdump(text: &str) -> bool {
     text.starts_with(".insn") || text.starts_with(".word") || text.starts_with(".short")
 }
 
-/// The rows this decoder is held to: compressed ones, and 4-byte ones outside
-/// the floating-point arithmetic and vector opcodes (the floating-point loads
-/// and stores are held, since compressed ones expand to them).
-fn held(row: &Row) -> bool {
-    row.bytes.len() == 2 || !matches!(row.bytes[0] & 0x7f, 0x43 | 0x47 | 0x4b | 0x4f | 0x53 | 0x57)
-}
-
 /// The rows `decode` spells differently from `objdump`, and the ones it does
 /// not decode, by mnemonic.
 fn compare<'a>(rows: &[Row<'a>]) -> (Vec<String>, std::collections::BTreeMap<&'a str, usize>) {
@@ -66,9 +59,8 @@ fn compare<'a>(rows: &[Row<'a>]) -> (Vec<String>, std::collections::BTreeMap<&'a
 
 #[test]
 fn decodes_words_as_objdump_does() {
-    let all = rows(include_str!("objdump_words.txt"));
-    let rows = all.into_iter().filter(held).collect::<Vec<_>>();
-    assert!(rows.len() > 300, "{} rows", rows.len());
+    let rows = rows(include_str!("objdump_words.txt"));
+    assert!(rows.len() > 600, "{} rows", rows.len());
     let (differing, undecoded) = compare(&rows);
     assert!(differing.is_empty(), "{}", differing.join("\n"));
     assert!(undecoded.is_empty(), "undecoded: {undecoded:?}");
