@@ -488,28 +488,14 @@ pub(crate) fn lower_net_receive_from_helper(
         abi::compare_registers(&v9, &v10),
         abi::branch_eq(&entry_done),
     ]);
-    // See the guard in `emit_read_body`: kind 2 has no entry array, and a
-    // zero-stride cursor would rewrite one "entry" over the data region.
-    if byte_list_entry_stride() != 0 {
-        instructions.extend([
-            abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate(&v12, "Integer", "1"),
-            abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        ]);
-    }
+    // kind 2 has no entry array (plan-57-D), so only the payload is written: the
+    // byte list's lookup-entry stride is 0 (`byte_list_entry_stride`).
     instructions.extend([
         abi::add_registers(&v12, &v14, &v9),
         abi::load_u8(&v13, &v15, 0),
         abi::store_u8(&v13, &v12, 0),
         abi::add_immediate(&v15, &v15, 1),
     ]);
-    if byte_list_entry_stride() != 0 {
-        instructions.push(abi::add_immediate(&v11, &v11, COLLECTION_ENTRY_SIZE));
-    }
     instructions.extend([
         abi::add_immediate(&v9, &v9, 1),
         abi::branch(&entry_loop),
