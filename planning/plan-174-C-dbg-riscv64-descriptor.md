@@ -265,16 +265,21 @@ Acceptance: the register file matches the kernel layout and the compiler's
 register model.
   Check: `cargo test --bin mfb debugger::riscv64` → 4 passed (est. 2 min).
   Measured 2026-10-20: `4 passed; 0 failed`.
-Commit: —
+Commit: `4255b52b2`
 
 ### Phase 2 — the descriptor, the decoder adapter and listings
 
-- [ ] `riscv64.rs`: `decode`, `length`, `help` (the register lines of `help` and
+- [x] `riscv64.rs`: `decode`, `length`, `help` (the register lines of `help` and
       `list_reg_usage` for riscv64), and `pub(crate) const RISCV64: Arch` with
       `effect` wired to Phase 3's function (added here answering only `ret` and
-      `none`, completed in Phase 3).
-- [ ] `disassemble.rs`: print an undecoded 2-byte instruction as `.short`.
-- [ ] `disassemble.rs:counted` (added from plan-174-A Phase 3): `dis -<n>`
+      `none`, completed in Phase 3). (`effect` and the ELF identity landed whole
+      here, since the descriptor names them; Phases 3 and 4 add their tests:
+      see Corrections. The decoder's text has its tab replaced by the padding
+      AArch64 listings use, `{mnemonic:<6} {operands}`.)
+- [x] `disassemble.rs`: print an undecoded 2-byte instruction as `.short`.
+      (Landed in plan-174-A Phase 3, `disassemble::undecoded`; shown by
+      `on_riscv64_dis_lists_two_and_four_byte_instructions`.)
+- [x] `disassemble.rs:counted` (added from plan-174-A Phase 3): `dis -<n>`
       steps back `n * alignment` bytes, which is `n` instructions only when
       every instruction is `alignment` bytes. With 2-and-4-byte code, find the
       `n`th instruction start before the anchor by decoding forward from the
@@ -282,18 +287,31 @@ Commit: —
       `n` instructions before") when the walk cannot reach back that far.
       AArch64's result is unchanged: its starts are every 4 bytes from any
       function's start. Test: `on_riscv64_dis_counts_back_by_instructions`.
-- [ ] `prompt.rs` test fake `Recorder`: add an `arch: &'static Arch` field,
+      (`disassemble::start_before`, used only when instructions differ in
+      size; the test counts back within `main` and past its start into the
+      function before it.)
+- [x] `prompt.rs` test fake `Recorder`: add an `arch: &'static Arch` field,
       default `&AARCH64`, with riscv64 code and registers when it is `&RISCV64`.
-- [ ] Tests in `prompt.rs`: `on_riscv64_list_reg_shows_the_role_registers`
+      (riscv64's real register file from `riscv64::registers`, `c.nop`s for
+      code, and a `program` field placing given bytes over them.)
+- [x] Tests in `prompt.rs`: `on_riscv64_list_reg_shows_the_role_registers`
       (`a0`–`a7`, `s11`, `s2`, `s10`, then the riscv64 usage);
       `on_riscv64_dis_lists_two_and_four_byte_instructions` over the bytes of
       `addi sp,sp,-208`, `sd ra,0(sp)`, `c.mv`, `ret`;
       `on_riscv64_locations_take_abi_names` (`show mem sp+16`, `a0`, and `x10`
-      refused as no register or function).
+      refused as no register or function). (In `prompt/tests/riscv64.rs`; the
+      listing also shows a reserved 2-byte word as `.short 0x0004`, and the
+      locations test also checks `jump`'s riscv64 refusals and `dis a0` vs
+      `dis x10`.)
 
 Acceptance: the shared code lists riscv64 registers and code through a fake.
   Check: `cargo test --bin mfb debugger::prompt::tests::on_riscv64` → 3 passed
   (est. 2 min).
+  Measured 2026-10-20 (the tests live in `prompt::tests::riscv64`, so the
+  filter is `on_riscv64`): `cargo test --bin mfb on_riscv64` → `4 passed; 0
+  failed` (the three, and the added back-counting one); `cargo test --bin mfb
+  debugger::` → `190 passed; 0 failed`; `cargo check --all-targets` and the
+  Linux AArch64 cross-check → no warnings.
 Commit: —
 
 ### Phase 3 — the unwinder effects

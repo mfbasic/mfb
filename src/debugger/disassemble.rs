@@ -180,11 +180,55 @@ fn counted(
     pc: u64,
 ) -> Result<Vec<String>, String> {
     let back = window.back;
-    let from = back
-        .checked_mul(inferior.arch().alignment)
-        .and_then(|bytes| anchor.checked_sub(bytes))
-        .ok_or_else(|| format!("there are not {back} instructions before 0x{anchor:016x}"))?;
+    let arch = inferior.arch();
+    let from = if arch.alignment == arch.longest as u64 {
+        // Every instruction is the same size: count back by bytes.
+        back.checked_mul(arch.alignment)
+            .and_then(|bytes| anchor.checked_sub(bytes))
+    } else {
+        start_before(inferior, range, anchor, back)?
+    }
+    .ok_or_else(|| format!("there are not {back} instructions before 0x{anchor:016x}"))?;
     listing(inferior, range, from, None, Some(window.length), pc)
+}
+
+/// The start of the instruction `back` instructions before `anchor`, for code
+/// whose instructions differ in size: found by decoding forward from the start
+/// of `range` (the function holding `anchor`), and of the functions before it
+/// while that is not far enough back. `None` when no function before it holds
+/// code to count through.
+fn start_before(
+    inferior: &mut dyn Inferior,
+    range: &FunctionRange,
+    anchor: u64,
+    back: u64,
+) -> Result<Option<u64>, String> {
+    let arch = inferior.arch();
+    // Instruction starts before `anchor`, in address order.
+    let mut starts = Vec::<u64>::new();
+    let (mut start, mut end) = (range.start.min(anchor), anchor);
+    loop {
+        if start < end {
+            let code = inferior.read_code(start, (end - start) as usize)?;
+            let found = instructions(arch, &code, start)
+                .map(|(address, _)| address)
+                .collect::<Vec<_>>();
+            starts.splice(0..0, found);
+        }
+        if let Some(index) = starts.len().checked_sub(back as usize) {
+            return Ok(Some(starts[index]));
+        }
+        let Some(previous) = start
+            .checked_sub(1)
+            .map(|before| inferior.function_at(before))
+            .transpose()?
+            .flatten()
+            .filter(|previous| previous.start < start && start - previous.start <= MAX_FUNCTION)
+        else {
+            return Ok(None);
+        };
+        (start, end) = (previous.start, start);
+    }
 }
 
 /// The address of every `ret` in `range`: through its size when known, else

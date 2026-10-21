@@ -2,6 +2,8 @@ use super::*;
 
 mod execution;
 mod inspection;
+mod riscv64;
+use crate::debugger::arch::Arch;
 use crate::debugger::arm64::AARCH64;
 use crate::debugger::names::Origin;
 use crate::debugger::{Change, FunctionRange, Step};
@@ -10,7 +12,12 @@ use crate::debugger::{Change, FunctionRange, Step};
 /// functions, three registers. It records how often it was ended and every
 /// step it was asked for, and refuses every read when `unreadable`. With
 /// `code` its code is all `nop`s, in functions placed as its symbols say.
+/// With `arch` riscv64's, it has riscv64's register file (`a0` standing for
+/// `x0`, `sp` at 0x7ff0) and `program` placed over its `c.nop`s.
 struct Recorder {
+    arch: &'static Arch,
+    /// Code at an address, over the `nop`s `code` gives.
+    program: Option<(u64, Vec<u8>)>,
     ending: Ending,
     ends: usize,
     unreadable: bool,
@@ -37,6 +44,8 @@ struct Recorder {
 impl Recorder {
     fn new(ending: Ending) -> Self {
         Recorder {
+            arch: &AARCH64,
+            program: None,
             ending,
             ends: 0,
             unreadable: false,
@@ -76,7 +85,7 @@ impl Inferior for Recorder {
         42
     }
     fn arch(&self) -> &'static crate::debugger::arch::Arch {
-        &crate::debugger::arm64::AARCH64
+        self.arch
     }
     fn end(&mut self) -> Result<Ending, String> {
         self.ends += 1;
@@ -116,7 +125,23 @@ impl Inferior for Recorder {
         if !self.code {
             return Err(format!("unmapped {address:#x}"));
         }
-        Ok(0xd503_201f_u32.to_le_bytes().repeat(length / 4))
+        if !self.riscv64() {
+            return Ok(0xd503_201f_u32.to_le_bytes().repeat(length / 4));
+        }
+        // `c.nop`s, with the program over them.
+        let mut code = [0x01, 0x00].repeat(length.div_ceil(2));
+        code.truncate(length);
+        if let Some((start, program)) = &self.program {
+            for (index, byte) in code.iter_mut().enumerate() {
+                let at = address + index as u64;
+                if let Some(offset) = at.checked_sub(*start) {
+                    if let Some(value) = program.get(offset as usize) {
+                        *byte = *value;
+                    }
+                }
+            }
+        }
+        Ok(code)
     }
     fn function_at(&mut self, address: u64) -> Result<Option<FunctionRange>, String> {
         if !self.code {
@@ -171,6 +196,16 @@ impl Inferior for Recorder {
             Some(x0) if thread == 0 => x0,
             _ => 0x2a + thread as u64,
         };
+        if self.riscv64() {
+            let mut general = [0u64; 32];
+            general[10] = x0;
+            general[2] = 0x7ff0;
+            general[0] = if thread == 0 { self.pc } else { 0x7000 };
+            return Ok(crate::debugger::riscv64::registers(
+                &general,
+                &crate::debugger::riscv64::Float::zeroed(),
+            ));
+        }
         Ok(vec![
             Register {
                 name: "x0".to_string(),
@@ -197,7 +232,7 @@ impl Inferior for Recorder {
         for (name, value) in values {
             match name.as_str() {
                 "pc" if thread == 0 => self.pc = *value,
-                "x0" if thread == 0 => self.x0 = Some(*value),
+                "x0" | "a0" if thread == 0 => self.x0 = Some(*value),
                 _ => {}
             }
         }
@@ -254,6 +289,13 @@ impl Inferior for Recorder {
     }
     fn run(&mut self) -> Result<RunStop, String> {
         Ok(self.runs.remove(0))
+    }
+}
+
+impl Recorder {
+    /// Whether it plays a riscv64 program.
+    fn riscv64(&self) -> bool {
+        self.arch.name == "riscv64"
     }
 }
 
