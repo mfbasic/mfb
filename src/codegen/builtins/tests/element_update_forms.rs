@@ -410,3 +410,93 @@ fn a_string_element_write_back_is_no_element_binding() {
         assert!(!has_hidden_element_slot(&source));
     }
 }
+
+/// bug-689: the single-expression update reads the element only through field
+/// reads; the rewrite must see through every value kind that can wrap such a read
+/// (list/set/map literals, a record literal, a closure, a union wrap, a unary), or
+/// the statement quietly falls back to the copying `WITH` + `set`.
+#[test]
+fn the_single_expression_rewrite_sees_through_every_value_kind() {
+    let body = "\
+TYPE Dot
+  x AS Integer
+END TYPE
+
+UNION Shape
+  Dot
+  Inner
+END UNION
+
+FUNC shapeSize(s AS Shape) AS Integer
+  MATCH s
+    CASE Dot(d)
+      RETURN d.x
+    CASE Inner(i)
+      RETURN i.a
+  END MATCH
+END FUNC
+
+FUNC apply(f AS FUNC(Integer) AS Integer, v AS Integer) AS Integer
+  RETURN f(v)
+END FUNC
+
+FUNC main() AS Integer
+  MUT hs AS List OF Holder = holders()
+  LET base AS Integer = 2
+  FOR k = 0 TO 7
+    hs = collections::set(hs, k, WITH collections::get(hs, k) { touches := collections::get(hs, k).touches + len([1, 2]) + len(Set OF Integer { 1 }) + len(Map OF String TO Integer { \"a\" := 1 }) + (-collections::get(hs, k).id) + apply(LAMBDA(x AS Integer) -> x + base, 1) + len(Inner[a := 1, b := 2, name := \"n\"].name) + shapeSize(Dot[3]) })
+  NEXT
+  io::print(toString(len(hs)))
+  RETURN 0
+END FUNC
+";
+    assert!(has_hidden_element_slot(body));
+}
+
+/// The destination call stays on under a function-level `TRAP` only when every
+/// later update of the element provably cannot fail (a comparison, `NOT`, a field
+/// read, an infallible built-in); arithmetic can overflow, so an update after the
+/// call that does arithmetic declines it.
+#[test]
+fn only_a_later_update_that_cannot_fail_keeps_the_destination_call_under_a_trap() {
+    let kept = |update: &str| {
+        let source = format!(
+            "{PRELUDE}
+TYPE Gate
+  inner AS Inner
+  ok AS Boolean
+  n AS Integer
+END TYPE
+
+FUNC gates() AS List OF Gate
+  MUT gs AS List OF Gate = []
+  FOR k = 0 TO 7
+    gs = collections::append(gs, Gate[inner := newInner(k), ok := FALSE, n := k])
+  NEXT
+  RETURN gs
+END FUNC
+
+FUNC main() AS Integer
+  MUT gs AS List OF Gate = gates()
+  FOR k = 0 TO 7
+    LET g AS Gate = collections::get(gs, k)
+    gs = collections::set(gs, k, WITH g {{ inner := stepIn(g.inner, k, \"y\"), {update} }})
+  NEXT
+  io::print(toString(len(gs)))
+  RETURN 0
+
+  TRAP(e)
+    RETURN 1
+  END TRAP
+END FUNC
+"
+        );
+        keeps_into_result(&source)
+    };
+    assert!(kept("ok := g.n > 2"));
+    assert!(kept("ok := NOT (g.n > 2)"));
+    assert!(kept("ok := g.ok"));
+    assert!(kept("n := len(\"abc\")"));
+    assert!(!kept("n := g.n + 1"));
+    assert!(!kept("n := -g.n"));
+}

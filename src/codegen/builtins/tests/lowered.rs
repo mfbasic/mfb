@@ -5,6 +5,7 @@
 //! lowered.
 
 use crate::arch::ops::CodeOp;
+use crate::codegen::engine::tests::test_support::Stream;
 use crate::target::NativeBuildMode::Console;
 use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
 
@@ -17,4 +18,38 @@ pub(super) fn calls_on(source: &str, name: &str, target: CodeTarget) -> Vec<Stri
         .filter(|i| i.op == CodeOp::BranchLink)
         .filter_map(|i| i.get("target"))
         .collect()
+}
+
+/// The kinds of stack object function `name` of `source` reserves on `target`,
+/// sorted and deduplicated. A route that reserves scratch under its own name
+/// (`inline_append_newrec`, `record_field_replaced`, ...) leaves that name here.
+pub(super) fn slots_on(source: &str, name: &str, target: CodeTarget) -> Vec<String> {
+    let plan = code_for_src_cached(source, target, Console);
+    let mut kinds: Vec<String> = code_function(plan, name)
+        .stack_slots
+        .iter()
+        .map(|slot| slot.type_.clone())
+        .collect();
+    kinds.sort();
+    kinds.dedup();
+    kinds
+}
+
+/// The label stems (serial dropped) of function `name` of `source` on `target`,
+/// sorted and deduplicated.
+pub(super) fn labels_on(source: &str, name: &str, target: CodeTarget) -> Vec<String> {
+    let plan = code_for_src_cached(source, target, Console);
+    let mut stems: Vec<String> = Stream::of(code_function(plan, name))
+        .labels()
+        .into_iter()
+        .map(|(_, label)| {
+            label
+                .trim_end_matches(|c: char| c.is_ascii_digit())
+                .trim_end_matches('_')
+                .to_string()
+        })
+        .collect();
+    stems.sort();
+    stems.dedup();
+    stems
 }

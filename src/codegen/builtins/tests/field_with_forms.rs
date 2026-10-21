@@ -422,3 +422,108 @@ fn an_append_to_a_collection_field_is_in_place_only_when_it_is_last() {
     );
     assert!(has(&string, "record_replace_offset"), "{string:?}");
 }
+
+const MIXED_TYPES: &str = "\
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+TYPE Rec
+  hp AS Integer
+  n AS Integer
+  xs AS List OF Integer
+END TYPE
+
+TYPE P
+  hp AS Integer
+  n AS Integer
+  xs AS List OF Integer
+END TYPE
+";
+
+/// plan-145-C: a mixed `WITH` (one collection arm beside scalars) is served by the
+/// mixed route over a global and over a `STATE` payload as it is over a local —
+/// the owner kind only changes where the block pointer is read from.
+#[test]
+fn a_mixed_with_takes_the_mixed_route_over_a_global_and_a_state() {
+    let global = format!(
+        "{MIXED_TYPES}\nMUT gr AS Rec = Rec[hp := 1, n := 0, xs := [1]]\n\n\
+         FUNC main() AS Integer\n  LET k AS Integer = 5\n  FOR i = 1 TO 4\n    \
+         gr = WITH gr {{ hp := gr.hp + 1, xs := collections::append(gr.xs, k), n := k }}\n  NEXT\n  \
+         io::print(toString(gr.hp))\n  RETURN 0\nEND FUNC\n"
+    );
+    assert!(has(&slots_of(&global, "main"), "mixed_with_scalar"));
+    let state = format!(
+        "{MIXED_TYPES}\nFUNC main() AS Integer\n  RES h AS fs::File STATE P = fs::openFile(\"/dev/null\")\n  \
+         h.state = P[hp := 1, n := 0, xs := [1, 2, 3]]\n  LET k AS Integer = 5\n  \
+         FOR i = 1 TO 4\n    h.state = WITH h.state {{ hp := h.state.hp + 1, xs := collections::append(h.state.xs, k), n := k }}\n  NEXT\n  \
+         io::print(toString(h.state.hp))\n  RETURN 0\nEND FUNC\n"
+    );
+    assert!(has(&slots_of(&state, "main"), "mixed_with_scalar"));
+}
+
+/// bug-487 / plan-145-G: the mixed route declines when an operand can write the
+/// owner it is about to update in place — a call that assigns the `STATE` payload,
+/// or one that stores the global — because the in-place store would keep a write
+/// the whole-record `WITH` (built from the old value) discards.
+#[test]
+fn a_mixed_with_declines_when_an_operand_writes_the_owner() {
+    let state = |operand: &str| {
+        format!(
+            "{MIXED_TYPES}\n\
+             FUNC sideEffect(f AS fs::File STATE P) AS Integer\n  f.state.n = f.state.n + 1\n  RETURN 7\nEND FUNC\n\n\
+             FUNC pure(v AS Integer) AS Integer\n  RETURN v + 1\nEND FUNC\n\n\
+             FUNC main() AS Integer\n  RES f AS fs::File STATE P = fs::openFile(\"/dev/null\")\n  \
+             f.state = P[hp := 1, n := 0, xs := [1]]\n  \
+             f.state = WITH f.state {{ xs := collections::append(f.state.xs, {operand}), n := 5 }}\n  \
+             io::print(toString(f.state.n))\n  RETURN 0\nEND FUNC\n"
+        )
+    };
+    assert!(has(
+        &slots_of(&state("pure(1)"), "main"),
+        "mixed_with_scalar"
+    ));
+    assert!(!has(
+        &slots_of(&state("sideEffect(f)"), "main"),
+        "mixed_with_scalar"
+    ));
+    let global = |operand: &str| {
+        format!(
+            "{MIXED_TYPES}\nMUT gr AS Rec = Rec[hp := 1, n := 0, xs := [1]]\n\n\
+             FUNC bump() AS Integer\n  gr = Rec[hp := 9, n := 9, xs := [9]]\n  RETURN 5\nEND FUNC\n\n\
+             FUNC main() AS Integer\n  gr = WITH gr {{ xs := collections::append(gr.xs, {operand}), n := 5 }}\n  \
+             io::print(toString(gr.n))\n  RETURN 0\nEND FUNC\n"
+        )
+    };
+    assert!(has(&slots_of(&global("2"), "main"), "mixed_with_scalar"));
+    assert!(!has(
+        &slots_of(&global("bump()"), "main"),
+        "mixed_with_scalar"
+    ));
+}
+
+/// A record captured BY REFERENCE by a non-escaping callback (`forEach`) is updated
+/// through its parent's slot: the destination is the reference field, and the
+/// mixed update still stores in place.
+#[test]
+fn a_mixed_with_through_a_by_reference_capture_stores_through_the_parent_slot() {
+    let source = format!(
+        "{MIXED_TYPES}\nFUNC main() AS Integer\n  MUT r AS Rec = Rec[hp := 1, n := 0, xs := [1]]\n  \
+         collections::forEach([1, 2, 3], LAMBDA(v AS Integer) -> r = WITH r {{ hp := r.hp + 1, xs := collections::append(r.xs, v), n := v }})\n  \
+         io::print(toString(r.hp))\n  RETURN 0\nEND FUNC\n"
+    );
+    // The callback is its own function: the capture is a by-ref local there.
+    let plan = crate::testutil::code_for_src_cached(&source, CodeTarget::LinuxX86_64, Console);
+    let lambdas: Vec<&str> = plan
+        .functions
+        .iter()
+        .map(|function| function.name.as_str())
+        .filter(|name| name.contains("lambda"))
+        .collect();
+    assert!(
+        !lambdas.is_empty(),
+        "the callback lowers as its own function"
+    );
+    let slots = slots_of(&source, lambdas[0]);
+    assert!(has(&slots, "mixed_with_scalar"), "{slots:?}");
+}
