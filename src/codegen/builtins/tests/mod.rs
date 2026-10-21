@@ -63,6 +63,7 @@ mod inplace_fields;
 mod inplace_inline_repack;
 mod inplace_rewrite;
 mod link;
+mod link_float_results;
 mod link_out_widths;
 mod link_struct_widths;
 mod literal_coercion;

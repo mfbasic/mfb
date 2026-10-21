@@ -111,6 +111,23 @@ impl FieldTypes {
                 .iter()
                 .map(|function| (function.name.clone(), function.returns.clone())),
         );
+        // A call to a native `LINK` wrapper (or a re-export alias of one) is keyed by
+        // its import name, which is not a module function and whose `NirImport`
+        // carries no return: the wrapper's declared return lives on the `LINK`
+        // function the import routes to. Without it `libc::pid() + 1.0` types as
+        // unknown and the Float-error-message pre-pass registers nothing for the `+`
+        // it then has to lower.
+        for import in &module.imports {
+            let link = module.link_functions.iter().find(|function| {
+                crate::target::shared::nir::link_thunk_symbol(&function.alias, &function.name)
+                    == import.symbol
+            });
+            if let Some(link) = link {
+                self.function_returns
+                    .entry(import.name.clone())
+                    .or_insert_with(|| link.return_type.clone());
+            }
+        }
         self
     }
 }
