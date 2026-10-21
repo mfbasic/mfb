@@ -36,6 +36,7 @@ mod collection_compare;
 mod collections;
 mod content_equal;
 mod corpus;
+mod corpus_rest;
 mod data_layout;
 mod declared_errors_all;
 mod declared_errors_sweep;
