@@ -31,6 +31,7 @@
 mod abi_inline;
 mod app_surface;
 mod builtin_record_arguments;
+mod byte_list_entry_free;
 mod canvas;
 mod closure_env_forms;
 mod collection_compare;

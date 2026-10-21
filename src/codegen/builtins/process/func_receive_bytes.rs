@@ -271,26 +271,12 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
         abi::compare_registers(&reg9, &reg10),
         abi::branch_eq(&entry_done),
     ]);
-    if byte_list_entry_stride() != 0 {
-        instructions.extend([
-            abi::move_immediate(&reg12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8(&reg12, &reg11, COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, &reg11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, &reg11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64(&reg9, &reg11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate(&reg12, "Integer", "1"),
-            abi::store_u64(&reg12, &reg11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        ]);
-    }
     instructions.extend([
         abi::add_registers(&reg12, &reg14, &reg9),
         abi::load_u8(&reg13, &reg15, 0),
         abi::store_u8(&reg13, &reg12, 0),
         abi::add_immediate(&reg15, &reg15, 1),
     ]);
-    if byte_list_entry_stride() != 0 {
-        instructions.push(abi::add_immediate(&reg11, &reg11, COLLECTION_ENTRY_SIZE));
-    }
     instructions.extend([
         abi::add_immediate(&reg9, &reg9, 1),
         abi::branch(&entry_loop),

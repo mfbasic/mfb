@@ -720,17 +720,6 @@ pub(crate) fn lower_net_read_helper(
         // would rewrite one "entry" over the data region `count` times, so they
         // are skipped outright. The payload copy below is NOT guarded — it is the
         // only thing that writes the bytes.
-        if byte_list_entry_stride() != 0 {
-            instructions.extend([
-                abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-                abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
-                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-                abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-                abi::move_immediate(&v12, "Integer", "1"),
-                abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-            ]);
-        }
         instructions.extend([
             // data[i] = buf[i]
             abi::add_registers(&v12, &v14, &v9),
@@ -738,9 +727,6 @@ pub(crate) fn lower_net_read_helper(
             abi::store_u8(&v13, &v12, 0),
             abi::add_immediate(&v15, &v15, 1),
         ]);
-        if byte_list_entry_stride() != 0 {
-            instructions.push(abi::add_immediate(&v11, &v11, COLLECTION_ENTRY_SIZE));
-        }
         instructions.extend([
             abi::add_immediate(&v9, &v9, 1),
             abi::branch(&entry_loop),

@@ -630,22 +630,6 @@ pub(crate) fn lower_fs_read_all_bytes_helper(
         // zero stride would rewrite one entry over the data region `count`
         // times and run past the block, so it is skipped outright.
     ]);
-    if byte_list_entry_stride() != 0 {
-        instructions.extend([
-            abi::move_immediate(&scratch, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64(&idx, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate(&scratch, "Integer", "1"),
-            abi::store_u64(
-                &scratch,
-                &entry_cursor,
-                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-            ),
-            abi::add_immediate(&entry_cursor, &entry_cursor, byte_list_entry_stride()),
-        ]);
-    }
     instructions.extend([
         abi::add_immediate(&idx, &idx, 1),
         abi::branch(&entry_loop),

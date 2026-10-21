@@ -196,43 +196,8 @@ pub(crate) fn lower(
         "Byte",
         &COLLECTION_ENTRY_FLAG_USED.to_string(),
     ));
-    if byte_list_entry_stride() != 0 {
-        builder.emit(abi::store_u8(
-            &scratch26,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
-    }
-    if byte_list_entry_stride() != 0 {
-        builder.emit(abi::store_u64(
-            abi::ZERO,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-    }
-    if byte_list_entry_stride() != 0 {
-        builder.emit(abi::store_u64(
-            abi::ZERO,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
-    }
     // value offset = i; value length = 1.
-    if byte_list_entry_stride() != 0 {
-        builder.emit(abi::store_u64(
-            &scratch23,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-    }
     builder.emit(abi::move_immediate(&scratch26, "Integer", "1"));
-    if byte_list_entry_stride() != 0 {
-        builder.emit(abi::store_u64(
-            &scratch26,
-            &scratch24,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
-    }
     // payload[i] = string byte[i].
     builder.emit(abi::add_registers(&scratch27, &scratch22, &scratch23));
     builder.emit(abi::load_u8(&scratch26, &scratch27, 0));
