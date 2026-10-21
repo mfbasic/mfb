@@ -135,3 +135,13 @@ fn a_doc_example_runs_to_its_end_and_keeps_its_blank_lines() {
     assert_eq!(doc.examples[0].0, "LET a = f()\n\nRETURN a");
     assert_eq!(DocHeaderKind::Resource.keyword(), "RESOURCE");
 }
+
+/// Two `**`s that can split a path several ways reach the same sub-match
+/// more than once; the answer is the same either way.
+#[test]
+fn a_glob_with_two_double_stars_matches_however_the_path_splits() {
+    use crate::ast::manifest::glob_matches;
+    assert!(glob_matches("**/a/**/b.mfb", "x/a/y/a/z/b.mfb"));
+    assert!(glob_matches("**/a/**/a/**", "a/a/a/a"));
+    assert!(!glob_matches("**/a/**/c.mfb", "x/a/y/a/z/b.mfb"));
+}
