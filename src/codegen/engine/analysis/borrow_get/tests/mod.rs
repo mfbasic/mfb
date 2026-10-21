@@ -2,6 +2,7 @@ use super::*;
 use crate::target::shared::nir::{NirFunction, NirModule};
 use crate::testutil::{nir_for_src, CodeTarget};
 
+mod predicate_shapes;
 mod rename_forms;
 
 const TYPES: &str = "\
