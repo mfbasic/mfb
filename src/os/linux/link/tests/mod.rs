@@ -3,6 +3,7 @@ use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, Import
 
 mod elf_writing;
 mod sections_and_symbols;
+mod versioned_imports;
 
 /// An empty image with `_main` as the entry: the base every test spreads over
 /// with `..none()`, spelling only the fields it actually exercises (bug-335 C2).
