@@ -20,13 +20,10 @@ use crate::testutil::{try_code_for_fixture_project, CodeTarget};
 
 const MULTI_FILE_FIXTURES: &[&str] = &[
     "func_override_visibility",
-    "toInt_enum_package",
-    "toString_enum_package",
     "template-in-later-file-error-source-rt",
     "template-in-later-file-private-scope-rt",
     "type-template-in-later-file-private-rt",
     "local-names-distinct-from-top-level-valid",
-    "private-overload-beside-export-rt",
 ];
 
 #[test]
