@@ -5,6 +5,7 @@ use crate::testutil::{nir_for_src, CodeTarget};
 mod predicate_shapes;
 mod rename_forms;
 mod rename_scopes;
+mod window_refusals;
 
 const TYPES: &str = "\
 IMPORT collections
