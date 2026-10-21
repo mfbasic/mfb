@@ -171,7 +171,7 @@ Rejected alternatives:
   riscv64`.
 - `the_debugger_is_not_supported_…`: renamed
   `the_debugger_is_not_supported_off_its_three_hosts`, gate as §3, message as
-  plan-174-D §4.3.
+  plan-174-D §4.3. (Done in plan-174-D Phase 3, with the message it tests.)
 - `list_shows_…_functions_and_registers`: names from `cpu::names()`, widths from
   `cpu::digits`, roles from `cpu::ROLES`.
 - `show_type_…`: `show type string {ARG1}`.

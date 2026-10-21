@@ -34,8 +34,8 @@ where you can:
 It needs nothing besides `mfb`. Everything it shows uses the names you wrote:
 `isPrime`, `round 2`, `io::print`.
 
-`mfb dbg` runs on macOS and on Linux on Arm (AArch64) computers. On Linux on
-x86-64 or RISC-V, and on Windows, lldb and gdb do the job;
+`mfb dbg` runs on macOS, and on Linux on Arm (AArch64) or RISC-V (riscv64)
+computers. On Linux on x86-64, and on Windows, lldb and gdb do the job;
 `mfb man debug-external` shows how, and it covers profilers and crash-address
 lookup on every platform too.
 

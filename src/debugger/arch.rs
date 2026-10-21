@@ -53,7 +53,13 @@ pub(crate) struct Arch {
     /// reads it, which is compiled where a Linux backend is (and for tests); a
     /// macOS build reads Mach-O and has no use for it.
     #[cfg_attr(
-        not(any(all(target_os = "linux", target_arch = "aarch64"), test)),
+        not(any(
+            all(
+                target_os = "linux",
+                any(target_arch = "aarch64", target_arch = "riscv64")
+            ),
+            test
+        )),
         allow(dead_code)
     )]
     pub(crate) elf: ElfArch,
@@ -109,6 +115,11 @@ pub(crate) enum Effect {
     },
     /// A pre-index store: `base` moves by `delta`, then the stores happen at
     /// offsets from its new value.
+    /// (AArch64's; riscv64 has no store that moves its base.)
+    #[cfg_attr(
+        all(target_os = "linux", target_arch = "riscv64", not(test)),
+        allow(dead_code)
+    )]
     StoreWriteback {
         base: Reg,
         pairs: Vec<(Reg, i64)>,
@@ -116,6 +127,11 @@ pub(crate) enum Effect {
     },
     /// A post-index store: the stores happen at offsets from `base`, which
     /// then moves by `delta`.
+    /// (AArch64's; riscv64 has no store that moves its base.)
+    #[cfg_attr(
+        all(target_os = "linux", target_arch = "riscv64", not(test)),
+        allow(dead_code)
+    )]
     StoreThenMove {
         base: Reg,
         pairs: Vec<(Reg, i64)>,
@@ -177,7 +193,13 @@ pub(crate) struct ArchHelp {
 /// How a processor's ELF files are recognised and read. Read only by `elf.rs`:
 /// see [`Arch::elf`].
 #[cfg_attr(
-    not(any(all(target_os = "linux", target_arch = "aarch64"), test)),
+    not(any(
+        all(
+            target_os = "linux",
+            any(target_arch = "aarch64", target_arch = "riscv64")
+        ),
+        test
+    )),
     allow(dead_code)
 )]
 pub(crate) struct ElfArch {
@@ -199,5 +221,12 @@ pub(crate) struct ElfArch {
 /// with no program to ask (`mfb dbg --help`). A host with no debugger backend
 /// shows AArch64's, the processor its help has always described.
 pub(crate) fn host() -> &'static Arch {
-    &super::arm64::AARCH64
+    #[cfg(all(target_os = "linux", target_arch = "riscv64"))]
+    {
+        &super::riscv64::RISCV64
+    }
+    #[cfg(not(all(target_os = "linux", target_arch = "riscv64")))]
+    {
+        &super::arm64::AARCH64
+    }
 }

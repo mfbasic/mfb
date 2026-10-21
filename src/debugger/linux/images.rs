@@ -58,6 +58,8 @@ impl Tracee {
             maps: String::new(),
             files: HashMap::new(),
             pthread_gap: None,
+            #[cfg(target_arch = "riscv64")]
+            step_traps: Vec::new(),
         })
     }
 

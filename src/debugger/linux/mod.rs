@@ -58,6 +58,10 @@ use super::{environment, shown};
 mod aarch64;
 #[cfg(target_arch = "aarch64")]
 use aarch64 as cpu;
+#[cfg(target_arch = "riscv64")]
+mod riscv64;
+#[cfg(target_arch = "riscv64")]
+use riscv64 as cpu;
 mod images;
 mod inferior;
 mod process;
@@ -106,7 +110,7 @@ const SI_USER: c_int = 0;
 const TRAP_BRKPT: c_int = 1;
 const TRAP_TRACE: c_int = 2;
 const TRAP_HWBKPT: c_int = 4;
-/// `<asm-generic/unistd.h>` on AArch64.
+/// `<asm-generic/unistd.h>`, the same on AArch64 and riscv64.
 const SYS_GETTID: c_long = 178;
 const SYS_TGKILL: c_long = 131;
 const ESRCH: i32 = 3;
@@ -133,7 +137,8 @@ struct IoVec {
     len: usize,
 }
 
-/// `struct sigaction` as glibc and musl lay it out on AArch64.
+/// `struct sigaction` as glibc and musl lay it out on AArch64 and riscv64:
+/// the handler, a 128-byte mask, the flags at 136, the restorer.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct SigAction {
@@ -297,6 +302,9 @@ struct Tracee {
     files: HashMap<PathBuf, Option<elf::Elf>>,
     /// `pthread_self` is the thread pointer less this, once found.
     pthread_gap: Option<Option<u64>>,
+    /// The breakpoints a step planted, with what they replaced.
+    #[cfg(target_arch = "riscv64")]
+    step_traps: Vec<(u64, Vec<u8>)>,
 }
 
 /// One line of `/proc/<pid>/maps`: `[start, end)`, the file offset mapped

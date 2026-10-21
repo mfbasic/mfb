@@ -13,6 +13,9 @@ pub(super) const ARCH: &Arch = &crate::debugger::arm64::AARCH64;
 /// A `General` to read into.
 pub(super) const NO_GENERAL: General = [0; 34];
 
+/// The kernel steps a thread one instruction (`PTRACE_SINGLESTEP`).
+pub(super) const HARDWARE_STEP: bool = true;
+
 /// `<elf.h>`: the thread pointer's and the watchpoints' register sets.
 const NT_ARM_TLS: usize = 0x401;
 const NT_ARM_HW_WATCH: usize = 0x403;
@@ -73,6 +76,16 @@ impl Tracee {
     /// thread, an interrupt, a signal left for later), go on with it.
     pub(super) fn continue_step(&mut self, index: usize) -> Result<(), String> {
         self.resume(index, true)
+    }
+
+    /// A kernel step plants no breakpoints, so no stop is on one of a step's.
+    pub(super) fn on_step_trap(&self, _tid: c_int) -> Result<bool, String> {
+        Ok(false)
+    }
+
+    /// A kernel step plants no breakpoints: none to put back.
+    pub(super) fn end_step_traps(&mut self) -> Result<(), String> {
+        Ok(())
     }
 
     /// How many watchpoint register pairs the processor has.

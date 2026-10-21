@@ -9,11 +9,20 @@
 //! answering it from [`host_backend`]; the prompt and the CLI need no change.
 
 pub(crate) mod arch;
+// AArch64's descriptor: read by the macOS and Linux AArch64 backends, and by
+// `arch::host` where there is no backend; a riscv64 Linux host reads riscv64's.
+#[cfg(any(not(all(target_os = "linux", target_arch = "riscv64")), test))]
 mod arm64;
 pub(crate) mod backtrace;
 pub(crate) mod breakpoints;
 pub(crate) mod disassemble;
-#[cfg(any(all(target_os = "linux", target_arch = "aarch64"), test))]
+#[cfg(any(
+    all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "riscv64")
+    ),
+    test
+))]
 mod elf;
 pub(crate) mod environment;
 pub(crate) mod location;
@@ -26,7 +35,10 @@ mod riscv64;
 pub(crate) mod runtime;
 pub(crate) mod values;
 
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "aarch64", target_arch = "riscv64")
+))]
 mod linux;
 #[cfg(any(target_os = "macos", test))]
 mod macho;
@@ -286,6 +298,11 @@ pub(crate) enum RegisterGroup {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegisterValue {
     Bits64(u64),
+    /// An AArch64 vector register; riscv64's registers are all 64 bits.
+    #[cfg_attr(
+        all(target_os = "linux", target_arch = "riscv64", not(test)),
+        allow(dead_code)
+    )]
     Bits128(u128),
 }
 
@@ -299,17 +316,27 @@ pub(crate) enum Ending {
 }
 
 /// The debugger for the platform this `mfb` was built for, or `None` where
-/// `mfb dbg` is not supported: it runs on macOS and on Linux on AArch64.
+/// `mfb dbg` is not supported: it runs on macOS, and on Linux on AArch64 and
+/// riscv64.
 pub(crate) fn host_backend() -> Option<&'static dyn Backend> {
     #[cfg(target_os = "macos")]
     {
         Some(&macos::MacOs)
     }
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "riscv64")
+    ))]
     {
         Some(&linux::Linux)
     }
-    #[cfg(not(any(target_os = "macos", all(target_os = "linux", target_arch = "aarch64"))))]
+    #[cfg(not(any(
+        target_os = "macos",
+        all(
+            target_os = "linux",
+            any(target_arch = "aarch64", target_arch = "riscv64")
+        )
+    )))]
     {
         None
     }

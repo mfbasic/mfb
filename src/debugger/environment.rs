@@ -181,7 +181,10 @@ pub(crate) fn check_value(value: &str) -> Result<(), String> {
 /// string per variable, in order.
 #[cfg(any(
     target_os = "macos",
-    all(target_os = "linux", target_arch = "aarch64"),
+    all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "riscv64")
+    ),
     test
 ))]
 pub(crate) fn entries(

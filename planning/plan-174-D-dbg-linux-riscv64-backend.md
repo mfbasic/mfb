@@ -309,7 +309,9 @@ Acceptance: Linux AArch64 is unchanged.
   then `cli_dbg` with `MFB_TEST_EXE`) → `16 passed; 0 failed`, with `git diff --
   tests/` empty (est. 10 min; box 2226 is the only host where `linux.rs`
   compiles for AArch64).
-Commit: —
+  Measured 2026-10-21 at `35b35a61e`: box 2226 → `19 passed; 0 failed` (the
+  count plan-174-A measured), and that commit touches no file under `tests/`.
+Commit: `35b35a61e`
 
 ### Phase 2 — the next-address function
 
@@ -337,7 +339,7 @@ Acceptance: every row of §3's table answers the addresses the table gives.
   Measured 2026-10-21 (filter `debugger::riscv64`, the module's place): `11
   passed; 0 failed` (the four register tests of plan-174-C and these seven);
   `cargo check --all-targets` → no warnings.
-Commit: —
+Commit: `39db2305f`
 
 ### Phase 3 — the riscv64 backend (largest blast radius)
 
@@ -345,13 +347,28 @@ State, breakpoints, stepping and host support land together: a backend that
 stops at a breakpoint cannot run on from it without stepping, so no smaller
 piece is usable.
 
-- [ ] `linux_riscv64.rs`: `ARCH`, the state accessors, `thread_pointer`,
+- [x] `linux_riscv64.rs`: `ARCH`, the state accessors, `thread_pointer`,
       `glibc_gap`, `breakpoint`, the watchpoint refusal, `HARDWARE_STEP = false`.
-- [ ] `linux.rs`: `start_step` on riscv64 plants `step_traps` from
+      (`linux/riscv64.rs`; `watch_slots` refuses and `set_thread_watchpoints`
+      writes nothing while no watchpoint is set, which is always.)
+- [x] `linux.rs`: `start_step` on riscv64 plants `step_traps` from
       `next_addresses` and continues; `step_rounds` recognises their stops,
-      steps in turn, and clears them on every exit.
-- [ ] `mod.rs`, `src/cli/dbg.rs`, `src/cli/help.rs`, `tests.rs` per §4.3.
-- [ ] `src/docs/spec/tooling/10_debugger.md`, in this same change: "Host
+      steps in turn, and clears them on every exit. (`step_rounds` now runs a
+      round as groups, all its threads at once with the kernel's step, one
+      thread each otherwise, through `step_group`, and puts a group's
+      breakpoints back however it ended (`end_step_traps`). `signal_stop`
+      drops a stop on a step's own breakpoint that a timed-out step's
+      interrupt raced, so no `SIGTRAP` is left for the program. A signal during
+      a step stays held for the next run, as on AArch64: see Corrections.)
+- [x] `mod.rs`, `src/cli/dbg.rs`, `src/cli/help.rs`, `tests.rs` per §4.3.
+      (Also `environment.rs:entries`, the twelfth `cfg` §2 missed; `arch::host`
+      answers `RISCV64` on riscv64; `arm64` and the AArch64 decoder are left out
+      of a riscv64 build, and `RegisterValue::Bits128` and the two
+      moving-store effects carry a riscv64-only `allow`, so every host builds
+      without warnings. `tests/cli/cli_dbg.rs`'s not-supported test takes the
+      new message and gate here, with the contract; plan-174-E's item for it
+      is marked.)
+- [x] `src/docs/spec/tooling/10_debugger.md`, in this same change: "Host
       support" (the three hosts and the new message); a "Linux backend"
       subsection for riscv64 (regsets and their sizes, `tp`, `ebreak` and
       `c.ebreak`, the next-address table, stepping in turn, no watchpoints, the
@@ -360,11 +377,21 @@ piece is usable.
       (settable registers); `finish` (`a0`, `a1`); `disassemble` (text as GNU
       `objdump` spells it, `.short`); `backtrace` (the riscv64 effects, no
       address mask); Watchpoints (the refusal). Each claim cited to its symbol
-      in `linux_riscv64.rs`, `riscv64.rs` or `linux.rs`.
-- [ ] `src/docs/man/debug/01_start.md` and `package.md`: the sentence saying
+      in `linux_riscv64.rs`, `riscv64.rs` or `linux.rs`. (The Linux backend's
+      bullets carry riscv64 beside AArch64 rather than a subsection of their
+      own; `step`'s held-signal sentence states what both do; also the late
+      save rule and `dis`'s counting back. Nine citations that plan-174-A and C
+      left stale — `elf.rs`, `backtrace.rs`, `location.rs:is_register`,
+      `LinuxAarch64`, `BREAKPOINT_INSTRUCTION`, `set_thread_watchpoints` — now
+      name the moved symbols: the page's citation test checks files only, so
+      every `[[path:Symbol]]` was checked for its symbol by script.
+      `cargo test --bin mfb spec` → `67 passed; 0 failed`.)
+- [x] `src/docs/man/debug/01_start.md` and `package.md`: the sentence saying
       where `mfb dbg` runs becomes "macOS, and Linux on Arm (AArch64) or RISC-V
       (riscv64) computers", with x86-64 Linux and Windows still named as not
-      supported. Check: `mfb man debug start | grep -c riscv64` → 1.
+      supported. Check: `mfb man debug start | grep -c riscv64` → 1. (Measured
+      2026-10-21: `1`; `mfb man debug | grep -c riscv64` → `1`; `cargo test
+      --bin mfb man` → `350 passed; 0 failed`.)
 - [ ] Build on box 2229 (`cargo build`: 46 min from clean, minutes after).
 
 Acceptance: breakpoints, registers, backtraces, `step`, `step-all`, `finish`
@@ -423,6 +450,13 @@ Commit: —
 
 ## Corrections
 
+- **A signal during a riscv64 step stays held, as on AArch64.** §3 says a
+  signal delivered during a step runs its handler before the step ends. The
+  AArch64 path holds such a signal for the next run (`continue_step` resumes
+  with no signal) and tries the instruction again; the riscv64 step does the
+  same, continuing to its planted breakpoints with no signal, so a step behaves
+  alike on both processors and no handler runs inside one. Only `step-all`'s
+  in-turn order differs, and the spec says so.
 - **`linux.rs` is a directory now** (plan-176's split): `linux/{mod, inferior,
   images, process, threads}.rs`. The per-processor files are
   `linux/aarch64.rs` and `linux/riscv64.rs`, read as `cpu::`; `linux/` is

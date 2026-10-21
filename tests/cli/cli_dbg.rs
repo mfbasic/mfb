@@ -70,9 +70,15 @@ fn help_and_usage_errors_on_every_host() {
     );
 }
 
-#[cfg(not(any(target_os = "macos", all(target_os = "linux", target_arch = "aarch64"))))]
+#[cfg(not(any(
+    target_os = "macos",
+    all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "riscv64")
+    )
+)))]
 #[test]
-fn the_debugger_is_not_supported_off_macos_and_linux_aarch64() {
+fn the_debugger_is_not_supported_off_its_three_hosts() {
     let project = temp_project("dbg_probe", "FUNC main AS Integer\n  RETURN 0\nEND FUNC\n");
     let binary = build_project(&project);
     let (code, stdout, stderr) = dbg(&PathBuf::from(mfb_exe()), &[binary.to_str().unwrap()]);
@@ -80,8 +86,8 @@ fn the_debugger_is_not_supported_off_macos_and_linux_aarch64() {
     assert_eq!(
         stderr,
         format!(
-            "error: mfb dbg is not supported on {} {}; it runs on macOS and on Linux on \
-             AArch64\n",
+            "error: mfb dbg is not supported on {} {}; it runs on macOS, and on Linux on \
+             AArch64 and riscv64\n",
             std::env::consts::OS,
             std::env::consts::ARCH
         )
