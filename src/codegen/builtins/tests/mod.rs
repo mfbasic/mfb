@@ -111,6 +111,7 @@ mod opt_fuse;
 mod opt_knownbits;
 mod opt_lencache;
 mod opt_loop_facts;
+mod opt_promote_frame;
 mod opt_recovery;
 mod optimizer;
 mod optimizer_globals;
