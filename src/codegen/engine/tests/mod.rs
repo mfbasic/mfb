@@ -19,6 +19,8 @@ mod conversion_refusals;
 #[cfg(test)]
 mod data_layout;
 #[cfg(test)]
+mod default_res_fields;
+#[cfg(test)]
 mod nir_context;
 #[cfg(test)]
 mod operator_refusals;

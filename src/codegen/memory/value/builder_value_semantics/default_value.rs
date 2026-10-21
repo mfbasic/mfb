@@ -2,6 +2,7 @@
 //! String concatenation and `MATCH` comparison live in `memory/value/builder_value_semantics/mod.rs`.
 
 use super::*;
+use crate::codegen::collection::layout::field_is_inlined_union_box;
 
 impl CodeBuilder<'_> {
     /// Resolve a resource *value* pointer (held in `value_ptr`) of declared
@@ -193,6 +194,19 @@ impl CodeBuilder<'_> {
                     type_: type_.clone(),
                     location: Operand::from(register),
                     text: format!("default {type_}"),
+                })
+            }
+            // A record field declared `AS RES T` carries the `RES` marker in its type
+            // (`model.record_fields` keeps it), and its default is `T`'s: the closed
+            // resource record, or a resource union's `{tag, record-ptr}` box around
+            // one. Without this arm a record holding a `RES` field next to a field
+            // that makes it not freeable-flat (a function value) failed every inline
+            // `TRAP` that bound it: the trap temp needs the record's default.
+            ParameterType::Res(inner) => {
+                let value = self.lower_default_value_inner(inner, defaulting_unions)?;
+                Ok(ValueResult {
+                    type_: type_.clone(),
+                    ..value
                 })
             }
             _ if self.is_enum_type(type_) => {
@@ -404,11 +418,19 @@ impl CodeBuilder<'_> {
                 };
                 let mut field_slots = Vec::with_capacity(fields.len());
                 let mut inlined_defaults = Vec::new();
+                let mut union_boxes = Vec::new();
                 for (_, field_type) in &fields {
                     let value = self.lower_default_value_inner(field_type, defaulting_unions)?;
                     let slot = self.allocate_stack_object("default_record_field", 8);
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     field_slots.push(slot);
+                    // bug-1012: the record holds a `RES` resource union's box inline, so
+                    // it copies the default box's two words and the box block built
+                    // above is dead. The closed record it names now belongs to the
+                    // record's copy.
+                    if field_is_inlined_union_box(&self.type_model, field_type) {
+                        union_boxes.push((slot, field_type.clone()));
+                    }
                     // bug-625: an inlined default other than the shared empty String
                     // constant is a block built here, which the record byte-copies and
                     // nothing else owns.
@@ -430,6 +452,18 @@ impl CodeBuilder<'_> {
                 };
                 for (slot, field_type) in inlined_defaults {
                     record = self.free_intermediate_collection(slot, &field_type, record)?;
+                }
+                if !union_boxes.is_empty() {
+                    // The frees call `arena_free`, which clobbers every caller-saved
+                    // register: carry the record across them in a slot.
+                    let keep = self.allocate_stack_object("default_record_keep", 8);
+                    self.emit(abi::store_u64(&record.location, abi::stack_pointer(), keep));
+                    for (slot, field_type) in &union_boxes {
+                        self.emit_shallow_block_free(field_type, *slot)?;
+                    }
+                    let register = self.allocate_register();
+                    self.emit(abi::load_u64(register, abi::stack_pointer(), keep));
+                    record.location = Operand::from(register);
                 }
                 Ok(record)
             }
@@ -465,6 +499,7 @@ impl CodeBuilder<'_> {
             _ if typed_is_collection_type(type_) => true,
             // bug-781: the null function value (`lower_default_value_inner`).
             ParameterType::Func(..) => true,
+            ParameterType::Res(inner) => self.default_value_materializable(inner, visited),
             _ if self.is_resource_union_type(type_) => true,
             _ if builtins::is_resource_type(&type_)
                 || self
