@@ -6,48 +6,64 @@
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
+IMPORT money
 
 TESTING
   TGROUP "setRate and getRate"
     TCASE "a rate is stored under the upper-case code"
       clearRates()
-      setRate("eur", 1.25F)
-      expectFixed(getRate("EUR"), 1.25F)
-      expectFixed(getRate("Eur"), 1.25F)
+      setRate("eur", money::toRate("1.25"))
+      expectInteger(getRate("EUR").scaled, money::toRate("1.25").scaled)
+      expectInteger(getRate("Eur").scaled, money::toRate("1.25").scaled)
       expectEqual(hasRate("EUR"), TRUE)
     END TCASE
 
     TCASE "setRate replaces an existing rate"
       clearRates()
-      setRate("EUR", 1.25F)
-      setRate("eur", 1.5F)
-      expectFixed(getRate("EUR"), 1.5F)
+      setRate("EUR", money::toRate("1.25"))
+      setRate("eur", money::toRate("1.5"))
+      expectInteger(getRate("EUR").scaled, money::toRate("1.5").scaled)
       expectInteger(len(exportRates()), 1)
     END TCASE
 
     TCASE "custom codes take rates"
       clearRates()
-      setRate("_gold", 64F)
-      expectFixed(getRate("_GOLD"), 64F)
+      setRate("_gold", money::toRate(64))
+      expectInteger(getRate("_GOLD").scaled, money::toRate(64).scaled)
     END TCASE
 
     TCASE "a rate must be greater than zero"
       clearRates()
-      expectTrap(setRate("EUR", 0F), ErrorInvalidRate)
-      expectTrap(setRate("EUR", -1.25F), ErrorInvalidRate)
+      ' money::toRate never makes these; a record built by hand can.
+      expectTrap(setRate("EUR", money::Rate[scaled := 0]), ErrorInvalidRate)
+      expectTrap(setRate("EUR", money::Rate[scaled := -1250000000000]), ErrorInvalidRate)
       expectEqual(hasRate("EUR"), FALSE)
     END TCASE
 
-    TCASE "the smallest positive Fixed is a valid rate"
+    TCASE "the smallest positive rate is a valid rate"
       clearRates()
-      setRate("EUR", 0.00000000023283064365386962890625F)
+      setRate("EUR", money::toRate("0.000000000001"))
       expectEqual(hasRate("EUR"), TRUE)
+      expectInteger(getRate("EUR").scaled, 1)
+    END TCASE
+
+    TCASE "a rate is stored exactly as written"
+      clearRates()
+      setRate("EUR", money::toRate("0.842"))
+      expectString(toString(getRate("EUR")), "0.842")
+      expectInteger(getRate("EUR").scaled, 842000000000)
+    END TCASE
+
+    TCASE "setRate refuses a hand-built zero rate"
+      clearRates()
+      expectTrap(setRate("EUR", money::Rate[scaled := 0]), ErrorInvalidRate)
+      expectInteger(len(exportRates()), 0)
     END TCASE
 
     TCASE "setRate checks the code"
       clearRates()
-      expectTrap(setRate("EURO", 1F), ErrorInvalidCode)
-      expectTrap(setRate("ABC", 1F), ErrorInvalidCode)
+      expectTrap(setRate("EURO", money::toRate(1)), ErrorInvalidCode)
+      expectTrap(setRate("ABC", money::toRate(1)), ErrorInvalidCode)
       expectInteger(len(exportRates()), 0)
     END TCASE
 
@@ -61,8 +77,8 @@ TESTING
   TGROUP "removeRate and clearRates"
     TCASE "removeRate removes the code, in any case"
       clearRates()
-      setRate("USD", 1F)
-      setRate("EUR", 1.25F)
+      setRate("USD", money::toRate(1))
+      setRate("EUR", money::toRate("1.25"))
       removeRate("eur")
       expectEqual(hasRate("EUR"), FALSE)
       expectEqual(hasRate("USD"), TRUE)
@@ -70,7 +86,7 @@ TESTING
 
     TCASE "removing a code with no rate does nothing"
       clearRates()
-      setRate("USD", 1F)
+      setRate("USD", money::toRate(1))
       expectNTrap(removeRate("EUR"))
       expectInteger(len(exportRates()), 1)
     END TCASE
@@ -82,8 +98,8 @@ TESTING
 
     TCASE "clearRates empties the table"
       clearRates()
-      setRate("USD", 1F)
-      setRate("EUR", 1.25F)
+      setRate("USD", money::toRate(1))
+      setRate("EUR", money::toRate("1.25"))
       clearRates()
       expectInteger(len(exportRates()), 0)
     END TCASE
@@ -97,9 +113,9 @@ TESTING
     TCASE "a table with a rate of exactly 1 has a base currency"
       clearRates()
       expectEqual(hasBaseCurrency(), FALSE)
-      setRate("EUR", 1.25F)
+      setRate("EUR", money::toRate("1.25"))
       expectEqual(hasBaseCurrency(), FALSE)
-      setRate("USD", 1F)
+      setRate("USD", money::toRate(1))
       expectEqual(hasBaseCurrency(), TRUE)
       removeRate("USD")
       expectEqual(hasBaseCurrency(), FALSE)
@@ -107,8 +123,8 @@ TESTING
 
     TCASE "two currencies may both have rate 1"
       clearRates()
-      setRate("USD", 1F)
-      setRate("_POINTS", 1F)
+      setRate("USD", money::toRate(1))
+      setRate("_POINTS", money::toRate(1))
       expectEqual(hasBaseCurrency(), TRUE)
     END TCASE
   END TGROUP
@@ -116,75 +132,90 @@ TESTING
   TGROUP "exportRates and importRates"
     TCASE "exportRates returns a copy"
       clearRates()
-      setRate("USD", 1F)
-      MUT copy AS Map OF String TO Fixed = exportRates()
-      copy = collections::set(copy, "EUR", 1.25F)
+      setRate("USD", money::toRate(1))
+      MUT copy AS Map OF String TO money::Rate = exportRates()
+      copy = collections::set(copy, "EUR", money::toRate("1.25"))
       expectEqual(hasRate("EUR"), FALSE)
       expectInteger(len(exportRates()), 1)
     END TCASE
 
     TCASE "exportRates then importRates round-trips"
       clearRates()
-      setRate("USD", 1F)
-      setRate("EUR", 1.25F)
-      setRate("_GOLD", 64F)
-      LET saved AS Map OF String TO Fixed = exportRates()
+      setRate("USD", money::toRate(1))
+      setRate("EUR", money::toRate("1.25"))
+      setRate("_GOLD", money::toRate(64))
+      LET saved AS Map OF String TO money::Rate = exportRates()
       clearRates()
       importRates(saved)
       expectInteger(len(exportRates()), 3)
-      expectFixed(getRate("USD"), 1F)
-      expectFixed(getRate("EUR"), 1.25F)
-      expectFixed(getRate("_GOLD"), 64F)
+      expectInteger(getRate("USD").scaled, money::toRate(1).scaled)
+      expectInteger(getRate("EUR").scaled, money::toRate("1.25").scaled)
+      expectInteger(getRate("_GOLD").scaled, money::toRate(64).scaled)
     END TCASE
 
     TCASE "importRates replaces the whole table and upper-cases keys"
       clearRates()
-      setRate("GBP", 1.5F)
-      importRates(Map OF String TO Fixed { "usd" := 1F, "_gold" := 64F })
+      setRate("GBP", money::toRate("1.5"))
+      importRates(Map OF String TO money::Rate { "usd" := money::toRate(1), "_gold" := money::toRate(64) })
       expectEqual(hasRate("GBP"), FALSE)
-      expectFixed(getRate("USD"), 1F)
-      expectFixed(getRate("_GOLD"), 64F)
+      expectInteger(getRate("USD").scaled, money::toRate(1).scaled)
+      expectInteger(getRate("_GOLD").scaled, money::toRate(64).scaled)
       expectEqual(collections::hasKey(exportRates(), "USD"), TRUE)
       expectEqual(collections::hasKey(exportRates(), "usd"), FALSE)
     END TCASE
 
     TCASE "importRates does not need a base currency"
       clearRates()
-      importRates(Map OF String TO Fixed { "EUR" := 1.25F })
-      expectFixed(getRate("EUR"), 1.25F)
+      importRates(Map OF String TO money::Rate { "EUR" := money::toRate("1.25") })
+      expectInteger(getRate("EUR").scaled, money::toRate("1.25").scaled)
       expectEqual(hasBaseCurrency(), FALSE)
     END TCASE
 
     TCASE "importing an empty map empties the table"
       clearRates()
-      setRate("USD", 1F)
-      importRates(Map OF String TO Fixed {})
+      setRate("USD", money::toRate(1))
+      importRates(Map OF String TO money::Rate {})
       expectInteger(len(exportRates()), 0)
     END TCASE
 
     TCASE "a bad code leaves the table unchanged"
       clearRates()
-      setRate("USD", 1F)
-      expectTrap(importRates(Map OF String TO Fixed { "EUR" := 1.25F, "EURO" := 1F }), ErrorInvalidCode)
+      setRate("USD", money::toRate(1))
+      expectTrap(importRates(Map OF String TO money::Rate { "EUR" := money::toRate("1.25"), "EURO" := money::toRate(1) }), ErrorInvalidCode)
       expectInteger(len(exportRates()), 1)
-      expectFixed(getRate("USD"), 1F)
+      expectInteger(getRate("USD").scaled, money::toRate(1).scaled)
     END TCASE
 
     TCASE "a bad rate leaves the table unchanged"
       clearRates()
-      setRate("USD", 1F)
-      expectTrap(importRates(Map OF String TO Fixed { "EUR" := 1.25F, "GBP" := 0F }), ErrorInvalidRate)
+      setRate("USD", money::toRate(1))
+      expectTrap(importRates(Map OF String TO money::Rate { "EUR" := money::toRate("1.25"), "GBP" := money::Rate[scaled := 0] }), ErrorInvalidRate)
       expectInteger(len(exportRates()), 1)
-      expectFixed(getRate("USD"), 1F)
+      expectInteger(getRate("USD").scaled, money::toRate(1).scaled)
     END TCASE
 
     TCASE "keys that differ only in case must agree"
       clearRates()
-      importRates(Map OF String TO Fixed { "eur" := 1.25F, "EUR" := 1.25F })
+      importRates(Map OF String TO money::Rate { "eur" := money::toRate("1.25"), "EUR" := money::toRate("1.25") })
       expectInteger(len(exportRates()), 1)
       clearRates()
-      expectTrap(importRates(Map OF String TO Fixed { "eur" := 1.25F, "EUR" := 1.5F }), ErrorInvalidCode)
+      expectTrap(importRates(Map OF String TO money::Rate { "eur" := money::toRate("1.25"), "EUR" := money::toRate("1.5") }), ErrorInvalidCode)
       expectInteger(len(exportRates()), 0)
+    END TCASE
+
+    TCASE "importRates refuses a hand-built zero rate"
+      clearRates()
+      expectTrap(importRates(Map OF String TO money::Rate { "EUR" := money::Rate[scaled := 0] }), ErrorInvalidRate)
+      expectInteger(len(exportRates()), 0)
+    END TCASE
+  END TGROUP
+
+  TGROUP "exact rates"
+    ' 10000000000 / 0.0067 = 1492537313432.835820895..., 1492537313432.83582 at
+    ' five places. The base-currency value never has to fit Money on the way.
+    TCASE "a large amount converts at a small rate"
+      importRates(Map OF String TO money::Rate { "USD" := money::toRate(1), "JPY" := money::toRate("0.0067") })
+      expectEqual(convert(amount(10000000000m, "USD"), "JPY").value, 1492537313432.83582m)
     END TCASE
   END TGROUP
 END TESTING

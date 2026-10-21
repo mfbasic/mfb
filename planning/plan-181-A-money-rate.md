@@ -89,7 +89,7 @@ Tasks:
 
 Acceptance (corrected, see Corrections 1): `target/release/mfb man money types` lists `money::Rate`; a probe project containing `IMPORT money` and `LET r AS money::Rate = money::Rate[scaled := 842000000000]` followed by `io::print(toString(r.scaled))` builds and prints `842000000000`. — MET: probe `/tmp/p181/a1` printed `842000000000` (and `TRUE` for `r = money::Rate[scaled := 842000000000]`).
 
-Commit: —
+Commit: d13d8bf4a
 
 ### Phase A2 — `toRate(Integer)`
 
@@ -99,7 +99,7 @@ Tasks:
 
 Acceptance: `tests/rt-behavior/money/money_rate_integer/` prints `1000000000000` for `toRate(1).scaled`, `64000000000000` for `toRate(64).scaled`, and traps `ErrOverflow` for `toRate(9223373)`, `ErrInvalidArgument` for `toRate(0)` and `toRate(-1)`. — MET: golden run prints `1 1000000000000`, `64 64000000000000`, `9223372 9223372000000000000`, `9223373 error 77050010`, `0 error 77050002`, `-1 error 77050002` (`scripts/test-accept.sh target/release/mfb /tmp/p181/accept 'money_*'`).
 
-Commit: —
+Commit: d13d8bf4a
 
 ### Phase A3 — `toRate(String)`
 
@@ -111,7 +111,7 @@ Tasks:
 Acceptance: `tests/rt-behavior/money/money_rate_string/` checks these `scaled` values: `"0.842"` → 842000000000, `"0.0067"` → 6700000000, `"1"` → 1000000000000, `"9223372.036854775807"` → 9223372036854775807, `"0.000000000001"` → 1.
 `tests/rt-error/money/money_rate_string_bad/` traps with the expected code for each: `"0.0000000000001"` (13 places) → `77050003`; `"abc"` → `77050003`; `""` → `77050003`; `" 1"` → `77050003`; `"0"` → `77050002`; `"-1"` → `77050002`; `"9223372.036854775808"` → `77050010`. — MET: golden run prints each value above, and the bad fixture prints `[0.0000000000001] 77050003` … `[-1] 77050002` (plus `0.8420000000000`, `1 `, `+1`, `1e3`, `.5`, `1.`, `-`, `1.2.3` → `77050003`; `0.000`, `-99999999999999999999` → `77050002`; `9223373`, `99999999999999999999999` → `77050010`) and then traps uncaught with `Error: 7-705-0010` on `"9223372.036854775808"`, `[exit 255]`. One program can trap only once, so every case but the last is caught with `TRAP` and its code printed.
 
-Commit: —
+Commit: d13d8bf4a
 
 ### Phase A4 — `toString(Rate)`
 
@@ -120,7 +120,7 @@ Tasks:
 
 Acceptance: `tests/rt-behavior/money/money_rate_tostring/` prints `0.842` for `toString(toRate("0.84200"))`, `1` for `toString(toRate("1"))`, `0.0067` for `toString(toRate("0.0067"))`, and `0.000000000001` for `toString(toRate("0.000000000001"))`. — MET: golden run prints those four, then `9223372.036854775807`, `64`, `1.5`, `0` (hand-built zero), `-0.000000000005`, `-9223372.036854775808` (the `Integer` minimum, which cannot be negated before the split), and `TRUE` for `toRate("0.50") = toRate("0.5")`.
 
-Commit: —
+Commit: d13d8bf4a
 
 ### Phase A5 — spec and man
 
@@ -132,7 +132,7 @@ Tasks:
 
 Acceptance (corrected, Corrections 1): `target/release/mfb man money` renders the new paragraph and lists `money::toRate` (its page shows both overloads); `target/release/mfb man money types` lists `money::Rate`; `target/release/mfb spec stdlib money` shows the new section. — MET: all three rendered and read.
 
-Commit: —
+Commit: d13d8bf4a
 
 ### Phase A6 — gates
 
@@ -144,7 +144,7 @@ Tasks:
 
 Expected (corrected, Corrections 5): the byte-identity fixtures under `tests/byte-identity/money/` differ, because the injected money declarations gain `Rate` and its source bodies. The existing `money_*` acceptance fixtures keep their run output, and their `.ir` gains the same companion text. Any diff in a fixture that does not import `money` is a bug and is root-caused on one fixture before any re-baseline.
 
-Commit: —
+Commit: d13d8bf4a
 
 ## 5. Validation Plan
 

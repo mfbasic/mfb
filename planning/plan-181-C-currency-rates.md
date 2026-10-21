@@ -24,8 +24,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-181-A complete: `money::toRate` exists | `target/release/mfb man money \| grep -c 'toRate'` → at least 2 | NOT MET (plan-181-A not yet implemented, 2026-10-19) |
-| plan-181-B complete: `money::convert` exists | `target/release/mfb man money \| grep -c 'convert'` → at least 1 | NOT MET (plan-181-B not yet implemented, 2026-10-19) |
+| plan-181-A complete: `money::toRate` exists | `target/release/mfb man money \| grep -c 'toRate'` → at least 2 | MET (2026-10-20: `4`) |
+| plan-181-B complete: `money::convert` exists | `target/release/mfb man money \| grep -c 'convert'` → at least 1 | MET (2026-10-20: `3`) |
 
 Everything below is written against the world where these hold.
 
@@ -77,50 +77,52 @@ Everything below is written against the world where these hold.
 ### Phase C1 — the rates table
 
 Tasks:
-- In `packages/currency/src/rates.mfb`: change the table's value type to `money::Rate`; change `checkRate` to test `rate.scaled <= 0` and fail with `ErrorInvalidRate`; change the signatures of `setRate`, `getRate`, `exportRates`, `importRates` and `rateOf`; change `hasBaseCurrency` to compare `rate.scaled` with `1000000000000`.
-- Add `IMPORT money` to the file's import list, next to `IMPORT collections`.
+- [x] In `packages/currency/src/rates.mfb`: change the table's value type to `money::Rate`; change `checkRate` to test `rate.scaled <= 0` and fail with `ErrorInvalidRate`; change the signatures of `setRate`, `getRate`, `exportRates`, `importRates` and `rateOf`; change `hasBaseCurrency` to compare `rate.scaled` with `1000000000000`. The file's header comment and `setRate`'s DOC now describe the exact decimal rate.
+- [x] Add `IMPORT money` to the file's import list, next to `IMPORT collections`.
+- [x] Added: `core.mfb`'s package DOC said the table is `Map OF String TO Fixed`; now `Map OF String TO money::Rate`, an exact decimal with up to 12 places.
 
-Acceptance: `target/release/mfb test packages/currency` builds (the test files are updated in C3).
+Acceptance: `target/release/mfb test packages/currency` builds (the test files are updated in C3). — MET together with C2/C3: `Tests: 81  Pass: 81  Fail: 0`.
 
 Commit: —
 
 ### Phase C2 — cross-currency arithmetic
 
 Tasks:
-- In `packages/currency/src/math.mfb`: rewrite `inCurrency` to call `money::convert` as in Design, leaving the lookup order and the `ErrorNoBaseCurrency` check unchanged.
-- Remove every `Fixed` reference from `math.mfb` (the 6 measured).
+- [x] In `packages/currency/src/math.mfb`: rewrite `inCurrency` to call `money::convert` as in Design, leaving the lookup order and the `ErrorNoBaseCurrency` check unchanged.
+- [x] Remove every `Fixed` reference from `math.mfb` (the 6 measured: the two `inCurrency` locals, the `multiply`/`divide` `Fixed` overloads and their two ARG lines). The two overloads become `money::Rate` overloads — `multiply` through `money::scale`, `divide` through `money::convert(value, money::toRate(1), divisor)` — Corrections 1.
+- [x] Added: the `convert`/`add`/`subtract`/`compare` DOC `ERROR 77050010` lines said the base-currency value "on the way" could overflow; with `money::convert` only the result can, so each now names the result only. The file header's note about the intermediate is rewritten the same way, and each `EXAMPLE` uses `money::toRate`.
 
-Acceptance: `grep -c "Fixed" packages/currency/src/math.mfb` → 0.
+Acceptance: `grep -c "Fixed" packages/currency/src/math.mfb` → 0. — MET: `0`.
 
 Commit: —
 
 ### Phase C3 — the package's tests
 
 Tasks:
-- `packages/currency/src/test_rates.mfb`: change each `Fixed` literal to `money::toRate("…")` and each `expectFixed(getRate(…), 1.25F)` to compare with `money::toRate("1.25")`. Keep every expected value.
-- `packages/currency/src/test_math.mfb`: the same change, for the 10 measured `Fixed` references.
-- Add `test_rates` cases: `getRate("EUR")` after `setRate("EUR", money::toRate("0.842"))` prints `0.842` through `toString`; `setRate` with `money::Rate[scaled := 0]` traps `ErrorInvalidRate`; `importRates` with that record traps `ErrorInvalidRate`; the USD→JPY conversion of `10000000000m` at the JPY rate `"0.0067"` now succeeds at `1492537313432.83582`.
+- [x] `packages/currency/src/test_rates.mfb`: change each `Fixed` literal to `money::toRate("…")` and each `expectFixed(getRate(…), 1.25F)` to `expectInteger(getRate(…).scaled, money::toRate("1.25").scaled)` (a record is not printable, so `expectEqual` cannot take it). Keep every expected value. The zero and negative literals (`0F`, `-1.25F`) become hand-built `money::Rate[scaled := 0]` / `[scaled := -1250000000000]`, since `money::toRate` itself refuses them and the cases test `setRate`'s/`importRates`'s `ErrorInvalidRate` (Corrections 2). The case "the smallest positive Fixed is a valid rate" becomes "the smallest positive rate is a valid rate", at `money::toRate("0.000000000001")`.
+- [x] `packages/currency/src/test_math.mfb`: the same change, for the 10 measured `Fixed` references; the two TCASE names "… Integer, Fixed and Float" now say "Rate", and the header comment no longer says the rates are binary.
+- [x] Add `test_rates` cases: `getRate("EUR")` after `setRate("EUR", money::toRate("0.842"))` prints `0.842` through `toString` ("a rate is stored exactly as written"); `setRate` with `money::Rate[scaled := 0]` traps `ErrorInvalidRate` ("setRate refuses a hand-built zero rate"); `importRates` with that record traps `ErrorInvalidRate` ("importRates refuses a hand-built zero rate"); the USD→JPY conversion of `10000000000m` at the JPY rate `"0.0067"` now succeeds at `1492537313432.83582` ("a large amount converts at a small rate").
 
-Acceptance: `target/release/mfb test packages/currency` → all pass, with the count equal to 77 plus the cases added here. `grep -c "Fixed" packages/currency/src/*.mfb` → 0 in every file.
+Acceptance: `target/release/mfb test packages/currency` → all pass, with the count equal to 77 plus the cases added here. `grep -c "Fixed" packages/currency/src/*.mfb` → 0 in every file. — MET: `Tests: 81  Pass: 81  Fail: 0` (77 + 4); `grep -c "Fixed" packages/currency/src/*.mfb` → `0` for all seven files.
 
 Commit: —
 
 ### Phase C4 — README and doc examples
 
 Tasks:
-- `packages/currency/README.md`: change the API table's rate rows to `money::Rate`; rewrite the rates section's examples with `money::toRate`; rewrite the threading example's worker signature to `Map OF String TO money::Rate`; state the 10^12 scale and the 9223372.036854775807 limit in the rates section; remove every statement that the rates are `Fixed` or binary.
-- Rewrite the `EXAMPLE` blocks in `src/*.mfb` that call `setRate`, `getRate` or `importRates` to the new call forms, keeping each trailing expected output.
+- [x] `packages/currency/README.md`: change the API table's rate rows to `money::Rate` (`setRate`, `getRate`, `exportRates`, and `multiply`/`divide`'s factor); rewrite the opening and rates-section examples with `money::toRate`; rewrite the threading example's worker signature to `Map OF String TO money::Rate`; state the 10^12 scale and the 9223372.036854775807 limit in the rates section; remove every statement that the rates are `Fixed` or binary (and the "must fit Money on the way" overflow note) — `grep -n "Fixed\|binary" packages/currency/README.md` → no match.
+- [x] Rewrite the `EXAMPLE` blocks in `src/*.mfb` that call `setRate`, `getRate` or `importRates` to the new call forms, keeping each trailing expected output (`rates.mfb` ×3, `math.mfb` `convert`/`add`; `toString(currency::getRate("EUR"))` still prints `1.08`).
 
-Acceptance: `bash packages/currency/check-doc-examples.sh target/release/mfb` prints `all 12 example(s) built and ran`.
+Acceptance: `bash packages/currency/check-doc-examples.sh target/release/mfb` prints `all 12 example(s) built and ran`. — MET: `all 12 example(s) built and ran`.
 
 Commit: —
 
 ### Phase C5 — runtime smoke
 
 Tasks:
-- `packages/currency/runtime-smoke.sh`: change its consumer program's `setRate("USD", 1F)` and `setRate("EUR", 1.25F)` to `money::toRate` forms and keep its three expected lines.
+- [x] `packages/currency/runtime-smoke.sh`: change its consumer program's `setRate("USD", 1F)` and `setRate("EUR", 1.25F)` to `money::toRate` forms and keep its three expected lines. Its worker also took `Map OF String TO Fixed`; now `money::Rate`, with `IMPORT money` added.
 
-Acceptance: `sh packages/currency/runtime-smoke.sh target/release/mfb` prints `currency runtime smoke passed`.
+Acceptance: `sh packages/currency/runtime-smoke.sh target/release/mfb` prints `currency runtime smoke passed`. — MET: `currency runtime smoke passed`.
 
 Commit: —
 
@@ -139,3 +141,8 @@ The compiler gates for the `money` built-in run in sub-plan A6 and B5. This sub-
 - The rate API breaks now; there is no `Fixed` overload and no compatibility layer.
 - Rates are `money::Rate`, with `setRate`, `getRate`, `exportRates` and `importRates` changed to match.
 - Error codes and `Amount` are unchanged.
+
+## Corrections
+
+1. **`multiply`/`divide` had `Fixed` overloads, which the plan both removes and keeps.** Goal says every `Amount` operation's signature is unchanged; Non-goals say no `currency` function takes `Fixed`; C2 removes all 6 `Fixed` references in `math.mfb`, which (measured, `grep -n Fixed packages/currency/src/math.mfb` before the change) include `multiply(a, factor AS Fixed)` and `divide(a, divisor AS Fixed)`; and C3's rule turns `multiply(ticket, 0.5F)` into `multiply(ticket, money::toRate("0.5"))`, which compiles only with a `Rate` overload. The reading consistent with all three: the `Fixed` overloads become `money::Rate` overloads. `multiply` is `money::scale` and `divide` is `money::convert(value, money::toRate(1), divisor)` — each exact, rounded once. The tests' expectations (`6.25m`, `25m`) are unchanged and pass. A negative factor stays available through the `Integer` and `Float` overloads.
+2. **`0F` and `-1.25F` cannot become `money::toRate(…)`.** `money::toRate("0")` raises `ErrInvalidArgument` itself, so the case would stop testing `setRate`'s `ErrorInvalidRate`. They become `money::Rate[scaled := 0]` and `money::Rate[scaled := -1250000000000]`, the values the `Fixed` literals stood for; the expected `ErrorInvalidRate` is unchanged.

@@ -15,9 +15,9 @@
 '
 ' Converting `value` from currency F to currency T is value * rate(F) / rate(T):
 ' rate(F) takes it to the base currency and dividing by rate(T) takes it out.
-' Multiplying first keeps the full precision of a small rate; the cost is that
-' the intermediate base-currency value must fit Money, or the conversion fails
-' with errorCode::ErrOverflow.
+' money::convert computes that exactly and rounds once, so only a result outside
+' Money's range fails (errorCode::ErrOverflow); the base-currency value on the
+' way never has to fit.
 ' ---------------------------------------------------------------------------
 
 IMPORT money
@@ -25,13 +25,13 @@ IMPORT money
 ' `value`, in currency `source`, expressed in currency `target`. Both codes are
 ' canonical. Applies the two-amount checks described above.
 PRIVATE FUNC inCurrency(value AS Money, source AS String, target AS String) AS Money
-  LET targetRate AS Fixed = rateOf(target)
-  LET sourceRate AS Fixed = rateOf(source)
+  LET targetRate AS money::Rate = rateOf(target)
+  LET sourceRate AS money::Rate = rateOf(source)
   IF source = target THEN RETURN value
   IF NOT hasBaseCurrency() THEN
     FAIL error(ErrorNoBaseCurrency, "currency: converting " & source & " to " & target & " needs a base currency, and no currency in the table has rate 1")
   END IF
-  RETURN value * sourceRate / targetRate
+  RETURN money::convert(value, sourceRate, targetRate)
 END FUNC
 
 DOC
@@ -39,23 +39,25 @@ DOC
   GROUP Arithmetic
   DESC `a` expressed in the currency `code`.
   DESC
-  DESC The value is `a.value * rate(a.code) / rate(code)`, kept at `Money`'s
-  DESC five decimal places. Use `currency::round` to book the result to the
-  DESC target currency's minor units.
+  DESC The value is `a.value * rate(a.code) / rate(code)`, computed exactly by
+  DESC `money::convert` and rounded once to `Money`'s five decimal places under
+  DESC the `money` rounding mode. Use `currency::round` to book the result to
+  DESC the target currency's minor units.
   ARG a The amount to convert.
   ARG code The currency to convert it to, in any case.
   RET The same worth, in `code`.
   ERROR 93170001 `a.code` or `code` is not a valid currency code.
   ERROR 93170003 `a.code` or `code` has no rate in the table.
   ERROR 93170004 The codes differ and no currency in the table has rate 1.
-  ERROR 77050010 The converted value, or its worth in the base currency on the way, is outside `Money`'s range (`errorCode::ErrOverflow`).
+  ERROR 77050010 The converted value is outside `Money`'s range (`errorCode::ErrOverflow`).
   EXAMPLE
     IMPORT currency
     IMPORT io
+    IMPORT money
 
     FUNC main() AS Nothing
-      currency::setRate("USD", 1F)
-      currency::setRate("EUR", 1.25F)
+      currency::setRate("USD", money::toRate(1))
+      currency::setRate("EUR", money::toRate("1.25"))
       LET dollars AS currency::Amount = currency::convert(currency::amount(10m, "EUR"), "USD")
       io::print(currency::format(dollars))   ' 12.50 USD
     END FUNC
@@ -81,14 +83,15 @@ DOC
   ERROR 93170001 `a.code` or `b.code` is not a valid currency code.
   ERROR 93170003 `a.code` or `b.code` has no rate in the table.
   ERROR 93170004 The codes differ and no currency in the table has rate 1.
-  ERROR 77050010 The result, or `b`'s worth in the base currency on the way, is outside `Money`'s range (`errorCode::ErrOverflow`).
+  ERROR 77050010 The result, or `b` converted to `a`'s currency, is outside `Money`'s range (`errorCode::ErrOverflow`).
   EXAMPLE
     IMPORT currency
     IMPORT io
+    IMPORT money
 
     FUNC main() AS Nothing
-      currency::setRate("USD", 1F)
-      currency::setRate("EUR", 1.25F)
+      currency::setRate("USD", money::toRate(1))
+      currency::setRate("EUR", money::toRate("1.25"))
       LET total AS currency::Amount = currency::add(currency::amount(5m, "USD"), currency::amount(4m, "EUR"))
       io::print(currency::format(total))   ' 10.00 USD
     END FUNC
@@ -113,7 +116,7 @@ DOC
   ERROR 93170001 `a.code` or `b.code` is not a valid currency code.
   ERROR 93170003 `a.code` or `b.code` has no rate in the table.
   ERROR 93170004 The codes differ and no currency in the table has rate 1.
-  ERROR 77050010 The result, or `b`'s worth in the base currency on the way, is outside `Money`'s range (`errorCode::ErrOverflow`).
+  ERROR 77050010 The result, or `b` converted to `a`'s currency, is outside `Money`'s range (`errorCode::ErrOverflow`).
 END DOC
 EXPORT FUNC subtract(a AS Amount, b AS Amount) AS Amount
   LET left AS Amount = checkedAmount(a)
@@ -138,7 +141,7 @@ DOC
   ERROR 93170001 `a.code` or `b.code` is not a valid currency code.
   ERROR 93170003 `a.code` or `b.code` has no rate in the table.
   ERROR 93170004 The codes differ and no currency in the table has rate 1.
-  ERROR 77050010 `b`, or its worth in the base currency on the way, overflows `Money` when converted (`errorCode::ErrOverflow`).
+  ERROR 77050010 `b` converted to `a`'s currency is outside `Money`'s range (`errorCode::ErrOverflow`).
 END DOC
 EXPORT FUNC compare(a AS Amount, b AS Amount) AS Integer
   LET left AS Amount = checkedAmount(a)
@@ -154,12 +157,14 @@ DOC
   GROUP Arithmetic
   DESC `a` scaled by `factor`, in the same currency.
   DESC
-  DESC The scaling is `Money`'s own `*`, so it rounds as `Money` does. It
-  DESC never reads the rates table.
+  DESC The scaling is `Money`'s own `*`, so it rounds as `Money` does. A
+  DESC `money::Rate` factor is exact and is applied with `money::scale`, which
+  DESC rounds once. It never reads the rates table.
   ARG a The amount to scale.
-  ARG factor The dimensionless factor: an `Integer`, a `Fixed` or a `Float`.
+  ARG factor The dimensionless factor: an `Integer`, a `money::Rate` or a `Float`.
   RET The scaled amount, in `a.code`.
   ERROR 93170001 `a.code` is not a valid currency code.
+  ERROR 77050002 `factor` is a `money::Rate` whose `scaled` is zero or negative (`errorCode::ErrInvalidArgument`).
   ERROR 77050010 The result is outside `Money`'s range (`errorCode::ErrOverflow`).
   EXAMPLE
     IMPORT currency
@@ -176,9 +181,9 @@ EXPORT FUNC multiply(a AS Amount, factor AS Integer) AS Amount
   RETURN Amount[value := checked.value * factor, code := checked.code]
 END FUNC
 
-EXPORT FUNC multiply(a AS Amount, factor AS Fixed) AS Amount
+EXPORT FUNC multiply(a AS Amount, factor AS money::Rate) AS Amount
   LET checked AS Amount = checkedAmount(a)
-  RETURN Amount[value := checked.value * factor, code := checked.code]
+  RETURN Amount[value := money::scale(checked.value, factor), code := checked.code]
 END FUNC
 
 EXPORT FUNC multiply(a AS Amount, factor AS Float) AS Amount
@@ -196,10 +201,10 @@ DOC
   DESC back up to it exactly, divide, round each share, and give the
   DESC remainder to the last one.
   ARG a The amount to divide.
-  ARG divisor The dimensionless divisor: an `Integer`, a `Fixed` or a `Float`.
+  ARG divisor The dimensionless divisor: an `Integer`, a `money::Rate` or a `Float`. A `money::Rate` divisor is exact, and the quotient is rounded once.
   RET The quotient, in `a.code`.
   ERROR 93170001 `a.code` is not a valid currency code.
-  ERROR 77050002 `divisor` is zero (`errorCode::ErrInvalidArgument`).
+  ERROR 77050002 `divisor` is zero, or a `money::Rate` whose `scaled` is zero or negative (`errorCode::ErrInvalidArgument`).
   ERROR 77050010 The result is outside `Money`'s range (`errorCode::ErrOverflow`).
 END DOC
 EXPORT FUNC divide(a AS Amount, divisor AS Integer) AS Amount
@@ -207,9 +212,11 @@ EXPORT FUNC divide(a AS Amount, divisor AS Integer) AS Amount
   RETURN Amount[value := checked.value / divisor, code := checked.code]
 END FUNC
 
-EXPORT FUNC divide(a AS Amount, divisor AS Fixed) AS Amount
+' Dividing by a rate r is converting from the rate 1 to the rate r: one exact
+' calculation, rounded once.
+EXPORT FUNC divide(a AS Amount, divisor AS money::Rate) AS Amount
   LET checked AS Amount = checkedAmount(a)
-  RETURN Amount[value := checked.value / divisor, code := checked.code]
+  RETURN Amount[value := money::convert(checked.value, money::toRate(1), divisor), code := checked.code]
 END FUNC
 
 EXPORT FUNC divide(a AS Amount, divisor AS Float) AS Amount

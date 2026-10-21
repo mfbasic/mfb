@@ -78,7 +78,7 @@ Tasks:
 
 Acceptance (corrected, Corrections 3): the existing emitters are untouched — `gen_money_math.rs`'s diff is additions only (above) — and the existing money fixtures' run output is unchanged: `scripts/test-accept.sh target/release/mfb /tmp/p181/accept 'money_*'` reports no `build.log` mismatch for any pre-existing money fixture. — MET: the mismatches it reports for pre-existing fixtures are `.ir` only (the plan-181-A companion, A's Corrections 5).
 
-Commit: —
+Commit: d13d8bf4a
 
 ### Phase B2 — `money::convert`
 
@@ -97,7 +97,7 @@ Acceptance: `tests/rt-behavior/money/money_convert/` prints these results, each 
 
 MET: the golden run prints `1084200.00000`, `1492537313432.83582`, `1.00000`, then (added cases) `-1084200.00000`, the tie `0.00001` (Commercial) / `0.00000` (Banker), `0.00002` for `0.000015` under Banker, `1.00000` for the largest rate over itself (a 126-bit intermediate), `-92233720368547.75808`, and `error 77050002` for the zero `to` and the `-1` `from`, `error 77050010` for the doubled maximum and for `1m` at 9223372 over 0.000000000001. The traps are caught with `TRAP` and their codes printed, so one program checks every case.
 
-Commit: —
+Commit: d13d8bf4a
 
 ### Phase B3 — `money::scale`
 
@@ -113,7 +113,7 @@ Acceptance: `tests/rt-behavior/money/money_scale/` prints:
 
 MET: the golden run prints `7.00000`, `0.49950`, `-0.49950`, `0.00001`, `0.00000`, `0.00000` (negative tie, Banker), `-0.00001` (negative tie, Commercial), `92233720368547.75807` (maximum × 1), `0.00000` (1m × 0.000000000001), `1.00000 error 77050002`, `92233720368547.75807 error 77050010`.
 
-Commit: —
+Commit: d13d8bf4a
 
 ### Phase B4 — spec and man
 
@@ -124,7 +124,7 @@ Tasks:
 
 Acceptance: `target/release/mfb spec stdlib money` shows the two new rows; `target/release/mfb man money` lists both functions. — MET: spec lines `money::convert(m, from, to) │ R(m * from / to)…` and `money::scale(m, r) │ R(m * r / P)…`; the man Functions table lists `money::convert` and `money::scale`.
 
-Commit: —
+Commit: d13d8bf4a
 
 ### Phase B5 — gates
 
@@ -134,7 +134,7 @@ Tasks:
 
 Expected: no diff in `tests/byte-identity/money/` beyond what sub-plan A6 already accounted for, and no diff in the existing `money_*` acceptance fixtures. Any unexpected diff is root-caused with `objdump` on one fixture, and the bug is fixed; a golden is never re-baselined to pass.
 
-Commit: —
+Commit: d13d8bf4a
 
 ## 5. Validation Plan
 
