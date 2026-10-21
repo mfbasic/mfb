@@ -216,9 +216,18 @@ fn the_replay_corpus_is_the_size_it_was_reviewed_at() {
     let missing: Vec<&str> = corpus
         .iter()
         .copied()
-        .filter(|relative| !tests.join(relative).join("golden").join("build.log").is_file())
+        .filter(|relative| {
+            !tests
+                .join(relative)
+                .join("golden")
+                .join("build.log")
+                .is_file()
+        })
         .collect();
-    assert!(missing.is_empty(), "listed fixtures without a golden: {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "listed fixtures without a golden: {missing:?}"
+    );
 }
 
 #[test]
