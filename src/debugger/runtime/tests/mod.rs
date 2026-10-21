@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use super::*;
+
+mod kinds;
 use crate::debugger::{Ending, FunctionRange, FunctionSymbol, Register, RunStop, Step};
 
 /// A process made of a word map and a symbol map.
