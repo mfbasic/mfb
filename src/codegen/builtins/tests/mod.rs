@@ -127,6 +127,7 @@ mod thread_primitives;
 mod thread_send_scalar;
 mod threads;
 mod transform_inline;
+mod trap_recover_forms;
 mod typename_enum_fold;
 mod validation;
 mod vector;

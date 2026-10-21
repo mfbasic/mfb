@@ -7,14 +7,16 @@ use super::*;
 impl CodeBuilder<'_> {
     /// Lower one `NirOp::Assign` (`x = v`). Runs inside `lower_ops_inner`'s per-op closure, so its
     /// `?` is attributed to the op by `nir_op_context`.
-    pub(super) fn lower_assign_op(&mut self, op: &NirOp) -> Result<(), String> {
-        let NirOp::Assign { name, value } = op else {
-            unreachable!("lower_assign_op is called from the NirOp::Assign arm only")
-        };
+    pub(super) fn lower_assign_op(
+        &mut self,
+        op: &NirOp,
+        name: &str,
+        value: &NirValue,
+    ) -> Result<(), String> {
         // Rule 4: whether this store can carry a resource owned
         // inside the container's scope (`record_ownership::
         // StoreFloats`); the store raises what it stores.
-        self.statement_temps.assign_target = Some(name.clone());
+        self.statement_temps.assign_target = Some(name.to_string());
         self.statement_temps.assign_floats = self
             .store_floats
             .stores
@@ -189,7 +191,7 @@ impl CodeBuilder<'_> {
                 let slot = self.allocate_stack_object("resource_assign_value", 8);
                 self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
                 let cleanup = ResourceCleanup {
-                    name: name.clone(),
+                    name: name.to_string(),
                     symbol,
                     state_type: result.type_.state(),
                     has_io_buffers: Self::resource_uses_io_buffers(&result.type_),
@@ -428,10 +430,11 @@ impl CodeBuilder<'_> {
 
     /// Lower one `NirOp::StateAssign` (`r.state = v`, `r.state.f = v`). Runs inside `lower_ops_inner`'s
     /// per-op closure, so its `?` is attributed to the op by `nir_op_context`.
-    pub(super) fn lower_state_assign_op(&mut self, op: &NirOp) -> Result<(), String> {
-        let NirOp::StateAssign { resource, value } = op else {
-            unreachable!("lower_state_assign_op is called from the NirOp::StateAssign arm only")
-        };
+    pub(super) fn lower_state_assign_op(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<(), String> {
         // bug-424 Layer 1: a scalar `s.state.field = v` mutates the
         // existing STATE block in place; only a whole-record replace
         // (or a not-yet-in-place inlined field) falls through here.
@@ -449,7 +452,7 @@ impl CodeBuilder<'_> {
                 name: resource,
                 type_: field_type,
                 dest: InPlaceDest::StateField {
-                    resource: resource.clone(),
+                    resource: resource.to_string(),
                     field_index: field.field_index,
                     path: field.path_indices(),
                 },
@@ -499,13 +502,12 @@ impl CodeBuilder<'_> {
         // block, so freeing it mid-iteration is a use-after-free —
         // the same reason the in-place grow declines for
         // `for_each_iterable_state_fields` (bug-430). Leak it there,
-        // matching the reassign arm's `for_each` carve-outs.
+        // matching the reassign arm's `for_each` carve-outs. A STATE type
+        // is always a record TYPE (the front end refuses anything else,
+        // TYPE_STATE_INVALID), which that sizer answers for when the model
+        // knows the record.
         let replaced_state_type = resource_type.state().filter(|state| {
-            (*state == ParameterType::String
-                || self.type_model.record_fields.contains_key(state)
-                || self.union_is_data(state)
-                || matches!(state, ParameterType::ResultOf(_))
-                || typed_is_collection_type(state))
+            self.type_model.record_fields.contains_key(state)
                 && !self
                     .for_each_iterable_state_fields
                     .iter()

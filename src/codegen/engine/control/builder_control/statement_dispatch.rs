@@ -73,7 +73,12 @@ impl CodeBuilder<'_> {
             );
             let result = (|| -> Result<(), String> {
                 match op {
-                    NirOp::Bind { .. } => self.lower_bind_op(op, zero_slot)?,
+                    NirOp::Bind {
+                        mutable,
+                        name,
+                        type_,
+                        value,
+                    } => self.lower_bind_op(op, *mutable, name, type_, value, zero_slot)?,
                     NirOp::StoreGlobal { name, type_, value } => {
                         // bug-806: a module-level binding is the outermost scope
                         // there is. Every resource a store puts into one is raised
@@ -100,8 +105,10 @@ impl CodeBuilder<'_> {
                             self.emit_resource_state_init(slot, &state_type, &declared)?;
                         }
                     }
-                    NirOp::Assign { .. } => self.lower_assign_op(op)?,
-                    NirOp::StateAssign { .. } => self.lower_state_assign_op(op)?,
+                    NirOp::Assign { name, value } => self.lower_assign_op(op, name, value)?,
+                    NirOp::StateAssign { resource, value } => {
+                        self.lower_state_assign_op(resource, value)?
+                    }
                     NirOp::Eval { value } => {
                         // bug-744: a statement discards its value, so a
                         // `Nothing` call here needs no `NOTHING` materialized.

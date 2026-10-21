@@ -9,17 +9,12 @@ impl CodeBuilder<'_> {
     pub(super) fn lower_bind_op(
         &mut self,
         op: &NirOp,
+        mutable: bool,
+        name: &str,
+        type_: &ParameterType,
+        value: &Option<NirValue>,
         zero_slot: VirtualRegister,
     ) -> Result<(), String> {
-        let NirOp::Bind {
-            mutable,
-            name,
-            type_,
-            value,
-        } = op
-        else {
-            unreachable!("lower_bind_op is called from the NirOp::Bind arm only")
-        };
         // bug-766: `LET u = WITH p { … }` standing for an
         // element-bound `p`'s update — `u` is never bound: its one
         // read is the write-back, lowered as nothing.
@@ -66,7 +61,7 @@ impl CodeBuilder<'_> {
         // reference to it, exactly as a `List` element does; the
         // resource belongs to its own (possibly raised) scope, so the
         // binding neither claims an unowned record nor closes one.
-        let borrowed_capture = !*mutable
+        let borrowed_capture = !mutable
             && matches!(value, Some(NirValue::Capture { by_ref: false, .. }))
             && (self.is_freeable_flat_value(type_)
                 || self.owns_graph(type_)
@@ -84,7 +79,7 @@ impl CodeBuilder<'_> {
                 .and_then(|value| self.local_constant_value(value))
         };
         self.locals.insert(
-            name.clone(),
+            name.to_string(),
             LocalValue {
                 type_: type_.clone(),
                 stack_offset,
@@ -122,7 +117,7 @@ impl CodeBuilder<'_> {
             if target == "len" && args.len() == 1 {
                 if let NirValue::Local(l) = &args[0] {
                     self.len_of_local.insert(
-                        name.clone(),
+                        name.to_string(),
                         (l.clone(), self.enclosing_loop_reassigned.len()),
                     );
                 }
@@ -132,7 +127,7 @@ impl CodeBuilder<'_> {
         // `end`/`step` (which arrive as `Local($for_endN)`) resolve.
         if name.starts_with("$for_end") || name.starts_with("$for_step") {
             if let Some(v) = value {
-                self.for_bound_expr.insert(name.clone(), v.clone());
+                self.for_bound_expr.insert(name.to_string(), v.clone());
             }
         }
         // plan-86 G1: a rebind clears any provable-index fact keyed on
@@ -144,7 +139,7 @@ impl CodeBuilder<'_> {
         self.provable_index_locals.retain(|_, (l, _)| l != name);
         if let Some(NirValue::Local(src)) = value {
             if let Some(fact) = self.provable_index_locals.get(src).cloned() {
-                self.provable_index_locals.insert(name.clone(), fact);
+                self.provable_index_locals.insert(name.to_string(), fact);
             }
         }
         // A `MATCH` variant binding (`UnionExtract`) is an alias
@@ -342,7 +337,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_immediate(&owned, "Integer", "1"));
             self.emit(abi::store_u64(&owned, abi::stack_pointer(), flag));
             self.owned_value_slots.push(flag);
-            self.trap_owner_flags.insert(name.clone(), flag);
+            self.trap_owner_flags.insert(name.to_string(), flag);
             Some(flag)
         } else {
             None
@@ -360,7 +355,7 @@ impl CodeBuilder<'_> {
                 let result = self.lower_value(value)?;
                 if let Some(lanes) = self.vector_native_lanes(&result) {
                     self.promoted_vector_locals
-                        .insert(name.clone(), (type_.clone(), lanes));
+                        .insert(name.to_string(), (type_.clone(), lanes));
                 } else {
                     let block = self.vector_value_as_block(result)?;
                     self.claim_pending_temp(&block);
@@ -567,7 +562,7 @@ impl CodeBuilder<'_> {
                             // plain aliasing bind of a flat value still takes the
                             // `owns_freeable_value` branch below and is freed.
                             if let Some(NirValue::Local(src)) = value {
-                                self.live_resource_aliases.insert(name.clone(), src.clone());
+                                self.live_resource_aliases.insert(name.to_string(), src.clone());
                                 // bug-1050: a STATE this binding attaches rides the
                                 // record its source owns, so the source's cleanup
                                 // frees it after its close. The inline-`TRAP`
@@ -629,7 +624,7 @@ impl CodeBuilder<'_> {
                                 && Self::resource_record_freed_at_drop(type_))
                                 .then(|| self.remember_trap_default_record(name, stack_offset, 0));
                             let cleanup = ResourceCleanup {
-                                name: name.clone(),
+                                name: name.to_string(),
                                 symbol,
                                 state_type: type_.state(),
                                 has_io_buffers: Self::resource_uses_io_buffers(type_),
@@ -665,7 +660,7 @@ impl CodeBuilder<'_> {
                                     || Self::value_aliases_live_resource(inner)
                             });
                             if let Some(NirValue::Local(src)) = wrapped {
-                                self.live_union_wraps.insert(name.clone(), src.clone());
+                                self.live_union_wraps.insert(name.to_string(), src.clone());
                                 // A STATE the alias attaches rides the wrapped record, so
                                 // its owner frees it after its close (the union's drop no
                                 // longer does). A root with no live cleanup (a parameter)
@@ -717,7 +712,7 @@ impl CodeBuilder<'_> {
                                 && !self.resource_union_record_free_tags(type_).is_empty())
                             .then(|| self.remember_trap_default_record(name, stack_offset, 8));
                             let cleanup = ResourceUnionCleanup {
-                                name: name.clone(),
+                                name: name.to_string(),
                                 variants,
                                 state_type: type_.state(),
                                 io_buffer_tags,
