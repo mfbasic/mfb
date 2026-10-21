@@ -6,6 +6,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 
+mod depth;
 mod edges;
 mod expressions_and_types;
 mod parse_errors;
