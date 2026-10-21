@@ -7,6 +7,8 @@ use crate::types::ParameterType;
 use super::{mangle_name, strip_qualifier_prefixes};
 
 mod instantiation_overloads_and_inference;
+mod references_and_template_overloads;
+mod structural_helpers;
 mod type_compat_imports_and_placement;
 
 /// Parse one or more `(relative_path, source)` files into an `AstProject`.
