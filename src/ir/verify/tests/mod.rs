@@ -17,6 +17,7 @@ mod named_loop_exits;
 mod package_path_rules;
 mod state_bindings_and_native_links;
 mod state_clause_positions;
+mod thread_send_planes;
 mod traps_diagnostics_and_capture_positions;
 use crate::ir::{
     IrBinding, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp, IrParam, IrProject,
