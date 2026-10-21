@@ -11,7 +11,7 @@ Unmapping a block when a worker's arena is destroyed gives its bytes back.
 
 References:
 
-- `planning/plan-179-A-arena-cap-settings.md`, `planning/plan-179-B-arena-cap-startup-check.md` — the settings and the stored limit.
+- `planning/completed/plan-179-A-arena-cap-settings.md`, `planning/completed/plan-179-B-arena-cap-startup-check.md` — the settings and the stored limit.
 - `src/docs/spec/memory/04_arenas.md` — step 5 (Grow) of `arena_alloc`, the block layout (`blockSize` at +8), and the Arena-State Layout.
 - `src/docs/spec/memory/08_program-startup.md` — the probe step added in plan-179-B.
 - `.ai/testing-gates.md` — `[[test]]` registration, the golden gates, the arena benchmark gate.
@@ -20,7 +20,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-179-B landed | `grep -n "^Commit:" planning/plan-179-B-arena-cap-startup-check.md` → a hash, not `—` | MET (2026-10-20: `Commit: 16b5f4312`) |
+| plan-179-B landed | `grep -n "^Commit:" planning/completed/plan-179-B-arena-cap-startup-check.md` → a hash, not `—` | MET (2026-10-20: `Commit: 16b5f4312`) |
 
 Everything below is written against the world where this holds.
 

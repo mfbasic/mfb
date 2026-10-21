@@ -11,7 +11,7 @@ plan-179-C enforces it on the allocator.
 
 References:
 
-- `planning/plan-179-A-arena-cap-settings.md` — the keys, defaults and rules.
+- `planning/completed/plan-179-A-arena-cap-settings.md` — the keys, defaults and rules.
 - `src/docs/spec/memory/08_program-startup.md` — the startup sequence the probe joins.
 - `src/docs/spec/memory/04_arenas.md` — Arena-State Layout (`exitStatus` at +32; the entry shim zeroes `ARENA_STATE_SIZE`).
 
@@ -19,7 +19,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-179-A landed | `grep -n "^Commit:" planning/plan-179-A-arena-cap-settings.md` → a hash, not `—` | MET (2026-10-20: `Commit: 0ed6f7b2b`) |
+| plan-179-A landed | `grep -n "^Commit:" planning/completed/plan-179-A-arena-cap-settings.md` → a hash, not `—` | MET (2026-10-20: `Commit: 0ed6f7b2b`) |
 
 Everything below is written against the world where this holds.
 
