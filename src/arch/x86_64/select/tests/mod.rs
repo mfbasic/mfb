@@ -1,6 +1,8 @@
 use super::*;
 use crate::codegen::engine::mir::lower_to_mir;
 
+mod abi_misuse;
+
 /// Build one aarch64-form `CodeInstruction`.
 fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
     let mut ins = CodeInstruction::new(op);
