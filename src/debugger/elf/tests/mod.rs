@@ -1,4 +1,6 @@
 use super::*;
+
+mod built;
 use crate::arch::image::{EncodedImage, EncodedImport, EncodedSection, EncodedSymbol, ImportKind};
 use crate::os::linux::flavor::LinuxFlavor;
 
