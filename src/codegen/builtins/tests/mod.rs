@@ -108,6 +108,7 @@ mod numeric_forms;
 mod opt_aggcopy;
 mod opt_fuse;
 mod opt_knownbits;
+mod opt_lencache;
 mod opt_loop_facts;
 mod optimizer;
 mod optimizer_globals;
