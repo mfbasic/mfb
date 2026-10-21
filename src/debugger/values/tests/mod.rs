@@ -1,5 +1,7 @@
 use super::*;
 
+mod payloads;
+
 /// Where the fake arena block's usable space starts.
 const BASE: u64 = 0x1_0000;
 
