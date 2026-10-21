@@ -1,6 +1,7 @@
 use super::*;
 
 mod effects;
+mod walk;
 
 const SUB_SP_0X150: u32 = 0xd105_43ff;
 const ADD_SP_0X150: u32 = 0x9105_43ff;
