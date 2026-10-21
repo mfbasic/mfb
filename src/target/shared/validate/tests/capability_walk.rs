@@ -28,8 +28,7 @@ fn refusal_for(statements: &str) -> String {
     )
     .expect("the program lowers to NIR");
     validate_capabilities(&module, &NOTHING_IMPLEMENTED)
-        .err()
-        .expect("a backend that implements nothing refuses the program")
+        .expect_err("a backend that implements nothing refuses the program")
 }
 
 #[test]

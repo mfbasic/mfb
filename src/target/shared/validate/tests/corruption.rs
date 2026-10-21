@@ -11,9 +11,7 @@ use super::*;
 use crate::target::shared::nir::{NirImport, NirImportParam};
 
 fn refusal(module: &NirModule) -> String {
-    validate_nir(module)
-        .err()
-        .expect("the corrupted module is refused")
+    validate_nir(module).expect_err("the corrupted module is refused")
 }
 
 fn import(name: &str) -> NirImport {
