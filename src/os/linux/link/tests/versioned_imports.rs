@@ -75,3 +75,17 @@ fn the_dynamic_prefix_counts_a_shared_version_string_once() {
         super::elf::dynamic_prefix_size(&distinct) - super::elf::dynamic_prefix_size(&shared);
     assert!(grown > 0, "a version not shared must be counted");
 }
+
+/// A RIP-relative displacement is a signed 32-bit field: one past either end is
+/// refused with the distance, rather than wrapping to a different address.
+#[test]
+fn a_rip_relative_displacement_beyond_two_gib_is_refused() {
+    assert_eq!(super::rel32(0x1000, 0x1000 - 4 + 0x10), Ok(-0x10));
+    let beyond = (i32::MAX as u64) + 1 + 4;
+    let error = super::rel32(beyond, 0).expect_err("one past the reach");
+    assert!(
+        error.contains("exceeds the \u{00b1}2 GiB reach of rel32"),
+        "{error}"
+    );
+    assert!(super::rel32(0, beyond).is_err(), "and the same backwards");
+}
