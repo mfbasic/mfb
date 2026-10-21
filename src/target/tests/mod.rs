@@ -11,6 +11,8 @@
 
 use super::*;
 
+mod app_debug;
+mod app_mouse;
 mod app_window;
 mod cross_executables;
 mod plan_imports;
