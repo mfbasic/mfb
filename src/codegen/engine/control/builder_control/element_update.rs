@@ -287,8 +287,8 @@ impl CodeBuilder<'_> {
             NirValue::Unary { operand, .. } => {
                 self.later_value_misses_destination(operand, owner, field, container)
             }
-            NirValue::Call { args, .. } | NirValue::RuntimeCall { args, .. } => {
-                self.nir_call_is_infallible_builtin(value)
+            NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. } => {
+                self.nir_call_is_infallible_builtin(target, args)
                     && args.iter().all(|arg| {
                         self.later_value_misses_destination(arg, owner, field, container)
                     })

@@ -33,8 +33,8 @@ impl CodeBuilder<'_> {
                 self.nir_value_is_effect_free(left) && self.nir_value_is_effect_free(right)
             }
             NirValue::Unary { operand, .. } => self.nir_value_is_effect_free(operand),
-            NirValue::Call { .. } | NirValue::RuntimeCall { .. } => {
-                self.nir_call_is_infallible_builtin(value)
+            NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. } => {
+                self.nir_call_is_infallible_builtin(target, args)
             }
             _ => false,
         }
@@ -72,8 +72,8 @@ impl CodeBuilder<'_> {
             NirValue::Unary { op, operand, .. } => {
                 *op == UnaryOp::Not && self.nir_value_cannot_fail(operand)
             }
-            NirValue::Call { .. } | NirValue::RuntimeCall { .. } => {
-                self.nir_call_is_infallible_builtin(value)
+            NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. } => {
+                self.nir_call_is_infallible_builtin(target, args)
             }
             _ => false,
         }
@@ -96,15 +96,11 @@ impl CodeBuilder<'_> {
         !crate::ir::fallible::comparison_can_raise(op, &type_of(left), &type_of(right))
     }
 
-    /// A call to a built-in that cannot fail, over arguments that cannot fail and
-    /// whose types are known (the census is keyed on them — `toString` of a `List
-    /// OF Byte` decodes UTF-8 and can fail).
-    pub(super) fn nir_call_is_infallible_builtin(&self, value: &NirValue) -> bool {
-        let (NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. }) =
-            value
-        else {
-            return false;
-        };
+    /// A call (`Call` or `RuntimeCall`) of `target` over `args` to a built-in that
+    /// cannot fail, over arguments that cannot fail and whose types are known (the
+    /// census is keyed on them — `toString` of a `List OF Byte` decodes UTF-8 and
+    /// can fail).
+    pub(super) fn nir_call_is_infallible_builtin(&self, target: &str, args: &[NirValue]) -> bool {
         let Some(arg_types) = args
             .iter()
             .map(|arg| self.static_item_type(arg))

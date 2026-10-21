@@ -57,3 +57,5 @@ mod union_tags;
 #[cfg(test)]
 #[path = "../../builtins/tests/mod.rs"]
 mod builtins_codegen;
+#[cfg(test)]
+mod value_effect_predicates;
