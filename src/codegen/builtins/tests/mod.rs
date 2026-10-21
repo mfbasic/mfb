@@ -112,6 +112,7 @@ mod opt_dead_stores;
 mod opt_fuse;
 mod opt_knownbits;
 mod opt_lencache;
+mod opt_local_rewrites;
 mod opt_loop_facts;
 mod opt_promote_frame;
 mod opt_range_facts;
