@@ -31,6 +31,8 @@ mod small_units;
 #[cfg(test)]
 mod store_reach_walk;
 #[cfg(test)]
+mod string_shadow_captures;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod transfer_temps;
