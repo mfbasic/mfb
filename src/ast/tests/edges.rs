@@ -83,3 +83,33 @@ fn resource_and_alias_declarations_cut_short() {
         "Expected identifier after `::`."
     );
 }
+
+fn typed(type_name: &str) -> String {
+    format!("FUNC main AS Nothing\n  LET v AS {type_name} = NOTHING\nEND FUNC\n")
+}
+
+#[test]
+fn a_type_argument_list_is_parenthesized_and_closed() {
+    assert_eq!(
+        first(&typed("Pair OF String, Integer")),
+        "A template with more than one type argument takes a parenthesized list: write \
+         `Pair OF (String, Integer)`."
+    );
+    // A second argument that is no type stops the list where it is.
+    assert!(diagnostics(&typed("Pair OF Integer, 5"))
+        .iter()
+        .any(|(_, detail)| detail.ends_with("write `Pair OF (Integer)`.")));
+    assert_eq!(
+        first(&typed("Pair OF (Integer, String x)")),
+        "Expected `)` after the template type arguments."
+    );
+}
+
+#[test]
+fn a_function_type_closes_its_parameters_and_may_end_them_with_a_comma() {
+    assert_eq!(
+        first(&typed("FUNC(Integer x) AS Integer")),
+        "Function type must close with `)`."
+    );
+    assert!(diagnostics(&typed("FUNC(Integer, String,) AS Integer")).is_empty());
+}
