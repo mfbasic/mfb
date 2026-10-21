@@ -312,22 +312,33 @@ Acceptance: the shared code lists riscv64 registers and code through a fake.
   failed` (the three, and the added back-counting one); `cargo test --bin mfb
   debugger::` → `190 passed; 0 failed`; `cargo check --all-targets` and the
   Linux AArch64 cross-check → no warnings.
-Commit: —
+Commit: `e6a24b8e3`
 
 ### Phase 3 — the unwinder effects
 
-- [ ] `riscv64.rs`: complete `effect` per §4.3.
-- [ ] Tests in `backtrace.rs`: `a_riscv64_compiled_frame_unwinds` with the words
+- [x] `riscv64.rs`: complete `effect` per §4.3. (Landed whole in Phase 2's
+      commit. A store through `s0` is not made a prologue instruction: the
+      shared walk's late-save rule below covers what that was for, and keeps
+      AArch64's prologue rule unchanged.)
+- [x] Tests in `backtrace.rs`: `a_riscv64_compiled_frame_unwinds` with the words
       of `_mfb_fn_isPrime`'s prologue and epilogue (from plan-174-B's corpus of
       `debug-glibc.out`); `a_riscv64_library_frame_with_a_frame_pointer_unwinds`
       with a `libc.so.6` function that uses `c.addi16sp`, `c.sdsp ra`, `c.sdsp
       s0`, `c.addi4spn s0`; `a_riscv64_frame_before_its_prologue_ran` (the
-      return address still in `ra`).
+      return address still in `ra`). (In `backtrace/tests.rs`, where
+      `backtrace.rs`'s tests moved: the file had 194 lines of inline tests and
+      four more would pass the 250-line ceiling. The library function, at
+      0x27e36, also runs `sub sp,sp,a5`, after which only the frame pointer
+      finds the CFA. Added: `a_riscv64_save_after_the_body_began_counts_after_an_early_return`,
+      see Corrections.)
 
 Acceptance: frames of compiled and of C library functions unwind to the right
 caller and stack pointer.
   Check: `cargo test --bin mfb debugger::backtrace` → 10 passed (7 existing + 3)
   (est. 2 min).
+  Measured 2026-10-20: `11 passed; 0 failed` (7 existing, the 3, and the
+  late-save test). With the late-save rule switched off, the late-save test
+  fails and the other ten pass: the rule is what makes it hold.
 Commit: —
 
 ### Phase 4 — ELF
@@ -374,6 +385,16 @@ Commit: —
   target_arch = "riscv64"), test))`, so the Mac compiles it for its tests.
   Phase 2's descriptor is reached on a riscv64 Linux host through the backend,
   and in tests through the `Recorder` fake.
+- **A prologue save can come after the body begins.** glibc 2.41's function
+  at 0x27c04 saves `ra` (`sd ra,72(sp)`, 0x27c1e) after six body instructions,
+  and returns early at 0x27c54. The shared walk took the body's state at the
+  first non-prologue instruction, before that save, and restored it after the
+  `ret`, so a frame after the early return looked as if `ra` held its return
+  address. `backtrace::state_at` now adds to the body's state any link,
+  frame-pointer save or frame-pointer setting it lacks, until control first
+  leaves. On AArch64 the existing seven tests are unchanged; a frame whose
+  saves all come first, as every AArch64 prologue the tests hold, is
+  unaffected.
 - **The file layout follows plan-174-A's `arm64/`:** `riscv64/mod.rs` holds the
   descriptor and its rules, `riscv64/registers.rs` the register file. A role
   test's "register after" is by riscv64 number (`a7` is followed by `s2`),
