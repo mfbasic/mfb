@@ -6,6 +6,7 @@ use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, Import
 use crate::os::link_encode::{read_u32, symbol_vmaddr};
 
 mod bundles_and_debug;
+mod dylib_paths;
 mod mach_o;
 
 fn import(library: &str, symbol: &str) -> EncodedImport {
