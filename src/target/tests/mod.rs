@@ -18,6 +18,7 @@ mod app_window;
 mod config_fold_lowering;
 mod cross_executable_modes;
 mod cross_executables;
+mod nir_constfold;
 mod nir_json_edges;
 mod plan_imports;
 mod plan_storage;
