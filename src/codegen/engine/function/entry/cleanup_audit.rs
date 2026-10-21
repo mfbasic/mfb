@@ -45,7 +45,6 @@ pub(super) fn emit_cleanup_failure_audit_report(ctx: &mut EmitCtx) -> Result<(),
             relocations: ctx.relocations,
         },
         "entry_cleanup_failure_code",
-        true,
     )?;
     // The cleanup audit retains `Cleanup failure: <code>\n`
     // with the code in canonical hyphenated form, then the message on its own
@@ -122,7 +121,6 @@ fn emit_write_string_object(ctx: &mut EmitCtx, data_symbol: &str) -> Result<(), 
 fn emit_write_integer_to_stderr_with_labels(
     ctx: &mut EmitCtx,
     label_prefix: &str,
-    hyphenate: bool,
 ) -> Result<(), String> {
     let from = ctx.symbol;
     let platform = ctx.platform;
@@ -156,17 +154,13 @@ fn emit_write_integer_to_stderr_with_labels(
     // so the digit loop keeps a running digit count and injects a `-` after the
     // 4th and 7th digit-from-the-right — but only while more digits remain, so an
     // arbitrary short `FAIL` code degrades to a plain number rather than gaining a
-    // stray leading/trailing hyphen. The cleanup-failure audit passes
-    // `hyphenate = false` and stays on the bare integer (byte-identical to the
-    // pre-change lowering). The counter lives in SCRATCH[12] (AArch64 x22 / x86
+    // stray leading/trailing hyphen. The counter lives in SCRATCH[12] (AArch64 x22 / x86
     // rdi / riscv scratch): the loop body never touches that register and the
     // divide's implicit rax:rdx clobber does not reach it, so it persists across
     // every iteration. The hyphen store below reuses SCRATCH[16] (the just-freed
     // digit register) for the `-` byte so it does not disturb the counter.
-    if hyphenate {
-        ctx.instructions
-            .push(abi::move_immediate(abi::SCRATCH[12], "Integer", "0"));
-    }
+    ctx.instructions
+        .push(abi::move_immediate(abi::SCRATCH[12], "Integer", "0"));
     ctx.instructions.extend([
         abi::compare_immediate(abi::SCRATCH[11], "0"),
         abi::branch_ne(&digit_loop_label),
@@ -187,30 +181,22 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::store_u8(abi::SCRATCH[16], abi::SCRATCH[13], 0),
         abi::move_register(abi::SCRATCH[11], abi::SCRATCH[15]),
     ]);
-    if hyphenate {
-        ctx.instructions.extend([
-            abi::add_immediate(abi::SCRATCH[12], abi::SCRATCH[12], 1),
-            abi::compare_immediate(abi::SCRATCH[11], "0"),
-            abi::branch_eq(&digits_done_label),
-            abi::compare_immediate(abi::SCRATCH[12], "4"),
-            abi::branch_eq(&hyphen_label),
-            abi::compare_immediate(abi::SCRATCH[12], "7"),
-            abi::branch_eq(&hyphen_label),
-            abi::branch(&digit_loop_label),
-            abi::label(&hyphen_label),
-            abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
-            abi::move_immediate(abi::SCRATCH[16], "Integer", "45"),
-            abi::store_u8(abi::SCRATCH[16], abi::SCRATCH[13], 0),
-            abi::branch(&digit_loop_label),
-            abi::label(&digits_done_label),
-        ]);
-    } else {
-        ctx.instructions.extend([
-            abi::compare_immediate(abi::SCRATCH[11], "0"),
-            abi::branch_ne(&digit_loop_label),
-            abi::label(&digits_done_label),
-        ]);
-    }
+    ctx.instructions.extend([
+        abi::add_immediate(abi::SCRATCH[12], abi::SCRATCH[12], 1),
+        abi::compare_immediate(abi::SCRATCH[11], "0"),
+        abi::branch_eq(&digits_done_label),
+        abi::compare_immediate(abi::SCRATCH[12], "4"),
+        abi::branch_eq(&hyphen_label),
+        abi::compare_immediate(abi::SCRATCH[12], "7"),
+        abi::branch_eq(&hyphen_label),
+        abi::branch(&digit_loop_label),
+        abi::label(&hyphen_label),
+        abi::subtract_immediate(abi::SCRATCH[13], abi::SCRATCH[13], 1),
+        abi::move_immediate(abi::SCRATCH[16], "Integer", "45"),
+        abi::store_u8(abi::SCRATCH[16], abi::SCRATCH[13], 0),
+        abi::branch(&digit_loop_label),
+        abi::label(&digits_done_label),
+    ]);
     ctx.instructions.extend([
         abi::compare_immediate(abi::SCRATCH[18], "0"),
         abi::branch_eq(&write_label),
