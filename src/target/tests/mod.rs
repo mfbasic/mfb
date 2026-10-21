@@ -13,6 +13,7 @@ use super::*;
 
 mod app_window;
 mod cross_executables;
+mod plan_imports;
 
 /// The app-mode-capable targets, as a `(name, supports_app_mode)` table.
 /// Kept explicit rather than derived so that registering a backend, or
