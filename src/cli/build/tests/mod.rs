@@ -1,7 +1,9 @@
 use super::*;
 
+mod appimage;
 mod options;
 mod outputs;
+mod refusals;
 mod signing;
 
 fn s(values: &[&str]) -> Vec<String> {
