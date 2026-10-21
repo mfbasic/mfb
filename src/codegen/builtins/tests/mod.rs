@@ -107,6 +107,7 @@ mod nir_validation;
 mod numeric_forms;
 mod opt_aggcopy;
 mod opt_bits_lattice;
+mod opt_check_elision;
 mod opt_fuse;
 mod opt_knownbits;
 mod opt_lencache;
