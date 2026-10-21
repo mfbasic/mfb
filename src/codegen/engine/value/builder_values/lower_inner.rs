@@ -135,13 +135,11 @@ impl CodeBuilder<'_> {
                     text: format!("&{name}"),
                 })
             }
-            NirValue::Global { name, type_ } => {
+            NirValue::Global { name, .. } => {
+                // A `Global` node carries no type of its own (`nir::lower` gives every
+                // one `named("")`); the declaration has it.
                 let global = self.global_value(name)?;
-                let value_type = if type_.name().is_empty() {
-                    global.type_.clone()
-                } else {
-                    type_.clone()
-                };
+                let value_type = global.type_.clone();
                 let address = self.load_global_address(name)?;
                 // A `Float` global loads straight into an FP register under the
                 // `d`-native model (plan-01 float-dnative), mirroring the local

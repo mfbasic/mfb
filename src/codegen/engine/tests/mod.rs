@@ -13,6 +13,8 @@ mod arena_symbols;
 #[cfg(test)]
 mod borrowed_resources;
 #[cfg(test)]
+mod closure_value_forms;
+#[cfg(test)]
 mod concat_spine;
 #[cfg(test)]
 mod conversion_refusals;
