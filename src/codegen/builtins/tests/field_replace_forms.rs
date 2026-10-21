@@ -82,3 +82,15 @@ fn a_nested_with_through_a_pointer_field_stores_in_place() {
     assert!(has(&kinds, "record_field_inplace"), "{kinds:?}");
     assert!(!has(&kinds, "with_target"), "{kinds:?}");
 }
+
+/// An empty `WITH` has no field to store: it takes no in-place route
+/// (`engine/control/builder_control/field_with.rs`), only the general copy.
+#[test]
+fn an_empty_with_stores_nothing_in_place() {
+    let kinds = main_slot_kinds(
+        "  MUT s AS Seg = Seg[a := Pt[x := 1.0, y := 2.0], b := Pt[x := 3.0, y := 4.0], n := 0]\n  \
+         FOR i = 1 TO 3\n    s = WITH s { }\n  NEXT\n  io::print(toString(s.n))",
+    );
+    assert!(!has(&kinds, "record_field_inplace"), "{kinds:?}");
+    assert!(!has(&kinds, "record_field_overwrite"), "{kinds:?}");
+}
