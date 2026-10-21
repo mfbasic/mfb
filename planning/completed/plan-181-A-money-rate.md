@@ -13,7 +13,7 @@ constructors `money::toRate(String)` and `money::toRate(Integer)`, and a
 
 References:
 
-- `planning/plan-181-B-money-convert.md`, `planning/plan-181-C-currency-rates.md` (the sub-plans that consume this one)
+- `planning/completed/plan-181-B-money-convert.md`, `planning/completed/plan-181-C-currency-rates.md` (the sub-plans that consume this one)
 - `src/codegen/builtins/money/mod.rs` (the `money` package registration and `MODULE_DESC`)
 - `src/codegen/builtins/big/mod.rs` (`add_record` for `big::Int`, the precedent for a built-in record type)
 - `src/docs/spec/stdlib/13_money.md` (the `Money` raw-carrier and rounding rules)

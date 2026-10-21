@@ -12,7 +12,7 @@ the result against the `Money` range. Neither uses a binary step.
 
 References:
 
-- `planning/plan-181-A-money-rate.md` (the record and its `scaled` field)
+- `planning/completed/plan-181-A-money-rate.md` (the record and its `scaled` field)
 - `src/codegen/builtins/money/gen_money_math.rs` (`emit_money_fixed_multiply`, `emit_money_fixed_divide`, `emit_money_multiply`, `emit_money_divide_scalar`, `emit_apply_rounding_magnitude`)
 - `src/docs/spec/stdlib/13_money.md` (the formula table at "Operation formulas", and the rounding rules)
 - `.ai/testing-gates.md` (byte-identity and acceptance gates)

@@ -12,7 +12,7 @@ unreleased, so the rate API breaks without a migration path.
 
 References:
 
-- `planning/plan-181-A-money-rate.md`, `planning/plan-181-B-money-convert.md`
+- `planning/completed/plan-181-A-money-rate.md`, `planning/completed/plan-181-B-money-convert.md`
 - `packages/currency/src/rates.mfb` (the table and its functions)
 - `packages/currency/src/math.mfb` (`inCurrency`, `add`, `subtract`, `compare`, `convert`)
 - `packages/currency/src/core.mfb` (the error codes and `Amount`)
@@ -83,7 +83,7 @@ Tasks:
 
 Acceptance: `target/release/mfb test packages/currency` builds (the test files are updated in C3). — MET together with C2/C3: `Tests: 81  Pass: 81  Fail: 0`.
 
-Commit: —
+Commit: 6b2107b84
 
 ### Phase C2 — cross-currency arithmetic
 
@@ -94,7 +94,7 @@ Tasks:
 
 Acceptance: `grep -c "Fixed" packages/currency/src/math.mfb` → 0. — MET: `0`.
 
-Commit: —
+Commit: 6b2107b84
 
 ### Phase C3 — the package's tests
 
@@ -105,7 +105,7 @@ Tasks:
 
 Acceptance: `target/release/mfb test packages/currency` → all pass, with the count equal to 77 plus the cases added here. `grep -c "Fixed" packages/currency/src/*.mfb` → 0 in every file. — MET: `Tests: 81  Pass: 81  Fail: 0` (77 + 4); `grep -c "Fixed" packages/currency/src/*.mfb` → `0` for all seven files.
 
-Commit: —
+Commit: 6b2107b84
 
 ### Phase C4 — README and doc examples
 
@@ -115,7 +115,7 @@ Tasks:
 
 Acceptance: `bash packages/currency/check-doc-examples.sh target/release/mfb` prints `all 12 example(s) built and ran`. — MET: `all 12 example(s) built and ran`.
 
-Commit: —
+Commit: 6b2107b84
 
 ### Phase C5 — runtime smoke
 
@@ -124,7 +124,7 @@ Tasks:
 
 Acceptance: `sh packages/currency/runtime-smoke.sh target/release/mfb` prints `currency runtime smoke passed`. — MET: `currency runtime smoke passed`.
 
-Commit: —
+Commit: 6b2107b84
 
 ## 5. Validation Plan
 
