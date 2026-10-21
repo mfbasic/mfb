@@ -92,3 +92,94 @@ fn a_build_that_vendors_a_library_records_the_vendor_runpath_and_one_that_does_n
         }
     }
 }
+
+/// An AppDir's executable sits at `usr/bin/<name>`, so a vendoring app build points
+/// the loader at `usr/lib/` (its own runpath, not the console `vendor/` one), and
+/// `--app-debug` keeps the intermediate AppDir the seal would otherwise remove.
+#[test]
+fn an_app_build_that_vendors_a_library_uses_the_appdir_runpath_and_app_debug_keeps_the_appdir() {
+    for arch in ["x86_64", "aarch64"] {
+        let scratch = Scratch::new(&format!("app_{arch}"));
+        let ir = crate::testutil::named_ir_for_src(SRC, "modeapp");
+        let backend = backend_for(&BuildTarget {
+            os: "linux".to_string(),
+            arch: arch.to_string(),
+        })
+        .unwrap_or_else(|err| panic!("linux-{arch}: {err}"));
+        let appdirs = backend
+            .write_executable(
+                &scratch.0,
+                &ir,
+                &[],
+                None,
+                NativeBuildMode::LinuxApp,
+                None,
+                Some("1.0.0"),
+                true,
+                None,
+                crate::codegen::debug::DebugOptions::OFF,
+                &|_| {},
+            )
+            .unwrap_or_else(|err| panic!("linux-{arch}: app write_executable: {err}"));
+        for appdir in &appdirs {
+            let executable = std::fs::read(appdir.join("usr/bin/modeapp"))
+                .unwrap_or_else(|err| panic!("linux-{arch}: the AppDir executable: {err}"));
+            assert!(
+                contains(&executable, crate::os::ELF_APPDIR_VENDOR_RPATH),
+                "linux-{arch}: an app build must name {}",
+                crate::os::ELF_APPDIR_VENDOR_RPATH
+            );
+            assert!(!contains(&executable, crate::os::ELF_VENDOR_RPATH));
+        }
+        let sealed = backend
+            .finalize_app_bundle(&scratch.0, "modeapp", true)
+            .unwrap_or_else(|err| panic!("linux-{arch}: finalize_app_bundle: {err}"));
+        assert_eq!(sealed.len(), appdirs.len());
+        for appdir in &appdirs {
+            assert!(
+                appdir.is_dir(),
+                "linux-{arch}: --app-debug keeps {}",
+                appdir.display()
+            );
+        }
+    }
+}
+
+/// A build mode that belongs to another OS's toolkit is a misroute, refused with
+/// the backend's own name for what it does support.
+#[test]
+fn a_build_mode_from_another_operating_system_is_refused() {
+    for (os, arch, mode, mode_name) in [
+        ("linux", "x86_64", NativeBuildMode::MacApp, "macos-app"),
+        ("linux", "aarch64", NativeBuildMode::MacApp, "macos-app"),
+        ("windows", "x86_64", NativeBuildMode::LinuxApp, "linux-app"),
+    ] {
+        let scratch = Scratch::new(&format!("misroute_{os}_{arch}"));
+        let ir = crate::testutil::named_ir_for_src(SRC, "misroute");
+        let backend = backend_for(&BuildTarget {
+            os: os.to_string(),
+            arch: arch.to_string(),
+        })
+        .unwrap_or_else(|err| panic!("{os}-{arch}: {err}"));
+        let error = backend
+            .write_executable(
+                &scratch.0,
+                &ir,
+                &[],
+                None,
+                mode,
+                None,
+                None,
+                false,
+                None,
+                crate::codegen::debug::DebugOptions::OFF,
+                &|_| {},
+            )
+            .err()
+            .unwrap_or_else(|| panic!("{os}-{arch}: a {mode_name} build must be refused"));
+        assert!(
+            error.contains(&format!("do not support the {mode_name} build mode")),
+            "{os}-{arch}: {error}"
+        );
+    }
+}

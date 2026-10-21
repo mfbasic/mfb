@@ -186,9 +186,7 @@ pub(crate) trait NativeBackend: Sync {
     /// Whether this backend supports app mode (`mfb build -app`). macOS backends
     /// advertise the AppKit runtime and Linux backends the GTK4 one; the CLI
     /// rejects `-app` for any backend returning false.
-    fn supports_app_mode(&self) -> bool {
-        false
-    }
+    fn supports_app_mode(&self) -> bool;
 
     /// Finalize an app-mode build after vendored libraries and resources are in
     /// place (plan-51-C §3.2).
