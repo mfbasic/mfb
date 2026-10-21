@@ -1,5 +1,7 @@
 use super::*;
 
+mod removal;
+
 const UNSIGNED_FIXTURE: &str =
     "tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp";
 
