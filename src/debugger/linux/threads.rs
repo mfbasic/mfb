@@ -6,7 +6,7 @@ use super::*;
 
 impl Tracee {
     /// One register set of thread `tid`.
-    fn regset<T: Copy>(&self, tid: c_int, kind: usize, empty: T) -> Result<T, String> {
+    pub(super) fn regset<T: Copy>(&self, tid: c_int, kind: usize, empty: T) -> Result<T, String> {
         let mut value = empty;
         let mut vector = IoVec {
             base: ptr::addr_of_mut!(value).cast(),
@@ -55,7 +55,7 @@ impl Tracee {
     }
 
     pub(super) fn general(&self, tid: c_int) -> Result<General, String> {
-        self.regset(tid, NT_PRSTATUS, [0u64; 34])
+        self.regset(tid, NT_PRSTATUS, cpu::NO_GENERAL)
     }
 
     pub(super) fn float(&self, tid: c_int) -> Result<Float, String> {
@@ -71,49 +71,6 @@ impl Tracee {
             Ok(_) => ((info[1] & 0xffff_ffff) as u32 as c_int, info[2]),
             Err(_) => (0, 0),
         }
-    }
-
-    /// How many watchpoint register pairs the processor has.
-    pub(super) fn watch_slots(&self, tid: c_int) -> Result<usize, String> {
-        let state = self.regset(
-            tid,
-            NT_ARM_HW_WATCH,
-            [0u8; HW_DEBUG_HEADER + HW_DEBUG_SLOT * HW_DEBUG_SLOTS],
-        )?;
-        Ok(usize::from(state[0]).min(HW_DEBUG_SLOTS))
-    }
-
-    /// Write the watchpoints into thread `tid`, enabled or all off.
-    pub(super) fn set_thread_watchpoints(&self, tid: c_int, on: bool) -> Result<(), String> {
-        let mut state = [0u8; HW_DEBUG_HEADER + HW_DEBUG_SLOT * HW_DEBUG_SLOTS];
-        for (slot, &(address, size)) in self.watchpoints.iter().enumerate().take(HW_DEBUG_SLOTS) {
-            let select = ((1u64 << size) - 1) << (address & 7);
-            let control = WCR_STORE_EL0 | (select << WCR_BAS_SHIFT);
-            let at = HW_DEBUG_HEADER + slot * HW_DEBUG_SLOT;
-            state[at..at + 8].copy_from_slice(&(address & !7).to_le_bytes());
-            let control = if on { control } else { control & !1 } as u32;
-            state[at + 8..at + 12].copy_from_slice(&control.to_le_bytes());
-        }
-        // Every slot the processor has is written, so a removed watchpoint's
-        // slot is cleared.
-        let slots = self.watch_slots(tid)?;
-        let mut vector = IoVec {
-            base: state.as_mut_ptr().cast(),
-            len: HW_DEBUG_HEADER + HW_DEBUG_SLOT * slots,
-        };
-        trace(
-            PTRACE_SETREGSET,
-            tid,
-            NT_ARM_HW_WATCH,
-            ptr::addr_of_mut!(vector) as usize,
-        )
-        .map(|_| ())
-        .map_err(|error| {
-            format!(
-                "cannot set the program's watchpoints: ptrace: {}",
-                os_error(error)
-            )
-        })
     }
 
     /// Write the watchpoints into every thread.
@@ -136,8 +93,8 @@ impl Tracee {
     }
 
     pub(super) fn reinsert(&self) -> Result<(), String> {
-        for address in self.breakpoints.keys() {
-            self.write(*address, &BREAKPOINT_INSTRUCTION)?;
+        for (address, original) in &self.breakpoints {
+            self.write(*address, cpu::breakpoint(original))?;
         }
         Ok(())
     }
@@ -246,7 +203,7 @@ impl Tracee {
         let report = match signal {
             SIGTRAP if code == TRAP_HWBKPT && !self.watchpoints.is_empty() => Some(Report::Watch),
             SIGTRAP if code == TRAP_BRKPT => {
-                let pc = self.general(tid)?[32];
+                let pc = cpu::pc(&self.general(tid)?);
                 if self.breakpoints.contains_key(&pc) {
                     Some(Report::Breakpoint(pc))
                 } else {
@@ -436,7 +393,7 @@ impl Tracee {
             }
             for at in &active {
                 if let Some(index) = self.index_of(tids[*at]) {
-                    self.resume(index, true)?;
+                    self.start_step(index)?;
                 }
             }
             let started = Instant::now();
@@ -525,9 +482,9 @@ impl Tracee {
                             self.adopt(child as c_int);
                         }
                         // The system call goes on to finish the instruction.
-                        self.resume(index, true)?;
+                        self.continue_step(index)?;
                     }
-                    PTRACE_EVENT_STOP => self.resume(index, true)?,
+                    PTRACE_EVENT_STOP => self.continue_step(index)?,
                     0 => match stop_signal(status) {
                         SIGTRAP => {
                             let (code, _) = self.siginfo(tid);
@@ -548,10 +505,10 @@ impl Tracee {
                             }
                             // Another signal waits for the next run; the
                             // instruction is tried again.
-                            _ => self.resume(index, true)?,
+                            _ => self.continue_step(index)?,
                         },
                     },
-                    _ => self.resume(index, true)?,
+                    _ => self.continue_step(index)?,
                 }
             }
             active = still;
@@ -596,6 +553,7 @@ impl Tracee {
             });
             size.and_then(|address| self.read(address, 4).ok())
                 .map(|bytes| u64::from(u32::from_le_bytes(bytes[..].try_into().expect("4 bytes"))))
+                .map(cpu::glibc_gap)
         };
         if gap.is_some() {
             self.pthread_gap = Some(gap);
@@ -620,12 +578,9 @@ impl Tracee {
 
     pub(super) fn facts(&mut self, tid: c_int) -> Result<ThreadFacts, String> {
         let general = self.general(tid)?;
-        let tp = self
-            .regset(tid, NT_ARM_TLS, [0u64; 2])
-            .map(|tls| tls[0])
-            .unwrap_or(0);
+        let tp = self.thread_pointer(tid, &general);
         let handle = self.pthread_gap(tp).map_or(0, |gap| tp.wrapping_sub(gap));
-        let sp = general[31];
+        let sp = cpu::sp(&general);
         let stack = self.mappings().ok().and_then(|(_, mappings)| {
             mappings
                 .iter()
@@ -636,9 +591,9 @@ impl Tracee {
             id: tid as u64,
             handle,
             name: self.thread_name(tid),
-            pc: general[32],
+            pc: cpu::pc(&general),
             sp,
-            arena: general[19],
+            arena: cpu::arena(&general),
             stack,
         })
     }

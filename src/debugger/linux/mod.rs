@@ -1,4 +1,5 @@
-//! The Linux debugger backend (AArch64): ptrace.
+//! The Linux debugger backend: ptrace. What differs by processor is in
+//! `aarch64.rs`, which this code reads as `cpu::`.
 //!
 //! Every thread of the program is traced with `PTRACE_SEIZE`, with
 //! `PTRACE_O_TRACECLONE` so each thread it starts later is traced from its
@@ -43,7 +44,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
-use super::arm64::{self, Float, General};
+use super::arch::Arch;
 use super::elf::{self, Location};
 use super::{
     Backend, Ending, Exit, FunctionRange, FunctionSymbol, Inferior, Register, RunStop, Step,
@@ -53,10 +54,15 @@ use super::{
 // before the split.
 use super::{environment, shown};
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
+#[cfg(target_arch = "aarch64")]
+use aarch64 as cpu;
 mod images;
 mod inferior;
 mod process;
 mod threads;
+use cpu::{Float, General};
 use process::*;
 
 /// `<sys/ptrace.h>`.
@@ -78,8 +84,6 @@ const PTRACE_EVENT_STOP: c_int = 128;
 /// `<elf.h>`: the register sets.
 const NT_PRSTATUS: usize = 1;
 const NT_FPREGSET: usize = 2;
-const NT_ARM_TLS: usize = 0x401;
-const NT_ARM_HW_WATCH: usize = 0x403;
 /// `<sys/wait.h>`: wait for every child, threads included; do not block.
 const WALL: c_int = 0x4000_0000;
 const WNOHANG: c_int = 1;
@@ -110,17 +114,6 @@ const EPERM: i32 = 1;
 const EINTR: i32 = 4;
 /// `<fcntl.h>`: `O_CLOEXEC`.
 const O_CLOEXEC: c_int = 0o2_000_000;
-/// `brk #0`, the instruction a breakpoint writes.
-const BREAKPOINT_INSTRUCTION: [u8; 4] = 0xd420_0000_u32.to_le_bytes();
-/// `DBGWCR`: enabled, for EL0 (`PAC` 0b10), on stores (`LSC` 0b10); the
-/// byte-address-select bits start at bit 5.
-const WCR_STORE_EL0: u64 = 0x1 | (0b10 << 1) | (0b10 << 3);
-const WCR_BAS_SHIFT: u64 = 5;
-/// `struct user_hwdebug_state`: `dbg_info` and padding, then 16 pairs of
-/// `addr`, `ctrl` and padding.
-const HW_DEBUG_HEADER: usize = 8;
-const HW_DEBUG_SLOT: usize = 16;
-const HW_DEBUG_SLOTS: usize = 16;
 /// A step waits for each thread in slices of this long, and gives up on one
 /// still not done that is blocked in the kernel, or after the limit.
 const STEP_SLICE: Duration = Duration::from_millis(2000);
@@ -199,9 +192,9 @@ fn errno() -> i32 {
     io::Error::last_os_error().raw_os_error().unwrap_or(0)
 }
 
-pub(super) struct LinuxAarch64;
+pub(super) struct Linux;
 
-impl Backend for LinuxAarch64 {
+impl Backend for Linux {
     fn executable_of(&self, pid: u32) -> Result<PathBuf, String> {
         let link = format!("/proc/{pid}/exe");
         std::fs::read_link(&link).map_err(|error| {
@@ -289,7 +282,7 @@ struct Tracee {
     bias: Option<u64>,
     /// Each breakpoint written into the program, with the instruction it
     /// replaced.
-    breakpoints: BTreeMap<u64, [u8; 4]>,
+    breakpoints: BTreeMap<u64, Vec<u8>>,
     /// Each watchpoint's address and size; its index is its register pair.
     watchpoints: Vec<(u64, u64)>,
     /// How the program ended, once a wait saw it end.

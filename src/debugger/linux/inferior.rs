@@ -9,7 +9,7 @@ impl Inferior for Tracee {
     }
 
     fn arch(&self) -> &'static crate::debugger::arch::Arch {
-        &crate::debugger::arm64::AARCH64
+        cpu::ARCH
     }
 
     fn end(&mut self) -> Result<Ending, String> {
@@ -91,7 +91,9 @@ impl Inferior for Tracee {
     fn read_code(&mut self, address: u64, length: usize) -> Result<Vec<u8>, String> {
         let mut code = self.read(address, length)?;
         let end = address.saturating_add(length as u64);
-        for (at, original) in self.breakpoints.range(address.saturating_sub(3)..end) {
+        // A breakpoint that starts before `address` can still cover it.
+        let reach = cpu::ARCH.longest as u64 - 1;
+        for (at, original) in self.breakpoints.range(address.saturating_sub(reach)..end) {
             for (index, byte) in original.iter().enumerate() {
                 let position = at + index as u64;
                 if position >= address && position < end {
@@ -191,7 +193,7 @@ impl Inferior for Tracee {
 
     fn registers(&mut self, index: usize) -> Result<Vec<Register>, String> {
         let tid = self.thread_at(index)?;
-        Ok(arm64::registers(&self.general(tid)?, &self.float(tid)?))
+        Ok(cpu::registers(&self.general(tid)?, &self.float(tid)?))
     }
 
     fn set_registers(&mut self, index: usize, values: &[(String, u64)]) -> Result<(), String> {
@@ -199,7 +201,7 @@ impl Inferior for Tracee {
         let mut general = self.general(tid)?;
         let mut float = None;
         for (name, value) in values {
-            arm64::assign(
+            cpu::assign(
                 &mut general,
                 &mut float,
                 &mut || self.float(tid),
@@ -279,14 +281,16 @@ impl Inferior for Tracee {
         if self.breakpoints.contains_key(&address) {
             return Err(format!("there is already a breakpoint at 0x{address:016x}"));
         }
-        let original: [u8; 4] = self.read(address, 4)?[..].try_into().expect("4 bytes");
-        self.write(address, &BREAKPOINT_INSTRUCTION)?;
+        // The instruction's size is in its first two bytes.
+        let length = (cpu::ARCH.length)(&self.read(address, 2)?);
+        let original = self.read(address, length)?;
+        self.write(address, cpu::breakpoint(&original))?;
         self.breakpoints.insert(address, original);
         Ok(())
     }
 
     fn remove_breakpoint(&mut self, address: u64) -> Result<(), String> {
-        let Some(original) = self.breakpoints.get(&address).copied() else {
+        let Some(original) = self.breakpoints.get(&address).cloned() else {
             return Err(format!("there is no breakpoint at 0x{address:016x}"));
         };
         self.write(address, &original)?;
@@ -340,7 +344,7 @@ impl Inferior for Tracee {
             }
             if self
                 .general(tid)
-                .is_ok_and(|general| self.breakpoints.contains_key(&general[32]))
+                .is_ok_and(|general| self.breakpoints.contains_key(&cpu::pc(&general)))
             {
                 waiting.push(index);
             }

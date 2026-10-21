@@ -290,12 +290,19 @@ Rejected alternatives:
 
 Moves code without changing it. Safe alone: riscv64 is not mentioned yet.
 
-- [ ] Add `src/debugger/linux_arm64.rs` with the items of §3's table, moved from
-      `linux.rs`; `linux.rs` reads them through `cpu::`.
-- [ ] `linux.rs`: `breakpoints` to `BTreeMap<u64, Vec<u8>>`; `read_code`
-      overlays by each original's length.
-- [ ] `linux.rs`: `start_step` wrapping `resume(index, true)`; `struct
-      LinuxAarch64` renamed `Linux`.
+- [x] Add `src/debugger/linux_arm64.rs` with the items of §3's table, moved from
+      `linux.rs`; `linux.rs` reads them through `cpu::`. (As
+      `linux/aarch64.rs`, since `linux.rs` is now the `linux/` directory: see
+      Corrections. With `NO_GENERAL`, the empty `General` a read starts from;
+      `thread_pointer`, `watch_slots` and `set_thread_watchpoints` are `Tracee`
+      methods there; `HARDWARE_STEP` arrives with Phase 3, its reader.)
+- [x] `linux.rs`: `breakpoints` to `BTreeMap<u64, Vec<u8>>`; `read_code`
+      overlays by each original's length. (`insert_breakpoint` reads the
+      instruction's size from its first two bytes, then the whole of it; the
+      overlay looks back `longest - 1` bytes.)
+- [x] `linux.rs`: `start_step` wrapping `resume(index, true)`; `struct
+      LinuxAarch64` renamed `Linux`. (And `continue_step`, which resumes a
+      thread stopped mid-step for something else: the kernel's step again.)
 
 Acceptance: Linux AArch64 is unchanged.
   Check: on box 2226, plan-174-A's Prerequisites command (the release build,
@@ -404,6 +411,13 @@ Commit: —
   2026-10-12. The sessions above use `a0`, `ra`, `sp`. (plan-174-C)
 
 ## Corrections
+
+- **`linux.rs` is a directory now** (plan-176's split): `linux/{mod, inferior,
+  images, process, threads}.rs`. The per-processor files are
+  `linux/aarch64.rs` and `linux/riscv64.rs`, read as `cpu::`; `linux/` is
+  compiled only on Linux, so the pure next-address function of Phase 2, which
+  the Mac's tests must reach, lives in `debugger/riscv64/step.rs` beside the
+  riscv64 descriptor (compiled for riscv64 Linux and for tests).
 
 ## Summary
 

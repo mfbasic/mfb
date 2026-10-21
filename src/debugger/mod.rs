@@ -307,7 +307,7 @@ pub(crate) fn host_backend() -> Option<&'static dyn Backend> {
     }
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     {
-        Some(&linux::LinuxAarch64)
+        Some(&linux::Linux)
     }
     #[cfg(not(any(target_os = "macos", all(target_os = "linux", target_arch = "aarch64"))))]
     {
