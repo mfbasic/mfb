@@ -1,0 +1,72 @@
+IMPORT collections
+IMPORT io
+IMPORT math
+IMPORT strings
+IMPORT thread
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+FUNC risky(n AS Integer) AS Integer
+  IF n < 0 THEN FAIL error(1, "neg")
+  RETURN n
+END FUNC
+
+FUNC riskyText(n AS Integer) AS String
+  IF n < 0 THEN FAIL error(2, "neg")
+  RETURN "t" & toString(n)
+END FUNC
+
+FUNC riskyFlag(n AS Integer) AS Boolean
+  IF n < 0 THEN FAIL error(3, "neg")
+  RETURN n > 1
+END FUNC
+
+FUNC riskyList(n AS Integer) AS List OF Integer
+  IF n < 0 THEN FAIL error(4, "neg")
+  RETURN [n, n + 1]
+END FUNC
+
+FUNC riskyPair(n AS Integer) AS Cursor
+  IF n < 0 THEN FAIL error(5, "neg")
+  RETURN Cursor[pos := n]
+END FUNC
+
+FUNC main() AS Integer
+  io::print(typeName(risky(1))) TRAP(e)
+    RETURN 1
+  END TRAP
+  io::print("x" & typeName(riskyText(1)) & typeName(riskyFlag(1))) TRAP(e)
+    RETURN 1
+  END TRAP
+  io::print(toString(risky(1) + risky(2))) TRAP(e)
+    RETURN 1
+  END TRAP
+  io::print(toString(NOT riskyFlag(1))) TRAP(e)
+    RETURN 1
+  END TRAP
+  io::print(toString(-risky(1))) TRAP(e)
+    RETURN 1
+  END TRAP
+  io::print(toString(math::abs(risky(1)))) TRAP(e)
+    RETURN 1
+  END TRAP
+  io::print(strings::upper(riskyText(1))) TRAP(e)
+    RETURN 1
+  END TRAP
+  io::print(toString(len(riskyList(1)))) TRAP(e)
+    RETURN 1
+  END TRAP
+  io::print(toString(riskyPair(1).pos)) TRAP(e)
+    RETURN 1
+  END TRAP
+  io::print(toString(collections::get(riskyList(1), 0))) TRAP(e)
+    RETURN 1
+  END TRAP
+  LET a AS Integer = risky(1) + riskyPair(2).pos TRAP(e)
+    RECOVER 0
+  END TRAP
+  io::print(toString(a))
+  RETURN 0
+END FUNC

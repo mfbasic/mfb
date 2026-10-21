@@ -26,7 +26,7 @@ use crate::target::NativeBuildMode::Console;
 use crate::testutil::{try_code_for_src, CodeTarget};
 
 /// How many programs the directory held when this suite was written.
-const PROGRAMS: usize = 64;
+const PROGRAMS: usize = 65;
 
 #[test]
 fn every_lowering_program_lowers_and_no_function_is_empty() {
