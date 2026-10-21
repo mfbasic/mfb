@@ -39,6 +39,8 @@ mod platform_family;
 #[cfg(test)]
 mod regalloc_outcome;
 #[cfg(test)]
+mod register_allocation_entry;
+#[cfg(test)]
 mod resource_alias_forms;
 #[cfg(test)]
 mod small_units;
