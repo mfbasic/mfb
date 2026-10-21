@@ -5,6 +5,8 @@ use crate::hir::{
 };
 use crate::types::ParameterType;
 
+mod refinement;
+
 fn subs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
     pairs
         .iter()
