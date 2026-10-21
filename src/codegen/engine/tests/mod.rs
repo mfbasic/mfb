@@ -23,9 +23,13 @@ mod data_layout;
 #[cfg(test)]
 mod default_res_fields;
 #[cfg(test)]
+mod entry_refusals;
+#[cfg(test)]
 mod into_dest_sites;
 #[cfg(test)]
 mod link_library_resolution;
+#[cfg(test)]
+mod lower_module_refusals;
 #[cfg(test)]
 mod nir_context;
 #[cfg(test)]
