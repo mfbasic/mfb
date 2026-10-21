@@ -8,7 +8,9 @@
 ' worker starts with a fresh, empty table -- `mfb spec language threads`).
 '
 ' A rate is how many units of the base currency one unit of the code is worth,
-' and the base currency is any code whose rate is exactly 1. Nothing here
+' held as an exact decimal money::Rate (scaled by 10^12, so up to 12 places and
+' at most 9223372.036854775807). The base currency is any code whose rate is
+' exactly 1, which is scaled 1000000000000. Nothing here
 ' requires a base to exist: a table is legal while it is being built, and
 ' exportRates -> importRates must round-trip whatever the table holds. The
 ' requirement is enforced where it matters, in math.mfb, when two different
@@ -16,12 +18,15 @@
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
+IMPORT money
 
-PRIVATE MUT rates AS Map OF String TO Fixed = Map OF String TO Fixed {}
+PRIVATE MUT rates AS Map OF String TO money::Rate = Map OF String TO money::Rate {}
 
-' A failure naming `rate` unless it is greater than zero.
-PRIVATE FUNC checkRate(code AS String, rate AS Fixed) AS Nothing
-  IF rate <= 0F THEN
+' A failure naming `rate` unless it is greater than zero. money::toRate never
+' makes a rate at or below zero, but money::Rate[scaled := 0] can be built by
+' hand, so every rate is checked here before it is stored.
+PRIVATE FUNC checkRate(code AS String, rate AS money::Rate) AS Nothing
+  IF rate.scaled <= 0 THEN
     FAIL error(ErrorInvalidRate, "currency: the rate for " & code & " is " & toString(rate) & ", and a rate must be greater than zero")
   END IF
 END FUNC
@@ -36,6 +41,9 @@ DOC
   DESC worth. Give the base currency itself rate `1`. With `USD` as the base,
   DESC `EUR` at `1.08` means one euro is worth 1.08 dollars, and `JPY` at
   DESC `0.0067` means one yen is worth 0.0067 dollars.
+  DESC
+  DESC A rate is a `money::Rate`, an exact decimal with up to 12 places, built
+  DESC with `money::toRate("1.08")` or `money::toRate(1)`.
   ARG code The currency code, in any case.
   ARG rate Units of the base currency per unit of `code`; greater than zero.
   ERROR 93170001 `code` is not a valid currency code.
@@ -43,15 +51,16 @@ DOC
   EXAMPLE
     IMPORT currency
     IMPORT io
+    IMPORT money
 
     FUNC main() AS Nothing
-      currency::setRate("USD", 1F)
-      currency::setRate("eur", 1.08F)
-      io::print(toString(currency::getRate("EUR"), toByte(2)))   ' 1.08
+      currency::setRate("USD", money::toRate(1))
+      currency::setRate("eur", money::toRate("1.08"))
+      io::print(toString(currency::getRate("EUR")))   ' 1.08
     END FUNC
   END EXAMPLE
 END DOC
-EXPORT FUNC setRate(code AS String, rate AS Fixed) AS Nothing
+EXPORT FUNC setRate(code AS String, rate AS money::Rate) AS Nothing
   LET key AS String = checkedCode(code)
   checkRate(key, rate)
   rates = collections::set(rates, key, rate)
@@ -79,7 +88,7 @@ DOC
   DESC Remove every rate from the table.
 END DOC
 EXPORT FUNC clearRates() AS Nothing
-  rates = Map OF String TO Fixed {}
+  rates = Map OF String TO money::Rate {}
 END FUNC
 
 DOC
@@ -103,7 +112,7 @@ DOC
   ERROR 93170001 `code` is not a valid currency code.
   ERROR 93170003 `code` has no rate in the table.
 END DOC
-EXPORT FUNC getRate(code AS String) AS Fixed
+EXPORT FUNC getRate(code AS String) AS money::Rate
   RETURN rateOf(checkedCode(code))
 END FUNC
 
@@ -116,7 +125,7 @@ DOC
 END DOC
 EXPORT FUNC hasBaseCurrency() AS Boolean
   FOR EACH rate IN collections::values(rates)
-    IF rate = 1F THEN RETURN TRUE
+    IF rate.scaled = 1000000000000 THEN RETURN TRUE
   NEXT
   RETURN FALSE
 END FUNC
@@ -133,18 +142,19 @@ DOC
   EXAMPLE
     IMPORT currency
     IMPORT io
+    IMPORT money
 
     FUNC main() AS Nothing
-      currency::setRate("USD", 1F)
-      currency::setRate("EUR", 1.08F)
-      LET saved AS Map OF String TO Fixed = currency::exportRates()
+      currency::setRate("USD", money::toRate(1))
+      currency::setRate("EUR", money::toRate("1.08"))
+      LET saved AS Map OF String TO money::Rate = currency::exportRates()
       currency::clearRates()
       currency::importRates(saved)
       io::print(toString(currency::hasRate("EUR")))   ' TRUE
     END FUNC
   END EXAMPLE
 END DOC
-EXPORT FUNC exportRates() AS Map OF String TO Fixed
+EXPORT FUNC exportRates() AS Map OF String TO money::Rate
   RETURN rates
 END FUNC
 
@@ -167,15 +177,16 @@ DOC
   EXAMPLE
     IMPORT currency
     IMPORT io
+    IMPORT money
 
     FUNC main() AS Nothing
-      currency::importRates(Map OF String TO Fixed { "USD" := 1F, "jpy" := 0.0067F })
+      currency::importRates(Map OF String TO money::Rate { "USD" := money::toRate(1), "jpy" := money::toRate("0.0067") })
       io::print(toString(currency::hasRate("JPY")))   ' TRUE
     END FUNC
   END EXAMPLE
 END DOC
-EXPORT FUNC importRates(table AS Map OF String TO Fixed) AS Nothing
-  MUT checked AS Map OF String TO Fixed = Map OF String TO Fixed {}
+EXPORT FUNC importRates(table AS Map OF String TO money::Rate) AS Nothing
+  MUT checked AS Map OF String TO money::Rate = Map OF String TO money::Rate {}
   FOR EACH entry IN table
     LET key AS String = checkedCode(entry.key)
     checkRate(key, entry.value)
@@ -190,7 +201,7 @@ EXPORT FUNC importRates(table AS Map OF String TO Fixed) AS Nothing
 END FUNC
 
 ' The rate for an already-canonical code, or ErrorUnknownCurrency.
-PUBLIC FUNC rateOf(code AS String) AS Fixed
+PUBLIC FUNC rateOf(code AS String) AS money::Rate
   IF NOT collections::hasKey(rates, code) THEN
     FAIL error(ErrorUnknownCurrency, "currency: " & code & " has no rate; add one with currency::setRate")
   END IF

@@ -69,6 +69,14 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: "_main".to_string(),
             });
         }
+        // plan-179-B: the arena memory cap's startup check reads `hw.memsize`.
+        if crate::codegen::runtime::arena_cap::arena_cap_enabled(module) {
+            imports.push(PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_sysctlbyname".to_string(),
+                required_by: "_main".to_string(),
+            });
+        }
         imports
     }
 

@@ -52,9 +52,12 @@
   { "library": "libSystem", "symbol": "_pthread_self" },
   { "library": "libSystem", "symbol": "_pthread_get_stackaddr_np" },
   { "library": "libSystem", "symbol": "_pthread_get_stacksize_np" },
+  { "library": "libSystem", "symbol": "_sysctlbyname" },
   { "library": "libSystem", "symbol": "_write" },
   { "library": "libSystem", "symbol": "_raise" },
-  { "library": "libSystem", "symbol": "___error" }
+  { "library": "libSystem", "symbol": "___error" },
+  { "library": "libSystem", "symbol": "_pthread_mutex_lock" },
+  { "library": "libSystem", "symbol": "_pthread_mutex_unlock" }
   ],
   "externalSymbols": [],
   "symbolTable": [
@@ -76,12 +79,15 @@
   { "name": "_pthread_self", "kind": "imported", "section": null, "value": null, "stringTableOffset": 201 },
   { "name": "_pthread_get_stackaddr_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 215 },
   { "name": "_pthread_get_stacksize_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 241 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 267 },
-  { "name": "_raise", "kind": "imported", "section": null, "value": null, "stringTableOffset": 274 },
-  { "name": "___error", "kind": "imported", "section": null, "value": null, "stringTableOffset": 281 }
+  { "name": "_sysctlbyname", "kind": "imported", "section": null, "value": null, "stringTableOffset": 267 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 281 },
+  { "name": "_raise", "kind": "imported", "section": null, "value": null, "stringTableOffset": 288 },
+  { "name": "___error", "kind": "imported", "section": null, "value": null, "stringTableOffset": 295 },
+  { "name": "_pthread_mutex_lock", "kind": "imported", "section": null, "value": null, "stringTableOffset": 304 },
+  { "name": "_pthread_mutex_unlock", "kind": "imported", "section": null, "value": null, "stringTableOffset": 324 }
   ],
   "stringTable": {
-    "size": 290,
+    "size": 346,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_ifOnly", "offset": 7 },
@@ -101,9 +107,12 @@
     { "value": "_pthread_self", "offset": 201 },
     { "value": "_pthread_get_stackaddr_np", "offset": 215 },
     { "value": "_pthread_get_stacksize_np", "offset": 241 },
-    { "value": "_write", "offset": 267 },
-    { "value": "_raise", "offset": 274 },
-    { "value": "___error", "offset": 281 }
+    { "value": "_sysctlbyname", "offset": 267 },
+    { "value": "_write", "offset": 281 },
+    { "value": "_raise", "offset": 288 },
+    { "value": "___error", "offset": 295 },
+    { "value": "_pthread_mutex_lock", "offset": 304 },
+    { "value": "_pthread_mutex_unlock", "offset": 324 }
     ]
   },
   "relocations": [
@@ -124,10 +133,13 @@
   { "from": "_main", "to": "_pthread_self", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_pthread_get_stackaddr_np", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_pthread_get_stacksize_np", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_sysctlbyname", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_raise", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "___error", "kind": "externalCall", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
+  { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_pthread_mutex_lock", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_pthread_mutex_unlock", "kind": "externalCall", "section": "__TEXT,__text" }
   ]
 }

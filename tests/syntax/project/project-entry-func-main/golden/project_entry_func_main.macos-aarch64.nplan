@@ -17,7 +17,10 @@
   { "library": "libSystem", "symbol": "_pthread_self", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_get_stackaddr_np", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_get_stacksize_np", "requiredBy": "_main" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" }
+  { "library": "libSystem", "symbol": "_sysctlbyname", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pthread_mutex_lock", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pthread_mutex_unlock", "requiredBy": "_main" }
   ],
   "functions": [
   {

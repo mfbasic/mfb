@@ -151,6 +151,63 @@ opened its display connection and window pipe, so it skips this step. The macOS 
 (`./mfb spec app macos-runtime`, `./mfb spec app linux-runtime`). Windows allocates no
 standard handle by lowest free number and emits none of it.
 
+## The Arena Memory Cap Check
+
+Unless the project sets `options.maxArenaMemoryDisable: true`, the entry calls
+`_mfb_rt_arena_cap_init` next: after the standard descriptors are reserved (so its
+messages reach fd 2) and before any `--debug` feature's entry work and the first
+allocation. The keys are `./mfb spec tooling project-manifest`, *Arena memory cap*.
+A disabled build emits no call, no helper, no limit word and no probe imports.
+[[src/codegen/runtime/arena_cap/mod.rs:lower_arena_cap_init]]
+[[src/codegen/runtime/arena_cap/mod.rs:arena_cap_enabled]]
+
+1. **Probe the RAM.** macOS calls `sysctlbyname("hw.memsize")`; Linux calls
+   `sysinfo` and multiplies `totalram` by `mem_unit`; Windows calls
+   `GlobalMemoryStatusEx` and reads `ullTotalPhys`. The call failing is a
+   *probe failure* (step 5).
+   [[src/codegen/engine/types/types.rs:emit_host_memory_probe]]
+2. **Linux: apply the cgroup limit.** The entry reads all of `/proc/self/cgroup`
+   (up to 4095 bytes). For the cgroup v2 line (`0::<path>`) it tries
+   `/sys/fs/cgroup<path>/memory.max`; for a v1 line whose controller list has
+   `memory` it tries `/sys/fs/cgroup/memory<path>/memory.limit_in_bytes`. Each walk
+   tries the file at the path, then at every parent up to the root, and the
+   effective RAM is the smallest of the host RAM and every limit found. A missing
+   or unreadable file, `max`, or a value of 10^18 or more is no limit, never a probe
+   failure: a process outside any memory-limited cgroup keeps the host RAM. The
+   parent steps cover a limit set on a parent slice and a container that sees its
+   own cgroup mounted at `/sys/fs/cgroup` while `/proc/self/cgroup` names a deeper
+   host path. A level whose file path would exceed 1023 bytes is skipped.
+   [[src/codegen/runtime/arena_cap/cgroup.rs:emit_cgroup_limit]]
+3. **Compute the cap.** `requested = RAM × percent / 100`, rounded down, or
+   `maxArenaMemoryMiB × 1048576` when that is set and smaller. A `requested` of 0
+   (a cgroup limit under 100 bytes) becomes 1, because 0 means "no enforcement".
+   The `threshold` is `RAM × 90 / 100`, rounded down. Both products are computed
+   as `(RAM / 100) × n + (RAM % 100) × n / 100`, so they cannot overflow.
+4. **The 90% check.** If `requested` is above `threshold`, one line goes to
+   stderr naming the key that produced `requested` and both byte counts:
+   `error: maxArenaMemoryPercent: the arena memory cap of N bytes is above 90% of
+   physical memory (T bytes); the program did not start.` Under `"halt"` the entry
+   then exits with status 1 through the ordinary exit path (module teardown and
+   `_mfb_shutdown` run over the empty arena); no program code, global initializer
+   or `LINK` initializer runs. Under `"warn"` the line starts `warning:`, ends
+   `(T bytes).`, and the program runs with `requested` as its cap.
+5. **Probe failure.** Under `"halt"`: one line naming the failed call
+   (`error: maxArenaMemoryPercent: could not read physical memory on this platform
+   (sysinfo failed); the program did not start.`) and exit status 1, whatever
+   `maxArenaMemoryMiB` says. Under `"warn"`: one `warning:` line, and the cap is
+   `maxArenaMemoryMiB × 1048576` when that is set (the 90% check is skipped, having
+   no RAM to compare with), or 0 (not enforced) when it is not.
+6. **Store the cap** in the writable u64 `_mfb_rt_arena_map_limit`. `0` means no
+   enforcement, and only step 5 stores it. The allocator's use of it is in
+   `./mfb spec memory arenas`, *Process Memory Cap*. The cap's map lock needs no
+   initialization step: it is a statically initialized data object.
+   [[src/codegen/runtime/arena_cap/mod.rs:ARENA_MAP_LIMIT_SYMBOL]]
+
+The helper is a vreg-allocated runtime helper with a 5376-byte frame buffer, so
+the entry stub itself only calls it and tests the result. With the default
+`maxArenaMemoryPercent: 50`, `requested` never exceeds `threshold`, so a default
+build prints nothing and behaves as before.
+
 ## Signal Dispositions
 
 On non-Windows console entries, the shim
@@ -246,6 +303,15 @@ The exit path (`entry_exit`) parks the exit code in the arena-state scratch word
 at offset `32` (which lives in the stack-resident entry frame, not the mmap'd
 arena blocks that teardown unmaps), calls `_mfb_shutdown` (`SHUTDOWN_SYMBOL`),
 reloads the exit code, and calls the platform process-exit. [[src/codegen/error/constants/error_constants.rs:SHUTDOWN_SYMBOL]]
+
+When the arena memory cap is on, `_mfb_shutdown`'s very first act is to store 0
+into `_mfb_rt_arena_map_limit`, which turns the cap's accounting off for the rest
+of the process. A SIGINT/SIGTERM can land on a thread that holds the cap's map lock
+(inside a block charge, refund or destroy); the handler runs `_mfb_shutdown` on that
+thread, and with the limit 0 the arena destroy below gives no bytes back and so
+never takes the lock it would otherwise wait on forever
+(`./mfb spec memory arenas`, *Process Memory Cap*).
+[[src/codegen/runtime/arena_cap/accounting.rs:emit_disable_accounting]]
 
 `_mfb_shutdown` reads the arena address from `_mfb_rt_main_arena`, **clears that
 global first** (so a signal arriving mid-teardown re-enters as a no-op), and skips

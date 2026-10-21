@@ -11,7 +11,7 @@ plan-179-C enforces it on the allocator.
 
 References:
 
-- `planning/plan-179-A-arena-cap-settings.md` — the keys, defaults and rules.
+- `planning/completed/plan-179-A-arena-cap-settings.md` — the keys, defaults and rules.
 - `src/docs/spec/memory/08_program-startup.md` — the startup sequence the probe joins.
 - `src/docs/spec/memory/04_arenas.md` — Arena-State Layout (`exitStatus` at +32; the entry shim zeroes `ARENA_STATE_SIZE`).
 
@@ -19,7 +19,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-179-A landed | `grep -n "^Commit:" planning/plan-179-A-arena-cap-settings.md` → a hash, not `—` | NOT MET (A's Commit line is `—` until it lands) |
+| plan-179-A landed | `grep -n "^Commit:" planning/completed/plan-179-A-arena-cap-settings.md` → a hash, not `—` | MET (2026-10-20: `Commit: 0ed6f7b2b`) |
 
 Everything below is written against the world where this holds.
 
@@ -123,16 +123,16 @@ Messages use `emit_write_string_object` (`entry.rs:1225`). Integer formatting us
 
 ### Phase 1 — Probe and startup check, all five targets
 
-- [ ] `src/codegen/engine/function/entry.rs`: new emitter for the probe, called from `lower_program_entry` after the ArenaState zero loop and before the first allocation, gated on `!arena_memory.disable` (§3).
-- [ ] `src/codegen/engine/function/entry.rs`: data symbol `_mfb_rt_arena_map_limit` (u64), written by the probe path.
-- [ ] macOS: `_sysctlbyname("hw.memsize")` probe (§4.1). Import already exists at `src/target/macos_aarch64/plan.rs:422`.
-- [ ] Linux (aarch64, x86-64, riscv64): `sysinfo` probe with the staging of `src/codegen/builtins/os/func_uptime.rs:24–30`. Import exists at `src/target/linux_common/plan.rs:291`.
-- [ ] Linux: cgroup v2 then v1 reads via `open`/`read`/`close`. Imports exist at `src/target/linux_common/plan.rs:315–317` and `:530–535`.
-- [ ] Platform call: a new `CodegenPlatform` method `emit_host_memory_probe` beside `emit_arena_map` (trait declared at `src/codegen/engine/types/types.rs:952–957`), implemented in `macos_aarch64/code.rs`, `linux_aarch64/code.rs`, `linux_x86_64/code.rs`, `linux_riscv64/code.rs` and `win_x86_64/code.rs`. `linux_common/code.rs` holds the shared Linux body, as it does for `emit_arena_map`.
-- [ ] Windows: add `GlobalMemoryStatusEx` to the kernel32 import list in `src/target/win_x86_64/plan.rs` (style of lines 60–74).
-- [ ] `halt` and `warn` messages and exit path (§4.2).
-- [ ] `src/docs/spec/memory/08_program-startup.md`: add the probe step to the startup sequence and the halt/warn/probe-failure rules.
-- [ ] `src/docs/spec/memory/04_arenas.md`: note that `_mfb_rt_arena_map_limit` is written at startup (enforcement is in plan-179-C).
+- [x] `src/codegen/engine/function/entry.rs`: new emitter for the probe, called from `lower_program_entry` after the ArenaState zero loop and before the first allocation, gated on `!arena_memory.disable` (§3). The probe is the vreg helper `_mfb_rt_arena_cap_init` (`src/codegen/runtime/arena_cap/mod.rs`); the entry (`entry/mod.rs`) calls it after the standard-fd reservation and before the `--debug` entry work, gated by `ProgramEntrySpec::arena_cap_init` (Correction 2).
+- [x] `src/codegen/engine/function/entry.rs`: data symbol `_mfb_rt_arena_map_limit` (u64), written by the probe path. Emitted by `arena_cap::data_objects` from `module_layout.rs`.
+- [x] macOS: `_sysctlbyname("hw.memsize")` probe (§4.1). Import already exists at `src/target/macos_aarch64/plan.rs:422`. That import is `os.version`'s; the entry now declares `_sysctlbyname` itself when the cap is on.
+- [x] Linux (aarch64, x86-64, riscv64): `sysinfo` probe with the staging of `src/codegen/builtins/os/func_uptime.rs:24–30`. Import exists at `src/target/linux_common/plan.rs:291`. That is `os.uptime`'s; `entry_imports` now adds `sysinfo`/`read`/`close` when the cap is on.
+- [x] Linux: cgroup v2 then v1 reads via `open`/`read`/`close`. Imports exist at `src/target/linux_common/plan.rs:315–317` and `:530–535`. Implemented as the `/proc/self/cgroup` walk of the first attempt's notes (`arena_cap/cgroup.rs`, Correction 3).
+- [x] Platform call: a new `CodegenPlatform` method `emit_host_memory_probe` beside `emit_arena_map` (trait declared at `src/codegen/engine/types/types.rs:952–957`), implemented in `macos_aarch64/code.rs`, `linux_aarch64/code.rs`, `linux_x86_64/code.rs`, `linux_riscv64/code.rs` and `win_x86_64/code.rs`. `linux_common/code.rs` holds the shared Linux body, as it does for `emit_arena_map`. Plus `host_memory_probe_name`; the three Linux ISAs share the one `Platform<A>` impl in `linux_common/code.rs`, so no per-ISA file changed (Correction 4).
+- [x] Windows: add `GlobalMemoryStatusEx` to the kernel32 import list in `src/target/win_x86_64/plan.rs` (style of lines 60–74). Gated on the cap being on.
+- [x] `halt` and `warn` messages and exit path (§4.2). Probe failure checked for real on 2223 with an `LD_PRELOAD` `sysinfo` that returns -1: halt → the `could not read physical memory … (sysinfo failed)` line, rc=1; warn → warning, `hello`, rc=0; warn + MiB 64 → `the arena memory cap is maxArenaMemoryMiB, 64 MiB.`, rc=0.
+- [x] `src/docs/spec/memory/08_program-startup.md`: add the probe step to the startup sequence and the halt/warn/probe-failure rules. New section "The Arena Memory Cap Check".
+- [x] `src/docs/spec/memory/04_arenas.md`: note that `_mfb_rt_arena_map_limit` is written at startup (enforcement is in plan-179-C).
 
 Acceptance: default build runs with unchanged output on all five targets; `halt` at 95% exits 1 with the message; `warn` at 95% runs with a warning.
   Check (macOS, local): `./mfb build <project> && <exe>; echo $?` with defaults → output as before, `0`.
@@ -142,7 +142,12 @@ Acceptance: default build runs with unchanged output on all five targets; `halt`
   Check (Linux x86-64 musl): box 2227 — the same three checks.
   Check (Windows x86-64): the Win11 box at 192.168.1.206 (the only Windows box, `.ai/remote_systems.md`) — the same three checks.
   Check (goldens): `scripts/artifact-gate.sh <mfb> all` → diffs confined to the startup sequence of every fixture, on all five targets. Expected, because every default program now runs the probe. Inspect one fixture (`objdump` or the `.ncode` output) to localize the diff to the probe; then re-baseline only the entry-shim lines, with the one-fixture inspection in the commit message (AGENTS.md).
-Commit: —
+  Result (macOS, 96 GiB): defaults → `hello`, rc=0; 95% halt → `error: maxArenaMemoryPercent: the arena memory cap of 97925254348 bytes is above 90% of physical memory (92771293593 bytes); the program did not start.`, rc=1; warn → the `warning:` line, `hello`, rc=0; `maxArenaMemoryPercent: 100, maxArenaMemoryMiB: 95000` → the line names `maxArenaMemoryMiB`; `maxArenaMemoryMiB: 64` → runs.
+  Result (Linux aarch64, 2223 Kali glibc): the same three → rc 0 / 1 / 0 with the line (RAM 8113708 kB). Under `systemd-run --user --scope -p MemoryMax=600M` the cap is 597688320 (= 600 MiB × 95%); with `MemoryMax=700M` set only on the parent `p179.slice` (the leaf reads `max`) it is 697303040 (= 700 MiB × 95%), so the parent walk works.
+  Result (Linux x86-64 musl, 2227): the same three → 0 / 1 / 0 (RAM 16377832 kB; this box has no `/proc/self/cgroup` lines). Result (Linux riscv64 musl, 2229): 0 / 1 / 0.
+  Result (Windows x86-64, 192.168.1.206): `p179_def.exe` → `hello`, rc=0; `p179_halt.exe` → the error line, rc=1; `p179_warn.exe` → `hello` + the warning, rc=0.
+  Result (goldens, one fixture): `tests/byte-identity/strings`, macos-aarch64 `-ncode`: with `maxArenaMemoryDisable: true` the sha is the golden's (`409e026e…`); the default build differs only by additions — the `_sysctlbyname` import, the new data objects, the five-instruction entry call and the `_mfb_rt_arena_cap_init` function. The golden re-baseline is done once, after plan-179-C (Correction 5).
+Commit: 16b5f4312
 
 Landing tier (once, at the end of this sub-plan): `scripts/artifact-gate.sh <mfb> all` and a full `scripts/test-accept.sh`, with the golden diff described above.
 
@@ -179,7 +184,14 @@ A first attempt implemented this sub-plan on branch `worktree-P-179`; the owner 
 
 ## Corrections
 
-_None yet. Filled in during execution._
+1. **Stale citations.** The entry shim is `src/codegen/engine/function/entry/mod.rs`; the stderr helpers cited (`emit_write_string_object`, `emit_write_integer_to_stderr_with_labels`) are private to `entry/cleanup_audit.rs` and work in entry-stub scratch registers, so the helper has its own vreg versions (`Emit::write_string`, `Emit::write_decimal`).
+2. **The probe is a vreg runtime helper, not entry-stub code.** The cgroup walk needs ~25 live values, a 4 KiB read buffer and a 1 KiB path buffer, which the scratch-register-only entry stub cannot hold. `_mfb_rt_arena_cap_init` is a vreg-allocated helper with a 5376-byte local buffer (`finalize_vreg_body_with_locals`); the entry calls it and turns a return of 1 into exit status 1 via `entry_exit`. Order: after the standard-descriptor reservation (so fd 2 exists) and before the `--debug` entry work — the open question in the notes, decided this way and stated in `08_program-startup.md`.
+3. **Cgroup lookup (§4.1) replaced by the walk the notes recommend.** `/proc/self/cgroup` is read whole (up to 4095 bytes); the v2 line (`0::`) and any v1 line with a `memory` controller token are both walked from the process's path up to the root, keeping the smallest limit; `max`, a missing file, or ≥ 10^18 is no limit. Proven on 2223 for the leaf and the parent-slice case.
+4. **Per-ISA Linux files unchanged.** `linux_aarch64/code.rs`, `linux_x86_64/code.rs` and `linux_riscv64/code.rs` implement `LinuxArch`, not `CodegenPlatform`; the one `impl CodegenPlatform for Platform<A>` in `linux_common/code.rs` carries the probe for all three. The probe has to be the trait's only per-platform piece; the cgroup walk is shared code in `arena_cap/cgroup.rs`, because it is the same on every ISA.
+5. **Golden re-baseline deferred to the end of plan-179-C, measured here.** Every executable fixture changes again in plan-179-C (the grow path in `_mfb_arena_alloc`), so re-baselining here would rewrite the same files twice; the one-fixture inspection above localizes B's part of the diff. Measured after B: `scripts/artifact-gate.sh target/debug/mfb all` → `1708 tests, 1887 build(s), 2366 golden(s) checked, 207 diff(s)`, every one a native dump (`.ncode`/`.nplan`/`.nobj`/`.mir`; none in `.ast`/`.ir`/`.nir`): macos-aarch64 34 ncode + 18 nplan + 18 nobj + 2 mir, linux-aarch64 29, linux-riscv64 29, linux-x86_64 29, windows-x86_64 27, app-mode 16 ncode + 5 nplan. A main-tip baseline (`b2499aca0`, release) gave `0 diff(s)`, so all 207 are this plan's.
+6. **"`requested` is never 0" (§4.2) was false**, as the notes said: a computed 0 is clamped to 1. `0` is stored only on a `warn` probe failure with the MiB key unset.
+7. **Remote checks are cross-built.** Each Linux/Windows program was built on the Mac with `mfb build -target <t>` and copied over (`git archive`/cargo builds are not needed to run a program; box 2227 needs hours for a cargo build). The emitted code is the same either way: codegen does not depend on the build host.
+8. **`test-fast.sh` passed** (fmt, check, build, skips, tests: all `ok`); the entry fixtures in `linux_common/code.rs` were not broken because their `ProgramEntrySpec` sets `arena_cap_init: false`.
 
 ## Summary
 

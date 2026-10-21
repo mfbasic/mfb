@@ -132,7 +132,13 @@ pub(crate) fn lower_spawn(
         if ctx.platform.family() == crate::codegen::engine::types::PlatformFamily::Windows {
             lower_process_spawn_helper_win(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
         } else {
-            lower_process_spawn_helper_posix(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+            lower_process_spawn_helper_posix(
+                ctx.call,
+                &symbol,
+                ctx.platform_imports,
+                ctx.platform,
+                ctx.arena_cap,
+            )?
         };
     builder.instructions.extend(instructions);
     builder.relocations.extend(relocations);
@@ -210,6 +216,8 @@ pub(crate) fn lower_process_spawn_helper_posix(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    // plan-179-C: the fork child turns the arena memory cap's accounting off.
+    arena_cap: bool,
 ) -> Result<ProcBodyParts, String> {
     if call == "process.spawnEnv" {
         const LOCAL: usize = SPAWN_LOCAL;
@@ -347,6 +355,7 @@ pub(crate) fn lower_process_spawn_helper_posix(
             &alloc_fail,
             &fork_fail,
             &done,
+            arena_cap,
             platform,
             platform_imports,
             &mut instructions,
@@ -484,6 +493,7 @@ pub(crate) fn lower_process_spawn_helper_posix(
             &alloc_fail,
             &fork_fail,
             &done,
+            arena_cap,
             platform,
             platform_imports,
             &mut instructions,

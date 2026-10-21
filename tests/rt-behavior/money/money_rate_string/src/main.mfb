@@ -1,0 +1,19 @@
+' plan-181-A3: money::toRate(String) reads decimal text exactly into scaled = rate * 10^12.
+IMPORT io
+IMPORT money
+
+FUNC show(text AS String) AS Nothing
+  io::print(text & " " & toString(money::toRate(text).scaled))
+END FUNC
+
+FUNC main() AS Integer
+  show("0.842")
+  show("0.0067")
+  show("1")
+  show("9223372.036854775807")
+  show("0.000000000001")
+  ' Leading zeros are digits like any other; trailing zeros within 12 places are kept exactly.
+  show("0000000000000000000000001.5")
+  show("0.842000000000")
+  RETURN 0
+END FUNC

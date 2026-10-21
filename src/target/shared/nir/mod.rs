@@ -62,6 +62,8 @@ pub(crate) struct NirModule {
     /// from the project.json `options.canvasAutoPaintMS` field. Like `max_buffer_bytes`
     /// it is the CONSUMING executable's setting and is not encoded into a `.mfp`.
     pub(crate) canvas_auto_paint_ms: u64,
+    /// The arena memory cap settings (plan-179). See `IrProject::arena_memory`.
+    pub(crate) arena_memory: crate::ir::ArenaMemoryLimits,
 }
 
 /// The internal text symbol of the per-program native `LINK` load-time

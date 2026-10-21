@@ -23,7 +23,7 @@ Nothing blocks this sub-plan. Sub-plan A is the first of the feature.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-179-A not yet landed (fresh start) | `ls planning/completed/plan-179-A-* 2>/dev/null` → no output | MET |
+| plan-179-A not yet landed (fresh start) | `ls planning/completed/plan-179-A-* 2>/dev/null` → no output | MET (2026-10-20: no match) |
 
 ## 1. Goal
 
@@ -120,17 +120,18 @@ Rejected alternatives:
 
 Lands alone: it adds no codegen consumer, so it cannot change a build's output.
 
-- [ ] `src/manifest/mod.rs`: defaults (constants next to `DEFAULT_MAX_BUFFER_MIB`), four readers, four validators, disable-with-keys warning (§4.1).
-- [ ] `src/manifest/mod.rs` tests module (near the `canvasAutoPaintMS` tests at lines 185–220): defaults when absent; each valid value accepted; each invalid value rejected with a message naming its key (wrong type, `0`, `-2`, `101`, `0` percent, overflow MiB, bad check string); disable + keys produces the warning.
-- [ ] `src/ir/types.rs`: `ArenaMemoryLimits`, `ArenaMemoryCheck`, field `arena_memory` on `IrProject` (§4.2).
-- [ ] Construction sites set the default: `src/ir/lower.rs:335`, `src/target/package_mfp/mod.rs:501`, `src/optimizer/opt1/local_rewrites.rs:419`.
-- [ ] `src/target/shared/nir/mod.rs:60` and `src/target/shared/lower.rs:41`: carry the struct to NIR.
-- [ ] `src/docs/spec/tooling/01_project-manifest.md`: options table rows and "Arena memory cap" subsection (§4.3).
+- [x] `src/manifest/mod.rs`: defaults (constants next to `DEFAULT_MAX_BUFFER_MIB`), four readers, four validators, disable-with-keys warning (§4.1). Landed in the new `src/manifest/arena_memory.rs` (`arena_memory_limits`, `validate_arena_memory`, re-exported from `mod.rs`); warning is the new rule `2-200-0028 PROJECT_JSON_ARENA_MEMORY_IGNORED` (Corrections 3, 4).
+- [x] `src/manifest/mod.rs` tests module (near the `canvasAutoPaintMS` tests at lines 185–220): defaults when absent; each valid value accepted; each invalid value rejected with a message naming its key (wrong type, `0`, `-2`, `101`, `0` percent, overflow MiB, bad check string); disable + keys produces the warning. In `src/manifest/tests/arena_memory.rs` (4 tests; MiB `2^44-1` accepted, `2^44` rejected, fractions read as the default, valid cases assert no diagnostic). `cargo test --bin mfb manifest::` → `test result: ok. 226 passed; 0 failed`.
+- [x] `src/ir/types.rs`: `ArenaMemoryLimits`, `ArenaMemoryCheck`, field `arena_memory` on `IrProject` (§4.2). `cargo build` → compiles.
+- [x] Construction sites set the default: `src/ir/lower.rs:335`, `src/target/package_mfp/mod.rs:501`, `src/optimizer/opt1/local_rewrites.rs:419`. 11 files, not 3 (Correction 1); the executable and dump paths in `src/cli/build/mod.rs` set the manifest value.
+- [x] `src/target/shared/nir/mod.rs:60` and `src/target/shared/lower.rs:41`: carry the struct to NIR. `NirModule::arena_memory`, set in `src/target/shared/nir/lower.rs` beside `canvas_auto_paint_ms` (Correction 2).
+- [x] `src/docs/spec/tooling/01_project-manifest.md`: options table rows and "Arena memory cap" subsection (§4.3). Also footnote 4's key count (three → seven), the validator list, the `2-200-0028` row here and in `diagnostics/01_rule-codes.md` (populations 29 → 30, warn rules nine → ten). `cargo test --bin mfb spec` → `67 passed; 0 failed`; `mfb spec tooling project-manifest | grep -n '\[\['` → no output.
 
 Acceptance: every manifest test in the new set passes, and a build of a project with the four keys absent produces the same artifacts as before the change.
   Check: `cargo test --bin mfb manifest::` → all manifest tests pass (est. 5 min; a scoped run is the cheapest check that fails if a validator is wrong).
   Check: a `project.json` with `"maxArenaMemoryPercent": 101` → build fails with a message naming `maxArenaMemoryPercent`.
-Commit: —
+  Result: `cargo test --bin mfb manifest::` → 226 passed, 0 failed. `mfb build /tmp/p179a` with `"maxArenaMemoryPercent": 101` → `error[2-200-0006 PROJECT_JSON_FIELD_TYPE] … Field \`maxArenaMemoryPercent\` must be a whole number from 1 to 100`, rc=1. `scripts/artifact-gate.sh target/debug/mfb strings` → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)` (the full gate runs once at the end of the plan, §5 of follow-plan).
+Commit: 0ed6f7b2b
 
 Landing tier (once, at the end of this sub-plan): `scripts/artifact-gate.sh <mfb> all` and a full `scripts/test-accept.sh`. Expected result: zero diff, because this sub-plan emits no code. Any diff is a bug in this sub-plan (AGENTS.md: "Unexpected diff in a golden … = bug-hunt trigger"); inspect one fixture to localize it.
 
@@ -163,7 +164,13 @@ A first attempt implemented A, B and C on branch `worktree-P-179`; the owner dis
 
 ## Corrections
 
-_None yet. Filled in during execution._
+1. **Construction sites: 11 files, not 3.** `grep -rln "canvas_auto_paint_ms: crate::manifest::DEFAULT_CANVAS_AUTO_PAINT_MS," src` → 11 files (`IrProject` and `NirModule` literals, test fixtures included: `optimizer/opt1/local_rewrites.rs`, `ir/tests/variant_corpus/mod.rs`, `ir/test_support.rs`, `ir/binary/mod.rs`, `ir/lower/mod.rs`, `target/package_mfp/mod.rs`, `target/shared/validate/mod.rs`, `target/shared/plan/mod.rs`, `codegen/memory/arena/graph_copy.rs`, `codegen/engine/validation/validation.rs`, `binary_repr/tests/fixtures.rs`). Each sets `ArenaMemoryLimits::default()`.
+2. **The value does not travel the `stdinLogCap` route.** `stdinLogCap` is passed to `target::write_executable` as an argument; the right precedent is `canvasAutoPaintMS`, an `IrProject` field set in `src/cli/build/mod.rs` (executable path and `--nir`/`--ncode` dump path, so a dump shows the program's real cap) and copied to `NirModule` in `src/target/shared/nir/lower.rs`. That is what was done. The `src/target/shared/lower.rs:41` citation does not exist on main.
+3. **One module, shared predicates.** The readers and validators live in `src/manifest/arena_memory.rs` rather than in `mod.rs` (552 lines). One predicate per key is shared by the reader and the validator, so a fraction such as `12.5` reads as the default instead of truncating (the first attempt's bug). One `validate_arena_memory` covers all four keys.
+4. **The warning needed a rule.** There is no separate "warning path": a warning is `rules::show_diagnostic` with a `Severity::Warn` rule. Added `2-200-0028 PROJECT_JSON_ARENA_MEMORY_IGNORED` (warn) in `src/rules/table/tooling.rs`, with spec rows. An invalid value is still an error when the cap is disabled (author's call: an invalid value is a typo the user should fix either way).
+5. **`DEFAULT_ARENA_MEMORY_CHECK` is typed `ArenaMemoryCheck`, not `&str`.** A `&str` constant would be unread (dead code); the typed constant is what `ArenaMemoryLimits::default` uses.
+6. **`NirModule::arena_memory` is unread in this sub-plan's commit.** `cargo build` → `warning: field \`arena_memory\` is never read` until plan-179-B reads it in the plan and code stages; B's commit lands directly after A on the same branch (the option the first attempt's notes named).
+7. **Open question (§3, "smaller of the set keys") answered by the recorded decision.** The Decisions section records the owner's choice (minimum of the set keys); the spec now states the consequence explicitly with the 16 GiB example.
 
 ## Summary
 

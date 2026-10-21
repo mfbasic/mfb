@@ -103,8 +103,8 @@ pub use package::{
     prefix_package_symbols, PackageInitialization,
 };
 pub(crate) use types::{
-    EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrParam, IrRecordUpdate, IrSourceLoc,
-    IrType, IrVariant,
+    ArenaMemoryCheck, ArenaMemoryLimits, EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction,
+    IrParam, IrRecordUpdate, IrSourceLoc, IrType, IrVariant,
 };
 pub use types::{ExternalDefault, ExternalFunctionParam, ExternalSignature, IrProject};
 pub(crate) use value::{visit_value_mut, IrMatchCase, IrMatchPattern, IrValue};

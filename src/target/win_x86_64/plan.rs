@@ -73,6 +73,10 @@ impl NativePlanPlatform for Platform {
             // trampoline) asks for its exact stack to set its stack-limit word.
             import("GetCurrentThreadStackLimits", KERNEL32, "_start"),
         ];
+        // plan-179-B: the arena memory cap's startup check reads the physical RAM.
+        if crate::codegen::runtime::arena_cap::arena_cap_enabled(module) {
+            imports.push(import("GlobalMemoryStatusEx", KERNEL32, "_start"));
+        }
         if module
             .entry
             .as_ref()

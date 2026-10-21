@@ -1,0 +1,116 @@
+$ mfb build -ast -ir tests/syntax/money/money_rate_invalid
+   4 | ' money::convert and money::scale take money::Rate, never a Fixed rate.
+   5 | FUNC main() AS Integer
+   6 |   LET a = money::toRate(0.842)                    ' no Float overload
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `money.toRate` has argument type(s) (Float), expected supported overload.
+   4 | ' money::convert and money::scale take money::Rate, never a Fixed rate.
+   5 | FUNC main() AS Integer
+   6 |   LET a = money::toRate(0.842)                    ' no Float overload
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+   5 | FUNC main() AS Integer
+   6 |   LET a = money::toRate(0.842)                    ' no Float overload
+   7 |   LET b = money::toRate(0.842F)                   ' no Fixed overload
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `money.toRate` has argument type(s) (Fixed), expected supported overload.
+   5 | FUNC main() AS Integer
+   6 |   LET a = money::toRate(0.842)                    ' no Float overload
+   7 |   LET b = money::toRate(0.842F)                   ' no Fixed overload
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+   6 |   LET a = money::toRate(0.842)                    ' no Float overload
+   7 |   LET b = money::toRate(0.842F)                   ' no Fixed overload
+   8 |   LET c = money::toRate()                         ' arity (needs 1 arg)
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `money.toRate` has 0 argument(s), expected 1.
+   6 |   LET a = money::toRate(0.842)                    ' no Float overload
+   7 |   LET b = money::toRate(0.842F)                   ' no Fixed overload
+   8 |   LET c = money::toRate()                         ' arity (needs 1 arg)
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+   7 |   LET b = money::toRate(0.842F)                   ' no Fixed overload
+   8 |   LET c = money::toRate()                         ' arity (needs 1 arg)
+   9 |   LET d = money::toRate("1", "2")                 ' arity (needs 1 arg)
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:9 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `money.toRate` has 2 argument(s), expected 1.
+   7 |   LET b = money::toRate(0.842F)                   ' no Fixed overload
+   8 |   LET c = money::toRate()                         ' arity (needs 1 arg)
+   9 |   LET d = money::toRate("1", "2")                 ' arity (needs 1 arg)
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:9 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `d` does not have a known type.
+  10 |   LET e = money::Rate[scaled := "1"]              ' scaled is an Integer
+  11 |   LET r AS money::Rate = money::toRate("1")
+  12 |   LET f = money::convert(1m, 1.0842F, r)          ' convert takes Rate, not Fixed
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `money.convert` has argument type(s) (Money, Fixed, money.Rate), expected Money, money.Rate, money.Rate.
+  10 |   LET e = money::Rate[scaled := "1"]              ' scaled is an Integer
+  11 |   LET r AS money::Rate = money::toRate("1")
+  12 |   LET f = money::convert(1m, 1.0842F, r)          ' convert takes Rate, not Fixed
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `f` does not have a known type.
+  11 |   LET r AS money::Rate = money::toRate("1")
+  12 |   LET f = money::convert(1m, 1.0842F, r)          ' convert takes Rate, not Fixed
+  13 |   LET g = money::convert(1m, r)                   ' convert arity (needs 3 args)
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:13 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `money.convert` has 2 argument(s), expected 3.
+  11 |   LET r AS money::Rate = money::toRate("1")
+  12 |   LET f = money::convert(1m, 1.0842F, r)          ' convert takes Rate, not Fixed
+  13 |   LET g = money::convert(1m, r)                   ' convert arity (needs 3 args)
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `g` does not have a known type.
+  12 |   LET f = money::convert(1m, 1.0842F, r)          ' convert takes Rate, not Fixed
+  13 |   LET g = money::convert(1m, r)                   ' convert arity (needs 3 args)
+  14 |   LET h = money::convert(1, r, r)                 ' convert wants Money first
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:14 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `money.convert` has argument type(s) (Integer, money.Rate, money.Rate), expected Money, money.Rate, money.Rate.
+  12 |   LET f = money::convert(1m, 1.0842F, r)          ' convert takes Rate, not Fixed
+  13 |   LET g = money::convert(1m, r)                   ' convert arity (needs 3 args)
+  14 |   LET h = money::convert(1, r, r)                 ' convert wants Money first
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `h` does not have a known type.
+  13 |   LET g = money::convert(1m, r)                   ' convert arity (needs 3 args)
+  14 |   LET h = money::convert(1, r, r)                 ' convert wants Money first
+  15 |   LET i = money::scale(1m, 0.07F)                 ' scale takes Rate, not Fixed
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `money.scale` has argument type(s) (Money, Fixed), expected Money, money.Rate.
+  13 |   LET g = money::convert(1m, r)                   ' convert arity (needs 3 args)
+  14 |   LET h = money::convert(1, r, r)                 ' convert wants Money first
+  15 |   LET i = money::scale(1m, 0.07F)                 ' scale takes Rate, not Fixed
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:15 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `i` does not have a known type.
+  14 |   LET h = money::convert(1, r, r)                 ' convert wants Money first
+  15 |   LET i = money::scale(1m, 0.07F)                 ' scale takes Rate, not Fixed
+  16 |   LET j = money::scale(1m, r, r)                  ' scale arity (needs 2 args)
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:16 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `money.scale` has 3 argument(s), expected 2.
+  14 |   LET h = money::convert(1, r, r)                 ' convert wants Money first
+  15 |   LET i = money::scale(1m, 0.07F)                 ' scale takes Rate, not Fixed
+  16 |   LET j = money::scale(1m, r, r)                  ' scale arity (needs 2 args)
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `j` does not have a known type.
+   8 |   LET c = money::toRate()                         ' arity (needs 1 arg)
+   9 |   LET d = money::toRate("1", "2")                 ' arity (needs 1 arg)
+  10 |   LET e = money::Rate[scaled := "1"]              ' scaled is an Integer
+     | ^
+tests/syntax/money/money_rate_invalid/src/main.mfb:10 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 1 for `money.Rate` has type String, expected Integer for field `scaled`.
+[exit 1]
