@@ -15,3 +15,5 @@
 pub(crate) mod fma_fusion;
 pub(crate) mod selfmove_probe;
 pub(crate) use selfmove_probe::*;
+#[cfg(test)]
+mod tests;
