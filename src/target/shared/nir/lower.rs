@@ -35,6 +35,7 @@ pub(crate) fn lower_module(
         native_libraries: ir.native_libraries.clone(),
         max_buffer_bytes: ir.max_buffer_bytes,
         canvas_auto_paint_ms: ir.canvas_auto_paint_ms,
+        arena_memory: ir.arena_memory,
     })
 }
 

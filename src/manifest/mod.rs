@@ -13,8 +13,13 @@ use tinyjson::JsonValue;
 
 use crate::rules;
 
+mod arena_memory;
 mod fields;
 mod locator_check;
+pub(crate) use arena_memory::{
+    arena_memory_limits, DEFAULT_ARENA_MEMORY_CHECK, DEFAULT_ARENA_MEMORY_MIB,
+    DEFAULT_ARENA_MEMORY_PERCENT,
+};
 pub(crate) use fields::*;
 pub(crate) use locator_check::*;
 
@@ -353,6 +358,10 @@ pub(crate) fn validate_project_manifest(
     }
 
     if !validate_config(project_path, &contents) {
+        valid = false;
+    }
+
+    if !arena_memory::validate_arena_memory(manifest, project_path, &contents) {
         valid = false;
     }
 

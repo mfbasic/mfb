@@ -77,7 +77,8 @@ a malformed `icon` fails either app build.
 
 The manifest validator checks required `name`/`version`/`mfb` strings,
 optional `entry`/`author`/`url`/`icon` strings, `description`, `kind`, `mode`,
-`sources`, `options.maxBuffer`, `resources`, `libraries`, `config`, and the array shape of
+`sources`, `options.maxBuffer`, `options.canvasAutoPaintMS`, the four
+`options.maxArenaMemory*` keys, `resources`, `libraries`, `config`, and the array shape of
 `packages`. Dependency-entry fields are interpreted by later package stages;
 `ident` and `options` are read lazily. `targets` and per-source `role` are emitted
 by `mfb init` but are not consulted by selection or build stages.
@@ -85,7 +86,8 @@ by `mfb init` but are not consulted by selection or build stages.
 [[src/manifest/fields.rs:validate_sources]] [[src/manifest/package.rs:package_metadata]]
 
 ⁴ `options` holds runtime tunables baked into the compiled executable.
-Three keys are read: `canvasAutoPaintMS`, how long a `canvas::AutoPaint` holds its
+Seven keys are read: the four `maxArenaMemory*` keys of the arena memory cap (see
+*Arena memory cap*); `canvasAutoPaintMS`, how long a `canvas::AutoPaint` holds its
 enter and exit paints (below); `stdinLogCap`, the stdin broadcast-log
 backpressure high-water mark in bytes — the runtime reader blocks a
 producer rather than growing the log past `base + stdinLogCap`. It is read lazily
@@ -152,6 +154,56 @@ A native `LINK` wrapper with an `OUT CBuffer` slot sizes its buffer from a `BUFF
 - A `SIZE` above the ceiling (or negative) raises `ErrInvalidArgument` **before** allocating, so an over-large request costs nothing.
 
 It is the **consuming** project's setting. `LINK` thunks are emitted when an executable links, so the application importing a binding decides how much memory one native read may claim; a binding package neither carries a ceiling nor can raise the application's.
+
+## Arena memory cap (`options.maxArenaMemory*`)
+
+The arena memory cap bounds the total arena memory the whole process maps: the
+main program's arena and every worker's, counted together. Four `options` keys
+set it:
+
+```json
+{ "options": { "maxArenaMemoryPercent": 50, "maxArenaMemoryMiB": 4096, "maxArenaMemoryCheck": "halt" } }
+```
+
+| key | type | default | valid values |
+| --- | --- | --- | --- |
+| `maxArenaMemoryDisable` | boolean | `false` | `true` or `false` |
+| `maxArenaMemoryPercent` | integer | `50` | 1 to 100: the cap as a percent of the physical RAM of the machine the program runs on |
+| `maxArenaMemoryMiB` | integer | `-1` | `-1` (unset), or a whole number of MiB from 1 to 17592186044415 (`2^44 - 1`, the largest count whose byte count fits in 64 bits) |
+| `maxArenaMemoryCheck` | string | `"halt"` | `"warn"` or `"halt"` |
+
+[[src/manifest/arena_memory.rs:DEFAULT_ARENA_MEMORY_PERCENT]]
+[[src/manifest/arena_memory.rs:DEFAULT_ARENA_MEMORY_MIB]]
+[[src/manifest/arena_memory.rs:DEFAULT_ARENA_MEMORY_CHECK]]
+[[src/manifest/arena_memory.rs:MAX_ARENA_MEMORY_MIB]]
+
+- **Validation.** A value of the wrong JSON type, a fraction, or a value outside
+  its range is `PROJECT_JSON_FIELD_TYPE`, and the message names the key. For
+  `maxArenaMemoryMiB` that includes `0` and every negative value other than `-1`.
+  `maxArenaMemoryCheck` is matched exactly: `"Halt"` is rejected.
+  [[src/manifest/arena_memory.rs:validate_arena_memory]]
+- **Disable is the only off switch.** `maxArenaMemoryDisable: true` turns the cap
+  off: no RAM probe, no startup check, no allocator accounting. `-1` means "unset"
+  for `maxArenaMemoryMiB` only; it does not disable anything. With the cap
+  disabled, each of the other three keys that is present gets a
+  `PROJECT_JSON_ARENA_MEMORY_IGNORED` warning naming it, and the build continues.
+  An invalid value is still an error when the cap is disabled.
+- **The requested cap is the smaller of the two limits.** The percent always has a
+  value (default 50), so the requested cap is `RAM × percent / 100`, or
+  `maxArenaMemoryMiB × 1048576` when that is set and smaller. Setting only
+  `maxArenaMemoryMiB` does **not** raise the cap past the default percent: on a
+  16 GiB machine, `"maxArenaMemoryMiB": 32768` alone still caps at 8 GiB. To allow
+  more, raise `maxArenaMemoryPercent` as well.
+- **RAM is measured where the program runs**, at startup, not at build time; the
+  startup check and `maxArenaMemoryCheck` are in `./mfb spec memory program-startup`,
+  and the allocator's accounting is in `./mfb spec memory arenas`.
+- **Arena memory only.** The cap counts arena blocks, including their headers.
+  It does not count the thread stacks, the audio buffers, Metal (GPU) buffers, the
+  perf profiling region, or the `--debug` registry. Memory a native `LINK` library
+  allocates for itself is not counted either.
+- It is the **consuming executable's** setting, like `maxBuffer`: it applies to
+  package code, and a package's own value is not encoded into its `.mfp`.
+  [[src/manifest/arena_memory.rs:arena_memory_limits]]
 
 ## Named configs (`config`)
 
@@ -527,6 +579,7 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0025` | `PROJECT_JSON_CONFIG_UNKNOWN` | error | the config `--config` names (or `release`) is not declared [[src/cli/build/mod.rs:select_build_config]] |
 | `2-200-0026` | `PROJECT_LOCAL_JSON_FIELD` | error | `project-local.json` is not an object, or holds a member other than `config` (see *Local overrides*) [[src/manifest/config.rs:load_project_config]] |
 | `2-200-0027` | `PROJECT_LOCAL_JSON_TYPE_OVERRIDE` | error | `project-local.json` overrides a config value with a different type |
+| `2-200-0028` | `PROJECT_JSON_ARENA_MEMORY_IGNORED` | warn | `options.maxArenaMemoryDisable` is `true` and another `maxArenaMemory*` key is present; that key is ignored (see *Arena memory cap*) [[src/manifest/arena_memory.rs:validate_arena_memory]] |
 
 The two dependency-closure codes below live in the `6-605-####` package range
 (see `./mfb spec diagnostics rule-codes`), not `2-200-####`, because they are

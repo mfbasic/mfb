@@ -158,6 +158,42 @@ impl ExternalSignature {
     }
 }
 
+/// What the program does at startup when the requested arena memory cap is above
+/// 90% of physical RAM, or physical RAM cannot be read (`options.maxArenaMemoryCheck`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ArenaMemoryCheck {
+    /// Print a warning line and run with the requested cap.
+    Warn,
+    /// Print an error line and exit with status 1 before any program code runs.
+    Halt,
+}
+
+/// The resolved `options.maxArenaMemory*` keys (plan-179). Built by
+/// `manifest::arena_memory_limits`; the defaults are its `Default`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ArenaMemoryLimits {
+    /// `maxArenaMemoryDisable`: no probe, no check, no allocator accounting.
+    pub(crate) disable: bool,
+    /// `maxArenaMemoryPercent`: the cap as a percent of physical RAM, 1 to 100.
+    pub(crate) percent: u64,
+    /// `maxArenaMemoryMiB`: the cap in MiB, or `-1` when unset. A set value is at
+    /// most `manifest::MAX_ARENA_MEMORY_MIB`, so `mib * 1048576` fits in u64.
+    pub(crate) mib: i64,
+    /// `maxArenaMemoryCheck`.
+    pub(crate) check: ArenaMemoryCheck,
+}
+
+impl Default for ArenaMemoryLimits {
+    fn default() -> Self {
+        Self {
+            disable: false,
+            percent: crate::manifest::DEFAULT_ARENA_MEMORY_PERCENT,
+            mib: crate::manifest::DEFAULT_ARENA_MEMORY_MIB,
+            check: crate::manifest::DEFAULT_ARENA_MEMORY_CHECK,
+        }
+    }
+}
+
 /// The whole compiled IR for one project: its declared entities, functions, the
 /// native-`LINK` model, and the metadata carried to the backend or into a `.mfp`.
 #[derive(Clone)]
@@ -206,6 +242,11 @@ pub struct IrProject {
     /// from the project.json `options.canvasAutoPaintMS` field. Like `max_buffer_bytes`
     /// it is the CONSUMING executable's setting and is not encoded into a `.mfp`.
     pub(crate) canvas_auto_paint_ms: u64,
+    /// The arena memory cap (plan-179), from the project.json `options.maxArenaMemory*`
+    /// keys. Like `max_buffer_bytes` it is the CONSUMING executable's setting and is
+    /// never encoded into a `.mfp`: the cap applies to the whole process, package code
+    /// included.
+    pub(crate) arena_memory: ArenaMemoryLimits,
     /// The config `os::getConfigOr` calls fold from (plan-167-B), selected by
     /// the build. Like `max_buffer_bytes` it is the CONSUMING executable's
     /// setting, applied to package code too, and is not encoded into a `.mfp`.
