@@ -552,8 +552,10 @@ impl<'a> Resolver<'a> {
             self.report(
                 "SYMBOL_DUPLICATE_TOP_LEVEL",
                 &format!(
-                    "Top-level symbol `{name}` was already declared in {}:{}.",
-                    previous.file_path, previous.line
+                    "Top-level symbol `{}` was already declared in {}:{}.",
+                    crate::internal_name::display_name(name),
+                    previous.file_path,
+                    previous.line
                 ),
                 file,
                 line,
@@ -578,8 +580,10 @@ impl<'a> Resolver<'a> {
             self.report(
                 "SYMBOL_DUPLICATE_TOP_LEVEL",
                 &format!(
-                    "Top-level symbol `{name}` was already declared in {}:{}.",
-                    previous.symbol.file_path, previous.symbol.line
+                    "Top-level symbol `{}` was already declared in {}:{}.",
+                    crate::internal_name::display_name(name),
+                    previous.symbol.file_path,
+                    previous.symbol.line
                 ),
                 file,
                 line,
@@ -623,7 +627,9 @@ impl<'a> Resolver<'a> {
                 "SYMBOL_DUPLICATE_TOP_LEVEL",
                 &format!(
                     "Top-level symbol `{}` was already declared in {}:{}.",
-                    function.name, previous.file_path, previous.line
+                    crate::internal_name::display_name(&function.name),
+                    previous.file_path,
+                    previous.line
                 ),
                 file,
                 function.line,
@@ -669,7 +675,9 @@ impl<'a> Resolver<'a> {
                 "SYMBOL_DUPLICATE_TOP_LEVEL",
                 &format!(
                     "Top-level symbol `{}` was already declared in {}:{}.",
-                    function.name, previous.symbol.file_path, previous.symbol.line
+                    crate::internal_name::display_name(&function.name),
+                    previous.symbol.file_path,
+                    previous.symbol.line
                 ),
                 file,
                 function.line,
@@ -709,8 +717,10 @@ impl<'a> Resolver<'a> {
                 self.report(
                     "SYMBOL_DUPLICATE_TOP_LEVEL",
                     &format!(
-                        "Top-level symbol `{private_name}` was already declared in {}:{}.",
-                        previous.symbol.file_path, previous.symbol.line
+                        "Top-level symbol `{}` was already declared in {}:{}.",
+                        crate::internal_name::display_name(&private_name),
+                        previous.symbol.file_path,
+                        previous.symbol.line
                     ),
                     file,
                     function.line,
@@ -744,8 +754,10 @@ impl<'a> Resolver<'a> {
             self.report(
                 "SYMBOL_DUPLICATE_TOP_LEVEL",
                 &format!(
-                    "Top-level symbol `{name}` was already declared in {}:{}.",
-                    previous.file_path, previous.line
+                    "Top-level symbol `{}` was already declared in {}:{}.",
+                    crate::internal_name::display_name(name),
+                    previous.file_path,
+                    previous.line
                 ),
                 file,
                 line,
@@ -761,8 +773,10 @@ impl<'a> Resolver<'a> {
             self.report(
                 "SYMBOL_DUPLICATE_TOP_LEVEL",
                 &format!(
-                    "Top-level symbol `{name}` was already declared in {}:{}.",
-                    previous.symbol.file_path, previous.symbol.line
+                    "Top-level symbol `{}` was already declared in {}:{}.",
+                    crate::internal_name::display_name(name),
+                    previous.symbol.file_path,
+                    previous.symbol.line
                 ),
                 file,
                 line,

@@ -3,6 +3,8 @@ use crate::ast::{Param, Visibility};
 use crate::hir::{HirCallArg, HirParam};
 use crate::manifest::validate_project_manifest;
 
+mod private_name_diagnostics;
+
 fn quiet<T>(f: impl FnOnce() -> T) -> T {
     crate::testutil::silence_panics(f)
 }

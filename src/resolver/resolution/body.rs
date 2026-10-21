@@ -449,7 +449,10 @@ impl Resolver<'_> {
             // position did not (bug-198). Defer the callability check to typecheck.
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
-                &format!("Callable `{callee}` is not a top-level function."),
+                &format!(
+                    "Callable `{}` is not a top-level function.",
+                    crate::internal_name::display_name(callee)
+                ),
                 file,
                 line,
             );
@@ -565,7 +568,10 @@ impl Resolver<'_> {
             }
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",
-                &format!("Identifier `{name}` is not declared in this scope."),
+                &format!(
+                    "Identifier `{}` is not declared in this scope.",
+                    crate::internal_name::display_name(name)
+                ),
                 file,
                 line,
             );
