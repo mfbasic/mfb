@@ -110,6 +110,7 @@ mod opt_bits_lattice;
 mod opt_check_elision;
 mod opt_dead_stores;
 mod opt_fuse;
+mod opt_indvars;
 mod opt_knownbits;
 mod opt_lencache;
 mod opt_local_rewrites;
