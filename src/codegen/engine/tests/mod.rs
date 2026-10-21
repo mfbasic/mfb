@@ -33,6 +33,8 @@ mod transfer_temps;
 #[cfg(test)]
 mod type_oracle;
 #[cfg(test)]
+mod unicode_tables;
+#[cfg(test)]
 mod union_tags;
 
 // The per-package builtin codegen suites, declared from HERE rather than from

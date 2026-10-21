@@ -118,6 +118,11 @@ fn ops_use_unicode_runtime_tables(
                             return true;
                         }
                     }
+                    if let Some(guard) = &case.guard {
+                        if value_uses_unicode_runtime_tables(guard, constants, types, fields) {
+                            return true;
+                        }
+                    }
                     let mut case_constants = constants.clone();
                     let mut case_types = types.clone();
                     if ops_use_unicode_runtime_tables(
