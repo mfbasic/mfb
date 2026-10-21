@@ -11,6 +11,7 @@ use crate::testutil::{check_src, lower_src_concrete};
 use crate::types::ParameterType;
 
 mod concat_fold;
+mod link_defaults;
 mod statement;
 
 /// The lowered function named `name`.
