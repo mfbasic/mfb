@@ -5,9 +5,12 @@ use crate::ir::IrOp;
 mod builtin_callbacks;
 mod comparability;
 mod export_surface;
+mod instantiated_bodies;
 mod instantiation_sites;
 mod literal_lists;
+mod named_builtin_args;
 mod packages_links_testing_and_fields;
+mod value_position_rules;
 mod walker_and_call_arguments;
 
 /// Parse `src` as `main.mfb`, augment it with the builtin package sources
