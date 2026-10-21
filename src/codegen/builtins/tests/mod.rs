@@ -88,6 +88,7 @@ mod marshal_record;
 mod math;
 mod mfb_body_declared_errors;
 mod mir_dump;
+mod module_layout_forms;
 mod money_operators;
 mod multi_file_projects;
 mod nir_dump;
