@@ -8,7 +8,7 @@
 //! console mode, so each member's app arm (and the wrong-mode gate `term::` prepends
 //! outside `Console`) had no lowering.
 //!
-//! One program calls them all in `Mode.Console` and is lowered for macOS, Linux (both
+//! One program calls them all (each reader with and without a timeout) in `Mode.Console` and is lowered for macOS, Linux (both
 //! ISAs) and Windows; what is asserted is what differs from the console build: no stdout
 //! buffer to drain (`io::setBuffered` is a no-op in app mode), a raw-input switch before
 //! `readKey`, and every member lowering at all.
@@ -32,6 +32,15 @@ FUNC main() AS Integer
   LET name = io::input(\"name? \")
   LET line = io::readLine()
   LET key = io::readKey()
+  LET scalar = io::readScalar()
+  LET grapheme = io::readGrapheme()
+  LET raw = io::readRaw()
+  LET timedLine = io::readLine(50)
+  LET timedKey = io::readKey(50)
+  LET timedScalar = io::readScalar(50)
+  LET timedGrapheme = io::readGrapheme(50)
+  LET timedRaw = io::readRaw(50)
+  LET interactive = io::isInputTerminal()
   io::print(name & line)
   RETURN 0
 END FUNC

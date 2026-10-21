@@ -89,6 +89,7 @@ mod math;
 mod mfb_body_declared_errors;
 mod mir_dump;
 mod money_operators;
+mod multi_file_projects;
 mod nir_dump;
 mod nir_fault;
 mod nir_fault_loops;

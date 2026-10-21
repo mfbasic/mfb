@@ -1,5 +1,6 @@
 use super::*;
 
+mod late_pass_view;
 mod qualify_shapes;
 mod rendering_and_gates;
 mod selection_and_thread_probes;

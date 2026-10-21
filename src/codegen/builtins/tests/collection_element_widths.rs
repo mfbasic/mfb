@@ -36,72 +36,100 @@ const MEMBERS: &[(&str, &str, &[&str])] = &[
     (
         "toSet",
         "collections::toSet(xs)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "zip",
         "collections::zip(xs, ys)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "findLastIndex",
         "collections::findLastIndex(xs, LAMBDA(x AS {T}) -> TRUE, 2)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "findLastIndexAll",
         "collections::findLastIndex(xs, LAMBDA(x AS {T}) -> TRUE)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "findIndexAll",
         "collections::findIndex(xs, LAMBDA(x AS {T}) -> TRUE)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "findIndex",
         "collections::findIndex(xs, LAMBDA(x AS {T}) -> TRUE, 0)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "find",
         "collections::find(xs, {a})",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "findList",
         "collections::find(xs, ys)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "chunks",
         "collections::chunks(xs, 2)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "window",
         "collections::window(xs, 2)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "partition",
         "collections::partition(xs, LAMBDA(x AS {T}) -> TRUE)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "insert",
         "collections::insert(xs, 1, {a})",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "filter",
         "collections::filter(xs, LAMBDA(x AS {T}) -> TRUE)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "distinct",
         "collections::distinct(xs)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "sort",
@@ -111,103 +139,154 @@ const MEMBERS: &[(&str, &str, &[&str])] = &[
     (
         "flatten",
         "collections::flatten([xs, ys])",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "drop",
         "collections::drop(xs, 1)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "take",
         "collections::take(xs, 1)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "contains",
         "collections::contains(xs, {a})",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "repeat",
         "collections::repeat(xs, {a}, 3)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
-    ("sum", "collections::sum(xs)", &["Integer", "Float"]),
+    (
+        "sum",
+        "collections::sum(xs)",
+        &["Integer", "Float", "Fixed"],
+    ),
     (
         "append",
         "collections::append(xs, {b})",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "appendList",
         "collections::append(xs, ys)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "prepend",
         "collections::prepend(xs, {b})",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "removeAt",
         "collections::removeAt(xs, 0)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "set",
         "collections::set(xs, 0, {b})",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "any",
         "collections::any(xs, LAMBDA(x AS {T}) -> TRUE)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "all",
         "collections::all(xs, LAMBDA(x AS {T}) -> TRUE)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "transform",
         "collections::transform(xs, LAMBDA(x AS {T}) -> x)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "reduce",
         "collections::reduce(xs, {a}, LAMBDA(acc AS {T}, x AS {T}) -> x)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "reduceRight",
         "collections::reduceRight(xs, {a}, LAMBDA(acc AS {T}, x AS {T}) -> x)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "reduceCount",
         "collections::reduce(xs, 0, LAMBDA(acc AS Integer, x AS {T}) -> acc + 1)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "reduceText",
         "collections::reduce(xs, \"\", LAMBDA(acc AS String, x AS {T}) -> acc & \"x\")",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "forEach",
         "collections::forEach(xs, LAMBDA(x AS {T}) -> io::print(\"x\"))",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "sortBy",
         "collections::sortBy(xs, LAMBDA(x AS {T}) -> 1)",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
     (
         "toList",
         "collections::toList(collections::toSet(xs))",
-        &["Byte", "Boolean", "Scalar", "Integer", "Float", "String"],
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
+    ),
+    (
+        "replace",
+        "collections::replace(xs, {a}, {b})",
+        &[
+            "Byte", "Boolean", "Scalar", "Integer", "Float", "String", "Fixed", "Money",
+        ],
     ),
 ];
 
@@ -219,6 +298,8 @@ const ELEMENTS: &[(&str, &str, &str)] = &[
     ("Integer", "1", "2"),
     ("Float", "1.5", "2.5"),
     ("String", "\"a\"", "\"b\""),
+    ("Fixed", "1.5F", "2.5F"),
+    ("Money", "1.25m", "2.5m"),
 ];
 
 fn program(expression: &str, element: &(&str, &str, &str)) -> String {
@@ -258,7 +339,7 @@ fn every_collections_member_lowers_over_every_element_width_it_accepts() {
         }
     }
     assert_eq!(
-        lowered, 211,
+        lowered, 288,
         "the member/element table changed size; update the count with it"
     );
 }

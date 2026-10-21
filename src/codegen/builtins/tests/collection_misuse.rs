@@ -25,6 +25,14 @@ fn list(element: ParameterType) -> NirValue {
     }
 }
 
+/// A function value of type `FUNC(Integer) AS <returns>`.
+fn predicate(returns: ParameterType) -> NirValue {
+    NirValue::FunctionRef {
+        name: "pred".to_string(),
+        type_: ParameterType::func(vec![ParameterType::Integer], returns),
+    }
+}
+
 fn number() -> NirValue {
     NirValue::Const {
         type_: ParameterType::Integer,
@@ -165,4 +173,88 @@ fn insert_refuses_a_list_where_one_item_belongs() {
         vec![numbers.clone(), ParameterType::Integer, numbers],
     );
     assert!(err.contains("single item, not a list"), "{err}");
+}
+
+#[test]
+fn partition_and_find_last_index_refuse_a_predicate_that_does_not_return_boolean() {
+    let err = refusal(
+        "partition",
+        "#collections_partition$Integer",
+        &[
+            list(ParameterType::Integer),
+            predicate(ParameterType::Integer),
+        ],
+    );
+    assert!(err.contains("predicate must return Boolean"), "{err}");
+    let err = refusal(
+        "findLastIndex",
+        "#collections_findLastIndex$String",
+        &[
+            list(ParameterType::String),
+            predicate(ParameterType::Integer),
+            number(),
+        ],
+    );
+    assert!(err.contains("predicate must return Boolean"), "{err}");
+}
+
+/// `partition` builds a `Partition$T` record: a program whose type table lacks it is
+/// refused by name.
+#[test]
+fn partition_refuses_a_module_without_its_record_type() {
+    let err = refusal(
+        "partition",
+        "#collections_partition$Integer",
+        &[
+            list(ParameterType::Integer),
+            predicate(ParameterType::Boolean),
+        ],
+    );
+    assert!(
+        err.contains("native record type 'Partition$Integer' does not resolve"),
+        "{err}"
+    );
+}
+
+/// `toSet` has no native form for a `Nothing` element: it declines and the member's own
+/// body runs.
+#[test]
+fn to_set_declines_a_nothing_element() {
+    let fast = fast_path("toSet");
+    let platform = TestPlatform;
+    let harness = BuilderHarness::default();
+    let mut builder = harness.builder("_mfb_probe", &platform);
+    let answer = fast(
+        &mut builder,
+        "#collections_toSet$Nothing",
+        &[list(ParameterType::Nothing)],
+    );
+    assert!(matches!(answer, Ok(None)));
+}
+
+/// The native collection callers check a callback is callable before they emit a call
+/// through it: a value that is not a function, and a function value with no location.
+#[test]
+fn a_callback_must_be_a_function_with_a_location() {
+    let platform = TestPlatform;
+    let harness = BuilderHarness::default();
+    let builder = harness.builder("_mfb_probe", &platform);
+    let value = |type_, location: &str| ValueResult {
+        type_,
+        location: Operand::from(location),
+        text: "action".to_string(),
+        origin: None,
+    };
+    let err = builder
+        .require_direct_callable("transform", &value(ParameterType::Integer, "x0"))
+        .expect_err("an Integer is not callable");
+    assert!(err.contains("action must be a function"), "{err}");
+    let func = ParameterType::func(vec![ParameterType::Integer], ParameterType::Integer);
+    let err = builder
+        .require_direct_callable("transform", &value(func.clone(), "void"))
+        .expect_err("a function value with no location cannot be called");
+    assert!(err.contains("does not have a callable location"), "{err}");
+    builder
+        .require_direct_callable("transform", &value(func, "x0"))
+        .expect("a located function value is callable");
 }
