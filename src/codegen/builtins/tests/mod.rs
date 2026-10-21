@@ -105,6 +105,7 @@ mod platforms;
 mod predicate_intrinsics;
 mod process_overloads;
 mod produced_union_close;
+mod reduce_accumulators;
 mod registry_bodies;
 mod resource_union_default;
 mod shape_refusals;
