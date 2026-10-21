@@ -334,9 +334,9 @@ impl CodeBuilder<'_> {
         if self.borrow_get_result {
             return Ok(());
         }
-        let (NirValue::Call { target, .. }
-        | NirValue::CallResult { target, .. }
-        | NirValue::RuntimeCall { target, .. }) = value
+        let (NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
+        | NirValue::RuntimeCall { target, args, .. }) = value
         else {
             return Ok(());
         };
@@ -344,7 +344,7 @@ impl CodeBuilder<'_> {
             return Ok(());
         }
         let leaf = self.is_resource_leaf(&result.type_);
-        if !leaf && !self.call_releases_into_statement(value, target, &result.type_) {
+        if !leaf && !self.call_releases_into_statement(target, args, &result.type_) {
             return Ok(());
         }
         let slot = self.allocate_stack_object("resource_temp", 8);
@@ -411,7 +411,7 @@ impl CodeBuilder<'_> {
     }
 
     /// Rule 5 (`mfb spec language resource-management`, "The owner of a resource"):
-    /// whether the call `value` (to `target`, answering `type_`) can hand the
+    /// whether the call of `target` over `args` (answering `type_`) can hand the
     /// caller's statement resources a `RETURN` released: its result is an
     /// aggregate reaching a resource, and a function body ran to produce it. That
     /// is a call to a function with a body, a call through a function value, and
@@ -425,8 +425,8 @@ impl CodeBuilder<'_> {
     /// `canvas::groupItems`; the caller's own handles, `collections::take`).
     fn call_releases_into_statement(
         &self,
-        value: &NirValue,
         target: &str,
+        args: &[NirValue],
         type_: &ParameterType,
     ) -> bool {
         if !self.type_carries_resources(type_) {
@@ -435,12 +435,6 @@ impl CodeBuilder<'_> {
         if self.locals.contains_key(target) || self.functions.contains_key(target) {
             return true;
         }
-        let (NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::RuntimeCall { args, .. }) = value
-        else {
-            return false;
-        };
         args.iter().any(|arg| match arg {
             NirValue::Closure { .. } | NirValue::FunctionRef { .. } => true,
             NirValue::Local(name) => self

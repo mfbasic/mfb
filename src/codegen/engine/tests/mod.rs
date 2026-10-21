@@ -33,6 +33,8 @@ mod regalloc_outcome;
 #[cfg(test)]
 mod small_units;
 #[cfg(test)]
+mod statement_temps;
+#[cfg(test)]
 mod store_reach_walk;
 #[cfg(test)]
 mod string_shadow_captures;
