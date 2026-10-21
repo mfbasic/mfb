@@ -371,7 +371,10 @@ Acceptance: listings, `finish` and library lookups are unchanged on both hosts.
   Check: `cargo test --bin mfb debugger::` → 157 passed (est. 3 min), and on box
   2226 the Prerequisites command → `16 passed; 0 failed` (est. 10 min; 2226
   because `linux.rs` and `elf.rs`'s live path build nowhere else).
-Commit: —
+  Measured 2026-10-20: `cargo test --bin mfb debugger::` → `182 passed; 0
+  failed`; on box 2226 at `3ea7b0575` (release build 4 min 57 s, then the
+  tests) → `19 passed; 0 failed`.
+Commit: `3ea7b0575`
 
 ### Phase 4 — the unwinder (largest blast radius last)
 
@@ -395,7 +398,11 @@ same on both hosts.
   Check: `cargo test --bin mfb debugger::backtrace` → 7 passed (est. 2 min);
   `cargo test --test cli_dbg` on macOS → 18 passed (est. 3 min) and the
   Prerequisites command on box 2226 → `16 passed; 0 failed` (est. 10 min).
-Commit: —
+  Measured 2026-10-20 at `108381619`: `cargo test --bin mfb
+  debugger::backtrace` → `7 passed; 0 failed`; `cargo test --test cli_dbg` on
+  macOS, in a detached worktree of that commit → `21 passed; 0 failed`
+  (111 s); box 2226 → `19 passed; 0 failed`.
+Commit: `108381619`
 
 ## Validation Plan
 
