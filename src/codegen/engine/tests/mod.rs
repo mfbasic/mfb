@@ -23,6 +23,8 @@ mod default_res_fields;
 #[cfg(test)]
 mod into_dest_sites;
 #[cfg(test)]
+mod link_library_resolution;
+#[cfg(test)]
 mod nir_context;
 #[cfg(test)]
 mod operator_refusals;
