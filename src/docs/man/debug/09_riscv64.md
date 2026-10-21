@@ -89,7 +89,68 @@ instructions.
 
 ## Examples
 
-{{SESSION}}
+A session on a RISC-V computer running Alpine Linux (musl, so
+`debug-musl.out`): stop in `isPrime`, show the registers a call uses, the
+calls that led there, and what `isPrime` returns:
+
+```
+mfb build --debug -O0 examples/debug
+cd examples/debug/build
+printf 'bp isPrime\nrun\nlist reg\nbt\nfinish\nq\n' | mfb dbg debug-musl.out -- 2 500
+```
+
+```
+Launched debug-musl.out as process 18812; paused before its first instruction.
+DBG> bp isPrime
+Set a breakpoint at 0x000055558842f6b0 in isPrime.
+DBG> run
+--[BP] T: 0 P: 0x000055558842f6b0 F: (isPrime) _mfb_fn_isPrime
+DBG> list reg
+Register | Hex                | Decimal                | Role
+a0       | 0x00000000000620a7 | (401575)               | MFB arg, MFB result, C arg, C result
+a1       | 0x00000000000001f4 | (500)                  | MFB arg, MFB result, C arg, C result
+a2       | 0x0000000000000001 | (1)                    | MFB arg, MFB result, C arg
+a3       | 0x0000000000000180 | (384)                  | MFB arg, MFB result, C arg
+a4       | 0x8024100000000000 | (-9213221345507147776) | MFB arg, C arg
+a5       | 0xfffffffffffff000 | (-4096)                | MFB arg, C arg
+a6       | 0x0000000000000038 | (56)                   | MFB arg, C arg
+a7       | 0x0000000000000019 | (25)                   | MFB arg, C arg
+s2       | 0x00007fffdb701e70 | (140736874946160)      | Current Thread
+s10      | 0x0000000000000000 | (0)                    | Closure
+s11      | 0x00007fffdb700fa0 | (140736874942368)      | Arena
+
+Usage: list reg [<id>] [<what>...]
+
+Shows the registers of thread <id> (default 0, the main thread) as
+<register> <hex value> (<decimal>). With no <what> it shows the registers
+that carry arguments and results, and the ones MFBASIC code keeps for
+itself, each with its role. <what> is one or more of:
+
+  gpr           The general-purpose registers: ra, gp, tp, t0 to t6, s0 to
+                s11, a0 to a7
+  simd          The floating-point registers: ft0 to ft11, fs0 to fs11,
+                fa0 to fa7
+  sys           The system registers: sp, pc, fcsr
+  <register>    One register by name; list several with spaces or commas,
+                as in: list reg a0, a1, sp
+DBG> bt
+* thread #0, task = 'MFB Main'
+  * frame #0: 0x000055558842f6b0 debug-musl.out`isPrime
+    frame #1: 0x000055558842fb6c debug-musl.out`countPrimes + 504
+    frame #2: 0x000055558842fed4 debug-musl.out`runRound + 368
+    frame #3: 0x00005555884329ac debug-musl.out`runRounds + 6280
+    frame #4: 0x000055558843cd00 debug-musl.out`main + 2896
+    frame #5: 0x000055558842f2d0 debug-musl.out`_main + 696
+DBG> finish
+Thread 0 returned from isPrime to 0x000055558842fb6c in countPrimes+0x1f8: a0 = 0x0000000000000000 (0), a1 = 0x0000000000000000 (0).
+DBG> q
+Killed process 18812.
+```
+
+`isPrime` takes one `Integer`, so `a0` holds the number it was handed,
+401575; the other argument registers hold whatever they held before the call.
+It returns no error (`a0 = 0`) and `FALSE` (0 in `a1`): 401575 is not prime.
+The addresses change from run to run.
 
 ## See also
 

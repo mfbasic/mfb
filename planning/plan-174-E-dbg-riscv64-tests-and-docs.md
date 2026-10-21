@@ -248,17 +248,27 @@ Commit: —
 
 ### Phase 2 — the man topic and box notes
 
-- [ ] Add `src/docs/man/debug/09_riscv64.md` per §4.2, with its session captured
+- [x] Add `src/docs/man/debug/09_riscv64.md` per §4.2, with its session captured
       on box 2229 from `printf 'bp isPrime\nrun\nlist reg\nbt\nfinish\nq\n' |
-      mfb dbg debug-musl.out -- 2 500`.
-- [ ] `src/docs/man/debug/package.md`: the ninth topic line.
-- [ ] `.ai/remote_systems.md` per §4.3.
+      mfb dbg debug-musl.out -- 2 500`. (Captured 2026-10-21 with the static
+      `mfb` of `22f40abec`, verbatim. Every other claim on the page was run on
+      2229 too: `show type list a0 0..` in `summarize`, `j ra a0=0 a1=7` making
+      round 1 print 7 primes, `show mem x10` refused, `dis -6 8` counting back
+      into the function before, a breakpoint's `show mem sp 8; run`.)
+- [x] `src/docs/man/debug/package.md`: the ninth topic line.
+- [x] `.ai/remote_systems.md` per §4.3. (With the `--target` the static build
+      needs, and how long a riscv64 build of `mfb` takes.)
 
 Acceptance: the topic renders, is listed, and passes the man standard's sweeps.
   Check: `mfb man debug riscv64` prints the page; `./scripts/man-census.sh
   --topics debug` → 10 pages, 10 files; `./scripts/man-census.sh --memory-scope`
   → `unclassified memory-vocabulary hits: 0`; `./scripts/man-census.sh --scope`
   → `internals-vocabulary hits: 0` (est. 5 min).
+  Measured 2026-10-21: `mfb man debug riscv64` renders; `--topics debug` →
+  `debug  10  10` (pages, files); `--memory-scope` → `unclassified
+  memory-vocabulary hits: 0`; `--scope` → `internals-vocabulary hits: 0`; the
+  `[[…]]` source check prints nothing; `cargo test --bin mfb man` → `350
+  passed; 0 failed`.
 Commit: —
 
 ### Phase 3 — final gate and archive

@@ -109,6 +109,26 @@ it in a container on the Mac.
 impossible: the GTK entry was never ported (bug-117.1) and upstream publishes no
 riscv64 AppImage runtime to seal with.
 
+`mfb dbg` on the riscv64 boxes (plan-174). It runs on both. **Neither kernel has a
+single step or watchpoints** (`PTRACE_SINGLESTEP` fails with `EIO`; no breakpoint
+perf event, no watch register set), so the debugger steps by planting breakpoints
+and refuses `wp` there — don't spend time probing for either. **2232 has no
+`cargo`**: it gets its `mfb` as a static build from 2229, which runs on both
+boxes:
+
+```
+RUSTFLAGS='-C target-feature=+crt-static' cargo build --bin mfb --target riscv64-alpine-linux-musl
+```
+
+The explicit `--target` matters: without it `RUSTFLAGS` reaches the proc-macro
+crates too, and Alpine's `rustc` refuses (`cannot produce proc-macro … as the target
+riscv64-alpine-linux-musl does not support these crate types`). The binary lands in
+`target/riscv64-alpine-linux-musl/debug/mfb`. A cold `cargo build` of `mfb` on 2229
+takes about two hours (130 min measured 2026-10-21, most of it the `mfb` crate itself),
+so ship a tree that already compiles: a Linux compile check on the Mac
+(`cargo check --target riscv64gc-unknown-linux-gnu`, with a stand-in C compiler for
+the C dependencies, which `cargo check` never links) catches errors in minutes.
+
 RISC-V Vector (`V`) status (plan-32): **both** riscv64 boxes lack `V` in hardware
 — `/proc/cpuinfo` `isa` is `rv64imafdch_...zba_zbb_zbc_zbs_...` with no `v` (2229
 Alpine musl, 2232 Debian glibc). A native run therefore only ever exercises the
