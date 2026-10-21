@@ -271,7 +271,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 939    | LOW      | `mfb dbg` accepts a breakpoint at an address that is not a multiple of 4 and corrupts two instructions |
 | [ ]  | 942    | LOW      | debug report `perf` durations come from macOS `CLOCK_MONOTONIC`, which has microsecond resolution, so `mfb_alloc`/`mfb_free` read as 0 ns |
-| [ ]  | 1004   | LOW      | `cli_dbg::macos::an_attached_threaded_program_lists_its_threads_and_arenas` flakes: a fixed 1 s sleep does not guarantee the worker has created its arena (flake) |
 
 ## Build, linker and platform
 
@@ -290,7 +289,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 1059   | MED      | two GPU text tests in `rt_canvas_font` fail with main's compiler on the development Mac (6 of 6 runs on 2026-10-11; they passed in the batch 20 gate hours earlier and 5 of 5 times on 2026-10-12; cause not traced; the same two tests as bug-1024, closed in `bugs/completed/`) |
 | [ ]  | 987    | LOW      | the Windows test scripts still default to the retired box 2230 (owner decided: repoint to box 206) |
-| [ ]  | 1014   | LOW      | `field_kinds.tsv` is not what `field_kinds_gen.py` generates |
 | [ ]  | 1033   | LOW      | the man example `variable::guide#2` does not build |
 | [ ]  | 1095   | LOW      | `scripts/test-appimage.sh` fails three checks on box 2226 with a correct compiler: two need `readelf`, which the box lacks, and the liveness check assumes ssh cannot reach a display |
 | [ ]  | 1105   | LOW      | wall-clock tests fail under the full suite's load and pass alone: `rt_canvas_autopaint::the_project_option_sets_how_long_a_flash_lasts`, `rt_canvas_pointer::the_graphics_thread_reads_each_scripted_pointer_state` (main `7bb985ed8`), `rt_compress_throughput::crc32_and_inflate_run_within_their_bounds_of_a_native_copy` (main `079395542`), `rt_field_map_fifo_removal_flat::removing_the_oldest_key_of_a_field_is_flat_in_the_window_size` (main `c60f81037`) |
@@ -300,7 +298,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 830    | LOW      | stdlib spec drift — regex/datetime/csv/json topics contradict the code |
-| [ ]  | 840    | LOW      | language spec §4/§8 cite drifted `table.rs` line numbers and a deleted `resolve_type_name` |
 | [ ]  | 857    | LOW      | language spec §9–§15 drift — stale claims, misplaced/dangling citations, nonexistent §15.4 (was waiting on 975, which is fixed) |
 | [ ]  | 873    | LOW      | stdlib spec topics http/url/math-rng/encoding/vector drift from the code — two stale line citations and a dozen inaccurate claims (close after the networking bugs) |
 | [ ]  | 883    | LOW      | diagnostics/rule-codes spec drift (counts, a dangling "Code Collisions" section, stale shared-code prose) and seven registry rules that nothing emits but the spec presents as live |
