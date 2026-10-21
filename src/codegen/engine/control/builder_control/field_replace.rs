@@ -378,12 +378,11 @@ impl CodeBuilder<'_> {
                 scalars.push((position, index, &update.value));
             }
         }
+        // At least two updates, at most one of them the arm and every other one a
+        // scalar (anything else returned above), so `scalars` is never empty.
         let Some((arm_position, arm_index, arm_type)) = arm else {
             return Ok(false);
         };
-        if scalars.is_empty() {
-            return Ok(false);
-        }
         let arm_value = &updates[arm_position].value;
         let arm_clean = match arm_value {
             NirValue::Call { target, args, .. } => {
