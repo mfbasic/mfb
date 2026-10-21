@@ -42,6 +42,8 @@ mod declared_errors_all;
 mod declared_errors_sweep;
 mod default_union;
 mod diagnostics;
+mod element_update;
+mod element_update_forms;
 mod entry;
 mod fixture_projects;
 mod fs_declared_errors;
