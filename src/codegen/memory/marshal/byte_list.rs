@@ -60,15 +60,9 @@ pub(crate) fn emit_read_byte_list(
         abi::label(&copy_loop),
         abi::compare_registers(&index, &count),
         abi::branch_eq(&copy_done),
-        // byte = dataBase[entry->value_offset]; for kind 2 element `i` is simply
-        // at offset `i`, with no entry to indirect through (plan-57-D). An `if`
-        // expression rather than a split `extend` keeps the emitted array the
-        // same shape, so the kind-0 build is untouched.
-        if byte_list_entry_stride() != 0 {
-            abi::load_u64(&at, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET)
-        } else {
-            abi::move_register(&at, &index)
-        },
+        // byte = dataBase[i]: a kind 2 list has no entry to indirect through
+        // (plan-57-D).
+        abi::move_register(&at, &index),
         abi::add_registers(&at, &base, &at),
         abi::load_u8(&byte, &at, 0),
         abi::store_u8(&byte, &out, 0),
@@ -176,19 +170,6 @@ pub(crate) fn emit_build_byte_list(
         // zero stride would rewrite one entry over the data region `count`
         // times and run past the block, so it is skipped outright.
     ]);
-    if byte_list_entry_stride() != 0 {
-        instructions.extend([
-            abi::move_immediate(&value, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8(&value, &entry, COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, &entry, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, &entry, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64(&index, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate(&value, "Integer", "1"),
-            abi::store_u64(&value, &entry, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        ]);
-    }
-    // The payload copy runs for BOTH representations — only the entry-field
-    // stores above are kind-0 only.
     instructions.extend([
         abi::add_registers(&at, &data, &index),
         abi::load_u8(&value, &src, 0),
