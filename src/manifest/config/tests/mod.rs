@@ -1,5 +1,7 @@
 use super::*;
 
+mod edges;
+
 fn manifest(config: &str) -> String {
     format!("{{\n  \"name\": \"demo\",\n  \"config\": {config}\n}}\n")
 }
