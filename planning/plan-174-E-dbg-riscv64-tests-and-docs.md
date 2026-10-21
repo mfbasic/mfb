@@ -273,8 +273,14 @@ Commit: —
 
 ### Phase 3 — final gate and archive
 
-- [ ] In a dedicated worktree (`.ai/testing-gates.md`: a full `cargo test` in
-      the shared checkout blocks landing), run the full suite once.
+- [x] In a dedicated worktree (`.ai/testing-gates.md`: a full `cargo test` in
+      the shared checkout blocks landing), run the full suite once. (With the
+      project's full tier, `scripts/test-full.sh 047d1326b`, which runs
+      `cargo test --workspace --no-fail-fast` in a fresh detached worktree:
+      `test-full: 047d1326b0c8 ok (6358 s)`, record `exit 0`, `binaries_reached
+      373`, no failing binaries or tests. A first attempt was killed by this
+      session's background time limit after its unit binary had passed, `5058
+      passed; 0 failed`, and was run again whole.)
 - [ ] Move `planning/plan-174-A` to `E` into `planning/completed/`.
 
 Acceptance: the whole suite is green with plan-174 in it.
