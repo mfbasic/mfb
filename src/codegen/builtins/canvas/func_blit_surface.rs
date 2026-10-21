@@ -16,7 +16,6 @@
 //! need a window at all.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::collection::layout::byte_list_entry_stride;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
@@ -40,17 +39,11 @@ pub(crate) fn lower_blit_surface(
     // scratch buffer first — the shape `emit_read_byte_list` gives — would allocate and
     // copy 2.3 MB per frame for nothing.
     //
-    // The check is what keeps that from silently becoming wrong: if `List OF Byte` ever
-    // regains a lookup table, the payload stops being contiguous and this pointer would
-    // address entry records as if they were pixels. Failing the build is the only
-    // acceptable outcome, because the rendered garbage would read as a rasteriser bug.
-    let stride = byte_list_entry_stride();
-    if stride != 0 {
-        return Err(format!(
-            "'{symbol}' assumes `List OF Byte` is entry-free, but its entry stride is \
-             {stride} — the frame payload is no longer contiguous",
-        ));
-    }
+    // If `List OF Byte` ever regained a lookup table the payload would stop being
+    // contiguous and this pointer would address entry records as if they were pixels.
+    // `byte_list_entry_stride()` is the constant 0 (every fixed-width element is
+    // entry-free), and `builtins/tests/byte_list_entry_free.rs` fails the test suite
+    // the moment it is not.
 
     let buffer = args
         .first()
