@@ -120,6 +120,7 @@ mod opt_pre;
 mod opt_promote_frame;
 mod opt_range_facts;
 mod opt_recovery;
+mod opt_sink_hoist;
 mod opt_slot_availability;
 mod optimizer;
 mod optimizer_globals;
