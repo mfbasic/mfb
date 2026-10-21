@@ -2,6 +2,7 @@ use super::*;
 use crate::ast::{parse_source, AstProject};
 use crate::ir::IrOp;
 
+mod builtin_callbacks;
 mod comparability;
 mod export_surface;
 mod instantiation_sites;
