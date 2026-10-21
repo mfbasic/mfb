@@ -8,6 +8,8 @@ use super::*;
 use crate::optimizer::{with_opt_level, OptLevel};
 use crate::target::shared::nir::{NirParam, NirRecordUpdate, NirSourceLoc};
 
+mod tail;
+
 fn list_int() -> ParameterType {
     ParameterType::ListOf(Box::new(ParameterType::Integer))
 }
