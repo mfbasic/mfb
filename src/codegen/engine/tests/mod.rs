@@ -15,13 +15,23 @@ mod borrowed_resources;
 #[cfg(test)]
 mod concat_spine;
 #[cfg(test)]
+mod conversion_refusals;
+#[cfg(test)]
 mod data_layout;
 #[cfg(test)]
+mod nir_context;
+#[cfg(test)]
+mod operator_refusals;
+#[cfg(test)]
 mod platform_family;
+#[cfg(test)]
+mod small_units;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod transfer_temps;
+#[cfg(test)]
+mod type_oracle;
 #[cfg(test)]
 mod union_tags;
 
