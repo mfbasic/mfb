@@ -230,8 +230,10 @@ None beyond plan-174-D's. This sub-plan changes tests and documentation.
       the processor itself. `cargo check --test cli_dbg` for
       `riscv64gc-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` → no
       warnings.)
-- [ ] On box 2229: `cargo build --release --bin mfb` (by hand, once), then
+- [x] On box 2229: `cargo build --release --bin mfb` (by hand, once), then
       `MFB_TEST_EXE=$PWD/target/release/mfb cargo test --test cli_dbg`.
+      (At `8458593e5`: `test result: ok. 18 passed; 0 failed`, `EXIT 0 after
+      6760 s`, `watchpoints_are_refused_on_riscv64 ... ok`.)
 
 Acceptance: the suite passes on all three hosts with the counts of §1, and
 macOS and box 2226 assert what they asserted before.
@@ -244,7 +246,12 @@ macOS and box 2226 assert what they asserted before.
   constants. A real session on riscv64 is the only check that can fail if the
   backend is wrong there, which is why the box run is not replaced by something
   smaller.
-Commit: —
+  Measured at `8458593e5`: macOS `cargo test --test cli_dbg` → `21 passed; 0
+  failed`; box 2226 → `19 passed; 0 failed` (and again on the merged tree
+  `6315569bd`); box 2229 → `18 passed; 0 failed`. The counts are above §1's
+  because main gained `cli_dbg` tests after this plan was written (see
+  Corrections).
+Commit: 167561a1e, 8458593e5
 
 ### Phase 2 — the man topic and box notes
 
@@ -269,7 +276,7 @@ Acceptance: the topic renders, is listed, and passes the man standard's sweeps.
   memory-vocabulary hits: 0`; `--scope` → `internals-vocabulary hits: 0`; the
   `[[…]]` source check prints nothing; `cargo test --bin mfb man` → `350
   passed; 0 failed`.
-Commit: —
+Commit: 047d1326b
 
 ### Phase 3 — final gate and archive
 
@@ -281,13 +288,13 @@ Commit: —
       373`, no failing binaries or tests. A first attempt was killed by this
       session's background time limit after its unit binary had passed, `5058
       passed; 0 failed`, and was run again whole.)
-- [ ] Move `planning/plan-174-A` to `E` into `planning/completed/`.
+- [x] Move `planning/plan-174-A` to `E` into `planning/completed/`.
 
 Acceptance: the whole suite is green with plan-174 in it.
   Check: `cargo test --no-fail-fast > /tmp/plan-174.log 2>&1; echo EXIT=$?` →
   `EXIT=0` (est. over an hour; a guess, since this plan did not time the full
   suite. Nothing smaller covers the compiler's other tests, and it runs once).
-Commit: —
+Commit: e3e3a4858 (the gate); the archive is the commit that moves this file.
 
 ## Validation Plan
 
@@ -325,6 +332,11 @@ Commit: —
   program's arguments with `ps -o args= -p <pid>`, which Alpine's busybox `ps`
   refuses (`ps: unrecognized option: p`); on Linux it now reads
   `/proc/<pid>/cmdline`, asserting the same `<binary> alpha -b`.
+
+- **§1's counts were low.** The plan expected macOS `18`, box 2226 `16` and
+  box 2229 `16` passing. Main gained `cli_dbg` tests after it was written; the
+  measured passing counts, each from `cargo test --test cli_dbg` on that host,
+  are 21, 19 and 18, with 0 failed everywhere.
 
 ## Summary
 
