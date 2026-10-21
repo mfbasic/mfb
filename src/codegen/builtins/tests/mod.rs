@@ -30,6 +30,7 @@
 
 mod abi_inline;
 mod abi_inline_element_types;
+mod app_mode_io;
 mod app_surface;
 mod builtin_record_arguments;
 mod byte_list_entry_free;
