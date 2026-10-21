@@ -26,7 +26,7 @@ The prerequisites are stated once in plan-174-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-174-D is complete | `ls planning/plan-174-D-*` → no match | NOT MET (2026-10-12) |
+| plan-174-D is complete | `ls planning/plan-174-D-*` → no match | MET (2026-10-21: archived to `planning/completed/`) |
 | A release `mfb` builds on box 2229 | on 2229: `cargo build --release --bin mfb` → `Finished` | NOT MET (2026-10-12: started on 2229 at `c0a48dd4f` and still compiling dependencies when this plan was written; the debug build took 45 min 36 s) |
 
 If plan-174-D is not complete, this plan cannot start.
