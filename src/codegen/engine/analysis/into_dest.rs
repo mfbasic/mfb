@@ -28,14 +28,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::codegen::collection::layout::{
-    record_field_is_inlined, record_field_is_pointer, type_contains_resource,
-};
+use crate::codegen::collection::layout::{record_field_is_pointer, type_contains_resource};
 use crate::codegen::engine::analysis::borrow_get::{collect_borrow_gets, element_update_with};
 use crate::codegen::engine::analysis::handover::call_key;
 use crate::codegen::engine::analysis::last_use::op_key;
 use crate::codegen::engine::builder::TypeModel;
-use crate::codegen::engine::types::typed_is_collection_type;
 use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
 use crate::target::shared::nir::{NirFunction, NirOp, NirValue};
 use crate::types::ParameterType;
@@ -92,32 +89,38 @@ pub(crate) fn collect_into_sites(
     }
     impl NirVisitor for Finder<'_> {
         fn visit_op(&mut self, op: &NirOp) {
-            if let Some(binding) = self.updates.get(&op_key(op)) {
-                let value = match op {
-                    NirOp::Assign { value, .. } => Some(value),
-                    NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } => value.as_ref(),
-                    _ => None,
-                };
-                if let Some(value) = value {
-                    self.sites_in(binding, element_update_with(value));
+            // `borrow_get` registers an update only at `p = WITH p { … }`, at
+            // `LET u = WITH p { … }`, and at the fused `c = set(c, i, WITH p { … })`
+            // (an `Assign`, or a `StoreGlobal` with its value): each carries a value.
+            match op {
+                NirOp::Assign { value, .. }
+                | NirOp::Bind {
+                    value: Some(value), ..
                 }
+                | NirOp::StoreGlobal {
+                    value: Some(value), ..
+                } => {
+                    if let Some(binding) = self.updates.get(&op_key(op)) {
+                        self.sites_in(binding, element_update_with(value));
+                    }
+                }
+                _ => {}
             }
             walk_op(self, op);
         }
     }
     impl Finder<'_> {
         fn sites_in(&mut self, binding: &str, with: &NirValue) {
-            let NirValue::WithUpdate {
-                type_,
-                target,
-                updates,
-            } = with
-            else {
-                return;
+            let (type_, updates) = match with {
+                NirValue::WithUpdate {
+                    type_,
+                    target,
+                    updates,
+                } if matches!(target.as_ref(), NirValue::Local(name) if name == binding) => {
+                    (type_, updates)
+                }
+                _ => return,
             };
-            if !matches!(target.as_ref(), NirValue::Local(name) if name == binding) {
-                return;
-            }
             let Some(fields) = self.model.record_fields.get(type_) else {
                 return;
             };
@@ -181,7 +184,7 @@ pub(crate) fn into_param_eligible(function: &NirFunction, param: usize, model: &
     let Some(param) = function.params.get(param) else {
         return false;
     };
-    if param.type_ != function.returns || !flat_record(model, &param.type_, 0) {
+    if param.type_ != function.returns || !flat_record(model, &param.type_) {
         return false;
     }
     struct Scan<'a> {
@@ -220,25 +223,25 @@ pub(crate) fn into_param_eligible(function: &NirFunction, param: usize, model: &
     !scan.written && scan.returned
 }
 
-/// A record whose bytes are its whole value: every field a scalar slot, a
-/// `String`, or such a record — no pointer, collection or resource anywhere, and
-/// not `Error` (whose `source` sub-block may be absent, bug-371).
-fn flat_record(model: &TypeModel, type_: &ParameterType, depth: usize) -> bool {
-    if depth > 32 || type_.is_named("Error") || type_contains_resource(model, type_) {
+/// A record whose bytes are its whole value: every field a scalar slot or a
+/// `String` — no pointer, collection or resource anywhere, and not `Error` (whose
+/// `source` sub-block may be absent, bug-371).
+///
+/// A nested record is never part of such a record's bytes: a record, union,
+/// collection, `Result`, `Error` or function field is a pointer slot
+/// (`record_field_is_pointer`), and the one composite a record holds inline
+/// without a pointer, a `RES` resource-union box (`field_is_inlined_union_box`),
+/// contains a resource. So "flat" needs no recursion.
+fn flat_record(model: &TypeModel, type_: &ParameterType) -> bool {
+    if type_.is_named("Error") || type_contains_resource(model, type_) {
         return false;
     }
     let Some(fields) = model.record_fields.get(type_) else {
         return false;
     };
-    fields.iter().all(|(_, field)| {
-        if typed_is_collection_type(field) || record_field_is_pointer(model, field) {
-            return false;
-        }
-        if !record_field_is_inlined(model, field) || *field == ParameterType::String {
-            return true;
-        }
-        flat_record(model, field, depth + 1)
-    })
+    fields
+        .iter()
+        .all(|(_, field)| !record_field_is_pointer(model, field))
 }
 
 /// The `(callee, parameter)` pairs the module's sites need a destination variant
