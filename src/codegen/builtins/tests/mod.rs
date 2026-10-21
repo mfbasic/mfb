@@ -67,6 +67,8 @@ mod link;
 mod link_float_results;
 mod link_out_widths;
 mod link_struct_widths;
+mod link_thunk_refusals;
+mod link_value_widths;
 mod literal_coercion;
 mod lowered;
 mod lowering_programs;

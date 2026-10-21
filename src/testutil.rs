@@ -685,6 +685,38 @@ pub fn nir_for_src(
         .unwrap_or_else(|_| Err("the lowering thread died".to_string()))
 }
 
+/// [`nir_for_src`] for a program that declares a native `LINK` block: the module
+/// carries the same `System` locator table [`code_for_linking_src`] supplies, so a
+/// test can corrupt a `LINK` function or `CSTRUCT` in the module and hand it to
+/// [`code_for_nir`] to see which refusals the thunk emitter makes.
+pub fn nir_for_linking_src(
+    source: &str,
+    target: CodeTarget,
+    libraries: &[&str],
+) -> Result<crate::target::shared::nir::NirModule, String> {
+    let source = source.to_string();
+    let table = link_library_table(target, libraries);
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .name(format!("nir_for_linking_src({})", target.name()))
+        .spawn(move || {
+            let mut ir = lower_src_concrete(&source, Some(main_entry(&source)));
+            ir.native_libraries = table;
+            crate::target::shared::lower::lower_project(
+                &ir,
+                target.name().to_string(),
+                &[],
+                crate::target::NativeBuildMode::Console,
+                None,
+                crate::codegen::debug::DebugOptions::OFF,
+            )
+            .map_err(|err| format!("{err:?}"))
+        })
+        .expect("spawn the lowering thread")
+        .join()
+        .unwrap_or_else(|_| Err("the lowering thread died".to_string()))
+}
+
 /// A NIR module lowered the rest of the way, by a caller that has the module in
 /// hand.
 ///
