@@ -1,5 +1,6 @@
 use super::*;
 
+mod compiled;
 mod edits_and_imports;
 use crate::manifest::json_edit::*;
 use crate::manifest::url::*;
