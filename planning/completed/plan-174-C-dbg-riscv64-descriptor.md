@@ -361,7 +361,7 @@ with `arm64::ELF`.
   Measured 2026-10-21: `7 passed; 0 failed`; `cargo test --bin mfb
   debugger::` → `196 passed; 0 failed`; `cargo check --all-targets` → no
   warnings.
-Commit: —
+Commit: `23ea24590`
 
 ## Validation Plan
 

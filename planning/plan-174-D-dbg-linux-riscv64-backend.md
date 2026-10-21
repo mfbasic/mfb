@@ -28,7 +28,7 @@ The prerequisites are stated once in plan-174-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-174-C is complete | `ls planning/plan-174-C-*` → no match | NOT MET (2026-10-12) |
+| plan-174-C is complete | `ls planning/plan-174-C-*` → no match | MET (2026-10-21: archived to `planning/completed/` with every box ticked) |
 | A statically linked riscv64 `mfb` built on box 2229 runs on box 2232 | on 2229: `RUSTFLAGS='-C target-feature=+crt-static' CARGO_TARGET_DIR=$HOME/p174/static cargo build`; copy `static/debug/mfb` to 2232; `./mfb --version` there → a version line | NOT MET (2026-10-12: not run. A small static Rust program built this way on 2229 does run on 2232; the full `mfb` has not been built static) |
 
 If plan-174-C is not complete, this plan cannot start. The static build is how
