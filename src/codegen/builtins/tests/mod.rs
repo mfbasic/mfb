@@ -64,6 +64,7 @@ mod fixture_sweep;
 mod fs_declared_errors;
 mod general_declared_errors;
 mod handover_forms;
+mod handover_variant_forms;
 mod harness;
 mod helper_import_refusals;
 mod imported_types;

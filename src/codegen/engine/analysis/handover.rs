@@ -239,14 +239,16 @@ fn is_scalar_field(type_: &ParameterType) -> bool {
 /// `&NirValue` with no lifetime of their own, so a visitor cannot hand back borrows
 /// that outlive its traversal — but it can do the work during it. Going through the
 /// shared `walk_value` is what keeps this from drifting as the NIR tree grows.
-fn for_each_call(value: &NirValue, visit: &mut impl FnMut(&NirValue)) {
+fn for_each_call(value: &NirValue, visit: &mut impl FnMut(&NirValue, &str, &[NirValue])) {
     struct Calls<'f, F> {
         visit: &'f mut F,
     }
-    impl<F: FnMut(&NirValue)> NirVisitor for Calls<'_, F> {
+    impl<F: FnMut(&NirValue, &str, &[NirValue])> NirVisitor for Calls<'_, F> {
         fn visit_value(&mut self, value: &NirValue) {
-            if matches!(value, NirValue::Call { .. } | NirValue::CallResult { .. }) {
-                (self.visit)(value);
+            if let NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } =
+                value
+            {
+                (self.visit)(value, target, args);
             }
             walk_value(self, value);
         }
@@ -370,22 +372,9 @@ pub(crate) fn collect_handover_args(
         }
 
         for value in &values {
-            for_each_call(value, &mut |call| {
-                let (NirValue::Call {
-                    target,
-                    args: call_args,
-                    ..
-                }
-                | NirValue::CallResult {
-                    target,
-                    args: call_args,
-                    ..
-                }) = call
-                else {
-                    return;
-                };
+            for_each_call(value, &mut |call, target, call_args| {
                 // H5: a direct call to a user function whose body is in the module.
-                let Some(callee) = callees.get(target.as_str()) else {
+                let Some(callee) = callees.get(target) else {
                     return;
                 };
                 // S10: an `ISOLATED` entry point is not called directly.
@@ -393,7 +382,7 @@ pub(crate) fn collect_handover_args(
                     return;
                 }
                 let wanted = consumable
-                    .entry(target.clone())
+                    .entry(target.to_string())
                     .or_insert_with(|| consumable_params(callee, model));
                 for (index, arg) in call_args.iter().enumerate() {
                     // H6: handing over a parameter the callee only reads would move a
@@ -422,7 +411,7 @@ pub(crate) fn collect_handover_args(
                     // parameter that promises a borrow instead, and that promise is
                     // the one this refuses to break. A parameter such a function
                     // does not return is unaffected.
-                    let lent = borrowed.entry(target.clone()).or_insert_with(|| {
+                    let lent = borrowed.entry(target.to_string()).or_insert_with(|| {
                         crate::codegen::engine::function::function_lowering::param_borrow_returns(
                             callee,
                             callback_referenced,
@@ -436,11 +425,9 @@ pub(crate) fn collect_handover_args(
                     // further question. It is a value this statement just built, so
                     // nothing else can read it — there is no liveness to check and no
                     // caller slot to null. Its type is the parameter's, which H6 has
-                    // already established is consumable and therefore H2.
+                    // already established is consumable and therefore H2
+                    // (`consumable_params` admits only a `handover_type` parameter).
                     if is_fresh_temporary(arg) {
-                        if !handover_type(model, &param.type_) {
-                            continue;
-                        }
                         // plan-147-E: the temporary is often `OP(x, …)` on a local
                         // the caller is done with — `fill(collections::append(xs, n),
                         // n - 1)` is the recursive shape this plan exists for. Handing
@@ -464,7 +451,7 @@ pub(crate) fn collect_handover_args(
                                     && !place_live(&after, &Place::Local(name.to_string()))
                             });
                         let entry = sites.entry((*key, call_key(call))).or_insert_with(|| Site {
-                            target: target.clone(),
+                            target: target.to_string(),
                             mask: 0,
                             temp_mask: 0,
                             arg_update_mask: 0,
@@ -504,7 +491,7 @@ pub(crate) fn collect_handover_args(
                         continue;
                     }
                     let entry = sites.entry((*key, call_key(call))).or_insert_with(|| Site {
-                        target: target.clone(),
+                        target: target.to_string(),
                         mask: 0,
                         temp_mask: 0,
                         arg_update_mask: 0,
