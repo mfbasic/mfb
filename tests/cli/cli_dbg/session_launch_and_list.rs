@@ -256,14 +256,24 @@ fn a_launched_program_does_not_run_and_is_killed_on_quit() {
             .strip_prefix(&format!("Launched {}", binary.display()))
             .unwrap(),
     );
-    let args = Command::new("ps")
-        .args(["-o", "args=", "-p", &pid.to_string()])
-        .output()
-        .unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&args.stdout).trim(),
-        format!("{} alpha -b", binary.display())
-    );
+    // Linux's own record of the command line: Alpine's busybox `ps` takes no
+    // `-p`.
+    let args = if cfg!(target_os = "linux") {
+        std::fs::read(format!("/proc/{pid}/cmdline"))
+            .unwrap()
+            .split(|byte| *byte == 0)
+            .filter(|word| !word.is_empty())
+            .map(|word| String::from_utf8_lossy(word).into_owned())
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        let output = Command::new("ps")
+            .args(["-o", "args=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    assert_eq!(args, format!("{} alpha -b", binary.display()));
 
     session.send("help\n");
     let help = session.until_prompt();

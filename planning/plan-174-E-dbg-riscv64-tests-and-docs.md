@@ -314,6 +314,18 @@ Commit: —
 
 ## Corrections
 
+- **The first `cli_dbg` run on box 2229 (at `047d1326b`) was `16 passed; 2
+  failed`, and both failures were real.** `run_stops_at_breakpoints_and_at_the_end`
+  hung after `dis 3`: `mfb dbg` panicked (`index out of bounds` in
+  `disassemble::counted`), because plan-174-C's `start_before` indexed past its
+  list when counting back zero instructions (`dis <positive count>`); it now
+  answers the anchor, and `on_riscv64_dis_counts_back_by_instructions` gains a
+  `dis 2` that panics at the same line without the fix.
+  `a_launched_program_does_not_run_and_is_killed_on_quit` read the launched
+  program's arguments with `ps -o args= -p <pid>`, which Alpine's busybox `ps`
+  refuses (`ps: unrecognized option: p`); on Linux it now reads
+  `/proc/<pid>/cmdline`, asserting the same `<binary> alpha -b`.
+
 ## Summary
 
 The engineering risk of plan-174 is behind this sub-plan; what remains is making

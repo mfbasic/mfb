@@ -203,6 +203,9 @@ fn start_before(
     anchor: u64,
     back: u64,
 ) -> Result<Option<u64>, String> {
+    if back == 0 {
+        return Ok(Some(anchor));
+    }
     let arch = inferior.arch();
     // Instruction starts before `anchor`, in address order.
     let mut starts = Vec::<u64>::new();

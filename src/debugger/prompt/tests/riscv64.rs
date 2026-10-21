@@ -94,7 +94,7 @@ fn on_riscv64_dis_counts_back_by_instructions() {
     ]
     .concat();
     inferior.program = Some((0x1010, program));
-    let (out, err) = drive(&mut inferior, "dis -3 4\ndis -5 2\nq\n", false);
+    let (out, err) = drive(&mut inferior, "dis -3 4\ndis -5 2\ndis 2\nq\n", false);
     assert_eq!(err, "");
     assert_eq!(
         out,
@@ -109,6 +109,10 @@ prog`main:
 prog`_mfb_rt_print:
     0x000000000000100c <+4>: nop
     0x000000000000100e <+6>: nop
+{PROMPT}\
+prog`main:
+->  0x000000000000101a <+10>: ret
+    0x000000000000101c <+12>: nop
 {PROMPT}Killed process 42.
 "
         )
