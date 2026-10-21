@@ -29,7 +29,7 @@ The prerequisites are stated once in plan-174-A. In addition:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-174-C is complete | `ls planning/plan-174-C-*` → no match | MET (2026-10-21: archived to `planning/completed/` with every box ticked) |
-| A statically linked riscv64 `mfb` built on box 2229 runs on box 2232 | on 2229: `RUSTFLAGS='-C target-feature=+crt-static' CARGO_TARGET_DIR=$HOME/p174/static cargo build`; copy `static/debug/mfb` to 2232; `./mfb --version` there → a version line | NOT MET (2026-10-12: not run. A small static Rust program built this way on 2229 does run on 2232; the full `mfb` has not been built static) |
+| A statically linked riscv64 `mfb` built on box 2229 runs on box 2232 | on 2229: `RUSTFLAGS='-C target-feature=+crt-static' CARGO_TARGET_DIR=<dir> cargo build --bin mfb --target riscv64-alpine-linux-musl`; copy `<dir>/riscv64-alpine-linux-musl/debug/mfb` to 2232; `./mfb --version` there → a version line | MET (2026-10-21, at `61860ef53` and again at `22f40abec`: `MFBasic Compiler 0.1.0` on 2232. Without `--target`, as first written, the build fails at once: `cannot produce proc-macro for async-trait … as the target riscv64-alpine-linux-musl does not support these crate types`) |
 
 If plan-174-C is not complete, this plan cannot start. The static build is how
 the glibc box gets an `mfb`: box 2232 has no `cargo`
@@ -392,7 +392,10 @@ piece is usable.
       supported. Check: `mfb man debug start | grep -c riscv64` → 1. (Measured
       2026-10-21: `1`; `mfb man debug | grep -c riscv64` → `1`; `cargo test
       --bin mfb man` → `350 passed; 0 failed`.)
-- [ ] Build on box 2229 (`cargo build`: 46 min from clean, minutes after).
+- [x] Build on box 2229 (`cargo build`: 46 min from clean, minutes after).
+      (The static build of the Prerequisites row, debug info off: 37 min with
+      the dependencies built, 18 min for the `mfb` crate alone at
+      `22f40abec`.)
 
 Acceptance: breakpoints, registers, backtraces, `step`, `step-all`, `finish`
 and running on from a breakpoint work through compiled and C library code on
@@ -406,16 +409,41 @@ box 2229, and `wp` is refused.
   breakpoint stop (which steps the thread off the first); a stop at `_exit` in
   the C library; and 200 steps through C library code ending either `Stepped 200
   instructions` or the program's exit (est. 5 min after the build).
-Commit: —
+  Measured 2026-10-21 at `22f40abec` on 2229 (musl) and on 2232 (glibc, the
+  same static binary): `--[BP] T: 0 P: 0x… F: (isPrime) _mfb_fn_isPrime`; `a0 |
+  0x00000000000620a7 | (401575)` and `a1 | … | (500)`; a backtrace isPrime,
+  countPrimes, runRound, runRounds, main, `_main`; `0 | … | MFB Main`; `error:
+  this system has no watchpoints: the riscv64 kernel does not provide them`;
+  `Stepped 40 instructions; thread 0 is at … in isPrime+0xc0.`; `Thread 0
+  returned from isPrime to … in countPrimes+0x1f8: a0 = 0x0000000000000000 (0),
+  a1 = 0x0000000000000000 (0).`; the second stop; `--[BP] T: 0 … F: _exit` in
+  `ld-musl-riscv64.so.1` / `libc.so.6`, with `_main` its caller; `The program
+  exited after 5 instructions.` (1 on glibc). The first run, at `61860ef53`,
+  stopped the backtrace at `runRounds`: see Corrections.
+Commit: `61860ef53`, `5fb6049aa`, `22f40abec`
 
 ### Phase 4 — threads, glibc, attach
 
-- [ ] Build the static `mfb` on 2229 per the Prerequisites command, copy it to
-      2232, and run Phase 3's session there on `debug-glibc.out`.
-- [ ] On both boxes run the threaded example (`-- 3 2000 1`): `bp roundWorker`,
-      `run`, `list thread`, `list arena`, `bt all`, `step-all 5`.
-- [ ] On both boxes attach: start `debug-*.out 400 20000` in the background,
+- [x] Build the static `mfb` on 2229 per the Prerequisites command, copy it to
+      2232, and run Phase 3's session there on `debug-glibc.out`. (With
+      `--target riscv64-alpine-linux-musl`, see Corrections. At `61860ef53` the
+      session on 2232 matched 2229's: the stop in `isPrime`, `a0` = 401575, `a1`
+      = 500, the `wp` refusal, `Stepped 40 instructions`, `finish` with `a0`/`a1`,
+      the second stop, a stop in `libc.so.6`'s `_exit` and the exit; the
+      backtrace ended at `runRounds` there too, fixed in `22f40abec` and
+      re-run below.)
+- [x] On both boxes run the threaded example (`-- 3 2000 1`): `bp roundWorker`,
+      `run`, `list thread`, `list arena`, `bt all`, `step-all 5`. (2026-10-21:
+      on 2229 and 2232 the stop is `--[BP] T: 1 … F: (roundWorker)`; `list
+      thread` gives thread 0 `MFB Main` and thread 1 `User Thread`; `list arena`
+      three pools, 0 for thread 0, 2 for thread 1, 1 a thread block; `step-all
+      5` → thread 0 waiting in a system call, thread 1 `stepped 5
+      instructions`.)
+- [x] On both boxes attach: start `debug-*.out 400 20000` in the background,
       `mfb dbg <pid>`, `list thread`, `bt`, `q`, and see the program run on.
+      (Both: `Attached to process …; paused.`, the thread in `isPrime`, its
+      backtrace, `Detached from process …; it continues running.`, then `kill
+      -0` → still running.)
 
 Acceptance: a worker thread is recognised on both C libraries, which proves the
 thread handle (`tp - 200` found by search on musl, `tp - (1824 + 32)` on
@@ -423,7 +451,8 @@ glibc), and attach works.
   Check: `list thread` shows the worker's task as `User Thread` on 2229 and on
   2232; `list arena` shows one arena per thread; after `q` from the attached
   session `kill -0 <pid>` succeeds (est. 10 min for both boxes).
-Commit: —
+  Measured 2026-10-21 on both boxes: as the three tasks above record.
+Commit: no code of its own; the runs are of `61860ef53`
 
 ## Validation Plan
 
