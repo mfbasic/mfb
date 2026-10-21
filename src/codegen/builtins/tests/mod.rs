@@ -60,6 +60,7 @@ mod link_struct_widths;
 mod literal_coercion;
 mod lowering_programs;
 mod lowering_shapes;
+mod lowering_shapes_fields;
 mod lowering_targets;
 mod marshal_record;
 mod math;
