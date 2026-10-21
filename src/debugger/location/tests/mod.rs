@@ -1,5 +1,7 @@
 use super::*;
 
+mod values;
+
 fn memory(inner: Location, offset: i64) -> Location {
     Location {
         term: Term::Memory(Box::new(inner)),
