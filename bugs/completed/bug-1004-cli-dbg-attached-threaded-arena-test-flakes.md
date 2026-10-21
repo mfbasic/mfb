@@ -51,7 +51,7 @@ handle before the worker registers its arena (`src/debugger/runtime.rs` module d
 
 ## STATUS: FIXED
 
-Commit: see `git log -- tests/cli/cli_dbg/threads_watch_and_run.rs` (bug-1004).
+Commit: b82358021
 
 The test alone changes; its assertions are unchanged:
 - The example runs as `1 200000000 1`: one round on one worker that lasts minutes
