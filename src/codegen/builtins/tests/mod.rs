@@ -40,6 +40,7 @@ mod control_forms;
 mod corpus;
 mod corpus_rest;
 mod data_layout;
+mod debug_report;
 mod declared_errors_all;
 mod declared_errors_sweep;
 mod default_union;
