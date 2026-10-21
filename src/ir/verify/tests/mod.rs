@@ -19,6 +19,7 @@ mod state_bindings_and_native_links;
 mod state_clause_positions;
 mod thread_send_planes;
 mod traps_diagnostics_and_capture_positions;
+mod unresolved_operands;
 use crate::ir::{
     IrBinding, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp, IrParam, IrProject,
     IrSourceLoc, IrType, IrValue, IrVariant,
