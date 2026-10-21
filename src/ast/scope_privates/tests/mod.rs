@@ -479,3 +479,33 @@ fn a_public_func_beside_a_private_non_function_is_still_renamed() {
         vec![(mangled("shared"), Visibility::Public)]
     );
 }
+
+#[test]
+fn an_untyped_binding_initialized_from_a_private_is_rewritten() {
+    // A top-level binding with no declared type, read from a PRIVATE: only the
+    // initializer has a reference to rewrite.
+    let src = "PRIVATE LET seed AS Integer = 2\nLET derived = seed\n";
+    let mut project = project_from_src(src);
+    scope_privates(&mut project);
+    let Item::Binding(derived) = &project.files[0].items[1] else {
+        panic!("the second item is the binding");
+    };
+    assert_eq!(derived.type_name, None);
+    assert!(
+        matches!(&derived.value, Some(Expression::Identifier(name)) if *name == mangled("seed")),
+        "{:?}",
+        derived.value
+    );
+}
+
+#[test]
+fn declarations_with_nothing_to_rewrite_in_an_optional_slot_still_parse_and_pass() {
+    // A binding with no initializer and a function with no return type: the
+    // pass rewrites only the slots that are present.
+    let src = "PRIVATE TYPE T\n  n AS Integer\nEND TYPE\nMUT pending AS T\n\
+               FUNC go(t AS T)\n  pending = t\nEND FUNC\n";
+    let mut project = project_from_src(src);
+    scope_privates(&mut project);
+    let json = project.to_json();
+    assert!(json.contains(&mangled("T")), "{json}");
+}
