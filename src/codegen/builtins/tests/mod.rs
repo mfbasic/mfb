@@ -117,6 +117,7 @@ mod strings_fold;
 mod tcp_read_helper;
 mod term_measure_text;
 mod term_read;
+mod thread_primitives;
 mod thread_send_scalar;
 mod threads;
 mod transform_inline;
