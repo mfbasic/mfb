@@ -314,9 +314,10 @@ impl CodeBuilder<'_> {
     /// resources).
     ///
     /// That is a `thread` family call whose RAW helper result reaches the caller
-    /// uncopied ([`Self::runtime_call_result_is_foreign_arena`]), and a
-    /// `t.result` read, whose `materialize_current_result` keeps its own ownership
-    /// (`RawSuccessBlock::OwnedElsewhere`).
+    /// uncopied ([`Self::runtime_call_result_is_foreign_arena`]). A member read is
+    /// never one: the thread `t.result` field is removed (`ir::verify` refuses it,
+    /// TYPE_THREAD_RESULT_REMOVED), so `.result` is an ordinary record field, and
+    /// classing it here left `LET s = b.result` an owning copy nobody freed.
     ///
     /// bug-622 A: it is NOT a call in
     /// [`Self::runtime_call_result_is_copied_at_call_site`]. `emit_runtime_helper_call`
@@ -337,7 +338,6 @@ impl CodeBuilder<'_> {
         let target = match value {
             NirValue::CallResult { .. } => return false,
             NirValue::Call { target, .. } | NirValue::RuntimeCall { target, .. } => target.as_str(),
-            NirValue::MemberAccess { member, .. } if member == "result" => return true,
             _ => return false,
         };
         Self::runtime_call_result_is_foreign_arena(target)
