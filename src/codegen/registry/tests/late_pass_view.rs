@@ -58,3 +58,17 @@ fn a_callee_used_only_in_a_testing_block_is_seen() {
         "without the TESTING block the program does not call it"
     );
 }
+
+/// A late pass for a name the registry does not own injects nothing: the program is
+/// returned file for file, on both the AST and the HIR side.
+#[test]
+fn a_late_pass_for_an_unknown_package_injects_nothing() {
+    let ast = crate::testutil::project_from_src(UNTESTED);
+    let injected = inject_late_pass(&ast, "noSuchPackage", "<late>", "late.mfb")
+        .expect("an unknown package is not an error");
+    assert_eq!(injected.files.len(), ast.files.len());
+    let hir = crate::hir::elaborate(&ast);
+    let injected = inject_late_pass_hir(&hir, "noSuchPackage", "<late>", "late.mfb")
+        .expect("an unknown package is not an error");
+    assert_eq!(injected.files.len(), hir.files.len());
+}
