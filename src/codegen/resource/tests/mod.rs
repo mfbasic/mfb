@@ -418,3 +418,8 @@ fn free_helpers_match_registry() {
         &crate::types::ParameterType::declared("process.Process")
     ));
 }
+
+mod closure_carry;
+mod closure_carry_emitters;
+mod owner_emitters;
+mod resource_fixtures;
