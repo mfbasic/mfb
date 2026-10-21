@@ -450,6 +450,15 @@ Commit: —
 
 ## Corrections
 
+- **A frame too big for one `addi`.** The first session on box 2229 (at
+  `61860ef53`) stopped its backtrace at `runRounds`: its 3408-byte frame is
+  `lui t0,0x1; addi t0,t0,-688; sub sp,sp,t0`, and `sub sp,sp,t0` read as "sp
+  unknown" with no frame pointer to fall back on. The unwinder now follows the
+  constants `lui`/`li`/`addi`/`addiw` put in registers (`Effect::Constant`,
+  `ConstantAdd`, `SpByRegister`, which only riscv64's `effect` makes), so the
+  `sub` moves `sp` by 3408; `a_riscv64_frame_too_big_for_addi_unwinds` holds
+  the real words. plan-174-C's unwinder tests could not have caught it: none of
+  their functions had a frame that large.
 - **A signal during a riscv64 step stays held, as on AArch64.** §3 says a
   signal delivered during a step runs its handler before the step ends. The
   AArch64 path holds such a signal for the next run (`continue_step` resumes

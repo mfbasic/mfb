@@ -187,6 +187,7 @@ not: `mfb dbg` keeps it, and `show report` prints it once the program has ended
 - `values` — show a value in memory as the type it is.
 - `pools` — the memory pools each thread keeps its values in.
 - `report` — every line of the debug report a `--debug` build prints at exit.
+- `riscv64` — debugging on a RISC-V Linux computer: the register names, and what differs from Arm.
 
 ## Errors
 

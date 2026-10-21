@@ -156,6 +156,37 @@ pub(crate) enum Effect {
     Leave {
         target: Option<u64>,
     },
+    /// `register` now holds `value`, a constant (`li`, `lui`), or something
+    /// the walk does not know (`None`). (riscv64's: it builds a frame size too
+    /// big for one `addi` in a register first.)
+    #[cfg_attr(
+        not(any(all(target_os = "linux", target_arch = "riscv64"), test)),
+        allow(dead_code)
+    )]
+    Constant {
+        register: Reg,
+        value: Option<i64>,
+    },
+    /// `register = from + offset`: a constant when `from` is one.
+    #[cfg_attr(
+        not(any(all(target_os = "linux", target_arch = "riscv64"), test)),
+        allow(dead_code)
+    )]
+    ConstantAdd {
+        register: Reg,
+        from: Reg,
+        offset: i64,
+    },
+    /// `sp` moves by the value in `register`, less it when `subtract`
+    /// (`sub sp, sp, t0`): by a constant, or to where the walk cannot follow.
+    #[cfg_attr(
+        not(any(all(target_os = "linux", target_arch = "riscv64"), test)),
+        allow(dead_code)
+    )]
+    SpByRegister {
+        register: Reg,
+        subtract: bool,
+    },
     /// A hint: an instruction that changes nothing the walk follows and may
     /// sit in a prologue.
     Hint,
@@ -172,6 +203,7 @@ impl Effect {
             | Effect::StoreWriteback { base, .. }
             | Effect::StoreThenMove { base, .. } => *base == Reg::Sp,
             Effect::SpAddress { .. } | Effect::Hint => true,
+            Effect::SpByRegister { subtract, .. } => *subtract,
             _ => false,
         }
     }

@@ -144,11 +144,34 @@ fn effect(bytes: &[u8], address: u64) -> Effect {
                     register: role(register),
                     offset,
                 },
-                _ => Effect::Other,
+                (register, from) => constant_add(register, from, offset),
             }
         }
-        // Any other write to `sp` (`andi sp,sp,-16`, `add sp,sp,t0`, `ld sp,…`).
+        // `sub sp,sp,t0` and `add sp,sp,t0`: a frame too big for `addi`.
+        0x33 if rd == 2
+            && rs1 == 2
+            && decode::funct3(word) == 0
+            && matches!(decode::funct7(word), 0 | 0x20) =>
+        {
+            Effect::SpByRegister {
+                register: role(rs2),
+                subtract: decode::funct7(word) == 0x20,
+            }
+        }
+        // Any other write to `sp` (`andi sp,sp,-16`, `ld sp,…`).
         0x03 | 0x13 | 0x17 | 0x1b | 0x33 | 0x37 | 0x3b if rd == 2 => Effect::SpUnknown,
+        // The constants a large frame's size is built from: `lui`, then `addi`
+        // or `addiw` on the same register.
+        0x37 if rd != 0 => Effect::Constant {
+            register: role(rd),
+            value: Some(decode::u_imm(word)),
+        },
+        0x1b if rd != 0 && decode::funct3(word) == 0 => constant_add(rd, rs1, decode::i_imm(word)),
+        // Any other write to an integer register leaves it unknown.
+        0x13 | 0x17 | 0x1b | 0x33 | 0x3b if rd != 0 => Effect::Constant {
+            register: role(rd),
+            value: None,
+        },
         // A doubleword store saves a register; the narrower ones, and a
         // floating-point store (`fsd fs0,8(sp)`, a callee-saved save), save none
         // the walk follows.
@@ -174,6 +197,23 @@ fn effect(bytes: &[u8], address: u64) -> Effect {
             target: instruction.target,
         },
         _ => Effect::Other,
+    }
+}
+
+/// `register = from + offset`: a constant outright when `from` is `zero`
+/// (`li`).
+fn constant_add(register: u8, from: u8, offset: i64) -> Effect {
+    if from == 0 {
+        Effect::Constant {
+            register: role(register),
+            value: Some(offset),
+        }
+    } else {
+        Effect::ConstantAdd {
+            register: role(register),
+            from: role(from),
+            offset,
+        }
     }
 }
 

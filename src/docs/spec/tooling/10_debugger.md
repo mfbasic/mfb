@@ -1586,8 +1586,12 @@ instruction through the processor's `arch.effect`:
   by `addi <r>, sp, imm` records where `ra`/`s0` went (other stores, and `fsd`,
   are saves the walk does not follow); `ld` of `ra`/`s0` puts them back;
   `addi s0, sp, imm` sets the frame pointer; `addi sp, s0, imm` sets `sp` from
-  it; `ret`, `jr` and `j` outside the function leave; `nop` is a hint; any
-  other write to `sp` (`andi sp, sp, -16`, `sub sp, sp, a5`) makes it unknown.
+  it; `ret`, `jr` and `j` outside the function leave; `nop` is a hint. A frame
+  too big for one `addi` is built in a register first (`lui t0, 0x1; addi t0,
+  t0, -688; sub sp, sp, t0`): the walk follows the constants `lui`, `li` and
+  `addi`/`addiw` put in registers, so `sub`/`add sp, sp, <register>` moves `sp`
+  by a known value; with an unknown one, and on any other write to `sp`
+  (`andi sp, sp, -16`, `sub sp, sp, a5`), `sp` becomes unknown.
   [[src/debugger/riscv64/mod.rs:effect]]
 - The prologue is the leading run of `sp` decrements, stores through `sp` (or a
   register set from it), `add x<n>, sp, #imm` and hints. The state it leaves is

@@ -196,6 +196,8 @@ pub(crate) fn state_at(
     // `register - CFA` for registers set to an address in the frame
     // (`add x17, sp, #off`), so a store through them can be followed.
     let mut bases = Bases::default();
+    // The constant each register holds, where the code put one there.
+    let mut constants = Bases::default();
     // The state the prologue leaves, which the body runs in.
     let mut body = None::<FrameState>;
     // Whether control has left the straight line yet (an epilogue ran).
@@ -206,7 +208,10 @@ pub(crate) fn state_at(
         // frame for one instruction) is part of the prologue too.
         let through_base = matches!(&effect, Effect::Store { base, .. }
             if *base != Reg::Sp && bases.get(*base).is_some());
-        if body.is_none() && !effect.in_prologue() && !through_base {
+        // Loading a constant changes nothing about the frame: it neither
+        // continues a prologue nor ends one.
+        let constant = matches!(effect, Effect::Constant { .. } | Effect::ConstantAdd { .. });
+        if body.is_none() && !effect.in_prologue() && !through_base && !constant {
             body = Some(state);
         }
         match effect {
@@ -257,6 +262,19 @@ pub(crate) fn state_at(
                 if leaves {
                     state = body.unwrap_or(state);
                     left = true;
+                }
+            }
+            Effect::Constant { register, value } => constants.set(register, value),
+            Effect::ConstantAdd {
+                register,
+                from,
+                offset,
+            } => constants.set(register, constants.get(from).map(|value| value + offset)),
+            Effect::SpByRegister { register, subtract } => {
+                state.sp = match (state.sp, constants.get(register)) {
+                    (Some(sp), Some(value)) if subtract => Some(sp - value),
+                    (Some(sp), Some(value)) => Some(sp + value),
+                    _ => None,
                 }
             }
             Effect::Hint | Effect::Other => {}

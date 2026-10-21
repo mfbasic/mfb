@@ -323,3 +323,24 @@ fn a_riscv64_frame_before_its_prologue_ran() {
         }
     );
 }
+
+/// `_mfb_fn_runRounds` of `debug-glibc.out` from 0x3124 through its `ra` save:
+/// a frame too big for one `addi`, built as `lui t0,0x1; addi t0,t0,-688;
+/// sub sp,sp,t0`.
+const RUN_ROUNDS: &[&str] = &[
+    "000012b7", "d5028293", "40510133", "00913023", "01313423", "01413823", "01513c23", "03613023",
+    "03713423", "03813823", "03913c23", "04813027", "04113423",
+];
+
+#[test]
+fn a_riscv64_frame_too_big_for_addi_unwinds() {
+    let state = riscv64_state(RUN_ROUNDS, 0x3124, 0x3000, 0x3158);
+    assert_eq!(
+        state,
+        FrameState {
+            sp: Some(-3408),
+            lr: Some(-3408 + 72),
+            ..FrameState::ENTRY
+        }
+    );
+}
