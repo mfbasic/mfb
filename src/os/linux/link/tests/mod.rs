@@ -1,6 +1,7 @@
 use super::*;
 use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
 
+mod appdir_failures;
 mod elf_writing;
 mod sections_and_symbols;
 mod versioned_imports;
