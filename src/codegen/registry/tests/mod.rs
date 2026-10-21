@@ -2,6 +2,7 @@ use super::*;
 
 mod rendering_and_gates;
 mod selection_and_thread_probes;
+mod unify_shapes;
 
 /// **A member's descriptor declares at least as many forms as its injected
 /// source defines.**
