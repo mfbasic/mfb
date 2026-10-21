@@ -40,7 +40,7 @@ pub(super) fn list(
             }
             let mut lines = common_register_lines(&inferior.registers(thread)?);
             lines.push(String::new());
-            lines.extend(LIST_REG_USAGE.lines().map(str::to_string));
+            lines.extend(list_reg_usage(inferior.arch()).lines().map(str::to_string));
             Ok(lines)
         }
         Some(Listing::Registers { thread, picks }) => {
@@ -488,20 +488,7 @@ pub(super) fn jump(
             .value(inferior, thread)
             .map_err(|fault| format!("cannot set {register}: {}", fault.message()))?
             .value;
-        match register.as_str() {
-            "nzcv" if value & !NZCV_FLAGS != 0 => {
-                return Err(format!(
-                    "cannot set nzcv to 0x{value:016x}: it holds only the flags, bits 28 to 31 \
-                     (0x00000000f0000000)"
-                ))
-            }
-            "fpsr" | "fpcr" if value > u64::from(u32::MAX) => {
-                return Err(format!(
-                    "cannot set {register} to 0x{value:016x}: it holds 32 bits"
-                ))
-            }
-            _ => {}
-        }
+        (inferior.arch().holds)(register, value)?;
         values.push((register.clone(), value));
     }
     inferior.set_registers(thread, &values)?;

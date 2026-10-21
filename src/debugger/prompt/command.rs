@@ -108,14 +108,18 @@ pub(super) enum Disassembly {
 }
 
 impl Disassembly {
-    /// `dis <start> [<count>]`: a location (an address, or a register, either
-    /// with an offset), else a function name.
-    pub(super) fn from(start: &str, count: Option<Window>) -> Result<Disassembly, String> {
+    /// `dis <start> [<count>]`: a location (an address, or one of `arch`'s
+    /// registers, either with an offset), else a function name.
+    pub(super) fn from(
+        start: &str,
+        count: Option<Window>,
+        arch: &Arch,
+    ) -> Result<Disassembly, String> {
         let location = start.starts_with("0x")
             || start.starts_with("0X")
             || start.starts_with('[')
             || start.contains(['+', '-'])
-            || is_register(start);
+            || (arch.is_register)(start);
         Ok(if location {
             Disassembly::At(Location::parse(start)?, count)
         } else {
@@ -326,7 +330,8 @@ impl RegisterPick {
     }
 }
 
-pub(super) fn parse(line: &str) -> Result<Command, String> {
+/// One command line, its register names `arch`'s.
+pub(super) fn parse(line: &str, arch: &Arch) -> Result<Command, String> {
     let words = line.split_whitespace().collect::<Vec<_>>();
     let Some((&name, arguments)) = words.split_first() else {
         return Ok(Command::Empty);
@@ -412,7 +417,7 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
         ("breakpoint" | "bp", [target, commands @ ..]) => Ok(Command::SetBreakpoint {
             target: Target::parse(target)?,
             condition: None,
-            commands: stop_commands(commands)?,
+            commands: stop_commands(commands, arch)?,
         }),
         ("breakpointif" | "bpi", ["r", words @ ..]) => {
             let (condition, target, rest) = conditional(name, words)?;
@@ -429,7 +434,7 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             Ok(Command::SetBreakpoint {
                 target,
                 condition: Some(condition),
-                commands: stop_commands(commands)?,
+                commands: stop_commands(commands, arch)?,
             })
         }
         ("jump" | "j", []) => Err(format!(
@@ -445,10 +450,12 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             for set in sets {
                 let Some((register, value)) = set.split_once('=') else {
                     return Err(format!(
-                        "'{set}' is not a register and its value: <register>=<value>, such as x0=5"
+                        "'{set}' is not a register and its value: <register>=<value>, such as \
+                         {}=5",
+                        arch.arguments[0]
                     ));
                 };
-                settable(register)?;
+                (arch.settable)(register)?;
                 if value.is_empty() {
                     return Err(format!("'{register}' needs a value: {register}=<value>"));
                 }
@@ -480,7 +487,7 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             Ok(Command::SetWatchpoint {
                 location: Location::parse(location)?,
                 size,
-                commands: stop_commands(commands)?,
+                commands: stop_commands(commands, arch)?,
             })
         }
         ("breakerror" | "be", words) => {
@@ -490,7 +497,7 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
                 .position(|word| is_command(word))
                 .unwrap_or(words.len());
             let (codes, commands) = words.split_at(split);
-            let commands = stop_commands(commands)?;
+            let commands = stop_commands(commands, arch)?;
             match codes {
                 [] if commands.is_empty() => Ok(Command::ErrorWatch),
                 [] => Err(format!(
@@ -574,14 +581,15 @@ pub(super) fn parse(line: &str) -> Result<Command, String> {
             Command::Disassemble(Disassembly::Count(instruction_span(back, length)?)),
         ),
         ("disassemble" | "dis", [start]) => {
-            Ok(Command::Disassemble(Disassembly::from(start, None)?))
+            Ok(Command::Disassemble(Disassembly::from(start, None, arch)?))
         }
         ("disassemble" | "dis", [start, count]) => Ok(Command::Disassemble(Disassembly::from(
             start,
             Some(instruction_window(count)?),
+            arch,
         )?)),
         ("disassemble" | "dis", [start, back, length]) => Ok(Command::Disassemble(
-            Disassembly::from(start, Some(instruction_span(back, length)?))?,
+            Disassembly::from(start, Some(instruction_span(back, length)?), arch)?,
         )),
         ("disassemble" | "dis", _) => Err(format!("'{name}' takes at most three arguments")),
         ("finish" | "f", []) => Ok(Command::Finish),
@@ -651,9 +659,6 @@ const WATCH_SIZE: u64 = 8;
 /// The most registers one `jump` sets besides the `pc`.
 const MAX_JUMP_REGISTERS: usize = 8;
 
-/// The bits of `nzcv` that hold anything: the N, Z, C and V flags.
-pub(super) const NZCV_FLAGS: u64 = 0xf000_0000;
-
 /// `<where> <test> [<value>] at <target>`, as `breakpointif` takes them: the
 /// test, the place, and the words after it.
 #[allow(clippy::type_complexity)]
@@ -683,31 +688,6 @@ fn conditional<'a, 'b>(
              <test> at <address|function[+offset]>"
         )),
     }
-}
-
-/// Refuse a register `jump` does not set: it sets `x0`–`x28`, `fp`, `lr`,
-/// `sp`, `nzcv`, `fpsr` and `fpcr`, and moves the `pc` itself.
-fn settable(name: &str) -> Result<(), String> {
-    let general = name.strip_prefix('x').is_some_and(|number| {
-        (number == "0" || !number.starts_with('0'))
-            && number.parse::<u8>().is_ok_and(|number| number <= 28)
-    });
-    if general || matches!(name, "fp" | "lr" | "sp" | "nzcv" | "fpsr" | "fpcr") {
-        return Ok(());
-    }
-    let sets = "jump sets x0-x28, fp, lr, sp, nzcv, fpsr and fpcr";
-    if name == "pc" {
-        return Err(format!(
-            "'pc' is where the thread goes: give it as the place, jump <where>; {sets}"
-        ));
-    }
-    if name
-        .strip_prefix('v')
-        .is_some_and(|number| number.parse::<u8>().is_ok_and(|number| number <= 31))
-    {
-        return Err(format!("'{name}' is a vector register; {sets}"));
-    }
-    Err(format!("no register '{name}'; {sets}"))
 }
 
 /// A register's new value as `jump` takes it: a number (`5`, `-1`, `0x10`),
@@ -764,7 +744,7 @@ fn is_command(word: &str) -> bool {
 /// that reads the program — `list`, `show`, `backtrace`, `disassemble`, or a
 /// bare `breakerror` — `jump`, which moves the stopped thread, `finish`, or,
 /// as the last of them, `run`, which runs the program on.
-pub(super) fn stop_commands(words: &[&str]) -> Result<Vec<String>, String> {
+pub(super) fn stop_commands(words: &[&str], arch: &Arch) -> Result<Vec<String>, String> {
     let text = words.join(" ");
     let mut commands = Vec::<String>::new();
     for command in text
@@ -772,12 +752,12 @@ pub(super) fn stop_commands(words: &[&str]) -> Result<Vec<String>, String> {
         .map(str::trim)
         .filter(|command| !command.is_empty())
     {
-        if let Some(run) = commands.last().filter(|last| runs_on(last)) {
+        if let Some(run) = commands.last().filter(|last| runs_on(last, arch)) {
             return Err(format!(
                 "'{run}' must be the last command of a stop: '{command}' follows it"
             ));
         }
-        match parse(command)? {
+        match parse(command, arch)? {
             // The environment is the next restart's, not the stop's.
             Command::List(Some(Listing::Environment)) => {
                 return Err(format!(
@@ -809,8 +789,8 @@ pub(super) fn stop_commands(words: &[&str]) -> Result<Vec<String>, String> {
 }
 
 /// Whether a stop's command is `run`.
-pub(super) fn runs_on(command: &str) -> bool {
-    matches!(parse(command), Ok(Command::Run))
+pub(super) fn runs_on(command: &str, arch: &Arch) -> bool {
+    matches!(parse(command, arch), Ok(Command::Run))
 }
 
 /// The fault each thread is stopped on, as its stop named it (`a bad memory

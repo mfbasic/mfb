@@ -97,7 +97,10 @@ pub(crate) enum Effect {
     /// `sp` set some way the walk cannot follow.
     SpUnknown,
     /// Registers stored at offsets from `base`.
-    Store { base: Reg, pairs: Vec<(Reg, i64)> },
+    Store {
+        base: Reg,
+        pairs: Vec<(Reg, i64)>,
+    },
     /// A pre-index store: `base` moves by `delta`, then the stores happen at
     /// offsets from its new value.
     StoreWriteback {
@@ -118,12 +121,19 @@ pub(crate) enum Effect {
         sp_delta: Option<i64>,
     },
     /// `register = sp + offset`.
-    SpAddress { register: Reg, offset: i64 },
+    SpAddress {
+        register: Reg,
+        offset: i64,
+    },
     /// `sp = frame + offset`.
-    SpFromFp { offset: i64 },
+    SpFromFp {
+        offset: i64,
+    },
     /// A return, an indirect jump, or a direct jump to `target`: control
     /// leaves this straight line.
-    Leave { target: Option<u64> },
+    Leave {
+        target: Option<u64>,
+    },
     /// A hint: an instruction that changes nothing the walk follows and may
     /// sit in a prologue.
     Hint,

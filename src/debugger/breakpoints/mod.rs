@@ -35,6 +35,7 @@ mod report;
 
 pub(crate) use report::REPORT_HINT;
 
+use super::arch::Arch;
 use super::disassemble::returns;
 use super::location::Condition;
 use super::names::{ambiguity, classify, Collisions};
@@ -85,16 +86,23 @@ pub(crate) struct Watch {
     pub(crate) hits: u64,
 }
 
-/// The most bytes a watchpoint covers, and the boundary it cannot cross.
-pub(crate) const WATCH_SPAN: u64 = 8;
+/// The bytes of a word: a value this wide is shown in decimal too.
+const WORD: u64 = 8;
 
-/// Refuse a watchpoint the processor cannot hold: one covers 1 to 8 bytes
-/// that do not cross a multiple of 8.
-pub(crate) fn watchable(address: u64, size: u64) -> Result<(), String> {
-    if size == 0 || size > WATCH_SPAN || address % WATCH_SPAN + size > WATCH_SPAN {
+/// Refuse a watchpoint `arch`'s system cannot hold: one covers 1 to `span`
+/// bytes that do not cross a multiple of `span` (8 on AArch64), and a system
+/// with no watchpoints holds none.
+pub(crate) fn watchable(arch: &Arch, address: u64, size: u64) -> Result<(), String> {
+    let Some(span) = arch.watch_span else {
         return Err(format!(
-            "cannot watch {size} bytes at 0x{address:016x}: a watchpoint covers 1 to 8 bytes \
-             that do not cross an address that is a multiple of 8"
+            "this system has no watchpoints: the {} kernel does not provide them",
+            arch.name
+        ));
+    };
+    if size == 0 || size > span || address % span + size > span {
+        return Err(format!(
+            "cannot watch {size} bytes at 0x{address:016x}: a watchpoint covers 1 to {span} \
+             bytes that do not cross an address that is a multiple of {span}"
         ));
     }
     Ok(())
@@ -112,7 +120,7 @@ fn watched_value(inferior: &mut dyn Inferior, address: u64, size: u64) -> Result
 /// for 8 bytes the signed decimal too (`0x05`, `0x0000000000000005 (5)`).
 pub(crate) fn value_shown(value: u64, size: u64) -> String {
     let digits = size as usize * 2;
-    if size == WATCH_SPAN {
+    if size == WORD {
         format!("0x{value:0digits$x} ({})", value as i64)
     } else {
         format!("0x{value:0digits$x}")
@@ -684,7 +692,7 @@ impl Breakpoints {
         size: u64,
         commands: &[String],
     ) -> Result<Vec<String>, String> {
-        watchable(address, size)?;
+        watchable(inferior.arch(), address, size)?;
         if self.watches.iter().any(|watch| watch.address == address) {
             return Err(format!("there is already a watchpoint at 0x{address:016x}"));
         }

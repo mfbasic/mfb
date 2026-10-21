@@ -307,26 +307,43 @@ Adds the type and its AArch64 value with no reader. Safe alone: nothing calls it
 Acceptance: the descriptor exists and agrees with the register file.
   Check: `cargo test --bin mfb debugger::arm64` → 4 passed (3 existing + 1 new)
   (est. 2 min).
-Commit: —
+Commit: `9e143baae`
 
 ### Phase 2 — registers and help text
 
-- [ ] `location.rs`: `is_register` delegates to `arch`; `Location::parse` and
-      `name_value` take `arch`.
-- [ ] `prompt.rs`: `parse` takes `arch`; `settable`, `NZCV_FLAGS` and `jump`'s
+- [x] `location.rs`: `is_register` delegates to `arch`; `Location::parse` and
+      `name_value` take `arch`. (`is_register` is gone from `location.rs`;
+      `name_value` asks `inferior.arch()`. `Location::parse` never called it:
+      see Corrections.)
+- [x] `prompt.rs`: `parse` takes `arch`; `settable`, `NZCV_FLAGS` and `jump`'s
       width checks call `(arch.settable)`; `finish_lines` uses `arch.results`.
-- [ ] `prompt.rs`: replace the `HELP` and `LIST_REG_USAGE` constants with
+      (`parse`, `stop_commands`, `runs_on` and `Disassembly::from` take `arch`;
+      the name check is `arch.settable`, the value check `arch.holds`;
+      `finish_lines` prints `arch.arguments[0..2]`; the `x0=5` in `jump`'s
+      usage error is `arch.arguments[0]`.)
+- [x] `prompt.rs`: replace the `HELP` and `LIST_REG_USAGE` constants with
       `help(arch)` and `list_reg_usage(arch)`; `src/cli/help.rs` calls
-      `prompt::help(arch::host())`.
-- [ ] `breakpoints.rs`: `watched_raise` and `watchable` read `arch`.
-- [ ] Tests: add `prompt::tests::help_reads_as_before` comparing `help(&AARCH64)`
+      `prompt::help(arch::host())`. (The constants stay, private, as templates
+      with `{arg0}`, `{jump}`, `{watch}`, `{groups}`, `{arg1}`, `{sp}`.)
+- [x] `breakpoints.rs`: `watched_raise` and `watchable` read `arch`. (Also
+      `breakpoints/report.rs:open_report` and `take_line`. `watchable` with
+      `watch_span: None` refuses with `this system has no watchpoints: the
+      <arch> kernel does not provide them`, plan-174-D §1's text.
+      `WATCH_SPAN`'s other use, `value_shown`'s "a whole word", is now
+      `breakpoints::WORD`.)
+- [x] Tests: add `prompt::tests::help_reads_as_before` comparing `help(&AARCH64)`
       and `list_reg_usage(&AARCH64)` with the two literal texts copied from
-      `c0a48dd4f`.
+      `c0a48dd4f`. (Copied from `52e4535b3`, the plan's base.)
 
 Acceptance: no test expectation changed and the help text is identical.
   Check: `cargo test --bin mfb debugger::` → 157 passed; 0 failed, and
   `git diff c0a48dd4f -- src/debugger | grep '^[-+].*assert'` shows no changed
   assertion outside the two new tests (est. 3 min).
+  Measured 2026-10-20: `cargo test --bin mfb debugger::` → `182 passed; 0
+  failed` (the corrected count); `git diff 52e4535b3 -- src/debugger src/cli |
+  grep -E '^[-+].*assert'` → every `-`/`+` pair differs only by the added
+  `&AARCH64` argument, plus the two new tests' assertions; `cargo test --bin
+  mfb cli::dbg` → `13 passed; 0 failed` (`mfb dbg --help` carries the help).
 Commit: —
 
 ### Phase 3 — instruction size and the decoder call

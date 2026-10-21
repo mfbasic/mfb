@@ -342,13 +342,8 @@ pub(crate) const ELF: ElfArch = ElfArch {
 /// The GOT slot the import stub at `start` loads: `adrp x16, page`; `ldr x17,
 /// [x16, #imm12*8]`; `br x17` (`crate::os::linux::link::emit_import_stub`).
 fn stub_slot(code: &[u8], start: u64) -> Option<u64> {
-    let (adrp, ldr, br) = (
-        word(code)?,
-        word(code.get(4..)?)?,
-        word(code.get(8..)?)?,
-    );
-    if adrp & 0x9f00_001f != 0x9000_0010 || ldr & 0xffc0_03ff != 0xf940_0211 || br != 0xd61f_0220
-    {
+    let (adrp, ldr, br) = (word(code)?, word(code.get(4..)?)?, word(code.get(8..)?)?);
+    if adrp & 0x9f00_001f != 0x9000_0010 || ldr & 0xffc0_03ff != 0xf940_0211 || br != 0xd61f_0220 {
         return None;
     }
     let immlo = u64::from((adrp >> 29) & 0x3);
@@ -378,7 +373,10 @@ mod tests {
             .into_iter()
             .chain(AARCH64.arguments);
         for name in named {
-            assert!(shown.iter().any(|shown| shown == name), "{name} is not listed");
+            assert!(
+                shown.iter().any(|shown| shown == name),
+                "{name} is not listed"
+            );
             assert!((AARCH64.is_register)(name), "{name} is not a register");
             assert_eq!(
                 (AARCH64.settable)(name).is_ok(),

@@ -102,12 +102,14 @@ Arguments:
   <pid>       The process ID of a running program to attach to.
   <args>      Arguments passed to the launched program.";
 
-/// `mfb dbg --help`: the prompt's `help` listing (`prompt::HELP`) between an
-/// introduction and the arguments, so the two cannot drift apart.
+/// `mfb dbg --help`: the prompt's `help` listing (`prompt::help`) for this
+/// host's processor between an introduction and the arguments, so the two
+/// cannot drift apart.
 pub(crate) fn dbg_help() -> String {
-    let commands = crate::debugger::prompt::HELP
+    let help = crate::debugger::prompt::help(crate::debugger::arch::host());
+    let commands = help
         .split_once('\n')
-        .map_or(crate::debugger::prompt::HELP, |(_, rest)| rest);
+        .map_or(help.as_str(), |(_, rest)| rest);
     format!("{DBG_HELP_INTRO}\n\nCommands at the DBG> prompt:\n{commands}\n\n{DBG_HELP_TAIL}")
 }
 

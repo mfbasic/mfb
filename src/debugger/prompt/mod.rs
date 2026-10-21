@@ -10,11 +10,12 @@
 
 use std::io::{BufRead, Write};
 
+use super::arch::Arch;
 use super::backtrace;
 use super::breakpoints::{self, Breakpoints, Ended, ErrorCodes, Finish, Target, REPORT_HINT};
 use super::disassemble::{self, Request, Window};
 use super::environment::{self, Environment};
-use super::location::{self, is_register, Condition, Location};
+use super::location::{self, Condition, Location};
 use super::names::{classify, stop_name, Collisions, Origin};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
 use super::values::{self, Region, View};
@@ -34,15 +35,17 @@ use stops::*;
 
 pub(crate) const PROMPT: &str = "DBG> ";
 
-/// The `help` listing.
-pub(crate) const HELP: &str = "\
+/// The `help` listing: [`help`] fills in the processor's parts, `{arg0}` (the
+/// first argument register), `{jump}` (what `jump` sets) and `{watch}` (what
+/// `wp` takes).
+const HELP: &str = "\
 Commands:
   help, h         Show this list of commands
   list, l         Show what can be listed
   <where> is an address, a register or a function, each with an optional
   [+offset]; [<where>] is the 8 bytes stored there, also with an offset:
-  sp+0x18 is sp plus 0x18, [sp+0x18] what is stored there, [[x0]+8] what is
-  stored 8 past where x0's own value points
+  sp+0x18 is sp plus 0x18, [sp+0x18] what is stored there, [[{arg0}]+8] what is
+  stored 8 past where {arg0}'s own value points
   show            Show memory: show mem <where> [<size>]
                   The error a thread has raised and not yet caught: show error [<thread>]
                   An arena's state and blocks: show arena [<id>]
@@ -62,15 +65,13 @@ Commands:
                   Remove one: bpi r <where> <test> [<value>] at
                   <address|function[+offset]>
   watchpoint, wp  Stop when a thread changes memory: wp <where> [<size>]
-                  [<commands>], <where> as show mem; <size> is 1 to 8 bytes
-                  (default 8) that do not cross a multiple of 8
-                  Remove one: wp r <where>
+                  {watch}
   breakerror, be  Stop when a thread raises an error:
                   be <code|name>... | any [<commands>]
                   Stop watching: be clear; be alone shows what is watched
                   <commands> run at each stop: list, show, bt, dis, j, finish
                   or a bare be, separated by ';'; the program stays stopped
-                  unless run is the last of them (bp fib bt 1; list reg x0;
+                  unless run is the last of them (bp fib bt 1; list reg {arg0};
                   run)
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
   finish, f       Run until the current function returns
@@ -93,9 +94,7 @@ Commands:
   step, s         Run one thread: step [<count>] [<thread>] (default 1, thread 0)
   step-all, sa    Run every thread together: step-all [<count>] (default 1)
   jump, j         Move the current thread to <where>, setting up to 8 registers
-                  first: j <where> [<register>=<value>]... (x0-x28, fp, lr, sp,
-                  nzcv, fpsr, fpcr; a value is a number or a <where>); the
-                  thread stays paused
+                  first: j <where> [<register>=<value>]... {jump}
   quit, q         End the session: kill the program if the debugger launched
                   it, or detach and let it run on if the debugger attached to it
 
@@ -154,8 +153,9 @@ Each listing starts with a line naming its columns; ' | ' separates them.
                 empty where the variable is not set.";
 
 /// What a bare `list reg` prints under its registers, and all it prints once
-/// the program has ended.
-pub(crate) const LIST_REG_USAGE: &str = "\
+/// the program has ended: [`list_reg_usage`] fills in the processor's
+/// `{groups}`, and `{arg0}`, `{arg1}` and `{sp}` in the example.
+const LIST_REG_USAGE: &str = "\
 Usage: list reg [<id>] [<what>...]
 
 Shows the registers of thread <id> (default 0, the main thread) as
@@ -163,11 +163,25 @@ Shows the registers of thread <id> (default 0, the main thread) as
 that carry arguments and results, and the ones MFBASIC code keeps for
 itself, each with its role. <what> is one or more of:
 
-  gpr           The general-purpose registers: x0 to x28, fp (x29), lr (x30)
-  simd          The SIMD and floating-point registers: v0 to v31
-  sys           The system registers: sp, pc, nzcv, fpsr, fpcr
+{groups}
   <register>    One register by name; list several with spaces or commas,
-                as in: list reg x0, x1, sp";
+                as in: list reg {arg0}, {arg1}, {sp}";
+
+/// The `help` listing for a program on `arch`.
+pub(crate) fn help(arch: &Arch) -> String {
+    HELP.replace("{arg0}", arch.arguments[0])
+        .replace("{jump}", arch.help.jump)
+        .replace("{watch}", arch.help.watch)
+}
+
+/// The `list reg` usage for a program on `arch`.
+pub(crate) fn list_reg_usage(arch: &Arch) -> String {
+    LIST_REG_USAGE
+        .replace("{groups}", arch.help.groups)
+        .replace("{arg0}", arch.arguments[0])
+        .replace("{arg1}", arch.arguments[1])
+        .replace("{sp}", arch.sp)
+}
 
 /// Run the prompt until the session ends, then end it. `echo` repeats each
 /// command after the prompt (set when the input is not a terminal). Errors from
@@ -221,9 +235,9 @@ pub(crate) fn run(
                 )?;
             }
         }
-        let result = match parse(&line) {
+        let result = match parse(&line, inferior.arch()) {
             Ok(Command::Empty) => Ok(Vec::new()),
-            Ok(Command::Help) => Ok(vec![HELP.to_string()]),
+            Ok(Command::Help) => Ok(vec![help(inferior.arch())]),
             Ok(Command::Quit) => break,
             Ok(Command::TypeUsage) => Ok(values::TYPE_USAGE.lines().map(str::to_string).collect()),
             Ok(Command::List(
@@ -231,7 +245,10 @@ pub(crate) fn run(
             )) => list(inferior, program, &breakpoints, listing),
             // An ended program has no registers to show; the usage still reads.
             Ok(Command::List(Some(Listing::CommonRegisters { .. }))) if exited => {
-                Ok(LIST_REG_USAGE.lines().map(str::to_string).collect())
+                Ok(list_reg_usage(inferior.arch())
+                    .lines()
+                    .map(str::to_string)
+                    .collect())
             }
             Ok(Command::Restart) => restart(
                 inferior,

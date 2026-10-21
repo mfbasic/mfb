@@ -156,23 +156,29 @@ pub(super) fn hear_stop(
     emit(out, err, Ok(lines))?;
     let (commands, every) = breakpoints.stop_commands(stop);
     let on = every
-        && commands
-            .iter()
-            .all(|(_, commands)| commands.last().is_some_and(|last| runs_on(last)));
+        && commands.iter().all(|(_, commands)| {
+            commands
+                .last()
+                .is_some_and(|last| runs_on(last, inferior.arch()))
+        });
     let finishes = commands.iter().any(|(_, commands)| {
         commands
             .iter()
-            .any(|command| matches!(parse(command), Ok(Command::Finish)))
+            .any(|command| matches!(parse(command, inferior.arch()), Ok(Command::Finish)))
     });
     queue.clear();
     for (thread, commands) in commands {
         *current = thread;
-        for command in commands.into_iter().filter(|command| !runs_on(command)) {
+        let arch = inferior.arch();
+        for command in commands
+            .into_iter()
+            .filter(|command| !runs_on(command, arch))
+        {
             if finishes {
                 queue.push_back((thread, command));
                 continue;
             }
-            let result = parse(&command).and_then(|command| match command {
+            let result = parse(&command, arch).and_then(|command| match command {
                 Command::Jump { to, registers } => {
                     jump(inferior, thread, &to, &registers).inspect(|_| {
                         faults.remove(&thread);
@@ -226,9 +232,9 @@ pub(super) fn inspect(
 }
 
 /// The lines after a `finish`: the notes, then where the thread returned to
-/// and what it returned (MFBASIC returns an error code in `x0` and the value
-/// in `x1`), or that the finish did not complete; `true` when the program
-/// ended.
+/// and what it returned (MFBASIC returns an error code in the first result
+/// register, `x0` on AArch64, and the value in the second), or that the
+/// finish did not complete; `true` when the program ended.
 pub(super) fn finish_lines(
     inferior: &mut dyn Inferior,
     breakpoints: &mut Breakpoints,
@@ -258,10 +264,11 @@ pub(super) fn finish_lines(
                 .as_deref()
                 .map(|name| disassemble::display_name(name, &collisions))
                 .unwrap_or_else(|| "the function".to_string());
+            let [code, result, ..] = inferior.arch().arguments;
             lines.push(format!(
-                "Thread {thread} returned from {from} to {at}: x0 = {}, x1 = {}.",
-                value("x0"),
-                value("x1")
+                "Thread {thread} returned from {from} to {at}: {code} = {}, {result} = {}.",
+                value(code),
+                value(result)
             ));
             Ok((lines, false))
         }

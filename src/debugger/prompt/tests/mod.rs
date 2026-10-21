@@ -2,6 +2,7 @@ use super::*;
 
 mod execution;
 mod inspection;
+use crate::debugger::arm64::AARCH64;
 use crate::debugger::names::Origin;
 use crate::debugger::{Change, FunctionRange, Step};
 
@@ -286,11 +287,12 @@ fn drive(inferior: &mut Recorder, input: &str, echo: bool) -> (String, String) {
 
 #[test]
 fn help_lists_every_command_in_both_spellings() {
+    let help = help(&AARCH64);
     for line in ["help\nq\n", "h\nq\n"] {
         let (out, err, _) = session(line, Ending::Killed, false);
         assert_eq!(
             out,
-            format!("{PROMPT}{HELP}\n{PROMPT}Killed process 42.\n"),
+            format!("{PROMPT}{help}\n{PROMPT}Killed process 42.\n"),
             "{line:?}"
         );
         assert_eq!(err, "");
@@ -319,9 +321,10 @@ fn end_of_input_quits() {
 #[test]
 fn echo_repeats_each_command_after_the_prompt() {
     let (out, _, _) = session("h\r\n\nq\n", Ending::Killed, true);
+    let help = help(&AARCH64);
     assert_eq!(
         out,
-        format!("{PROMPT}h\n{HELP}\n{PROMPT}\n{PROMPT}q\nKilled process 42.\n")
+        format!("{PROMPT}h\n{help}\n{PROMPT}\n{PROMPT}q\nKilled process 42.\n")
     );
 }
 
@@ -361,8 +364,14 @@ fn a_bare_list_shows_what_can_be_listed_in_both_spellings() {
 
 #[test]
 fn list_function_is_list_func() {
-    assert_eq!(parse("list function"), parse("list func"));
-    assert_eq!(parse("l function MU fib"), parse("l func MU fib"));
+    assert_eq!(
+        parse("list function", &AARCH64),
+        parse("list func", &AARCH64)
+    );
+    assert_eq!(
+        parse("l function MU fib", &AARCH64),
+        parse("l func MU fib", &AARCH64)
+    );
 }
 
 #[test]
@@ -432,8 +441,9 @@ fn list_reg_alone_shows_the_registers_with_a_role_then_its_usage() {
 Register | Hex                | Decimal | Role
 x0       | 0x00000000000000{value} | MFB arg, MFB result, C arg, C result
 
-{LIST_REG_USAGE}
-{PROMPT}Killed process 42.\n"
+{}
+{PROMPT}Killed process 42.\n",
+                list_reg_usage(&AARCH64)
             )
         );
         assert_eq!(err, "");
@@ -452,7 +462,7 @@ fn list_reg_alone_shows_only_its_usage_after_the_program_ends() {
     inferior.runs = vec![RunStop::Exited(Exit::Status(0))];
     let (out, err) = drive(&mut inferior, "run\nlist reg\nlist reg gpr\nq\n", false);
     assert!(
-        out.contains(&format!("{PROMPT}{LIST_REG_USAGE}\n")),
+        out.contains(&format!("{PROMPT}{}\n", list_reg_usage(&AARCH64))),
         "{out}"
     );
     assert!(!out.contains("Register |"), "{out}");
@@ -688,4 +698,105 @@ fn a_glob_matches_the_whole_name() {
     ] {
         assert_eq!(glob(pattern, text), matches, "{pattern} {text}");
     }
+}
+
+/// The `help` listing as it read before the processor's parts were taken out
+/// of it (`52e4535b3`), word for word.
+const HELP_BEFORE: &str = "\
+Commands:
+  help, h         Show this list of commands
+  list, l         Show what can be listed
+  <where> is an address, a register or a function, each with an optional
+  [+offset]; [<where>] is the 8 bytes stored there, also with an offset:
+  sp+0x18 is sp plus 0x18, [sp+0x18] what is stored there, [[x0]+8] what is
+  stored 8 past where x0's own value points
+  show            Show memory: show mem <where> [<size>]
+                  The error a thread has raised and not yet caught: show error [<thread>]
+                  An arena's state and blocks: show arena [<id>]
+                  Dump a block: show arena <id> <block> [<offset>] [<size>]
+                  An arena value as a type: show type <type> <where> (as show mem)
+                  ('show type' alone for the types and their forms)
+                  The performance and memory report a --debug build writes as
+                  it exits, kept from the terminal: show report
+  breakpoint, bp  Set a breakpoint: bp <address|function[+offset]> [<commands>]
+                  Remove every one there: bp r <address|function[+offset]>
+  breakpointif, bpi
+                  Set a breakpoint that stops a thread only when a test holds:
+                  bpi <where> eq|ne|gt|lt <value> at <address|function[+offset]>
+                  [<commands>]; gt and lt compare signed numbers, and a test
+                  whose <where> cannot be read does not stop. bpi <where> in at
+                  ... stops just when it cannot be read
+                  Remove one: bpi r <where> <test> [<value>] at
+                  <address|function[+offset]>
+  watchpoint, wp  Stop when a thread changes memory: wp <where> [<size>]
+                  [<commands>], <where> as show mem; <size> is 1 to 8 bytes
+                  (default 8) that do not cross a multiple of 8
+                  Remove one: wp r <where>
+  breakerror, be  Stop when a thread raises an error:
+                  be <code|name>... | any [<commands>]
+                  Stop watching: be clear; be alone shows what is watched
+                  <commands> run at each stop: list, show, bt, dis, j, finish
+                  or a bare be, separated by ';'; the program stays stopped
+                  unless run is the last of them (bp fib bt 1; list reg x0;
+                  run)
+  run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
+  finish, f       Run until the current function returns
+  restart, rs     Start the program again (a program the debugger launched)
+  env             Change the environment the program gets when it restarts
+                  (a program the debugger launched; the running one keeps
+                  its own): env s|set <name> <value> sets one, its value the
+                  rest of the line; env r|remove <name> removes one; env
+                  clear removes them all; env reset goes back to the one the
+                  session started with; list env shows it
+  disassemble, dis
+                  Disassemble the current function; dis <count> instructions
+                  from the current one (negative: before it), or dis -<back>
+                  <count> to show <count> from <back> before it; dis <where>
+                  [<count>] from an address, register or function, with an
+                  offset (pc-0x20, main+0x110); or
+                  dis <function> [<count>]
+  backtrace, bt   Show the current thread's calls: bt [<count>] [<thread>]
+                  Every thread's: bt all
+  step, s         Run one thread: step [<count>] [<thread>] (default 1, thread 0)
+  step-all, sa    Run every thread together: step-all [<count>] (default 1)
+  jump, j         Move the current thread to <where>, setting up to 8 registers
+                  first: j <where> [<register>=<value>]... (x0-x28, fp, lr, sp,
+                  nzcv, fpsr, fpcr; a value is a number or a <where>); the
+                  thread stays paused
+  quit, q         End the session: kill the program if the debugger launched
+                  it, or detach and let it run on if the debugger attached to it
+
+Each stop prints one line per thread it stopped, starting --[<kind>]:
+  --[BP] T: <thread> P: <pc> F: <function>             a breakpoint
+  --[WP] T: <thread> P: <pc> F: <function> M: <address>: <old> -> <new>
+                                                        a watched change
+  --[BE] T: <thread> P: <pc> F: <function> E: <error>  a watched error
+  --[XC] T: <thread> P: <pc> F: <function> X: <what>   another exception
+  --[CC] User Break                                     Ctrl-C
+  --[EX] Program exit (<status>)                        the end
+A --debug build's exit line ends: - type \"show report\" to see the
+performance and memory report
+<function> is (<written name>) <symbol>, the symbol alone when the function
+has no written name; breakpoint takes either, the symbol when several
+functions share the written name.";
+
+/// The `list reg` usage likewise.
+const LIST_REG_USAGE_BEFORE: &str = "\
+Usage: list reg [<id>] [<what>...]
+
+Shows the registers of thread <id> (default 0, the main thread) as
+<register> <hex value> (<decimal>). With no <what> it shows the registers
+that carry arguments and results, and the ones MFBASIC code keeps for
+itself, each with its role. <what> is one or more of:
+
+  gpr           The general-purpose registers: x0 to x28, fp (x29), lr (x30)
+  simd          The SIMD and floating-point registers: v0 to v31
+  sys           The system registers: sp, pc, nzcv, fpsr, fpcr
+  <register>    One register by name; list several with spaces or commas,
+                as in: list reg x0, x1, sp";
+
+#[test]
+fn help_reads_as_before() {
+    assert_eq!(help(&AARCH64), HELP_BEFORE);
+    assert_eq!(list_reg_usage(&AARCH64), LIST_REG_USAGE_BEFORE);
 }

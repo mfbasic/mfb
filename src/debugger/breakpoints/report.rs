@@ -209,7 +209,7 @@ impl Breakpoints {
         if writes.is_empty() {
             return Ok(());
         }
-        let back = register(&inferior.registers(thread)?, thread, "lr")?;
+        let back = register(&inferior.registers(thread)?, thread, inferior.arch().link)?;
         for address in writes.iter().chain([&back]) {
             if !self.armed(*address) {
                 inferior.insert_breakpoint(*address)?;
@@ -228,19 +228,22 @@ impl Breakpoints {
     /// it writes to stderr, keep the bytes and skip the call.
     fn take_line(&mut self, inferior: &mut dyn Inferior, thread: usize) -> Result<(), String> {
         let registers = inferior.registers(thread)?;
+        let arch = inferior.arch();
         let value = |name| register(&registers, thread, name);
-        let length = value("x2")?;
-        if value("x0")? != STDERR || length > LINE_LIMIT {
+        // `write(fd, buffer, length)`, returning in the first argument register.
+        let [fd, buffer, count, ..] = arch.arguments;
+        let length = value(count)?;
+        if value(fd)? != STDERR || length > LINE_LIMIT {
             return Ok(());
         }
         let bytes = match length {
             0 => Vec::new(),
-            _ => inferior.read_bytes(value("x1")?, length as usize)?,
+            _ => inferior.read_bytes(value(buffer)?, length as usize)?,
         };
-        let back = value("lr")?;
+        let back = value(arch.link)?;
         inferior.set_registers(
             thread,
-            &[("x0".to_string(), length), ("pc".to_string(), back)],
+            &[(fd.to_string(), length), (arch.pc.to_string(), back)],
         )?;
         if let Some(window) = &mut self.report.window {
             window.text.extend(bytes);

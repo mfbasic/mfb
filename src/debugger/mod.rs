@@ -117,7 +117,7 @@ pub(crate) trait Inferior {
     fn remove_breakpoint(&mut self, address: u64) -> Result<(), String>;
     /// Make every thread, and every thread the program starts later, stop
     /// before it writes any of the `size` bytes at `address`: 1 to 8 bytes
-    /// that do not cross a multiple of 8 ([`breakpoints::watchable`]). A
+    /// that do not cross a multiple of 8 on AArch64 ([`breakpoints::watchable`]). A
     /// `step` runs with the watchpoints off.
     fn insert_watchpoint(&mut self, address: u64, size: u64) -> Result<(), String>;
     /// Take away the watchpoint at `address`.
