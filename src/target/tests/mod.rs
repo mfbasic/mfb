@@ -15,6 +15,7 @@ mod app_debug;
 mod app_io;
 mod app_mouse;
 mod app_window;
+mod cross_executable_modes;
 mod cross_executables;
 mod plan_imports;
 mod plan_storage;
