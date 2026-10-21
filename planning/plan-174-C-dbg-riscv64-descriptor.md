@@ -339,20 +339,28 @@ caller and stack pointer.
   Measured 2026-10-20: `11 passed; 0 failed` (7 existing, the 3, and the
   late-save test). With the late-save rule switched off, the late-save test
   fails and the other ten pass: the rule is what makes it hold.
-Commit: —
+Commit: `7afacbfc3`
 
 ### Phase 4 — ELF
 
-- [ ] `riscv64.rs`: `ELF` and `stub_slot`.
-- [ ] Tests in `elf.rs`: `a_riscv64_executable_reads_its_symbols_and_stubs`,
+- [x] `riscv64.rs`: `ELF` and `stub_slot`. (Landed in Phase 2's commit with the
+      descriptor; the stub matches `emit_import_stub`'s `auipc t3` / `ld t3,
+      lo(t3)` / `jalr zero, 0(t3)`.)
+- [x] Tests in `elf.rs`: `a_riscv64_executable_reads_its_symbols_and_stubs`,
       linking the riscv64 probe as `tests.rs:linked_probes` does, expecting
       `/lib/ld-linux-riscv64-lp64d.so.1` and one stub per import;
-      `a_riscv64_elf_is_refused_as_aarch64_and_the_reverse`.
+      `a_riscv64_elf_is_refused_as_aarch64_and_the_reverse`. (In
+      `elf/tests.rs`, where `elf.rs`'s tests moved for the inline-test
+      ceiling; the AArch64 `linked` builder became `linked_for(arch, ret,
+      debug)`.)
 
 Acceptance: `elf::read` reads a riscv64 image with `riscv64::ELF` and refuses it
 with `arm64::ELF`.
   Check: `cargo test --bin mfb debugger::elf` → 7 passed (5 existing + 2)
   (est. 2 min).
+  Measured 2026-10-21: `7 passed; 0 failed`; `cargo test --bin mfb
+  debugger::` → `196 passed; 0 failed`; `cargo check --all-targets` → no
+  warnings.
 Commit: —
 
 ## Validation Plan
