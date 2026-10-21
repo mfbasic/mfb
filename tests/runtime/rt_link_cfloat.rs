@@ -145,19 +145,32 @@ fn cfloat_crosses_every_link_boundary_as_binary32() {
     fs::create_dir_all(root.join("vendor")).expect("create vendor dir");
     let source = root.join("probe.c");
     fs::write(&source, PROBE_C).expect("write probe.c");
-    let (library, locator) = if cfg!(target_os = "macos") {
+    // A Linux build emits both libc worlds of the host arch in one pass and
+    // resolves the library for each, so each needs a locator, and `vendor/` is flat,
+    // so each locator needs its own filename. Only the host's executable runs, so
+    // the one library the host `cc` builds is copied under both names.
+    let (libraries, locator): (Vec<String>, String) = if cfg!(target_os = "macos") {
         (
-            "libprobe.dylib",
+            vec!["libprobe.dylib".to_string()],
             r#"{"os":"macos","type":"vendor","source":"libprobe.dylib"}"#.to_string(),
         )
     } else {
+        let flavors = ["glibc", "musl"];
+        let locators: Vec<String> = flavors
+            .iter()
+            .map(|libc| {
+                format!(
+                    r#"{{"os":"linux","arch":"{}","libc":"{libc}","type":"vendor","source":"libprobe-{libc}.so"}}"#,
+                    std::env::consts::ARCH,
+                )
+            })
+            .collect();
         (
-            "libprobe.so",
-            format!(
-                r#"{{"os":"linux","arch":"{}","libc":"{}","type":"vendor","source":"libprobe.so"}}"#,
-                std::env::consts::ARCH,
-                common::host_libc_flavor()
-            ),
+            flavors
+                .iter()
+                .map(|libc| format!("libprobe-{libc}.so"))
+                .collect(),
+            locators.join(","),
         )
     };
     let mut cc = Command::new("cc");
@@ -166,9 +179,10 @@ fn cfloat_crosses_every_link_boundary_as_binary32() {
     } else {
         cc.args(["-shared", "-fPIC"]);
     }
+    let built = root.join("vendor").join(&libraries[0]);
     let compiled = cc
         .arg("-o")
-        .arg(root.join("vendor").join(library))
+        .arg(&built)
         .arg(&source)
         .output()
         .expect("run cc");
@@ -177,6 +191,9 @@ fn cfloat_crosses_every_link_boundary_as_binary32() {
         "probe library build failed: {}",
         String::from_utf8_lossy(&compiled.stderr)
     );
+    for copy in &libraries[1..] {
+        fs::copy(&built, root.join("vendor").join(copy)).expect("copy the probe library");
+    }
     fs::write(
         root.join("project.json"),
         format!(
