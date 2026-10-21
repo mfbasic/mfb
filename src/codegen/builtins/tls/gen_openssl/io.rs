@@ -248,20 +248,9 @@ pub(crate) fn lower_tls_read_openssl(
         // header. Writing 40-byte entry descriptors here put an entry-flags
         // byte (COLLECTION_ENTRY_FLAG_USED == 1) where element 0's payload
         // belongs, so `tls::read` handed back a list whose first byte was
-        // always 1. Mirrors the guard in `gen_macos/client/read.rs`.
+        // always 1. So only the payload is written, as in
+        // `gen_macos/client/read.rs`.
     ]);
-    if byte_list_entry_stride() != 0 {
-        instructions.extend([
-            abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate(&v12, "Integer", "1"),
-            abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        ]);
-    }
-    // The payload copy runs for BOTH representations.
     instructions.extend([
         abi::add_registers(&v12, &v14, &v9),
         abi::load_u8(&v13, &v15, 0),
