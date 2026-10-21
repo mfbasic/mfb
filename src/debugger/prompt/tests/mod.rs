@@ -1,6 +1,7 @@
 use super::*;
 
 mod execution;
+mod heap;
 mod inspection;
 use crate::debugger::names::Origin;
 use crate::debugger::{Change, FunctionRange, Step};
