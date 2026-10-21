@@ -130,18 +130,6 @@ impl CodeBuilder<'_> {
         if target == "toString" && (args.len() == 1 || args.len() == 2) {
             return self.lower_to_string(args);
         }
-        if target == "typeName" && args.len() == 1 {
-            let type_name = self
-                .static_type_name_for_fold(&args[0])
-                .ok_or_else(|| "native code cannot determine typeName argument type".to_string())?;
-            let register = self.load_string_constant(&type_name.name())?;
-            return Ok(ValueResult {
-                origin: None,
-                type_: ParameterType::String,
-                location: Operand::from(register),
-                text: format!("typeName({type_name})"),
-            });
-        }
         if target == "toInt" && (1..=2).contains(&args.len()) {
             return self.lower_to_int(args);
         }

@@ -257,35 +257,18 @@ impl CodeBuilder<'_> {
                 // see. The `--nir` dump is what settled it; a trace of 798 lowered calls
                 // through `emit_call` did not contain the one call the program makes.
                 self.deactivate_consumed_cleanups(target, args);
-                // `strings::`/`astrings::` native members migrated to the clean-room
-                // registry are `Body::abi_inline`, so they arrive on the `Call` path
-                // (reached through `try_abi_inline_lower` there), not this `RuntimeCall`
-                // arm — which handles the explicit intrinsics below (plan-99 PART B/C).
-                if target == "isEven" && args.len() == 1 {
-                    return self.lower_integer_parity_predicate("isEven", &args[0], false);
-                }
-                if target == "isOdd" && args.len() == 1 {
-                    return self.lower_integer_parity_predicate("isOdd", &args[0], true);
-                }
-                if matches!(target.as_str(), "isPositive" | "isNegative" | "isZero")
-                    && args.len() == 1
-                {
-                    return self.lower_numeric_filter_predicate(target, &args[0]);
-                }
-                if matches!(target.as_str(), "isEmpty" | "isNotEmpty") && args.len() == 1 {
-                    return self.lower_empty_filter_predicate(target, &args[0]);
-                }
+                // The predicate intrinsics (`isEven`, `isEmpty`, ...) never arrive here:
+                // `runtime::is_native_direct_call` lists them, so `nir::lower` builds a
+                // `NirValue::Call` for them, which `lower_call_value` lowers.
+                //
+                // `typeName` does arrive here (`helper_for_call` classes it `General`),
+                // but every one whose argument type resolves was already folded to a
+                // string constant by `static_string_value` at the top of
+                // `lower_value_inner`, through the same `static_type_name_for_fold`.
+                // What is left is a `typeName` that resolver cannot type, and there
+                // is no runtime helper to fall back to.
                 if target == "typeName" && args.len() == 1 {
-                    let type_name = self.static_type_name_for_fold(&args[0]).ok_or_else(|| {
-                        "native code cannot determine typeName argument type".to_string()
-                    })?;
-                    let register = self.load_string_constant(&type_name.name())?;
-                    return Ok(ValueResult {
-                        origin: None,
-                        type_: ParameterType::String,
-                        location: Operand::from(register),
-                        text: format!("typeName({type_name})"),
-                    });
+                    return Err("native code cannot determine typeName argument type".to_string());
                 }
                 self.lower_runtime_helper_call(*helper, target, args, false)
             }

@@ -450,10 +450,14 @@ impl CodeBuilder<'_> {
     }
 
     /// Dispatch a provably-infallible inline built-in to its normal lowering. The
-    /// enabled set matches `builtins::inline_builtin_is_infallible`: `len`,
-    /// `toString`, `typeName`, every `bits::*` op, and the pure-query / growth /
-    /// default-returning collection members. Each yields a single-register value,
-    /// so one success shape covers them all. Shared only by
+    /// enabled set is `builtins::inline_builtin_is_infallible`'s: a registry
+    /// member proven total, which has an `abi_inline` body by construction
+    /// (`totality_proof::inline_member_is_proven_total` asks exactly that), and
+    /// the bare `len` and `typeName` (`RAISE_CHECKED_GENERAL_TOTAL`). `toString`
+    /// is not in it (it can raise `ErrOutOfMemory`, bug-807), and the `toInt`
+    /// enum grant needs a kind oracle the caller does not pass (`NoTypeKinds`).
+    /// Each yields a single-register value, so one success shape covers them all.
+    /// Shared only by
     /// [`lower_inline_infallible_raw`](Self::lower_inline_infallible_raw); the
     /// non-trapped call path keeps its own inline arms so its codegen is unchanged.
     fn lower_infallible_member(
@@ -462,15 +466,15 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
         // plan-95/96: prefer a migrated member's own `abi_inline` lowering over the
-        // infallible-inline ladder below (the third dispatch site).
+        // infallible-inline ladder below (the third dispatch site). This is also
+        // where an inline TRAP on a total `bits::*` op (rotates, `popCount`,
+        // `clz`/`ctz`, byte swaps, `band`/`bor`/`bxor`/`bnot`) lowers: it cannot
+        // fail, so there is no error exit to capture.
         if let Some(result) = self.try_abi_inline_lower(target, args) {
             return result;
         }
         if target == "len" && args.len() == 1 {
             return self.lower_len(&args[0]);
-        }
-        if target == "toString" && (args.len() == 1 || args.len() == 2) {
-            return self.lower_to_string(args);
         }
         if target == "typeName" && args.len() == 1 {
             let type_name = self
@@ -484,23 +488,9 @@ impl CodeBuilder<'_> {
                 text: format!("typeName({type_name})"),
             });
         }
-        // An infallible `abi_inline` intrinsic (the total `bits::*` ops — the
-        // rotates `rl*`/`rr*`, `popCount`, `clz`/`ctz`, the byte swaps, and
-        // `band`/`bor`/`bxor`/`bnot`) trapped by an inline TRAP: lower it inline
-        // exactly as the non-trapped path would. It cannot fail, so — unlike the
-        // fallible variable shifts handled by `lower_inline_builtin_raw` — there is
-        // no error exit to capture. The fallible raw path grew a `try_abi_inline_lower`
-        // arm when `bits` migrated onto `Body::abi_inline`; this infallible path was
-        // overlooked, so an inline TRAP on a total `bits` op failed to lower.
-        if let Some(result) = self.try_abi_inline_lower(target, args) {
-            return result;
-        }
-        match crate::codegen::builtins::native_builtin_target(target) {
-            Some("replace") if args.len() == 3 => self.lower_replace(args),
-            other => Err(format!(
-                "native infallible inline builtin '{target}' ({other:?}) is not supported"
-            )),
-        }
+        Err(format!(
+            "native infallible inline builtin '{target}' is not supported"
+        ))
     }
 
     /// Lower a runtime-helper-backed call (`thread::*`, `fs::*`, `io::*`, …).
