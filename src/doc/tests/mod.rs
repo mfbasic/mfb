@@ -78,3 +78,37 @@ END FUNC
     );
     assert_eq!(package_anchors, ["intro-2", "add-up"]);
 }
+
+/// A documented resource is listed with the RESOURCE line as its signature,
+/// public when exported.
+#[test]
+fn a_documented_resource_is_listed_by_its_declaration() {
+    let src = "\
+IMPORT io
+DOC
+  RESOURCE Handle
+  DESC An open handle.
+END DOC
+EXPORT RESOURCE Handle CLOSE BY io::print
+";
+    let path = std::path::Path::new("resource_doc.mfb");
+    let file = crate::ast::parse_source(path, "resource_doc.mfb", src).expect("parse source");
+    let ast = AstProject {
+        name: "res".to_string(),
+        files: vec![file],
+    };
+    let page = from_source(&ast);
+    let decls: Vec<&DocDecl> = page.public.iter().flat_map(|group| &group.decls).collect();
+    assert_eq!(
+        decls.len(),
+        1,
+        "{:?}",
+        decls.iter().map(|d| &d.name).collect::<Vec<_>>()
+    );
+    assert_eq!(decls[0].name, "Handle");
+    assert!(
+        decls[0].signature.contains("RESOURCE Handle"),
+        "{}",
+        decls[0].signature
+    );
+}
