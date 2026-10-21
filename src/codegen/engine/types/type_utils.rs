@@ -253,14 +253,6 @@ pub(crate) fn static_nir_value_type(
                     return Some(state);
                 }
             }
-            if member == "result" {
-                if let ParameterType::ThreadHandle {
-                    worker: false, out, ..
-                } = &target_type
-                {
-                    return Some(ParameterType::result_of((**out).clone()));
-                }
-            }
             // Record and union-variant fields, then the two `MapEntry` members —
             // the same three sources `CodeBuilder::static_type_name` consults
             // (it grew its record/union arm in bug-366), so this walk types a

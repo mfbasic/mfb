@@ -434,20 +434,11 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// The type of `member` read off a value of `target_type`: the thread
-    /// handle's `result`, a record or union-variant field, or a typed map
-    /// entry's `key`/`value`. Split out of [`Self::static_type_name`] so
+    /// The type of `member` read off a value of `target_type`: a record or
+    /// union-variant field, or a typed map entry's `key`/`value`. Split out of [`Self::static_type_name`] so
     /// [`Self::overload_arg_type`] can apply the same lookup to a target that
     /// only IT can type (bug-497: `makeRec().body`).
     fn member_type_of(&self, target_type: &ParameterType, member: &str) -> Option<ParameterType> {
-        if member == "result" {
-            if let ParameterType::ThreadHandle {
-                worker: false, out, ..
-            } = target_type
-            {
-                return Some(ParameterType::result_of((**out).clone()));
-            }
-        }
         // A record or union-variant field, read from the same tables the
         // field-access lowering itself uses. Without this arm the builder
         // could not name the type of `rec.field`, so `typeName(rec.field)`

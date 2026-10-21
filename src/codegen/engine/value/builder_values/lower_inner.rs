@@ -510,36 +510,9 @@ impl CodeBuilder<'_> {
                 self.lower_with_update(&type_, target, updates)
             }
             NirValue::MemberAccess { target, member } => match target.as_ref() {
-                _ if member == "result" => {
-                    if let Some(output_type) =
-                        self.static_type_name(target).and_then(|type_| match type_ {
-                            ParameterType::ThreadHandle {
-                                worker: false, out, ..
-                            } => Some((*out).clone()),
-                            _ => None,
-                        })
-                    {
-                        self.emit_raw_call(
-                            &runtime::symbol_for_call(
-                                runtime::RuntimeHelper::Thread,
-                                "thread.waitFor",
-                            ),
-                            std::slice::from_ref(target.as_ref()),
-                            "thread_result_arg",
-                        )?;
-                        // bug-566: the worker allocated this block in ITS arena
-                        // (`x19` is per-thread). Freeing it here is not a leak fix,
-                        // it is a cross-arena wild free — the counter-example that
-                        // makes the runtime-helper question an audit.
-                        return self.materialize_current_result(
-                            &output_type,
-                            "thread.result".to_string(),
-                            true,
-                            RawSuccessBlock::OwnedElsewhere,
-                        );
-                    }
-                    self.lower_field_access(target, member)
-                }
+                // `.result` is an ordinary record field: the thread `t.result` read
+                // is removed (`ir::verify` refuses it, TYPE_THREAD_RESULT_REMOVED).
+                _ if member == "result" => self.lower_field_access(target, member),
                 NirValue::Local(type_name) => {
                     if let Some(ordinal) = self
                         .type_model

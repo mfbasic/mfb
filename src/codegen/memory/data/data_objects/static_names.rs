@@ -93,14 +93,6 @@ pub(crate) fn static_type_name_with_types(
         }
         NirValue::MemberAccess { target, member } => {
             let target_type = static_type_name_with_types(target, types, fields)?;
-            if member == "result" {
-                if let ParameterType::ThreadHandle {
-                    worker: false, out, ..
-                } = &target_type
-                {
-                    return Some(ParameterType::result_of((**out).clone()));
-                }
-            }
             // Record and union-variant fields, then the two `MapEntry` members —
             // the same sources `static_nir_value_type` consults. Without the
             // field table this arm answered `None` for every record field, which
