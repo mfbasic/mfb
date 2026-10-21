@@ -166,6 +166,14 @@ fn the_host_image_matches_how_inspect_spells_formats_and_architectures() {
     assert_eq!((format, arch), expected);
 }
 
+/// Every host's spelling, whichever host runs this.
+#[test]
+fn each_system_s_executable_format_is_spelled_as_inspect_spells_it() {
+    assert_eq!(super::image_of("macos", "aarch64"), ("Mach-O", "aarch64"));
+    assert_eq!(super::image_of("windows", "x86_64"), ("PE", "x86-64"));
+    assert_eq!(super::image_of("linux", "riscv64"), ("ELF", "riscv64"));
+}
+
 #[test]
 fn the_backend_exists_exactly_where_mfb_dbg_is_supported() {
     let host = (std::env::consts::OS, std::env::consts::ARCH);

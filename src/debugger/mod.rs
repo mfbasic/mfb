@@ -359,12 +359,19 @@ pub(crate) fn shown(path: &Path) -> String {
 /// The container format and architecture of a native executable on this host,
 /// spelled as [`inspect`] reports them.
 fn host_image() -> (&'static str, &'static str) {
-    let format = match std::env::consts::OS {
+    image_of(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// The container format and architecture of a native executable for `os` on
+/// `arch` (as `std::env::consts` spells them), spelled as [`inspect`] reports
+/// them.
+fn image_of(os: &str, arch: &'static str) -> (&'static str, &'static str) {
+    let format = match os {
         "macos" => "Mach-O",
         "windows" => "PE",
         _ => "ELF",
     };
-    let arch = match std::env::consts::ARCH {
+    let arch = match arch {
         "x86_64" => "x86-64",
         other => other,
     };
