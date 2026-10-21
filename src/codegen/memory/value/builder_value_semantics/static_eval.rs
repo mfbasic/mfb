@@ -516,7 +516,19 @@ impl CodeBuilder<'_> {
                     .keys()
                     .find(|(enum_type, name)| name == member && enum_type.name() == *type_name)
                     .map(|(enum_type, _)| enum_type.clone()),
-                _ => None,
+                // A stateful resource's `.state`, and a field read off it
+                // (`typeName(h.state.pos)`). `static_type_name` leaves `.state` untyped
+                // on purpose (see `overload_arg_type`: typing it there would shift the
+                // self-update fast path's decisions), so only this fold, which never
+                // gates codegen, resolves it.
+                _ => {
+                    let target_type = self.static_type_name_for_fold(target)?;
+                    if member == "state" {
+                        target_type.state()
+                    } else {
+                        self.member_type_of(&target_type, member)
+                    }
+                }
             },
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }

@@ -59,6 +59,38 @@ impl FieldTypes {
         self.enums.insert(type_, members);
     }
 
+    /// The fields of every record `model` knows that this table does not: the
+    /// compiler's own `Error`/`ErrorLoc` (and the other codegen-internal records),
+    /// which no `module.types` entry declares. A field a declaration already
+    /// supplied is left as it was.
+    pub(crate) fn with_records_of(mut self, model: &TypeModel) -> Self {
+        for (record, record_fields) in &model.record_fields {
+            let record_name = record.name().into_owned();
+            for (field, field_type) in record_fields {
+                self.fields
+                    .entry((record_name.clone(), field.clone()))
+                    .or_insert_with(|| field_type.clone());
+            }
+        }
+        self
+    }
+
+    /// The declared return type of module function `name`, if it is one.
+    pub(crate) fn function_return(&self, name: &str) -> Option<&ParameterType> {
+        self.function_returns.get(name)
+    }
+
+    /// The enum type named `type_name` that declares `member`, if any: what
+    /// `Colour.Red` is the member of when `Colour` is a type, not a binding.
+    pub(crate) fn enum_declaring(&self, type_name: &str, member: &str) -> Option<&ParameterType> {
+        self.enums
+            .iter()
+            .find(|(enum_type, members)| {
+                enum_type.name() == type_name && members.iter().any(|name| name == member)
+            })
+            .map(|(enum_type, _)| enum_type)
+    }
+
     /// Every enum `model` knows — the module's own, the imported packages', and
     /// the bare aliases of built-in ones — with members ordered by ordinal.
     pub(crate) fn with_enums_of(mut self, model: &TypeModel) -> Self {

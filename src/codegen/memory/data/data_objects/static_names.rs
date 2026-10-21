@@ -142,9 +142,46 @@ pub(crate) fn static_type_name_for_fold_with_types(
         return Some(type_);
     }
     match value {
+        // bug-874's twin: `Colour.Red` names a member of an enum TYPE, so its
+        // target is the type's name, not a binding, and the operand walk above
+        // has no local to type. The builder's `static_type_name_for_fold` folds
+        // it to the enum's spelling; this pre-pass must intern that same string,
+        // or `"x" & typeName(Colour.Red)` folds to a literal with no data object.
+        NirValue::MemberAccess { target, member } => match target.as_ref() {
+            NirValue::Local(type_name) if !types.contains_key(type_name) => {
+                fields.enum_declaring(type_name, member).cloned()
+            }
+            // The builder's fold also names a stateful resource's `.state` and a
+            // field read off it (`typeName(h.state.pos)`): the same arms here, or
+            // `"x" & typeName(h.state.pos)` folds to an uninterned literal.
+            _ => {
+                let target_type = static_type_name_for_fold_with_types(target, types, fields)?;
+                if member == "state" {
+                    target_type.state()
+                } else {
+                    fields
+                        .get(&(target_type.name().into_owned(), member.clone()))
+                        .cloned()
+                }
+            }
+        },
         NirValue::Call { target, args, .. }
         | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. } => {
+            // bug-569/672's twin: a callable LOCAL shadows any function of the same
+            // name and its result is the function type's return. The builder folds
+            // `typeName(f(1))` through it (`static_type_name_for_fold`); without
+            // the same arm here `"x" & typeName(f(1))` folds to an uninterned literal.
+            if let Some(local) = types.get(target.as_str()) {
+                return match local {
+                    ParameterType::Func(_, returns, _) => Some((**returns).clone()),
+                    _ => None,
+                };
+            }
+            // bug-672's twin: a call to a module function has its declared return.
+            if let Some(returns) = fields.function_return(target) {
+                return Some(returns.clone());
+            }
             let arg_types = args
                 .iter()
                 .map(|arg| static_type_name_for_fold_with_types(arg, types, fields))

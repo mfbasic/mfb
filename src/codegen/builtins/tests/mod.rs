@@ -78,6 +78,7 @@ mod term_measure_text;
 mod term_read;
 mod thread_send_scalar;
 mod threads;
+mod typename_enum_fold;
 mod validation;
 mod vector;
 mod vector_promotion;

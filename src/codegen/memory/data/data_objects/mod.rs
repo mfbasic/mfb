@@ -183,6 +183,7 @@ pub(crate) fn string_symbols(
     // as the lowering will.
     let fields = module_field_types(module)
         .with_enums_of(type_model)
+        .with_records_of(type_model)
         .with_function_returns(module);
     if module_uses_type_name(module) {
         collect_type_name_values(module, &mut values);
