@@ -2,6 +2,7 @@ use super::*;
 use crate::ast::{parse_source, AstProject};
 use crate::ir::IrOp;
 
+mod instantiation_sites;
 mod packages_links_testing_and_fields;
 mod walker_and_call_arguments;
 
