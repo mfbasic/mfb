@@ -157,6 +157,8 @@ Commit: 3a80e40b9 (goldens: 002ddbde5)
 
 Landing tier (once, at the end of this sub-plan): `scripts/artifact-gate.sh <mfb> all` and a full `scripts/test-accept.sh`, with the golden diff described above.
 
+Landing result (whole plan, after merging main at `7690b181c`): `scripts/artifact-gate.sh target/release/mfb all` → `1715 tests, 1894 build(s), 2378 golden(s) checked, 0 diff(s)`; `scripts/test-accept.sh target/release/mfb` → `acceptance tests passed (1749 test(s) ran)`; `bash scripts/test-fast.sh --test rt_arena_memory_cap --test rt_runtime_helper_callee_saved --test rt_process_spawn_ambient_fds --test rt_thread_block_arena --test rt_worker_arena_release` → `test-fast: ok`; `cargo fmt --all` and `cargo fmt --all --manifest-path repository/Cargo.toml` → no changes. The merge's only conflict was the five `byte-identity/money` sums, regenerated with the merged compiler.
+
 ## Validation Plan
 
 - Tests: `tests/runtime/rt_arena_memory_cap.rs`, with three cases:
