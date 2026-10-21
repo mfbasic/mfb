@@ -78,6 +78,7 @@ mod mir_dump;
 mod money_operators;
 mod nir_dump;
 mod nir_fault;
+mod nir_fault_operators;
 mod nir_json;
 mod nir_validation;
 mod optimizer;

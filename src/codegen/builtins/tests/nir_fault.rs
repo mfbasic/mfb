@@ -41,7 +41,7 @@ use crate::types::ParameterType;
 /// every loop form, a global read and write, an `AS Nothing` call, a lambda, string
 /// slicing, `Float`/`Fixed`/`Money` arithmetic, a comparison chain, and a
 /// `TRAP`.
-const SRC: &str = r#"IMPORT collections
+pub(super) const SRC: &str = r#"IMPORT collections
 IMPORT io
 IMPORT strings
 
@@ -218,7 +218,7 @@ END FUNC
 ///
 /// Every in-place op on both, plus a sort with a key lambda, a `FOR EACH` over
 /// records, and a string built by accumulation.
-const STATEFUL_SRC: &str = r#"IMPORT collections
+pub(super) const STATEFUL_SRC: &str = r#"IMPORT collections
 IMPORT fs
 IMPORT io
 IMPORT strings
@@ -495,7 +495,7 @@ fn corruptible(value: &NirValue) -> bool {
 /// immutable sibling because nothing in the product needs it — and, like that
 /// one, it is exhaustive with no `_` arm, so a new `NirOp` or `NirValue` variant
 /// is a compile error rather than a silent hole in this sweep.
-fn walk_ops_mut(
+pub(super) fn walk_ops_mut(
     ops: &mut [NirOp],
     on_op: &mut dyn FnMut(&mut NirOp),
     f: &mut dyn FnMut(&mut NirValue),
@@ -639,11 +639,11 @@ fn walk_value_mut(value: &mut NirValue, f: &mut dyn FnMut(&mut NirValue)) {
 /// could copy one would be the test changing the product to suit itself — but
 /// `NirOp` is, because the Opt1 loop rows duplicate statement lists. The bodies
 /// alone are enough: nothing here mutates a signature.
-fn snapshot(module: &NirModule) -> Vec<Vec<NirOp>> {
+pub(super) fn snapshot(module: &NirModule) -> Vec<Vec<NirOp>> {
     module.functions.iter().map(|f| f.body.clone()).collect()
 }
 
-fn restore(module: &mut NirModule, pristine: &[Vec<NirOp>]) {
+pub(super) fn restore(module: &mut NirModule, pristine: &[Vec<NirOp>]) {
     for (function, body) in module.functions.iter_mut().zip(pristine) {
         function.body = body.clone();
     }
