@@ -106,6 +106,7 @@ mod nir_json;
 mod nir_validation;
 mod numeric_forms;
 mod opt_fuse;
+mod opt_loop_facts;
 mod optimizer;
 mod optimizer_globals;
 mod os;
