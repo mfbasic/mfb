@@ -2,6 +2,8 @@ use super::*;
 use crate::target::shared::runtime::{helper_for_call, symbol_for_call};
 use std::collections::HashSet;
 
+mod helper_routing;
+
 // One table-driven parity test over the catalog itself (bug-329), replacing
 // the hand-copied per-family call arrays that used to live in
 // audio_specs.rs/os_specs.rs: a new spec is covered the moment it is added,
