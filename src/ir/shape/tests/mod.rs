@@ -3,7 +3,9 @@ use crate::ast::{parse_source, AstProject};
 use crate::ir::IrOp;
 
 mod comparability;
+mod export_surface;
 mod instantiation_sites;
+mod literal_lists;
 mod packages_links_testing_and_fields;
 mod walker_and_call_arguments;
 
