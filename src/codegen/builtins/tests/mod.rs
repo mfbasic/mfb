@@ -45,6 +45,7 @@ mod diagnostics;
 mod element_update;
 mod element_update_forms;
 mod entry;
+mod field_with_forms;
 mod fixture_projects;
 mod fs_declared_errors;
 mod general_declared_errors;
