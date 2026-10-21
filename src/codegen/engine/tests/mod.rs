@@ -69,3 +69,5 @@ mod union_tags;
 mod builtins_codegen;
 #[cfg(test)]
 mod value_effect_predicates;
+#[cfg(test)]
+mod write_scans;
