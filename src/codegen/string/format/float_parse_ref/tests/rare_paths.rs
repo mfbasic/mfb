@@ -258,3 +258,71 @@ fn the_big_integer_comparison_scales_either_side() {
         );
     }
 }
+
+/// Run `f` on its own thread and fail, rather than hang the suite, if it has not
+/// answered in `seconds`.
+fn within<T: Send + 'static>(
+    seconds: u64,
+    what: &str,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> T {
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = send.send(f());
+    });
+    receive
+        .recv_timeout(std::time::Duration::from_secs(seconds))
+        .unwrap_or_else(|_| panic!("{what}: the exact walk did not terminate"))
+}
+
+/// A declined input whose value is past the largest finite double: the exact walk
+/// steps up from `f64::MAX` to infinity and must STOP there, not keep stepping into
+/// the NaN bit patterns above it (it once did, ~2^52 steps — a hang). Every other
+/// declined input above 10^280 must still round correctly.
+#[test]
+fn a_declined_input_past_the_largest_double_is_infinity() {
+    let mut overflowed = 0;
+    for q in 281..=Q_MAX {
+        let Some(w) = declining_mantissa(q) else {
+            continue;
+        };
+        if lemire(q, w).e != DECLINED {
+            continue;
+        }
+        let text = format!("{w}e{q}");
+        let want: f64 = text.parse().unwrap();
+        if want.is_infinite() {
+            overflowed += 1;
+        }
+        // The digits exactly as written, so `exact` compares the true value even
+        // where `w` has 20 digits (more than the scanner keeps as a mantissa).
+        let digits: Vec<u8> = w.to_string().bytes().map(|b| b - b'0').collect();
+        let scanned = Scanned {
+            negative: false,
+            mantissa: w,
+            exponent: q,
+            many_digits: false,
+            digits,
+            digits_exponent: q,
+        };
+        let got = within(10, &text, move || exact(&scanned));
+        assert_eq!(got.to_bits(), want.to_bits(), "{text}");
+        if w < 10_000_000_000_000_000_000 {
+            assert!(takes_exact_path(&text), "{text} must reach the fallback");
+            let parsed = within(10, &text, {
+                let text = text.clone();
+                move || parse(&text).unwrap()
+            });
+            assert_eq!(parsed.to_bits(), want.to_bits(), "{text}");
+            let negative = within(10, &text, {
+                let text = format!("-{text}");
+                move || parse(&text).unwrap()
+            });
+            assert_eq!(negative.to_bits(), (-want).to_bits(), "-{text}");
+        }
+    }
+    assert!(
+        overflowed >= 2,
+        "the construction must find declined inputs that overflow; found {overflowed}"
+    );
+}

@@ -497,6 +497,13 @@ fn exact(scanned: &Scanned) -> f64 {
         let upper = midpoint_above(candidate);
         match compare_scaled(&d, q, &upper) {
             std::cmp::Ordering::Greater => {
+                // At or above the largest finite double's upper midpoint the
+                // answer is infinity. Stop there: the bit patterns above
+                // infinity are NaNs, and walking into them never terminates.
+                if candidate == f64::MAX {
+                    candidate = f64::INFINITY;
+                    break;
+                }
                 candidate = next(candidate);
                 continue;
             }
