@@ -13,6 +13,8 @@
 //! [`length`] still gives its size so a listing can step over it.
 
 mod atomic;
+mod compressed;
+mod float;
 mod integer;
 
 #[cfg(test)]
@@ -114,6 +116,10 @@ pub(crate) fn length(bytes: &[u8]) -> usize {
 /// decoder does not know it or `bytes` holds less than all of it.
 pub(crate) fn decode(bytes: &[u8], pc: u64) -> Option<Instruction> {
     match length(bytes) {
+        2 => {
+            let parcel = u16::from_le_bytes(bytes.get(..2)?.try_into().ok()?);
+            compressed::decode(parcel, pc)
+        }
         4 => {
             let word = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?);
             base(word, pc, 4)
@@ -126,6 +132,7 @@ pub(crate) fn decode(bytes: &[u8], pc: u64) -> Option<Instruction> {
 /// for a compressed instruction it stands for).
 fn base(word: u32, pc: u64, length: usize) -> Option<Instruction> {
     let mut instruction = match word & 0x7f {
+        0x07 | 0x27 => float::load_store(word)?,
         0x2f => atomic::decode(word)?,
         _ => integer::decode(word, pc)?,
     };

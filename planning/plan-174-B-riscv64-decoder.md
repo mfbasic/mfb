@@ -261,21 +261,31 @@ Acceptance: every 4-byte integer, `M`, `A` and system row decodes to `objdump`'s
 text.
   Check: `cargo test --bin mfb riscv64::decode` → 0 failed (est. 2 min).
   Measured 2026-10-20: `3 passed; 0 failed; 1 ignored`.
-Commit: —
+Commit: `a61c9d031`
 
 ### Phase 3 — compressed
 
-- [ ] Add `compressed.rs`: all RV64C forms in the corpora (`c.addi4spn`, `c.ld`,
+- [x] Add `compressed.rs`: all RV64C forms in the corpora (`c.addi4spn`, `c.ld`,
       `c.sd`, `c.lw`, `c.sw`, `c.fld`, `c.fsd`, `c.addi`, `c.addiw`, `c.li`,
       `c.addi16sp`, `c.lui`, `c.srli`, `c.srai`, `c.andi`, `c.sub`, `c.xor`,
       `c.or`, `c.and`, `c.subw`, `c.addw`, `c.j`, `c.beqz`, `c.bnez`, `c.slli`,
       `c.ldsp`, `c.lwsp`, `c.fldsp`, `c.jr`, `c.mv`, `c.ebreak`, `c.jalr`,
       `c.add`, `c.sdsp`, `c.swsp`, `c.fsdsp`, `c.nop`, `c.unimp`).
-- [ ] Tests: the 2-byte rows of `objdump_words.txt`; `length` for both sizes;
+      (Each expands to its base word, which `base` decodes; `c.mv` to `addi
+      rd,rs,0`. The base `flw`/`fld`/`fsw`/`fsd` they expand to landed here in
+      `float.rs`, ahead of Phase 4: see Corrections. Over the three corpora
+      `decodes_a_corpus_as_objdump_does` → `0 differing`, and the rows left
+      undecoded are all `F`/`D` arithmetic, conversion, move and compare
+      mnemonics.)
+- [x] Tests: the 2-byte rows of `objdump_words.txt`; `length` for both sizes;
       `flow_and_targets` for `c.j`, `c.beqz`, `c.jr ra` (a return), `c.jalr`.
+      (`decodes_words_as_objdump_does` now holds every 2-byte row and the
+      float loads and stores; the compressed flows are
+      `compressed_flow_and_targets`, with `c.ebreak` and `c.unimp`.)
 
 Acceptance: every 2-byte row decodes to `objdump`'s text with length 2.
   Check: `cargo test --bin mfb riscv64::decode` → 0 failed (est. 2 min).
+  Measured 2026-10-20: `4 passed; 0 failed; 1 ignored`.
 Commit: —
 
 ### Phase 4 — `F`/`D`, the vector subset, and the whole corpora
@@ -347,6 +357,10 @@ Commit: —
   other field readers public to the crate. plan-174-C's `riscv64::effect` and
   plan-174-D's next-address table read the fields they need from it, so the
   decoder holds no unwinder vocabulary.
+- **Float loads and stores land in Phase 3.** `c.fld`, `c.fsd`, `c.fldsp` and
+  `c.fsdsp` expand to `fld` and `fsd`, so Phase 3's "every 2-byte row" needs
+  them; `float.rs` starts there with `flw`/`fld`/`fsw`/`fsd` and Phase 4 adds
+  the rest of `F`/`D`.
 - **`Flow`** follows §3 with one change: `Call` is a direct `jal` that links,
   and an indirect jump is `Indirect { register, offset, link }` whether or not
   it links (`jalr` vs `jr`); `value` is an `i64`.

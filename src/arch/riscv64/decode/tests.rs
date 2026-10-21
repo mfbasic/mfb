@@ -35,14 +35,11 @@ fn unknown_to_objdump(text: &str) -> bool {
     text.starts_with(".insn") || text.starts_with(".word") || text.starts_with(".short")
 }
 
-/// The rows this decoder is held to: 4-byte ones outside the floating-point
-/// and vector opcodes.
+/// The rows this decoder is held to: compressed ones, and 4-byte ones outside
+/// the floating-point arithmetic and vector opcodes (the floating-point loads
+/// and stores are held, since compressed ones expand to them).
 fn held(row: &Row) -> bool {
-    row.bytes.len() == 4
-        && !matches!(
-            row.bytes[0] & 0x7f,
-            0x07 | 0x27 | 0x43 | 0x47 | 0x4b | 0x4f | 0x53 | 0x57
-        )
+    row.bytes.len() == 2 || !matches!(row.bytes[0] & 0x7f, 0x43 | 0x47 | 0x4b | 0x4f | 0x53 | 0x57)
 }
 
 /// The rows `decode` spells differently from `objdump`, and the ones it does
@@ -157,6 +154,45 @@ fn flow_and_targets() {
     assert_eq!(jalr.page_offset, Some((1, -260)));
     // li a1,3 sets 3.
     assert_eq!(decode(&word(0x00300593), 0).unwrap().value, Some(3));
+}
+
+/// Compressed rows of `libc.so.6`: each is 2 bytes and goes where its base
+/// form would.
+#[test]
+fn compressed_flow_and_targets() {
+    let c = |parcel: u16, pc| decode(&parcel.to_le_bytes(), pc).unwrap();
+    // c.j: `j 275c6` at 0x276cc.
+    let j = c(0xbded, 0x276cc);
+    assert_eq!((j.length, j.flow, j.target), (2, Flow::Jump, Some(0x275c6)));
+    // c.beqz: `beqz a1,27606` at 0x275f4.
+    let beqz = c(0xc989, 0x275f4);
+    assert_eq!(
+        (beqz.length, beqz.flow, beqz.target, beqz.text.as_str()),
+        (2, Flow::Branch, Some(0x27606), "beqz\ta1,27606")
+    );
+    // c.jr ra: `ret`.
+    let ret = c(0x8082, 0x27658);
+    assert_eq!(
+        (ret.length, ret.flow, ret.text.as_str()),
+        (2, Flow::Return, "ret")
+    );
+    // c.jalr a5: through a5, linking ra.
+    let jalr = c(0x9782, 0x279aa);
+    assert_eq!(
+        (jalr.length, jalr.flow, jalr.text.as_str()),
+        (
+            2,
+            Flow::Indirect {
+                register: 15,
+                offset: 0,
+                link: true
+            },
+            "jalr\ta5"
+        )
+    );
+    // c.ebreak traps; the all-zero parcel is `unimp`.
+    assert_eq!(c(0x9002, 0).flow, Flow::Trap);
+    assert_eq!(c(0x0000, 0).text, "unimp");
 }
 
 #[test]
