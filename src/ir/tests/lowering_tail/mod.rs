@@ -10,6 +10,7 @@ use crate::ir::{IrOp, IrProject, IrValue};
 use crate::testutil::{check_src, lower_src_concrete};
 use crate::types::ParameterType;
 
+mod captures;
 mod concat_fold;
 mod link_defaults;
 mod statement;
