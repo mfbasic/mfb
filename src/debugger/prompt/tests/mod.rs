@@ -3,6 +3,7 @@ use super::*;
 mod execution;
 mod heap;
 mod inspection;
+mod listing;
 use crate::debugger::names::Origin;
 use crate::debugger::{Change, FunctionRange, Step};
 
