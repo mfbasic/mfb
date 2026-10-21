@@ -7,14 +7,11 @@
 //! `fpcr`, padding. [`registers`] turns them into the display list and
 //! [`assign`] writes one named value back into them.
 
-use super::{Register, RegisterGroup, RegisterValue};
+use super::NZCV_BITS;
+use crate::debugger::{Register, RegisterGroup, RegisterValue};
 
 /// The general registers, `sp`, `pc` and the processor state, as words.
 pub(crate) type General = [u64; 34];
-
-/// The bits of the processor state the `nzcv` register shows: the N, Z, C and
-/// V flags.
-pub(crate) const NZCV_BITS: u64 = 0xf000_0000;
 
 /// The SIMD and floating-point registers.
 #[repr(C, align(16))]

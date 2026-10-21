@@ -57,12 +57,16 @@ parsing succeeds, `mfb dbg` fails with `mfb dbg is not supported on <os>
 disassembler and the unwinder read AArch64 code, so another architecture has
 no backend. [[src/cli/dbg.rs:run_dbg_command]]
 [[src/debugger/mod.rs:host_backend]] A new platform implements the `Backend`
-trait (`executable_of`, `launch`, `attach`) and an `Inferior` (`pid`, `end`,
-`functions`, `data_symbol`, `read_u64`, `read_bytes`, `threads`, `registers`,
-`set_registers`, `step`,
+trait (`executable_of`, `launch`, `attach`) and an `Inferior` (`pid`, `arch`,
+`end`, `functions`, `data_symbol`, `read_u64`, `read_bytes`, `threads`,
+`registers`, `set_registers`, `step`,
 `restart`, `entry`, `insert_breakpoint`, `remove_breakpoint`,
 `insert_watchpoint`, `remove_watchpoint`, `run`, `read_code`, `function_at`,
 `library_functions`, `data_symbol_at`) and is returned from `host_backend`.
+`arch` answers the processor's descriptor: the register names, the instruction
+sizes, the decoder, the unwinder's reading of an instruction, the watchpoint
+span and the ELF identity the platform-neutral code uses, which names no
+processor itself. [[src/debugger/arch.rs:Arch]]
 Symbol classification, the reading of the runtime's thread table and arena
 registry (`src/debugger/runtime.rs`), breakpoint resolution, pending
 placement and tests, the watchpoints' change test and commands at a stop
@@ -164,7 +168,7 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   `mach_vm_region` holding `sp`.
 - **Registers.** `registers` reads one thread with `thread_get_state` flavors
   `ARM_THREAD_STATE64` and `ARM_NEON_STATE64`.
-  [[src/debugger/arm64.rs:registers]] `set_registers` reads
+  [[src/debugger/arm64/registers.rs:registers]] `set_registers` reads
   `ARM_THREAD_STATE64`, replaces the words it names (`x0`–`x28`, `fp`, `lr`,
   `sp`, `pc`; for `nzcv`, CPSR's bits 31–28, `arm64::NZCV_BITS`, the rest of the word
   kept), and writes it back with `thread_set_state`; `fpsr` and `fpcr` are read,
@@ -342,7 +346,7 @@ needs no signing: a process may trace its own children, and others as
 - **Registers.** `NT_PRSTATUS` (`user_pt_regs`) and `NT_FPREGSET`
   (`user_fpsimd_state`), laid out as macOS's thread and NEON states;
   `set_registers` writes them back with `PTRACE_SETREGSET`.
-  [[src/debugger/arm64.rs:registers]]
+  [[src/debugger/arm64/registers.rs:registers]]
 - **Run.** A thread paused on a breakpoint steps over it first, as on macOS;
   then every stopped thread is continued (`PTRACE_CONT`) with any signal held
   for it, and the session waits (`waitpid(-1, __WALL)`). A `SIGTRAP` with
@@ -711,7 +715,7 @@ block alone. [[src/debugger/prompt/render.rs:common_register_lines]]
 On AArch64 the roles are the compiler's own register assignments
 (`./mfb spec memory native-calling-convention`), and a role is a fixed label
 for the register, not a reading of what it holds at the stop:
-[[src/debugger/arm64.rs:role]]
+[[src/debugger/arm64/registers.rs:role]]
 
 | Register | Role |
 | --- | --- |
@@ -729,7 +733,7 @@ register (as MFBASIC's `Integer`) and unsigned for a 128-bit one.
 [[src/debugger/prompt/render.rs:register_lines]]
 
 On AArch64 every register of the thread state is read
-(`src/debugger/arm64.rs:registers`), the same on macOS and Linux:
+(`src/debugger/arm64/registers.rs:registers`), the same on macOS and Linux:
 
 | Group | Registers |
 | --- | --- |

@@ -8,11 +8,7 @@
 //! platform produced it. A platform joins by implementing [`Backend`] and
 //! answering it from [`host_backend`]; the prompt and the CLI need no change.
 
-#[cfg(any(
-    target_os = "macos",
-    all(target_os = "linux", target_arch = "aarch64"),
-    test
-))]
+pub(crate) mod arch;
 mod arm64;
 pub(crate) mod backtrace;
 pub(crate) mod breakpoints;
@@ -63,6 +59,9 @@ pub(crate) trait Backend {
 /// A paused debuggee the session owns.
 pub(crate) trait Inferior {
     fn pid(&self) -> u32;
+    /// The processor the debuggee runs on: its registers' names, its
+    /// instructions' sizes, its decoder and its unwinder's rules.
+    fn arch(&self) -> &'static arch::Arch;
     /// End the session the way it began: kill a program the debugger launched,
     /// or let an attached program run on and detach from it. Called once; an
     /// implementation also ends an unended session when it is dropped.

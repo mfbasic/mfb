@@ -114,6 +114,9 @@ impl Inferior for Paused {
     fn pid(&self) -> u32 {
         7
     }
+    fn arch(&self) -> &'static crate::debugger::arch::Arch {
+        crate::debugger::arch::host()
+    }
     fn end(&mut self) -> Result<Ending, String> {
         Ok(self.ending)
     }

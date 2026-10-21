@@ -43,12 +43,12 @@ These hold for all of plan-174. Sub-plans B to E point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| The debugger unit tests pass on main | `cargo test --bin mfb debugger::` → `155 passed; 0 failed` | MET (2026-10-12, macOS, at `c0a48dd4f`) |
-| The end-to-end debugger tests pass on macOS | `cargo test --test cli_dbg` → `18 passed; 0 failed` | MET (2026-10-12, at `c0a48dd4f`, 135 s) |
-| The end-to-end debugger tests pass on Linux AArch64 | on box 2226: `. ~/mfbdbg-env.sh; cargo build --release --bin mfb; MFB_TEST_EXE=$PWD/target/release/mfb cargo test --test cli_dbg` → `16 passed; 0 failed` | MET (2026-10-12, at `c0a48dd4f`: `16 passed; 0 failed`, 4 s after the builds) |
-| bug-1004 is fixed: `an_attached_threaded_program_lists_its_threads_and_arenas` no longer flakes | `ls bugs/bug-1004-*` → no match (moved to `bugs/completed/`) | NOT MET (2026-10-12: open; on box 2226 the test alone failed 2 of 5 runs at `c0a48dd4f`) |
+| The debugger unit tests pass on main | `cargo test --bin mfb debugger::` → `180 passed; 0 failed` | MET (2026-10-20, macOS, at `52e4535b3`: `180 passed; 0 failed`) |
+| The end-to-end debugger tests pass on macOS | `cargo test --test cli_dbg` → `21 passed; 0 failed` | MET (2026-10-20, at `52e4535b3` in a detached worktree: `21 passed; 0 failed`, 517 s) |
+| The end-to-end debugger tests pass on Linux AArch64 | on box 2226: `. ~/mfbdbg-env.sh; cargo build --release --bin mfb; MFB_TEST_EXE=$PWD/target/release/mfb cargo test --test cli_dbg` → `19 passed; 0 failed` | MET (2026-10-20, at `52e4535b3` in a fresh `~/dbgrv` tree: release build 7 min 30 s, then `19 passed; 0 failed`, 4 s) |
+| bug-1004 is fixed: `an_attached_threaded_program_lists_its_threads_and_arenas` no longer flakes | `ls bugs/bug-1004-*` → no match (moved to `bugs/completed/`) | MET (2026-10-20: `ls bugs/bug-1004-*` → no match; `ls bugs/completed/ \| grep 1004` → `bug-1004-cli-dbg-attached-threaded-arena-test-flakes.md`) |
 | `mfb` builds and runs on riscv64 | on box 2229: `cargo build` in a `git archive HEAD` tree → `Finished`, and `target/debug/mfb --version` prints a version | MET (2026-10-12: `Finished` in 45 min 36 s; `MFBasic Compiler 0.1.0`) |
-| A riscv64 executable the compiler builds runs on both boxes | `mfb build --debug -O0 --target linux-riscv64 examples/debug`; run `debug-musl.out 2 500` on 2229 and `debug-glibc.out 2 500` on 2232 → `total: 68 primes` | MET (2026-10-12) |
+| A riscv64 executable the compiler builds runs on both boxes | `mfb build --debug -O0 --target linux-riscv64 examples/debug`; run `debug-musl.out 2 500` on 2229 and `debug-glibc.out 2 500` on 2232 → `total: 68 primes` | MET (2026-10-20, built by the release `mfb` of `52e4535b3`: both print `total: 68 primes`) |
 
 Everything below is written against the world where these hold.
 
@@ -278,21 +278,31 @@ None for `mfb dbg`: no command's output, no message and no help text changes.
 
 Adds the type and its AArch64 value with no reader. Safe alone: nothing calls it.
 
-- [ ] Add `src/debugger/arch.rs` with `Arch`, `Decoded`, `Effect`, `ArchHelp`,
+- [x] Add `src/debugger/arch.rs` with `Arch`, `Decoded`, `Effect`, `ArchHelp`,
       `ElfArch` and `pub(crate) fn host() -> &'static Arch`; declare `mod arch`
-      in `mod.rs` with no `cfg`.
-- [ ] In `arm64.rs`, add `pub(crate) const AARCH64: Arch` with the names of
+      in `mod.rs` with no `cfg`. (Also `Reg`, the unwinder's register roles.
+      `mod arm64` lost its `cfg` too, since `host()` names `AARCH64` on every
+      host; its register file moved to `arm64/registers.rs` under the old
+      `cfg`, see Corrections.)
+- [x] In `arm64.rs`, add `pub(crate) const AARCH64: Arch` with the names of
       §3 and placeholder-free functions: `is_register` (moved from
       `location.rs`), `settable`, `decode`, `length`, `effect` (Phase 4 fills
       `effect` by moving code; until then it wraps `backtrace::Effect::of`).
-- [ ] Add `fn arch(&self) -> &'static Arch` to `Inferior` in `mod.rs` and to the
-      five implementations, each answering `&arm64::AARCH64`.
-- [ ] `src/docs/spec/tooling/10_debugger.md`, "Host support": add `arch` to the
+      (In `arm64/mod.rs`. `effect` is the moved code from the start, not a
+      wrapper: see Corrections. `holds` carries `jump`'s value checks.)
+- [x] Add `fn arch(&self) -> &'static Arch` to `Inferior` in `mod.rs` and to the
+      five implementations, each answering `&arm64::AARCH64`. (Seven: see
+      Corrections. `src/cli/dbg/tests.rs:Paused`, outside `debugger`, answers
+      `arch::host()`.)
+- [x] `src/docs/spec/tooling/10_debugger.md`, "Host support": add `arch` to the
       list of `Inferior` methods a platform implements, with one sentence saying
       it names the registers, instruction size, decoder and unwinder rules the
-      neutral code uses, cited `[[src/debugger/arch.rs:Arch]]`.
-- [ ] Tests: `arm64::tests::the_descriptor_names_the_registers_the_backends_read`
+      neutral code uses, cited `[[src/debugger/arch.rs:Arch]]`. (The four
+      `[[src/debugger/arm64.rs:…]]` citations now name `arm64/registers.rs`;
+      `cargo test --bin mfb spec` → `67 passed; 0 failed`.)
+- [x] Tests: `arm64::tests::the_descriptor_names_the_registers_the_backends_read`
       asserts every name in `AARCH64` is a name `arm64::registers` produces.
+      `cargo test --bin mfb debugger::arm64` → `4 passed; 0 failed`.
 
 Acceptance: the descriptor exists and agrees with the register file.
   Check: `cargo test --bin mfb debugger::arm64` → 4 passed (3 existing + 1 new)
@@ -382,6 +392,57 @@ Commit: —
   2026-10-12. Existing man pages stay AArch64. (plan-174-E)
 
 ## Corrections
+
+- **The tree was split after this plan was written (plan-176).** `prompt.rs`
+  is `prompt/{mod,command,actions,stops,render}.rs`, `breakpoints.rs` is
+  `breakpoints/{mod,errors,report,running}.rs`, `linux.rs` is
+  `linux/{mod,inferior,images,process,threads}.rs`, and `macos.rs` is
+  `macos/`. Tasks naming the old files apply to their parts. Measured
+  2026-10-20 with `find src/debugger -name '*.rs'`.
+- **Counts.** Unit tests in `src/debugger`: 180, not 155
+  (`grep -rc '#\[test\]' src/debugger | awk -F: '{s+=$2} END {print s}'` → 180,
+  and the Prerequisites run → `180 passed`). `cli_dbg` tests: 22 across
+  `tests/cli/cli_dbg.rs` and `tests/cli/cli_dbg/` (`grep -rc '#\[test\]'` → 22),
+  21 of them run on macOS and 19 on box 2226 (the Prerequisites runs).
+  Phase 2's and 3's "157 passed" become 182 (180 + the two new tests).
+- **`impl Inferior for`: 7, not 5** (`grep -rn 'impl Inferior for' src` → `Task`,
+  `Tracee`, and the test fakes `Recorder`, `Memory`, `Program`, `Exiting`
+  (`breakpoints/report/tests`) and `Paused` (`src/cli/dbg/tests.rs`)).
+- **More register names than §2 lists.** `breakpoints/report.rs:take_line` and
+  `open_report` read `x0`, `x1`, `x2`, `lr` and write `x0`, `pc` (the `write`
+  call the debug report is taken from); they read `arch.arguments` and
+  `arch.link` like `watched_raise`. So the descriptor carries `arguments: [&str;
+  8]` (the registers a call's arguments and results are in) in place of §3's
+  `results`, `park_code` and `park_origin`: `finish` prints `arguments[0..2]`,
+  and the park's code and origin are its arguments 1 and 3.
+- **`Location::parse` does not call `is_register`** (read it); only
+  `location::name_value` and `prompt/command.rs:Disassembly::from` do. So
+  `Location::parse` keeps its signature and `prompt::parse` (whose
+  `Disassembly::from` decides between a location and a function name) takes
+  `arch`.
+- **`settable` is two checks at two times.** The name is checked when the line
+  is parsed (`prompt/command.rs:settable`), the value when `jump` runs
+  (`prompt/actions.rs:jump`, against `NZCV_FLAGS` and 32 bits). So the
+  descriptor has `settable: fn(&str) -> Result<(), String>` and
+  `holds: fn(&str, u64) -> Result<(), String>`, not one `settable(name,
+  value)`. `NZCV_FLAGS` (`prompt/command.rs`) and `NZCV_BITS` (`arm64.rs`) were
+  the same constant; one, `arm64::NZCV_BITS`, remains.
+- **`arm64` must compile on every host.** `arch::host()` answers `AARCH64` on a
+  host with no backend (§3), so `mod arm64` loses its `cfg`. Its register file
+  (`General`, `Float`, `registers`, `assign`), which only the backends use,
+  keeps the old `cfg` in `arm64/registers.rs`, so a host with no backend gets
+  no dead code.
+- **The `Effect` move happens in Phase 1, not Phase 4.** The descriptor's
+  `effect` answers `arch::Effect`; wrapping `backtrace::Effect::of` would have
+  meant a conversion between two copies of the same enum, written to be deleted
+  three phases later. So Phase 1 adds `arm64::effect` as the moved code and
+  Phase 4 switches `backtrace.rs` to it and deletes the old copy. The risk
+  stays in Phase 4: `backtrace.rs` reads the old code until then.
+- **The descriptor gains `longest`** (the most bytes one instruction takes, 4):
+  `disassemble.rs` sizes a counted read as `count * 4` and must keep doing so
+  for a 2-or-4-byte processor.
+- **Help text is compared with `52e4535b3`'s, not `c0a48dd4f`'s** (Phase 2's
+  test): the text at the plan's base commit is the one this plan must keep.
 
 ## Summary
 
