@@ -37,6 +37,8 @@ mod resource_alias_forms;
 #[cfg(test)]
 mod small_units;
 #[cfg(test)]
+mod snapshot_forms;
+#[cfg(test)]
 mod statement_temps;
 #[cfg(test)]
 mod store_reach_walk;
