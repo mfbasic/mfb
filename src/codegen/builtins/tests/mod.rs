@@ -30,6 +30,7 @@
 
 mod abi_inline;
 mod abi_inline_element_types;
+mod abi_inline_platforms;
 mod app_mode_io;
 mod app_surface;
 mod bits_shift_forms;
