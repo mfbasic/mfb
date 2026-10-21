@@ -1,5 +1,7 @@
 use super::*;
 
+mod edges;
+
 /// bug-299 D2: `DOC` began a verbatim capture anywhere `is_statement_start`
 /// held, which includes just after a `:` separator. The parser rejects a `DOC`
 /// there regardless, so the capture could never yield a compilable program --
