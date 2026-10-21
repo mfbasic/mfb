@@ -237,6 +237,9 @@ mod binary_repr_tests;
 #[cfg(test)]
 mod os_exit_tests;
 
+#[cfg(test)]
+mod package_private_types;
+
 /// Structural coverage for `ir/lower/` (plan-12): valid MFBASIC programs that
 /// exercise every statement / expression / type / binding / native-LINK / DOC
 /// lowering path, asserting on the produced `IrProject`. Uses the shared
