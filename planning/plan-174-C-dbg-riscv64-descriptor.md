@@ -32,8 +32,8 @@ The prerequisites are stated once in plan-174-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-174-A is complete | `ls planning/plan-174-A-*` → no match | NOT MET (2026-10-12) |
-| plan-174-B is complete | `ls planning/plan-174-B-*` → no match | NOT MET (2026-10-12) |
+| plan-174-A is complete | `ls planning/plan-174-A-*` → no match | MET (2026-10-20: `ls planning/plan-174-A-*` → no match; archived to `planning/completed/`) |
+| plan-174-B is complete | `ls planning/plan-174-B-*` → no match | MET (2026-10-20: `ls planning/plan-174-B-*` → no match; archived to `planning/completed/`) |
 
 If either is not complete, this plan cannot start.
 

@@ -28,7 +28,7 @@ The prerequisites are stated once in plan-174-A. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-174-A is complete | `ls planning/plan-174-A-*` → no match (archived to `planning/completed/`) | NOT MET (2026-10-12: plan-174-A is not started) |
+| plan-174-A is complete | `ls planning/plan-174-A-*` → no match (archived to `planning/completed/`) | MET (2026-10-20: all of plan-174-A's boxes ticked and verified by `9e143baae`–`7c9feb742`; archived with B, since B's work, which reads none of A's code, ran beside A's last box runs: see Corrections) |
 | Box 2232 has GNU `objdump` | `ssh -p 2232 test@127.0.0.1 'objdump --version \| head -1'` → a version line | MET (2026-10-20: `GNU objdump (GNU Binutils for Debian) 2.44`) |
 
 If plan-174-A is not complete, this plan cannot start.
@@ -221,7 +221,7 @@ phase has something to be checked against.
 - [x] Add `tools/oracles/riscv64-decode/objdump-corpus.sh` and `README.md`.
       (Also `sample-words.py`, which writes `objdump_words.txt`, and the entry
       in `tools/oracles/README.md`.)
-- [ ] On box 2232, write corpora for `/tmp/debug-glibc.out` (built with
+- [x] On box 2232, write corpora for `/tmp/debug-glibc.out` (built with
       `mfb build --debug -O0 --target linux-riscv64 examples/debug`) and
       `/lib/riscv64-linux-gnu/libc.so.6`; copy `/lib/ld-musl-riscv64.so.1` from
       box 2229 to 2232 and write its corpus too. Keep them in `/tmp/rv-corpus/`.
@@ -323,7 +323,7 @@ undecoded.
   `ld-musl.txt: 106156 rows, 0 differing, 0 undecoded`; and `encoder.txt: 538
   rows, 0 differing, 0 undecoded`. `cargo test --bin mfb riscv64::decode` →
   `5 passed; 0 failed; 2 ignored`.
-Commit: —
+Commit: `d610e2f99`
 
 ## Validation Plan
 
@@ -346,6 +346,12 @@ Commit: —
   `objdump`'s default. (§3)
 
 ## Corrections
+
+- **B ran beside A's last checks.** B's prerequisite is A complete. B's
+  Phase 1 (the corpora, on the boxes) started while A's Phase 4 suites ran on
+  box 2226 and the Mac, since B adds a new module A's code never reaches; A's
+  runs came back green (`19 passed`, `21 passed`) before B's Phase 2 landed,
+  and A and B were archived together.
 
 - **Mnemonic counts with `objdump`'s aliases on.** §2 counts mnemonics with
   `-M no-aliases` (47 in the example, 166 in glibc). The corpora are written
