@@ -24,6 +24,9 @@ mod corpus;
 mod encode_tests;
 #[cfg(test)]
 mod model;
+#[cfg(test)]
+#[path = "tests/model_edges.rs"]
+mod model_edges;
 /// The `.ncode` interpreter the `--app` handler tests use (`tests/common`),
 /// shared so the emitted decoder runs on the same machine model. This crate
 /// calls only the interpreter, not the registration scan the handler tests use.
