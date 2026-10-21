@@ -115,6 +115,7 @@ mod opt_knownbits;
 mod opt_lencache;
 mod opt_local_rewrites;
 mod opt_loop_facts;
+mod opt_pre;
 mod opt_promote_frame;
 mod opt_range_facts;
 mod opt_recovery;
