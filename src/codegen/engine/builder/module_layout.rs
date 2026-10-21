@@ -407,22 +407,10 @@ pub(super) fn plan_arena_layout(
     // emit the PCG64 helpers, seed each thread's arena, and draw a fresh
     // per-thread stream on spawn.
     let uses_rng = module_uses_call(module, "math.rand") || module_uses_call(module, "math.seed");
-    // The auto-restore on exit (§6.5) and a program that only calls `term::on()`
-    // both need the `off` helper emitted; ensure it is present whenever `term::`
-    // is used.
-    if uses_term && !runtime_symbols.iter().any(|s| s == "_mfb_rt_term_term_off") {
-        runtime_symbols.push("_mfb_rt_term_term_off".to_string());
-    }
-    // plan-35-C: `term::off` presents the final frame by calling the `term::sync`
-    // helper, and the shutdown teardown frees the grid, so the present helper must
-    // exist whenever `term::` is used even if the program never calls `sync`.
-    if uses_term
-        && !runtime_symbols
-            .iter()
-            .any(|s| s == "_mfb_rt_term_term_sync")
-    {
-        runtime_symbols.push("_mfb_rt_term_term_sync".to_string());
-    }
+    // The auto-restore on exit (§6.5) calls the `term::off` helper, which presents
+    // the final frame through `term::sync` (plan-35-C): both are in
+    // `runtime_symbols` whenever `term::` is used, because the native plan adds
+    // them for any `_mfb_rt_term_` symbol (`plan::symbols::runtime_symbols`).
     let term_state_offset = if uses_term {
         Some(ENTRY_GLOBALS_OFFSET + (globals_base + link_slot_count) * 8)
     } else {

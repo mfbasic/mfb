@@ -1,12 +1,15 @@
-//! Module-layout decisions (`engine/builder/module_layout.rs`) that depend on what
-//! a program uses rather than on what it calls by name.
+//! Module-layout decisions that depend on what a program uses rather than on
+//! what it calls by name.
 //!
 //! * A program that uses `term::` gets the `term::off` and `term::sync` helpers
 //!   even if it never calls them: the exit path restores the terminal through
-//!   `off` (§6.5), and `off` presents the final frame through `sync`.
+//!   `off` (§6.5), and `off` presents the final frame through `sync`. The native
+//!   plan adds both for any `term::` helper (`target/shared/plan/symbols.rs`), and
+//!   the module layout relies on that.
 //! * An `--app` program that uses a window member (`app::setTitle`, …) gets the
 //!   window's process-global state as data objects — the title, its lock, the
-//!   fullscreen word — and a program that does not, does not.
+//!   fullscreen word — and a program that does not, does not
+//!   (`engine/builder/module_layout.rs`).
 
 use crate::target::NativeBuildMode::Console;
 use crate::testutil::{app_code_cached, code_for_src_cached, CodeTarget};
