@@ -2,6 +2,8 @@ use super::*;
 use crate::target::shared::nir::{NirFunction, NirModule};
 use crate::testutil::{nir_for_src, CodeTarget};
 
+mod rename_forms;
+
 const TYPES: &str = "\
 IMPORT collections
 IMPORT io
