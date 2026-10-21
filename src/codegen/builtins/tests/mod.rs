@@ -70,6 +70,7 @@ mod perf;
 mod plan_validation;
 mod platform_failure;
 mod platform_hooks;
+mod produced_union_close;
 mod registry_bodies;
 mod resource_union_default;
 mod shape_refusals;

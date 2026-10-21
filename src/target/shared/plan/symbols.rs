@@ -68,10 +68,7 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     }
     // A resource-union bind drops by dispatching to each variant's close op
     // (codegen-emitted on scope exit), so pull in every variant's close helper.
-    let mut bind_types = std::collections::HashSet::new();
-    for function in &module.functions {
-        collect_bind_type_names(&function.body, &mut bind_types);
-    }
+    let bind_types = resource_union_names_in_use(module);
     // bug-851: a `RESOURCE`-declared variant counts toward an all-resource union;
     // its own close is a LINK thunk the module already emits, so only the
     // built-in variants' close helpers are added below.
@@ -139,6 +136,75 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     symbols
 }
 
+/// Every type name a resource-union drop can be asked to dispatch on: a `Bind`'s
+/// type (a scope-exit drop), a record field's type (the owner's drop reaches the
+/// union), and the leaves of what a call returns (a union produced and never
+/// bound is dropped at its statement's end - `append(xs, openStream())`, or a
+/// discarded `openStream()`). In every case the drop calls each variant's close
+/// op, so the variants' close helpers must be defined; with only the `Bind`
+/// scan a program that never binds the union referenced `_mfb_rt_tcp_tcp_close`
+/// from a drop and nothing emitted it.
+pub(super) fn resource_union_names_in_use(module: &NirModule) -> std::collections::HashSet<String> {
+    use super::nir::visit::{walk_value, NirVisitor};
+    /// The type name a (possibly `RES` / collection / `Result` wrapped) type reaches.
+    fn leaf_names(type_: &ParameterType, out: &mut std::collections::HashSet<String>) {
+        match type_ {
+            ParameterType::Res(inner) | ParameterType::ResultOf(inner) => leaf_names(inner, out),
+            ParameterType::ListOf(element) | ParameterType::SetOf(element) => {
+                leaf_names(element, out)
+            }
+            ParameterType::MapOf(_, value) => leaf_names(value, out),
+            other => {
+                out.insert(other.without_state().name().into_owned());
+            }
+        }
+    }
+    struct Calls<'m> {
+        returns: HashMap<&'m str, &'m ParameterType>,
+        names: std::collections::HashSet<String>,
+    }
+    impl NirVisitor for Calls<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Call { target, .. }
+            | NirValue::CallResult { target, .. }
+            | NirValue::RuntimeCall { target, .. } = value
+            {
+                let returned = match self.returns.get(target.as_str()) {
+                    Some(type_) => Some((*type_).clone()),
+                    None => crate::codegen::builtins::call_return_type(target),
+                };
+                if let Some(returned) = returned {
+                    leaf_names(&returned, &mut self.names);
+                }
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut names = std::collections::HashSet::new();
+    for function in &module.functions {
+        collect_bind_type_names(&function.body, &mut names);
+    }
+    for type_ in &module.types {
+        if type_.kind == "type" || type_.kind == "record" {
+            for field in &type_.fields {
+                leaf_names(&field.type_, &mut names);
+            }
+        }
+    }
+    let mut calls = Calls {
+        returns: module
+            .functions
+            .iter()
+            .map(|function| (function.name.as_str(), &function.returns))
+            .collect(),
+        names,
+    };
+    for function in &module.functions {
+        calls.visit_ops(&function.body);
+    }
+    calls.names
+}
+
 pub(super) fn collect_bind_type_names(
     ops: &[NirOp],
     types: &mut std::collections::HashSet<String>,
@@ -201,10 +267,7 @@ pub(super) fn platform_imports(
     // without this a scope-dropped resource union whose variant close needs a
     // unique import (e.g. audio's `_munmap`) fails the emitter's
     // `platform_imports.get("_X")` lookup on valid source (bug-209).
-    let mut bind_types = std::collections::HashSet::new();
-    for function in &module.functions {
-        collect_bind_type_names(&function.body, &mut bind_types);
-    }
+    let bind_types = resource_union_names_in_use(module);
     // bug-851: a `RESOURCE`-declared variant counts toward an all-resource union;
     // its own close is a LINK thunk the module already emits, so only the
     // built-in variants' close helpers are added below.
