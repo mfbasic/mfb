@@ -2,6 +2,45 @@ use super::*;
 use crate::codegen::runtime::canvas::{GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_STATE_SIZE};
 use crate::codegen::runtime::canvas::{VULKAN_EDGE_BYTES, VULKAN_EDGE_RESIDUAL_BYTES};
 
+/// Check one hand-transcribed C layout: every `(member, offset, width)` lies inside
+/// the struct at its natural alignment, no two members overlap, and the size is a
+/// multiple of the struct's alignment. What it cannot check is that the offsets match
+/// the Vulkan headers — only a driver can — but a transcription slip (a member moved,
+/// a width misread, a pointer at a 4-byte offset) almost always breaks one of these.
+pub(super) fn assert_layout(
+    name: &str,
+    size: usize,
+    align: usize,
+    members: &[(&str, usize, usize)],
+) {
+    assert_eq!(
+        size % align,
+        0,
+        "{name}: size {size} is not a multiple of {align}"
+    );
+    let mut sorted = members.to_vec();
+    sorted.sort_by_key(|&(_, offset, _)| offset);
+    let mut end = 0;
+    for (member, offset, width) in sorted {
+        assert!(
+            offset + width <= size,
+            "{name}.{member}: [{offset}, {}) runs past the {size}-byte struct",
+            offset + width
+        );
+        assert_eq!(
+            offset % width.min(8),
+            0,
+            "{name}.{member}: offset {offset} is not {}-byte aligned",
+            width.min(8)
+        );
+        assert!(
+            offset >= end,
+            "{name}.{member}: offset {offset} overlaps the member ending at {end}"
+        );
+        end = offset + width;
+    }
+}
+
 /// Every struct table above, member by member with its C width — the check the
 /// section header promises.
 #[test]

@@ -339,6 +339,7 @@ fn park_state(builder: &mut CodeBuilder, off_state: usize, offset: usize, slot: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::runtime::canvas::vulkan::tests::assert_layout;
 
     /// The swapchain path's struct tables, checked like the renderer's
     /// (`layout_tables_are_self_consistent`).
