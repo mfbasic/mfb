@@ -1,8 +1,8 @@
-# plan-171-G: Short branch and immediate encodings (rv64 B-type, x86 rel8/imm8); plan-171 closing review
+# plan-171-I: Short branch and immediate encodings (rv64 B-type, x86 rel8/imm8); plan-171 closing review
 
-Last updated: 2026-10-04
+Last updated: 2026-10-21
 Effort: large (3h–1d)
-Depends on: plan-171-F
+Depends on: plan-171-H
 
 Two backends never use their short encodings. riscv64 emits **every**
 conditional branch as the 8-byte long form `b<inverse> rs1, rs2, +8; jal zero,
@@ -36,8 +36,8 @@ References: plan-171-A's list, plus
 
 ## Prerequisites
 
-See plan-171-A §Prerequisites. In addition: plan-171-F complete
-(`ls planning/plan-171-F-* 2>/dev/null` → no match), and the "value-independent
+See plan-171-A §Prerequisites. In addition: plan-171-H complete
+(`ls planning/plan-171-H-* 2>/dev/null` → no match), and the "value-independent
 size" rationale recorded by plan-171-B Phase 1 (`grep -n 'value-independent' planning/completed/plan-171-B-*.md` → its recorded finding).
 
 ## 1. Goal
@@ -113,7 +113,7 @@ anyway — the relaxation pass is the same work, done once in the right place).
       immediates fitting i8, `mov_imm` classes, `disp8`-eligible accesses;
       record in §2.
 
-Acceptance: §2 has no UNMEASURED. Check: `grep -c UNMEASURED planning/plan-171-G-*.md` → 0 (est. 20 min).
+Acceptance: §2 has no UNMEASURED. Check: `grep -c UNMEASURED planning/plan-171-I-*.md` → 0 (est. 20 min).
 Commit: —
 
 ### Phase 2 — riscv64 short branches
@@ -159,7 +159,8 @@ Commit: —
 - [ ] For each pattern still above zero, a one-line reason per remaining class
       (e.g. "flags live", "non-encodable mask", "guarded MATCH").
 - [ ] Hand-written emitters outside `finalize_frame` (B Phase 5's list) re-checked
-      against all forms (pairs, logical immediates, selects, tables).
+      against all forms (pairs, logical immediates, selects, tables, G's
+      addressing/multiply-add/bitfield/`csinc`/`csneg` forms, H's shared exits).
 - [ ] `planning/optimizations.md`: every row plan-171 touched is current.
 - [ ] Benchmark (macOS host): full `./benchmark/language/run.sh 10` vs.
       `benchmark/language/baseline/` with `rank.py`; regenerate `benchmark/language/baseline/`
@@ -188,7 +189,7 @@ Commit: —
   acceptance; `linux-runtime-proof.sh` on 2223 (aarch64), 2227/2228 (x86_64),
   2229/2232 (riscv64); Windows fixtures on 2230.
 - Doc sync: every letter's Phase-docs; `mfb man optimizations`.
-- Final gate (once): `cargo test --no-fail-fast > /tmp/171g.log 2>&1; echo EXIT=$?` → `EXIT=0`; `grep -c '^failures:' /tmp/171g.log` → 0; `bash scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)` (est. 90 min).
+- Final gate (once): `cargo test --no-fail-fast > /tmp/171i.log 2>&1; echo EXIT=$?` → `EXIT=0`; `grep -c '^failures:' /tmp/171i.log` → 0; `bash scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)` (est. 90 min).
 
 ## Open Decisions
 

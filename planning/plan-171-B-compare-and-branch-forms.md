@@ -55,7 +55,7 @@ See plan-171-A §Prerequisites (stated once for the family). In addition:
 - No change to `MATCH`/`IF` semantics, trap order, or any value.
 - `cbz`/`tbz` never appear in the register allocator's input (they name a
   register at a terminator — the bug-746 hazard class; §3).
-- No change to riscv64 branch *size* (8-byte long form stays; sub-plan G).
+- No change to riscv64 branch *size* (8-byte long form stays; sub-plan I).
 
 ## 2. Current State
 

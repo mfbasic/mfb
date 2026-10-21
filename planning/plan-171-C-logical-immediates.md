@@ -56,7 +56,7 @@ See plan-171-A §Prerequisites. In addition: plan-171-B complete
 
 - No change to any value or trap; logical ops never trap.
 - No `tst`/`ands` form (Open Decision 1).
-- x86 `mov_imm` shortening (`mov r32, imm32`, `mov r/m64, simm32`) is sub-plan G
+- x86 `mov_imm` shortening (`mov r32, imm32`, `mov r/m64, simm32`) is sub-plan I
   (it is an x86 size-encoding change of the same class as rel8).
 
 ## 2. Current State
@@ -172,7 +172,7 @@ Commit: —
 - [ ] Decoder round-trip table rows for each new encoder mnemonic (the class and
       the `mov` bitmask alias already decode, `f62f27418`).
 - [ ] x86: `mov dst, src; and|or|xor dst, imm32` (`81 /4|/1|/6`, imm8 `83` form
-      deferred to G); encode error on non-`i32`.
+      deferred to I); encode error on non-`i32`.
 - [ ] riscv64: `andi`/`ori`/`xori` (I-type funct3 7/6/4); encode error outside 12-bit.
 - [ ] `opt2/plans/mark.rs` (`removable_op`, `flag_preserving`: AArch64 preserves,
       x86 does not), `lvn::numberable_op`, `constant_folding::fold_one`

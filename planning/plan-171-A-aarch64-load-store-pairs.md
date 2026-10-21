@@ -1,7 +1,7 @@
 # plan-171-A: Instruction-form census tool and AArch64 `stp`/`ldp`
 
-Last updated: 2026-10-04
-Overall Effort: huge (>3d across A–G)
+Last updated: 2026-10-21
+Overall Effort: huge (>3d across A–I)
 Effort: large (3h–1d)
 Depends on: nothing (see Prerequisites)
 
@@ -26,7 +26,9 @@ order:
 | D | conditional set and select: `cset`/`csel`, x86 `setcc`/`cmov`, rv64 `slt` family | large |
 | E | if-conversion (MIR row that forms selects from diamonds) | medium |
 | F | jump tables for dense `MATCH`; `adr` and PAC/BTI decisions | large |
-| G | short branch and immediate encodings (rv64 B-type, x86 rel8/imm8); cross-form review; final validation | large |
+| G | AArch64 addressing and arithmetic forms: register-offset and folded-offset loads/stores, shifted-operand `add`/`sub`, `madd`/`msub`, `ubfx`/`sbfx`/`ubfiz`/`sbfiz`, `csinc`/`csneg` | large |
+| H | shared function exits (AArch64): identical exit sequences in a function become one | large |
+| I | short branch and immediate encodings (rv64 B-type, x86 rel8/imm8); cross-form review; final validation | large |
 
 **This sub-plan** builds the measuring instrument every later letter uses (an
 `-ncode` instruction-pattern census) and then teaches AArch64 the
@@ -60,7 +62,7 @@ References:
 
 ## Prerequisites
 
-Stated once for the whole plan-171 family; B–G point here.
+Stated once for the whole plan-171 family; B–I point here.
 
 | Must be true | Command | Status |
 |---|---|---|
@@ -206,7 +208,7 @@ examples and benchmarks is UNMEASURED; Phase 1 measures it.
   `UNWIND_INFO` that plan-169 writes describes the prologue shape — a push-based
   prologue is that plan's business, not this one's. Today the saves are
   `mov [rsp+disp32], r` (`save_callee_saved` → `str_u64` →
-  `mem_disp32`); a shorter `disp8` form is sub-plan G.
+  `mem_disp32`); a shorter `disp8` form is sub-plan I.
 - **riscv64: none.** RV64GC has no pair load/store (Zilsd is RV32-only), and
   the encoder emits no compressed instructions (`c.sdsp` would be a size, not a
   pairing, change). Saves are one `sd`/`fsd` per register.
@@ -353,7 +355,8 @@ the restored values are identical (each register reloads its own slot).
 called once at the end of `finalize_frame` on both the framed and the frameless
 (`total_stack_size == 0`) return path. Every later post-allocation row of
 plan-171 (B's compare-and-branch formation, C's matcher extension) runs from this
-hook, so all allocated code — user functions and vreg-allocated runtime helpers
+hook, as do G's combining rows (ahead of pairing) and H's exit sharing (last), so
+all allocated code — user functions and vreg-allocated runtime helpers
 — passes through one choke point. For each adjacent `(i, i+1)`
 in one basic block (neither is a label or terminator):
 
@@ -574,5 +577,5 @@ Commit: —
 
 Risk sits in the epilogue `sp` fold and in load pairing's register rules; both
 land behind round-trip tests, frame unit tests and Linux execution. x86-64 and
-riscv64 are untouched by design. B–G reuse the census tool and the
+riscv64 are untouched by design. B–I reuse the census tool and the
 `rt_codegen_forms` test file this letter creates.
