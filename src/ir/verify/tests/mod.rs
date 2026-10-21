@@ -7,6 +7,7 @@ mod captures_struct_slots_and_state_types;
 mod cbuffers_and_thread_messages;
 mod coercion_closure_walk_and_defaultability;
 mod declarations_and_resource_states;
+mod handler_reads_nested;
 mod literals_bindings_and_loops;
 mod match_coverage_moves_and_annotations;
 mod matches_with_updates_and_money;
