@@ -55,9 +55,24 @@ fn external_symbols(functions: &[CodeFunction]) -> BTreeSet<String> {
 /// Withdraw each external symbol `lower` calls, in turn, on every POSIX backend; the
 /// refusal must name it. Returns how many (target, symbol) refusals held.
 fn refuses_each_missing_import(label: &str, lower: &Lower) -> usize {
+    refuses_each_missing_import_in(READS_STDIN, label, lower)
+}
+
+/// [`refuses_each_missing_import`] with the import list of `source`'s plan.
+fn refuses_each_missing_import_in(source: &str, label: &str, lower: &Lower) -> usize {
+    refuses_each_missing_import_on(&CodeTarget::ALL, source, label, lower)
+}
+
+/// [`refuses_each_missing_import_in`] on `targets` only, for a helper one backend owns.
+fn refuses_each_missing_import_on(
+    targets: &[CodeTarget],
+    source: &str,
+    label: &str,
+    lower: &Lower,
+) -> usize {
     let mut refused = 0;
-    for target in CodeTarget::ALL {
-        let plan = code_for_src_cached(READS_STDIN, target, Console);
+    for &target in targets {
+        let plan = code_for_src_cached(source, target, Console);
         let imports = imports_of(plan);
         let platform = platform_for(target);
         mir::set_backend(platform.backend());
@@ -127,4 +142,108 @@ fn the_stdin_subscription_helpers_refuse_an_undeclared_import() {
         refused > 0,
         "some backend must call the OS from these helpers"
     );
+}
+
+/// A program that starts a thread, so the plan imports what the thread table and the
+/// control-block helpers call.
+const STARTS_A_THREAD: &str = "\
+IMPORT thread
+
+ISOLATED FUNC work(t AS ThreadWorker OF Nothing TO Integer, seed AS Integer) AS Integer
+  RETURN seed + 1
+END FUNC
+
+FUNC main() AS Integer
+  RES a AS Thread OF Nothing TO Integer = thread::start(work, 1)
+  RETURN thread::waitFor(a)
+END FUNC
+";
+
+/// The thread table and control-block helpers (`runtime/thread/control_block.rs`):
+/// each lock, unlock, allocation and arena call is resolved through the plan's imports,
+/// with and without the `--debug` arena registry.
+#[test]
+fn the_thread_control_block_helpers_refuse_an_undeclared_import() {
+    use crate::codegen::runtime::thread::{
+        lower_thread_block_arena_create, lower_thread_block_arena_destroy,
+        lower_thread_block_release, lower_thread_table_acquire, lower_thread_table_release,
+    };
+    let mut refused = refuses_each_missing_import_in(
+        STARTS_A_THREAD,
+        "thread table acquire",
+        &|imports, platform| lower_thread_table_acquire(imports, platform).map(|f| vec![f]),
+    );
+    refused += refuses_each_missing_import_in(
+        STARTS_A_THREAD,
+        "thread table release",
+        &|imports, platform| lower_thread_table_release(imports, platform).map(|f| vec![f]),
+    );
+    for debug in [false, true] {
+        refused += refuses_each_missing_import_in(
+            STARTS_A_THREAD,
+            "thread block arena create",
+            &move |imports, platform| {
+                lower_thread_block_arena_create(debug, imports, platform).map(|f| vec![f])
+            },
+        );
+        refused += refuses_each_missing_import_in(
+            STARTS_A_THREAD,
+            "thread block arena destroy",
+            &move |imports, platform| {
+                lower_thread_block_arena_destroy(debug, imports, platform).map(|f| vec![f])
+            },
+        );
+        refused += refuses_each_missing_import_in(
+            STARTS_A_THREAD,
+            "thread block release",
+            &move |imports, platform| {
+                lower_thread_block_release(debug, imports, platform).map(|f| vec![f])
+            },
+        );
+    }
+    assert!(
+        refused > 0,
+        "some backend must call the OS from these helpers"
+    );
+}
+
+/// A program that records and plays, so a macOS plan imports what the AudioQueue
+/// callbacks call.
+const RECORDS_AND_PLAYS: &str = "\
+IMPORT audio
+
+FUNC main() AS Integer
+  RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
+  LET pcm = audio::read(mic, 256)
+  RES spk AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
+  audio::write(spk, pcm)
+  audio::close(spk)
+  audio::close(mic)
+  RETURN 0
+END FUNC
+";
+
+/// The macOS AudioQueue output and input callbacks (`audio/gen_macos_callbacks.rs`):
+/// the mutex, the condition signal and the buffer re-enqueue are each resolved through
+/// the plan's imports.
+#[test]
+fn the_macos_audio_callbacks_refuse_an_undeclared_import() {
+    use crate::codegen::builtins::audio::gen_macos_callbacks::{
+        lower_audio_input_callback, lower_audio_output_callback,
+    };
+    let output = refuses_each_missing_import_on(
+        &[CodeTarget::MacosAarch64],
+        RECORDS_AND_PLAYS,
+        "audio output callback",
+        &|imports, platform| lower_audio_output_callback(imports, platform).map(|f| vec![f]),
+    );
+    let input = refuses_each_missing_import_on(
+        &[CodeTarget::MacosAarch64],
+        RECORDS_AND_PLAYS,
+        "audio input callback",
+        &|imports, platform| lower_audio_input_callback(imports, platform).map(|f| vec![f]),
+    );
+    // Lock, signal and unlock; the input callback also re-enqueues its buffer.
+    assert_eq!(output, 3, "the output callback's three OS calls");
+    assert_eq!(input, 4, "the input callback's four OS calls");
 }
