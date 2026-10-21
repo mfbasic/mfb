@@ -150,6 +150,17 @@ Landing tier (once, at the end of this sub-plan): `scripts/artifact-gate.sh <mfb
 - `maxArenaMemoryDisable: true` with other keys present: build warning, keys ignored — author's call, recorded here. Setting both is a contradiction a user should see, and the warning does not stop the build.
 - Limits are an `IrProject` setting and are not encoded in `.mfp` — author's call, matching `max_buffer_bytes`.
 
+## Notes from the abandoned first attempt (2026-10-20)
+
+A first attempt implemented A, B and C on branch `worktree-P-179`; the owner discarded it (branch and worktree deleted, nothing merged). These are the findings worth carrying into the redo. They are review notes, not changes to the design above.
+
+- **The reader must agree with the validator on fractions.** The attempt's reader cast `12.5` to percent `12` and `2.5` to MiB `2` (`as u64` / `as i64` truncation) while the validator rejected both, and its doc comment claimed the reader never returns an out-of-range value. Filter `fract() == 0.0` in the reader too, or do not make that claim.
+- **Test the MiB upper boundary exactly.** `MAX_ARENA_MEMORY_MIB = u64::MAX / 2^20` (2^44 − 1) is exact in f64. Test `MAX` accepted and `MAX + 1` rejected; testing only `1e30` would not catch a regression to `<= u64::MAX as f64`. Valid cases should also assert that no diagnostic was collected, and the "names the offending key" test should cover `maxArenaMemoryDisable`.
+- **Spec provenance.** The new manifest section needs `[[src/…:Symbol]]` citations for the defaults and the MiB ceiling (`.ai/specifications.md`). The existing footnote that counts "keys read" must be updated when four keys are added.
+- **The IR field must be read in the same change.** An unread `pub(crate)` field warns as dead code in this binary-only crate; the attempt deferred the read to B and recorded it as a Correction. Either land A and B's read together, or accept that A carries an unused field until B lands.
+- **The crate is edition 2021:** `if let … &&` let-chains do not compile.
+- **Open question for the owner (§3, "smaller of the set keys"):** the percent always has a value (default 50), so `maxArenaMemoryMiB: 32768` alone on a 16 GiB machine still caps at 8 GiB. Confirm that this is intended, and state it in the spec either way.
+
 ## Corrections
 
 _None yet. Filled in during execution._
