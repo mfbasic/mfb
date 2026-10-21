@@ -63,6 +63,8 @@ mod type_oracle;
 #[cfg(test)]
 mod unicode_tables;
 #[cfg(test)]
+mod unboxed_trap_forms;
+#[cfg(test)]
 mod union_tags;
 #[cfg(test)]
 mod value_effect_predicates;
