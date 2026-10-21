@@ -1,4 +1,6 @@
 use super::*;
+
+mod compiled;
 use std::fs;
 
 fn write(path: &Path, contents: &str) {
