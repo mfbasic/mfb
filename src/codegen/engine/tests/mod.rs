@@ -25,6 +25,8 @@ mod operator_refusals;
 #[cfg(test)]
 mod platform_family;
 #[cfg(test)]
+mod regalloc_outcome;
+#[cfg(test)]
 mod small_units;
 #[cfg(test)]
 mod store_reach_walk;

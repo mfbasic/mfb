@@ -238,6 +238,30 @@ pub(crate) fn class_models(model: &dyn RegisterModel) -> (ClassModel, ClassModel
     (int_model, fp_model)
 }
 
+/// The `MFB_BENCH_LOWERING` size-probe line for one function (plan-78 Phase 1):
+/// its pre-allocation instruction count and how many distinct integer and FP
+/// virtual registers it names.
+pub(crate) fn bench_lowering_line(instructions: &[CodeInstruction]) -> String {
+    let mut int_vregs = std::collections::HashSet::new();
+    let mut fp_vregs = std::collections::HashSet::new();
+    for instruction in instructions {
+        for (_name, value) in &instruction.fields {
+            let value = value.rendered();
+            if let Some(id) = parse_vreg(&value) {
+                int_vregs.insert(id);
+            } else if let Some(id) = parse_fp_vreg(&value) {
+                fp_vregs.insert(id);
+            }
+        }
+    }
+    format!(
+        "MFB_BENCH_LOWERING: function instructions={} int_vregs={} fp_vregs={}",
+        instructions.len(),
+        int_vregs.len(),
+        fp_vregs.len()
+    )
+}
+
 pub(crate) fn allocate(
     instructions: &mut Vec<CodeInstruction>,
     model: &dyn RegisterModel,
@@ -253,24 +277,7 @@ pub(crate) fn allocate(
     // rather than every tiny helper. It reads only, never mutates the stream, so
     // it cannot affect emitted bytes.
     if std::env::var_os("MFB_BENCH_LOWERING").is_some() && instructions.len() >= 100_000 {
-        let mut int_vregs = std::collections::HashSet::new();
-        let mut fp_vregs = std::collections::HashSet::new();
-        for instruction in instructions.iter() {
-            for (_name, value) in &instruction.fields {
-                let value = value.rendered();
-                if let Some(id) = parse_vreg(&value) {
-                    int_vregs.insert(id);
-                } else if let Some(id) = parse_fp_vreg(&value) {
-                    fp_vregs.insert(id);
-                }
-            }
-        }
-        eprintln!(
-            "MFB_BENCH_LOWERING: function instructions={} int_vregs={} fp_vregs={}",
-            instructions.len(),
-            int_vregs.len(),
-            fp_vregs.len()
-        );
+        eprintln!("{}", bench_lowering_line(instructions));
     }
     {
         // Allocate the integer class, then the FP class over the
@@ -338,12 +345,10 @@ pub(crate) fn allocate(
         let spill_slots = (0..total_spills)
             .map(|k| spill_base_offset + k * slot_bytes)
             .collect();
+        // The two classes draw from disjoint register files, so the two lists
+        // cannot name the same register.
         let mut extra_callee_saved = int.extra_callee_saved;
-        for register in fp.extra_callee_saved {
-            if !extra_callee_saved.contains(&register) {
-                extra_callee_saved.push(register);
-            }
-        }
+        extra_callee_saved.extend(fp.extra_callee_saved);
         AllocOutcome {
             spill_slots,
             extra_callee_saved,
