@@ -20,6 +20,7 @@ use super::{encode, operand, EncodedSection, EncodedSymbol};
 mod float_v128_and_ranges;
 mod image_and_coverage;
 mod integer;
+mod integer_edges;
 mod lanes_plans_and_aliasing;
 
 fn fresh_encoder() -> Encoder {

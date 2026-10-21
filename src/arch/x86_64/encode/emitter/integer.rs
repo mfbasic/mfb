@@ -354,39 +354,24 @@ pub(super) fn var_shift(instruction: &CodeInstruction, digit: u8) -> Result<Enco
     // into rcx. (bug-284 C6 previously rejected this; the fixpoint's context-sensitive
     // colouring avoided it, but the direct-realization path (plan-85) can produce it.)
     if dst == 1 {
-        let scratch = (0u8..16)
-            .find(|&r| r != 1 && r != value && r != amount)
-            .expect("a free scratch exists among 16 registers with rcx/value/amount excluded");
-        let mut bytes = Vec::new();
-        // push scratch (REX.B for r8–r15).
-        if scratch >= 8 {
-            bytes.push(rex(false, false, false, true));
-        }
-        bytes.push(0x50 + (scratch & 7));
-        // mov scratch, value  (reads `value` before `mov rcx,amount` clobbers rcx,
-        // which matters when value aliased rcx).
+        let scratch = free_shift_scratch(value, amount);
+        let mut bytes = vec![0x50 + scratch]; // push scratch
+                                              // mov scratch, value  (reads `value` before `mov rcx,amount` clobbers
+                                              // rcx, which matters when value aliased rcx).
         bytes.extend_from_slice(&enc_mov(scratch, value));
         bytes.extend_from_slice(&enc_mov(1, amount)); // mov rcx, amount
-                                                      // D3 /digit : shift scratch, CL.
-        bytes.push(rex(true, false, false, scratch >= 8));
+        bytes.push(rex(true, false, false, false)); // D3 /digit : shift scratch, CL.
         bytes.push(0xD3);
         bytes.push(modrm(0b11, digit, scratch));
         bytes.extend_from_slice(&enc_mov(1, scratch)); // mov rcx, scratch (the result)
-                                                       // pop scratch.
-        if scratch >= 8 {
-            bytes.push(rex(false, false, false, true));
-        }
-        bytes.push(0x58 + (scratch & 7));
+        bytes.push(0x58 + scratch); // pop scratch
         return Ok(Encoded::plain(bytes));
     }
-    let save_rcx = dst != 1; // skip when dst==rcx (rcx carries the result)
-    let mut bytes = Vec::new();
-    if save_rcx {
-        bytes.push(0x51); // push rcx (preserve foreign/residual value)
-    }
+    // `dst` is not rcx here (that case returned above), so rcx is always saved.
+    let mut bytes = vec![0x51]; // push rcx (preserve foreign/residual value)
     bytes.extend_from_slice(&enc_mov(1, amount)); // mov rcx, amount
     if dst != value {
-        if value == 1 && save_rcx {
+        if value == 1 {
             // `value` aliased rcx and was just overwritten by the count; reload
             // the preserved copy from [rsp]. mov dst, [rsp] : REX.W 8B /r.
             bytes.push(rex(true, dst >= 8, false, false));
@@ -401,10 +386,18 @@ pub(super) fn var_shift(instruction: &CodeInstruction, digit: u8) -> Result<Enco
     bytes.push(rex(true, false, false, dst >= 8));
     bytes.push(0xD3);
     bytes.push(modrm(0b11, digit, dst));
-    if save_rcx {
-        bytes.push(0x59); // pop rcx
-    }
+    bytes.push(0x59); // pop rcx
     Ok(Encoded::plain(bytes))
+}
+
+/// The register a shift into rcx runs in: the first of rax, rdx and rbx that is
+/// neither the value nor the count (rcx itself is the count register). At most two
+/// of those three are excluded, so one is always free -- and it is never an
+/// extended register, so its push/pop and its moves need no REX prefix of their own.
+fn free_shift_scratch(value: u8, amount: u8) -> u8 {
+    (0u8..4)
+        .find(|&r| r != 1 && r != value && r != amount)
+        .expect("rax, rdx and rbx are three candidates and value and amount remove at most two")
 }
 
 /// 32-bit variable shift/rotate by CL: `mov ecx,amount ; mov edst,evalue ;
@@ -432,36 +425,21 @@ pub(super) fn var_shift_w(instruction: &CodeInstruction, digit: u8) -> Result<En
     // bank starts at rcx). Shift in a scratch distinct from rcx/value/amount and move
     // the result into rcx — same expansion as the 64-bit `var_shift` (see there).
     if dst == 1 {
-        let scratch = (0u8..16)
-            .find(|&r| r != 1 && r != value && r != amount)
-            .expect("a free scratch exists among 16 registers with rcx/value/amount excluded");
-        let mut bytes = Vec::new();
-        if scratch >= 8 {
-            bytes.push(rex(false, false, false, true));
-        }
-        bytes.push(0x50 + (scratch & 7)); // push scratch
+        let scratch = free_shift_scratch(value, amount);
+        let mut bytes = vec![0x50 + scratch]; // push scratch
         bytes.extend_from_slice(&mov32(scratch, value)); // mov escratch, evalue
         bytes.extend_from_slice(&mov32(1, amount)); // mov ecx, amount
-        if scratch >= 8 {
-            bytes.push(rex(false, false, false, true));
-        }
         bytes.push(0xD3); // shift r/m32, CL
         bytes.push(modrm(0b11, digit, scratch));
         bytes.extend_from_slice(&mov32(1, scratch)); // mov ecx, escratch (result)
-        if scratch >= 8 {
-            bytes.push(rex(false, false, false, true));
-        }
-        bytes.push(0x58 + (scratch & 7)); // pop scratch
+        bytes.push(0x58 + scratch); // pop scratch
         return Ok(Encoded::plain(bytes));
     }
-    let save_rcx = dst != 1; // skip when dst==rcx (rcx carries the result)
-    let mut bytes = Vec::new();
-    if save_rcx {
-        bytes.push(0x51); // push rcx (preserve foreign/residual value)
-    }
+    // `dst` is not rcx here (that case returned above), so rcx is always saved.
+    let mut bytes = vec![0x51]; // push rcx (preserve foreign/residual value)
     bytes.extend_from_slice(&mov32(1, amount)); // mov ecx, amount
     if dst != value {
-        if value == 1 && save_rcx {
+        if value == 1 {
             // `value` aliased rcx, now overwritten by the count; reload the
             // preserved copy. mov r32, [rsp] : 8B /r (zero-extends to 64 bits).
             if dst >= 8 {
@@ -480,9 +458,7 @@ pub(super) fn var_shift_w(instruction: &CodeInstruction, digit: u8) -> Result<En
     }
     bytes.push(0xD3);
     bytes.push(modrm(0b11, digit, dst));
-    if save_rcx {
-        bytes.push(0x59); // pop rcx
-    }
+    bytes.push(0x59); // pop rcx
     Ok(Encoded::plain(bytes))
 }
 
