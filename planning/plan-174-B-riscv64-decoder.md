@@ -29,7 +29,7 @@ The prerequisites are stated once in plan-174-A. In addition:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-174-A is complete | `ls planning/plan-174-A-*` → no match (archived to `planning/completed/`) | NOT MET (2026-10-12: plan-174-A is not started) |
-| Box 2232 has GNU `objdump` | `ssh -p 2232 test@127.0.0.1 'objdump --version \| head -1'` → a version line | MET (2026-10-12) |
+| Box 2232 has GNU `objdump` | `ssh -p 2232 test@127.0.0.1 'objdump --version \| head -1'` → a version line | MET (2026-10-20: `GNU objdump (GNU Binutils for Debian) 2.44`) |
 
 If plan-174-A is not complete, this plan cannot start.
 
@@ -218,18 +218,28 @@ None. No emitted byte and no command output changes.
 Lands the tool and the reference data before any decoder code, so every later
 phase has something to be checked against.
 
-- [ ] Add `tools/oracles/riscv64-decode/objdump-corpus.sh` and `README.md`.
+- [x] Add `tools/oracles/riscv64-decode/objdump-corpus.sh` and `README.md`.
+      (Also `sample-words.py`, which writes `objdump_words.txt`, and the entry
+      in `tools/oracles/README.md`.)
 - [ ] On box 2232, write corpora for `/tmp/debug-glibc.out` (built with
       `mfb build --debug -O0 --target linux-riscv64 examples/debug`) and
       `/lib/riscv64-linux-gnu/libc.so.6`; copy `/lib/ld-musl-riscv64.so.1` from
       box 2229 to 2232 and write its corpus too. Keep them in `/tmp/rv-corpus/`.
-- [ ] Add `src/arch/riscv64/decode/objdump_words.txt`: up to three operand
-      shapes per mnemonic drawn from the three corpora.
+      (Done 2026-10-20 with `debug-glibc.out` built by the release `mfb` of
+      `52e4535b3`: `debug-glibc.txt` 25,585 rows, `libc.txt` 304,077,
+      `ld-musl.txt` 106,156; copied to the Mac's `/tmp/rv-corpus/` too. No row
+      is one `objdump` itself left undecoded: `grep -cE '\t\.(insn|word|short)'`
+      → 0 in each.)
+- [x] Add `src/arch/riscv64/decode/objdump_words.txt`: up to three operand
+      shapes per mnemonic drawn from the three corpora. (Up to three per
+      mnemonic, length and opcode class: see Corrections. 609 rows.)
 
 Acceptance: the sample covers every mnemonic the corpora contain.
   Check: `cut -f3 /tmp/rv-corpus/*.txt | awk '{print $1}' | sort -u | wc -l`
   equals `cut -f3 src/arch/riscv64/decode/objdump_words.txt | awk '{print $1}'
   | sort -u | wc -l` (est. 5 min, mostly `objdump` of libc on box 2232).
+  Measured 2026-10-20: 177 and 177 (the second with the `#` header lines
+  left out by `grep -v '^#'`).
 Commit: —
 
 ### Phase 2 — base integer, `M`, `A`, system
@@ -300,6 +310,21 @@ Commit: —
   `objdump`'s default. (§3)
 
 ## Corrections
+
+- **Mnemonic counts with `objdump`'s aliases on.** §2 counts mnemonics with
+  `-M no-aliases` (47 in the example, 166 in glibc). The corpora are written
+  with aliases on, since that is the text the decoder must print: 177 distinct
+  mnemonics across the three (`cut -f3 /tmp/rv-corpus/*.txt | awk '{print $1}'
+  | sort -u | wc -l` → 177). A compressed instruction prints as the base
+  instruction it expands to (`1141` → `addi sp,sp,-16`), so there is no `c.`
+  mnemonic in any corpus.
+- **The sample is drawn per encoding class, not per mnemonic.** With compressed
+  forms printing as base mnemonics, "three operand shapes per mnemonic" could
+  keep `addi` rows that are all 4-byte and miss `c.addi16sp` or `c.addi4spn`.
+  `sample-words.py` keys on mnemonic, length and opcode bits (quadrant and
+  funct3, plus the CA/CB selector bits, for a 2-byte instruction; opcode and
+  funct3 for a 4-byte one). Each key gets up to three shapes; Phase 1's
+  acceptance (every corpus mnemonic sampled) still holds.
 
 ## Summary
 
