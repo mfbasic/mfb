@@ -29,6 +29,7 @@
 //! `pub(crate)` paths.
 
 mod abi_inline;
+mod abi_inline_element_types;
 mod app_surface;
 mod builtin_record_arguments;
 mod byte_list_entry_free;
@@ -50,6 +51,7 @@ mod diagnostics;
 mod element_update;
 mod element_update_forms;
 mod entry;
+mod fast_path_answers;
 mod field_with_forms;
 mod fixture_projects;
 mod fixture_sweep;
