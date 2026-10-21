@@ -222,13 +222,7 @@ pub(crate) fn project_json_without_packages(
         let entry_ident = crate::json::parse_json_bounded(object)
             .ok()
             .and_then(|value| value.get::<HashMap<String, JsonValue>>().cloned())
-            .and_then(|entry| {
-                entry
-                    .get("ident")
-                    .or_else(|| entry.get("name"))
-                    .and_then(|value| value.get::<String>())
-                    .cloned()
-            });
+            .and_then(|entry| entry_ident(&entry));
         match entry_ident {
             Some(ident) if idents.contains(&ident.as_str()) => removed += 1,
             _ => kept.push(object),
@@ -297,13 +291,7 @@ pub(crate) fn project_json_with_updated_version(
         let entry = crate::json::parse_json_bounded(object)
             .ok()
             .and_then(|value| value.get::<HashMap<String, JsonValue>>().cloned());
-        let entry_ident = entry.as_ref().and_then(|entry| {
-            entry
-                .get("ident")
-                .or_else(|| entry.get("name"))
-                .and_then(|value| value.get::<String>())
-                .cloned()
-        });
+        let entry_ident = entry.as_ref().and_then(entry_ident);
         if entry_ident.as_deref() != Some(ident) {
             cursor = object_end + 1;
             continue;
@@ -367,13 +355,7 @@ pub(crate) fn project_json_with_closure_fields(
         let entry = crate::json::parse_json_bounded(object)
             .ok()
             .and_then(|value| value.get::<HashMap<String, JsonValue>>().cloned());
-        let entry_ident = entry.as_ref().and_then(|entry| {
-            entry
-                .get("ident")
-                .or_else(|| entry.get("name"))
-                .and_then(|value| value.get::<String>())
-                .cloned()
-        });
+        let entry_ident = entry.as_ref().and_then(entry_ident);
         if entry_ident.as_deref() != Some(ident) {
             cursor = object_end + 1;
             continue;
@@ -403,6 +385,18 @@ pub(crate) fn project_json_with_closure_fields(
         return Ok(updated);
     }
     Err(format!("project.json does not declare package `{ident}`"))
+}
+
+/// The ident a `packages[]` entry is known by, read the way the manifest
+/// reader reads it (`package::common_dependency_fields`): its `ident` when that
+/// is a string, else its `name`. Read any other way, an entry the reader
+/// declared is one the editor cannot find.
+fn entry_ident(entry: &HashMap<String, JsonValue>) -> Option<String> {
+    entry
+        .get("ident")
+        .and_then(|value| value.get::<String>())
+        .or_else(|| entry.get("name").and_then(|value| value.get::<String>()))
+        .cloned()
 }
 
 fn bool_literal(value: bool) -> &'static str {

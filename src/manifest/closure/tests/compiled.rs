@@ -548,3 +548,24 @@ fn relative_paths_resolve_a_relative_directory_against_the_working_directory() {
         Some("../c/d.mfp")
     );
 }
+
+/// The manifest reader takes an entry whose `ident` is not a string by its
+/// `name` (`common_dependency_fields`); the editor must find it the same way,
+/// or the closure it computed cannot be written back.
+#[test]
+fn an_entry_whose_ident_is_not_a_string_is_edited_by_its_name() {
+    let fixture = Fixture::new("");
+    let app = fixture.app();
+    let contents = manifest(
+        "{\"name\": \"user\", \"ident\": 7, \"version\": \"1.0.0\", \
+         \"source\": \"file:../libs/user.mfp\"}",
+    );
+    let result = reconcile(&app, &contents).unwrap();
+    assert_eq!(result.added, vec![("base".to_string(), "user".to_string())]);
+    let declared = declared_dependencies(&parsed(&app, &result.contents));
+    let user = declared.iter().find(|d| d.name == "user").unwrap();
+    assert_eq!(
+        (user.direct, user.required_by.clone()),
+        (Some(true), Some(vec![]))
+    );
+}
