@@ -105,6 +105,7 @@ mod term_measure_text;
 mod term_read;
 mod thread_send_scalar;
 mod threads;
+mod transform_inline;
 mod typename_enum_fold;
 mod validation;
 mod vector;
