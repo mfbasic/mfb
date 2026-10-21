@@ -81,3 +81,19 @@ fn a_truncated_or_unknown_ss3_sequence_is_dropped() {
     assert_eq!(decode(b"\x1bO5", FINAL), Outcome::Skip(3));
     assert_eq!(decode(b"\x1bO~", 0), Outcome::Skip(3));
 }
+
+/// A lone C0 byte is a named key or Ctrl+<key>, and anything else is not a C0 key:
+/// `c0_key` answers every C0 byte but ESC (which starts a sequence and never reaches
+/// it), and a caller that hands it a printable byte is a decoder bug it refuses to
+/// paper over with an invented key.
+#[test]
+fn a_lone_c0_byte_names_its_key_and_nothing_else_is_one() {
+    use crate::codegen::io::input::keys::{c0_key, MOD_CTRL};
+    assert_eq!(c0_key(0x08), (KeyName::Backspace, 0x7F, 0));
+    assert_eq!(c0_key(0x7F), (KeyName::Backspace, 0x7F, 0));
+    assert_eq!(c0_key(0x0D), (KeyName::Enter, b'\n', 0));
+    assert_eq!(c0_key(0x01), (KeyName::Unicode, b'a', MOD_CTRL));
+    assert_eq!(c0_key(0x1F), (KeyName::Unicode, b'_', MOD_CTRL));
+    let refused = crate::testutil::silence_panics(|| std::panic::catch_unwind(|| c0_key(b'A')));
+    assert!(refused.is_err(), "`A` is not a C0 byte");
+}
