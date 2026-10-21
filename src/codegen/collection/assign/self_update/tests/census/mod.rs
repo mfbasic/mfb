@@ -466,6 +466,8 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("net.PingResult", SIZE_VARIES),
     ("color.Color", FieldKindRow::Arm('F')),
     ("color.Hsl", FieldKindRow::Arm('F')),
+    // plan-181-A: one inline `Integer` (`scaled`), a fixed-size block like `color.Color`.
+    ("money.Rate", FieldKindRow::Arm('F')),
 ];
 
 /// plan-147-B: `(arm, reason)` — the arms that never fire at `Site::Return` (S11),

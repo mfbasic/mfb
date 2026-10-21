@@ -336,6 +336,110 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Money rescale by a ratio (plan-181-B): `dst = R(m_raw * numerator / divisor)`
+    /// under the Money rounding mode, range-checked to the Money carrier. Serves
+    /// `money::convert` (numerator and divisor are two `Rate` scaled values, whose
+    /// 10^12 factors cancel) and `money::scale` (numerator a `Rate`'s scaled value,
+    /// divisor `RATE_SCALE`).
+    ///
+    /// The product magnitude `|m_raw| * |numerator|` is formed as a full unsigned 128-bit
+    /// value (at most 2^126), then divided by `|divisor|` with a 64-step restoring long
+    /// division that keeps the exact remainder, so the quotient is rounded once, on the
+    /// exact rational value. The caller refuses a zero divisor before this point.
+    ///
+    /// A quotient of 2^64 or more is caught before the division (its high word is at
+    /// least the divisor); one above 2^63 after it. Either fails with ErrOverflow, as
+    /// does a rounded result outside the signed carrier.
+    ///
+    /// This sits beside `emit_money_fixed_multiply`/`emit_money_fixed_divide` rather
+    /// than generalising them, so the code those emit — and every existing `Money`
+    /// operation's bytes — is unchanged.
+    pub(crate) fn emit_money_rescale(
+        &mut self,
+        dst: impl Into<Reg>,
+        m_raw: impl Into<Reg>,
+        numerator: impl Into<Reg>,
+        divisor: impl Into<Reg>,
+    ) -> Result<(), String> {
+        let (dst, m_raw, numerator, divisor): (Reg, Reg, Reg, Reg) =
+            (dst.into(), m_raw.into(), numerator.into(), divisor.into());
+        // The working registers are dead once the result lands in `dst`.
+        let saved_registers = self.next_register;
+        let overflow = self.label("money_rescale_overflow");
+        // Every input is read before `dst` is written, so `dst` may alias any of them.
+        let sign = self.allocate_register();
+        self.emit(abi::exclusive_or_registers(&sign, m_raw, numerator));
+        self.emit(abi::exclusive_or_registers(&sign, &sign, divisor));
+        // Unsigned magnitudes; i64::MIN's bit pattern is its magnitude 2^63.
+        let lhs = self.allocate_register();
+        self.emit(abi::move_register(&lhs, m_raw));
+        self.emit_abs_i64(&lhs)?;
+        let factor = self.allocate_register();
+        self.emit(abi::move_register(&factor, numerator));
+        self.emit_abs_i64(&factor)?;
+        let rhs = self.allocate_register();
+        self.emit(abi::move_register(&rhs, divisor));
+        self.emit_abs_i64(&rhs)?;
+        // remainder:low = |m_raw| * |numerator|, 128 bits.
+        let remainder = self.allocate_register();
+        self.emit(abi::unsigned_multiply_high_registers(
+            &remainder, &lhs, &factor,
+        ));
+        let low = self.allocate_register();
+        self.emit(abi::multiply_registers(&low, &lhs, &factor));
+        // A high word at or above the divisor means a quotient of at least 2^64.
+        self.emit(abi::compare_registers(&remainder, &rhs));
+        self.emit(abi::branch_hi(&overflow));
+        self.emit(abi::branch_eq(&overflow));
+        // Restoring division of remainder:low by rhs, one quotient bit per step. The
+        // running remainder stays below rhs <= 2^63, so shifting it left one place
+        // and bringing in the next bit of `low` never carries out of 64 bits.
+        let quotient = self.allocate_register();
+        self.emit(abi::move_immediate(&quotient, "Integer", "0"));
+        let counter = self.allocate_register();
+        self.emit(abi::move_immediate(&counter, "Integer", "64"));
+        let bit = self.allocate_register();
+        let loop_start = self.label("money_rescale_loop");
+        let skip_subtract = self.label("money_rescale_skip");
+        let loop_done = self.label("money_rescale_done");
+        self.emit(abi::label(&loop_start));
+        self.emit(abi::compare_immediate(&counter, "0"));
+        self.emit(abi::branch_eq(&loop_done));
+        self.emit(abi::shift_right_immediate(&bit, &low, 63));
+        self.emit(abi::shift_left_immediate(&low, &low, 1));
+        self.emit(abi::shift_left_immediate(&remainder, &remainder, 1));
+        self.emit(abi::or_registers(&remainder, &remainder, &bit));
+        self.emit(abi::shift_left_immediate(&quotient, &quotient, 1));
+        self.emit(abi::compare_registers(&remainder, &rhs));
+        self.emit(abi::branch_lo(&skip_subtract));
+        self.emit(abi::subtract_registers(&remainder, &remainder, &rhs));
+        self.emit(abi::move_immediate(&bit, "Integer", "1"));
+        self.emit(abi::or_registers(&quotient, &quotient, &bit));
+        self.emit(abi::label(&skip_subtract));
+        self.emit(abi::subtract_immediate(&counter, &counter, 1));
+        self.emit(abi::branch(&loop_start));
+        self.emit(abi::label(&loop_done));
+        // Above 2^63 no sign fits; at most 2^63 the rounding step cannot wrap.
+        let limit = self.allocate_register();
+        self.emit(abi::move_immediate(
+            &limit,
+            "Integer",
+            &(i64::MIN as u64).to_string(),
+        ));
+        self.emit(abi::compare_registers(&quotient, &limit));
+        self.emit(abi::branch_hi(&overflow));
+        let magnitude = self.allocate_register();
+        self.emit_apply_rounding_magnitude(&magnitude, &quotient, &remainder, &rhs)?;
+        self.emit_signed_money_magnitude(
+            dst,
+            magnitude.into(),
+            sign.into(),
+            Some((limit.into(), &overflow)),
+        )?;
+        self.next_register = saved_registers;
+        Ok(())
+    }
+
     /// Apply the result sign to a rounded unsigned `magnitude` (the sign bit of
     /// `sign` set means negative) and write the signed carrier to `dst`. With a
     /// `range` of `(limit, overflow)` the carrier range is enforced: a positive

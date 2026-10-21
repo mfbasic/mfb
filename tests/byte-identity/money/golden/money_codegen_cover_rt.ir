@@ -9,8 +9,17 @@
   },
   "types": [
   {
+    "kind": "type",
+    "line": 8,
+    "visibility": "export",
+    "name": "money.Rate",
+    "fields": [
+    { "visibility": null, "line": 9, "name": "scaled", "type": "Integer" }
+    ]
+  },
+  {
     "kind": "enum",
-    "line": 1,
+    "line": 12,
     "visibility": "export",
     "name": "money.Rounding",
     "members": [
@@ -118,6 +127,256 @@
     { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r4" }] }] } },
     { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r5" }] }] } },
     { "op": "return", "line": 31, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "#money_rateToString",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "rate", "line": 17, "type": "money.Rate", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": true, "name": "whole", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rate" }, "member": "scaled" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000000" } } },
+    { "op": "bind", "line": 19, "mutable": true, "name": "fraction", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rate" }, "member": "scaled" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000000" } } },
+    { "op": "bind", "line": 20, "mutable": true, "name": "sign", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "if",
+      "line": 21,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rate" }, "member": "scaled" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "assign", "line": 22, "name": "sign", "value": { "kind": "const", "type": "String", "value": "-" } },
+      { "op": "assign", "line": 23, "name": "whole", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "local", "name": "whole" } } },
+      { "op": "assign", "line": 24, "name": "fraction", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "local", "name": "fraction" } } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 26,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "fraction" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 27, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "sign" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "whole" }] } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 29, "mutable": true, "name": "places", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "12" } },
+    {
+      "op": "while",
+      "line": 30,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "fraction" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "body": [
+      { "op": "assign", "line": 31, "name": "fraction", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "fraction" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } },
+      { "op": "assign", "line": 32, "name": "places", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "places" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 34, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "sign" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "whole" }] } }, "right": { "kind": "const", "type": "String", "value": "." } }, "right": { "kind": "call", "type": "String", "target": "strings.padLeft", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "fraction" }] }, { "kind": "local", "name": "places" }, { "kind": "const", "type": "String", "value": "0" }] } } }
+    ]
+  },
+  {
+    "name": "#money_toRateString",
+    "line": 37,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "text", "line": 37, "type": "String", "default": null }
+    ],
+    "returns": "money.Rate",
+    "body": [
+    { "op": "bind", "line": 38, "mutable": true, "name": "negative", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 39, "mutable": true, "name": "point", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 40, "mutable": true, "name": "first", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+    { "op": "bind", "line": 41, "mutable": true, "name": "nonzero", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 42, "mutable": true, "name": "wide", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 43, "mutable": true, "name": "wholeDigits", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 44, "mutable": true, "name": "fractionDigits", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 45, "mutable": true, "name": "whole", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 46, "mutable": true, "name": "fraction", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 47, "mutable": true, "name": "d", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 48,
+      "name": "b",
+      "type": "Byte",
+      "iterable": { "kind": "call", "type": "List OF Byte", "target": "strings.toBytes", "args": [{ "kind": "local", "name": "text" }] },
+      "body": [
+      { "op": "assign", "line": 49, "name": "d", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "b" }] } },
+      {
+        "op": "if",
+        "line": 50,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "local", "name": "first" }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "45" } } },
+        "then": [
+        { "op": "assign", "line": 51, "name": "negative", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "line": 52,
+          "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "46" } }, "right": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "local", "name": "point" } } }, "right": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "wholeDigits" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } },
+          "then": [
+          { "op": "assign", "line": 53, "name": "point", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+          ],
+          "else": [
+          {
+            "op": "if",
+            "line": 54,
+            "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "48" } }, "right": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "57" } } },
+            "then": [
+            { "op": "assign", "line": 55, "name": "d", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "48" } } },
+            {
+              "op": "if",
+              "line": 56,
+              "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "d" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+              "then": [
+              { "op": "assign", "line": 57, "name": "nonzero", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+              ],
+              "else": [
+              ]
+            },
+            {
+              "op": "if",
+              "line": 59,
+              "condition": { "kind": "local", "name": "point" },
+              "then": [
+              { "op": "assign", "line": 60, "name": "fractionDigits", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "fractionDigits" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+              {
+                "op": "if",
+                "line": 61,
+                "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "fractionDigits" }, "right": { "kind": "const", "type": "Integer", "value": "12" } },
+                "then": [
+                { "op": "fail", "line": 62, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a rate has at most 12 decimal places: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/money.mfb" }, { "kind": "const", "type": "Integer", "value": "62" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } }
+                ],
+                "else": [
+                ]
+              },
+              { "op": "assign", "line": 64, "name": "fraction", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "fraction" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }, "right": { "kind": "local", "name": "d" } } }
+              ],
+              "else": [
+              { "op": "assign", "line": 66, "name": "wholeDigits", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "wholeDigits" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+              {
+                "op": "if",
+                "line": 67,
+                "condition": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "local", "name": "wide" } },
+                "then": [
+                { "op": "assign", "line": 68, "name": "whole", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "whole" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }, "right": { "kind": "local", "name": "d" } } },
+                {
+                  "op": "if",
+                  "line": 69,
+                  "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "whole" }, "right": { "kind": "const", "type": "Integer", "value": "9223372" } },
+                  "then": [
+                  { "op": "assign", "line": 70, "name": "wide", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+                  ],
+                  "else": [
+                  ]
+                }
+                ],
+                "else": [
+                ]
+              }
+              ]
+            }
+            ],
+            "else": [
+            { "op": "fail", "line": 75, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "not a decimal rate: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/money.mfb" }, { "kind": "const", "type": "Integer", "value": "75" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+            ]
+          }
+          ]
+        }
+        ]
+      },
+      { "op": "assign", "line": 77, "name": "first", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 79,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "wholeDigits" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "local", "name": "point" }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "fractionDigits" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } } },
+      "then": [
+      { "op": "fail", "line": 80, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "not a decimal rate: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/money.mfb" }, { "kind": "const", "type": "Integer", "value": "80" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 82,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "local", "name": "negative" }, "right": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "local", "name": "nonzero" } } },
+      "then": [
+      { "op": "fail", "line": 83, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a rate must be above zero: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/money.mfb" }, { "kind": "const", "type": "Integer", "value": "83" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 85,
+      "condition": { "kind": "local", "name": "wide" },
+      "then": [
+      { "op": "fail", "line": 86, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050010" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a rate must be at most 9223372.036854775807: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/money.mfb" }, { "kind": "const", "type": "Integer", "value": "86" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "while",
+      "line": 88,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "fractionDigits" }, "right": { "kind": "const", "type": "Integer", "value": "12" } },
+      "body": [
+      { "op": "assign", "line": 89, "name": "fraction", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "fraction" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } },
+      { "op": "assign", "line": 90, "name": "fractionDigits", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "fractionDigits" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 92, "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "whole" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000000" } } },
+    {
+      "op": "if",
+      "line": 93,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "fraction" }, "right": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "9223372036854775807" }, "right": { "kind": "local", "name": "base" } } },
+      "then": [
+      { "op": "fail", "line": 94, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050010" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a rate must be at most 9223372.036854775807: " }, "right": { "kind": "local", "name": "text" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/money.mfb" }, { "kind": "const", "type": "Integer", "value": "94" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 96, "value": { "kind": "constructor", "type": "money.Rate", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "base" }, "right": { "kind": "local", "name": "fraction" } }] } }
+    ]
+  },
+  {
+    "name": "#money_toRateInteger",
+    "line": 99,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 99, "type": "Integer", "default": null }
+    ],
+    "returns": "money.Rate",
+    "body": [
+    {
+      "op": "if",
+      "line": 100,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "fail", "line": 101, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a rate must be above zero: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/money.mfb" }, { "kind": "const", "type": "Integer", "value": "101" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 103,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "9223372" } },
+      "then": [
+      { "op": "fail", "line": 104, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050010" }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a rate must be at most 9223372.036854775807: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/money.mfb" }, { "kind": "const", "type": "Integer", "value": "104" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 106, "value": { "kind": "constructor", "type": "money.Rate", "args": [{ "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1000000000000" } }] } }
     ]
   }
   ]

@@ -21,8 +21,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-181-A complete: `money::Rate` exists | `target/release/mfb man money \| grep -c '^  *Rate'` → at least 1 | NOT MET (plan-181-A not yet implemented, 2026-10-19) |
-| plan-181-A complete: `toRate` exists | `target/release/mfb man money \| grep -c 'toRate'` → at least 2 | NOT MET (plan-181-A not yet implemented, 2026-10-19) |
+| plan-181-A complete: `money::Rate` exists | `target/release/mfb man money types \| grep -c 'money::Rate'` → at least 1 (corrected from `mfb man money \| grep -c '^  *Rate'`, which is 0 even with the record present — plan-181-A Corrections 1) | MET (2026-10-20: `1`) |
+| plan-181-A complete: `toRate` exists | `target/release/mfb man money \| grep -c 'toRate'` → at least 2 | MET (2026-10-20: `4`) |
 
 Everything below is written against the world where these hold.
 
@@ -72,19 +72,20 @@ Everything below is written against the world where these hold.
 ### Phase B1 — the shared 128-bit rescale helper
 
 Tasks:
-- In `src/codegen/builtins/money/gen_money_math.rs`, add `emit_money_rescale(dst, m_raw, numerator, divisor, checked)`. It forms the unsigned 128-bit magnitude of `|m_raw| × |numerator|`, divides it by the unsigned 64-bit magnitude `|divisor|` using the division routine that `emit_money_fixed_divide` uses, rounds once with `emit_apply_rounding_magnitude`, applies the sign, and range-checks when `checked` is set.
-- The helper's `divisor` of zero is refused before the helper is reached, by the callers.
-- Do not edit `emit_money_fixed_multiply`, `emit_money_fixed_divide`, `emit_money_multiply` or `emit_money_divide_scalar`.
+- [x] In `src/codegen/builtins/money/gen_money_math.rs`, add `emit_money_rescale(dst, m_raw, numerator, divisor)`. It forms the unsigned 128-bit magnitude of `|m_raw| × |numerator|`, divides it by the unsigned 64-bit magnitude `|divisor|` with a 64-step restoring long division (Corrections 1), rounds once with `emit_apply_rounding_magnitude`, applies the sign, and range-checks. No `checked` parameter: both callers can overflow, so the check is unconditional (Corrections 2).
+- [x] The helper's `divisor` of zero is refused before the helper is reached, by the callers (`func_convert.rs:emit_positive_rate_scaled`; `scale`'s divisor is the constant `RATE_SCALE`).
+- [x] Do not edit `emit_money_fixed_multiply`, `emit_money_fixed_divide`, `emit_money_multiply` or `emit_money_divide_scalar`. — `git diff -- src/codegen/builtins/money/gen_money_math.rs | grep -c '^-[^-]'` → `0` (102 insertions, 0 deletions).
 
-Acceptance: `scripts/artifact-gate.sh target/release/mfb money` shows no diff in the existing `tests/byte-identity/money/` fixtures, which proves the existing emitters are untouched.
+Acceptance (corrected, Corrections 3): the existing emitters are untouched — `gen_money_math.rs`'s diff is additions only (above) — and the existing money fixtures' run output is unchanged: `scripts/test-accept.sh target/release/mfb /tmp/p181/accept 'money_*'` reports no `build.log` mismatch for any pre-existing money fixture. — MET: the mismatches it reports for pre-existing fixtures are `.ir` only (the plan-181-A companion, A's Corrections 5).
 
 Commit: —
 
 ### Phase B2 — `money::convert`
 
 Tasks:
-- Add `src/codegen/builtins/money/func_convert.rs`. The lowering reads `from.scaled` and `to.scaled`, refuses a value at or below zero with `ErrInvalidArgument`, calls `emit_money_rescale` with numerator `from.scaled` and divisor `to.scaled`, and checks the result.
-- Register it in `src/codegen/builtins/money/mod.rs` with its error declarations.
+- [x] Add `src/codegen/builtins/money/func_convert.rs`. The `Body::abi_inline` lowering reads `from.scaled` and `to.scaled` (the word at offset 0 of each record block), refuses a value at or below zero with `ErrInvalidArgument`, calls `emit_money_rescale` with numerator `from.scaled` and divisor `to.scaled`, and checks the result.
+- [x] Register it in `src/codegen/builtins/money/mod.rs` with its error declarations (`ErrInvalidArgument`, `ErrOverflow`). Unit test `money::tests::convert_and_scale_lower_inline_and_take_rates`.
+- [x] Added: `tests/syntax/money/money_rate_invalid/` also rejects `convert` with a `Fixed` rate, a wrong arity and a non-`Money` value.
 
 Acceptance: `tests/rt-behavior/money/money_convert/` prints these results, each at five places:
 - `convert(1000000m, EUR at "1.0842", USD at "1")` → `1084200.00000`
@@ -94,13 +95,15 @@ Acceptance: `tests/rt-behavior/money/money_convert/` prints these results, each 
 - `convert` with a `from` rate built as `Rate[scaled := -1]` traps `ErrInvalidArgument`.
 - `convert(92233720368547.75807m, USD at "1", USD at "0.5")` traps `ErrOverflow`, because its result is twice the input, which is outside the `Money` range.
 
+MET: the golden run prints `1084200.00000`, `1492537313432.83582`, `1.00000`, then (added cases) `-1084200.00000`, the tie `0.00001` (Commercial) / `0.00000` (Banker), `0.00002` for `0.000015` under Banker, `1.00000` for the largest rate over itself (a 126-bit intermediate), `-92233720368547.75808`, and `error 77050002` for the zero `to` and the `-1` `from`, `error 77050010` for the doubled maximum and for `1m` at 9223372 over 0.000000000001. The traps are caught with `TRAP` and their codes printed, so one program checks every case.
+
 Commit: —
 
 ### Phase B3 — `money::scale`
 
 Tasks:
-- Add `src/codegen/builtins/money/func_scale.rs`. It refuses `r.scaled` at or below zero with `ErrInvalidArgument`, calls `emit_money_rescale` with numerator `r.scaled` and divisor `RATE_SCALE`, and checks the result.
-- Register it in `mod.rs`.
+- [x] Add `src/codegen/builtins/money/func_scale.rs`. It refuses `r.scaled` at or below zero with `ErrInvalidArgument` (shared `emit_positive_rate_scaled`), calls `emit_money_rescale` with numerator `r.scaled` and divisor `RATE_SCALE`, and checks the result.
+- [x] Register it in `mod.rs`. Unit test `money::tests::convert_and_scale_lower_inline_and_take_rates`; syntax fixture rows for a `Fixed` rate and a wrong arity.
 
 Acceptance: `tests/rt-behavior/money/money_scale/` prints:
 - `scale(100m, toRate("0.07"))` → `7.00000`
@@ -108,24 +111,26 @@ Acceptance: `tests/rt-behavior/money/money_scale/` prints:
 - the tie `scale(0.00001m, toRate("0.5"))` → `0.00001` under `Commercial` and `0.00000` under `Banker`.
 - `scale` with `Rate[scaled := 0]` traps `ErrInvalidArgument`.
 
+MET: the golden run prints `7.00000`, `0.49950`, `-0.49950`, `0.00001`, `0.00000`, `0.00000` (negative tie, Banker), `-0.00001` (negative tie, Commercial), `92233720368547.75807` (maximum × 1), `0.00000` (1m × 0.000000000001), `1.00000 error 77050002`, `92233720368547.75807 error 77050010`.
+
 Commit: —
 
 ### Phase B4 — spec and man
 
 Tasks:
-- `src/docs/spec/stdlib/13_money.md`: add `convert` and `scale` rows to the "Operation formulas" table, with the formulas `R(m × from / to)` and `R(m × r)`, and note the single rounding and the range check. Add the invalid-rate rule.
-- `src/codegen/builtins/money/mod.rs` `MODULE_DESC`: describe `convert` and `scale` in the same style as the existing members.
-- Check the description strings against `.ai/man-content.md`.
+- [x] `src/docs/spec/stdlib/13_money.md`: add `convert` and `scale` rows to the "Operation formulas" table, with the formulas `R(m × from / to)` and `R(m × r)` (written `R(m * r / P)`, `P = 10^12`, in the table's raw-carrier terms), and note the single rounding and the range check. Add the invalid-rate rule. — rows, a paragraph citing `emit_money_rescale`, and the **Rates** error item.
+- [x] `src/codegen/builtins/money/mod.rs` `MODULE_DESC`: describe `convert` and `scale` in the same style as the existing members; the rounding-mode sentence now names them too.
+- [x] Check the description strings against `.ai/man-content.md`. Examples print at five places where the point is the fifth place (`toString(x, toByte(5))`); `scripts/man-run-examples.sh money --run` → `examples: 11 … failed: 0`.
 
-Acceptance: `target/release/mfb spec stdlib money` shows the two new rows; `target/release/mfb man money` lists both functions.
+Acceptance: `target/release/mfb spec stdlib money` shows the two new rows; `target/release/mfb man money` lists both functions. — MET: spec lines `money::convert(m, from, to) │ R(m * from / to)…` and `money::scale(m, r) │ R(m * r / P)…`; the man Functions table lists `money::convert` and `money::scale`.
 
 Commit: —
 
 ### Phase B5 — gates
 
 Tasks:
-- Run the scoped byte-identity gate: `scripts/artifact-gate.sh target/release/mfb money`.
-- Run the scoped acceptance tests: `scripts/test-accept.sh target/release/mfb <outdir> 'money_*'`.
+- [x] Run the scoped byte-identity gate: `scripts/artifact-gate.sh target/release/mfb money` → `7 golden(s) checked, 0 diff(s)` (after plan-181-A6's re-baseline, which ran on the A+B compiler).
+- [x] Run the scoped acceptance tests: `scripts/test-accept.sh target/release/mfb /tmp/p181/accept 'money_*'` → `acceptance tests passed (15 test(s) ran)`, including `money_convert` and `money_scale`. B added no source to the companion: before the re-baseline, B's build moved no `.ir` that A's had not already moved (`money_rate_*` stayed green across the B rebuild).
 
 Expected: no diff in `tests/byte-identity/money/` beyond what sub-plan A6 already accounted for, and no diff in the existing `money_*` acceptance fixtures. Any unexpected diff is root-caused with `objdump` on one fixture, and the bug is fixed; a golden is never re-baselined to pass.
 
@@ -140,3 +145,10 @@ Landing tier, run once at the end of this sub-plan: B5's two commands. The full 
 - `convert` is `R(m × from / to)` in one 128-bit calculation with one rounding.
 - `scale` takes a `Rate`, so it can scale only by positive factors. A negative percentage is not expressible; the owner chose the positive `Rate` type.
 - Existing `Money` helpers are not refactored; the new helper is added beside them.
+
+## Corrections
+
+1. **`emit_money_fixed_divide` has no 128-bit divide to reuse.** Current State said it "forms the 128-bit numerator and divides by the 64-bit raw value". Read: it divides the 64-bit `|m|` by `|f|` for the integer part and then generates 32 fraction bits with `emit_q32_fraction_bits`, i.e. a 96-bit numerator. `emit_money_rescale` therefore carries its own 64-step restoring division of the full 128-bit product, with the same invariant that makes the existing loop safe (the running remainder stays below a divisor of at most 2^63, so the shift never carries out). A high word at or above the divisor means a quotient of 2^64 or more and is `ErrOverflow` before the loop.
+2. **No `checked` parameter.** Both callers can overflow (`scale` by a rate up to 9223372, `convert` by any ratio), so a `checked == false` path would have no caller. The range check is unconditional.
+3. **B1's acceptance could not hold as written.** "No diff in the existing `tests/byte-identity/money/` fixtures" is false from plan-181-A onward, because A's source bodies are compiled into every `money` importer (A's Corrections 5). Strengthened to what it was meant to prove: `gen_money_math.rs` changes by additions only, and every pre-existing money fixture's run output is unchanged.
+4. **Fixture expectations are printed at five places with `toString(x, toByte(5))`.** `toString(Money)` defaults to two places, which would hide every fifth-place value this plan checks (first run printed `1492537313432.84`).

@@ -1,0 +1,38 @@
+{
+  "project": "money_rate_tostring",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 3 },
+    { "module": "money", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.84200" }] }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "1" }] }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.0067" }] }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.000000000001" }] }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "9223372.036854775807" }] }] }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "number", "value": "64" }] }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "constructor", "type": "money.Rate", "arguments": [{ "kind": "named", "name": "scaled", "value": { "kind": "number", "value": "1500000000000" } }] }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "constructor", "type": "money.Rate", "arguments": [{ "kind": "named", "name": "scaled", "value": { "kind": "number", "value": "0" } }] }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "constructor", "type": "money.Rate", "arguments": [{ "kind": "named", "name": "scaled", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "5" } } }] }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "constructor", "type": "money.Rate", "arguments": [{ "kind": "named", "name": "scaled", "value": { "kind": "binary", "operator": "-", "left": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775807" } }, "right": { "kind": "number", "value": "1" } } }] }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.50" }] }, "right": { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.5" }] } }] }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ]
+    }
+    ]
+  }
+  ]
+}
