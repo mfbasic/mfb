@@ -113,3 +113,25 @@ fn a_function_type_closes_its_parameters_and_may_end_them_with_a_comma() {
     );
     assert!(diagnostics(&typed("FUNC(Integer, String,) AS Integer")).is_empty());
 }
+
+#[test]
+fn a_doc_example_runs_to_its_end_and_keeps_its_blank_lines() {
+    let documented = |example: &str| {
+        format!(
+            "DOC\nFUNC f\nDESC Adds.\nEXAMPLE\n{example}END DOC\n\
+             FUNC f() AS Integer\n  RETURN 1\nEND FUNC\n"
+        )
+    };
+    // The lexer reads an EXAMPLE verbatim up to its END EXAMPLE, so one left
+    // open swallows the END DOC and runs to the end of the file.
+    assert_eq!(
+        first(&documented("  f()\n")),
+        "DOC block reached end of file before its `END DOC` line."
+    );
+    let file = parse_ok(&documented("  LET a = f()\n\n  RETURN a\nEND EXAMPLE\n"));
+    let Some(Item::Doc(doc)) = file.items.iter().find(|item| matches!(item, Item::Doc(_))) else {
+        panic!("expected a DOC item");
+    };
+    assert_eq!(doc.examples[0].0, "LET a = f()\n\nRETURN a");
+    assert_eq!(DocHeaderKind::Resource.keyword(), "RESOURCE");
+}
