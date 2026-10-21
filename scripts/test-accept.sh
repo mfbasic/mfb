@@ -343,6 +343,13 @@ remove_output_dir() {
 # completes its work and then hangs at teardown. Owning the redirect here keeps a
 # fixture's result independent of how the harness was launched.
 #
+# The program runs in its own process group, and a timeout kills the whole group.
+# Killing only the direct child is not enough: whatever it started (a `sleep`
+# under Debian/Ubuntu's dash, which forks rather than execs a `-c` command's last
+# step) still holds the log pipe open, so the caller's `$(...)` waits for it. The
+# selftest's 2s bound took 300s on CI that way. INT/TERM are passed on to the
+# group, because a separate group no longer receives the terminal's Ctrl-C.
+#
 # Exit status mirrors what the shell would have reported running the program
 # directly — 128+N on a signal, otherwise the program's own code — so existing
 # `[exit N]` goldens are unaffected. A timeout prints `timeout` into the fixture's
@@ -370,11 +377,17 @@ run_with_watchdog() {
     my $pid = fork();
     die "fork failed: $!\n" unless defined $pid;
     if ($pid == 0) {
+      setpgrp(0, 0);
       open(STDIN, "<", "/dev/null") or exit 127;
       exec(@ARGV) or exit 127;
     }
+    setpgrp($pid, $pid);
+    local $SIG{INT} = local $SIG{TERM} = sub {
+      kill "KILL", -$pid;
+      exit 130;
+    };
     local $SIG{ALRM} = sub {
-      kill "KILL", $pid;
+      kill "KILL", -$pid;
       waitpid($pid, 0);
       $| = 1;
       print "timeout\n";
