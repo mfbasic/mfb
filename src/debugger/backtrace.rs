@@ -376,15 +376,17 @@ impl Effect {
         if word & 0x1fe0_0000 == 0x0b20_0000 && rd == 31 {
             return Effect::SpUnknown;
         }
-        // LDP/STP, 64-bit integer or SIMD: opc and V select the size.
+        // LDP/STP, 64-bit integer or SIMD: opc and V select the size. A SIMD
+        // pair scales its immediate by its register size, `4 << opc`: 8 for
+        // `d`, 16 for `q`.
         let pair = word & 0x3a00_0000 == 0x2800_0000;
         if pair {
             let opc = word >> 30;
             let simd = word & 0x0400_0000 != 0;
             let scale = match (simd, opc) {
                 (false, 2) => 8,
-                (true, 1) => 16,
-                (true, 2) => 32,
+                (true, 1) => 8,
+                (true, 2) => 16,
                 _ => 0,
             };
             if scale != 0 {

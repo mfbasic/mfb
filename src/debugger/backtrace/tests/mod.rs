@@ -1,5 +1,7 @@
 use super::*;
 
+mod effects;
+
 const SUB_SP_0X150: u32 = 0xd105_43ff;
 const ADD_SP_0X150: u32 = 0x9105_43ff;
 const SUB_SP_0X1000: u32 = 0xd140_07ff;

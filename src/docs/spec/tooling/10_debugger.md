@@ -1471,7 +1471,9 @@ frame is unwound by reading its function's code from its start to the frame's
   or a register set by `add x<n>, sp, #imm` record where `x29`/`x30` went;
   `ldr`/`ldp` of `x29`/`x30` put them back in their registers; `add x29, sp,
   #imm` sets `fp`; `sub sp, x29, #imm` sets `sp` from it; any other write to
-  `sp` makes it unknown, and the CFA then comes from `fp`.
+  `sp` makes it unknown, and the CFA then comes from `fp`. A pre- or
+  post-index `stp`/`ldp` of SIMD registers through `sp` moves it by its
+  immediate scaled by the register size: 8 bytes for `d`, 16 for `q`.
 - The prologue is the leading run of `sp` decrements, stores through `sp` (or a
   register set from it), `add x<n>, sp, #imm` and hints. The state it leaves is
   the body's: `ret`, `br`, or `b` outside the function's extent restores it, so
