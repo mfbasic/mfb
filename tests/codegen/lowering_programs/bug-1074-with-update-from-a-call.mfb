@@ -1,0 +1,390 @@
+IMPORT fs
+IMPORT io
+IMPORT os
+IMPORT tcp
+IMPORT collections
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE Holder
+  h AS RES fs::File
+  n AS Integer
+END TYPE
+
+TYPE Layer
+  items AS List OF RES fs::File
+END TYPE
+
+MUT gKeep AS List OF RES fs::File = []
+
+FUNC mkList() AS List OF RES fs::File
+  MUT xs AS List OF RES fs::File = []
+  RES f AS fs::File = fs::createTempFile()
+  xs = collections::append(xs, f)
+  RES g AS fs::File = fs::createTempFile()
+  xs = collections::append(xs, g)
+  RETURN xs
+END FUNC
+
+FUNC mkListN(k AS Integer, tag AS String) AS List OF RES fs::File
+  MUT xs AS List OF RES fs::File = []
+  FOR i = 1 TO k
+    RES f AS fs::File = fs::createTempFile()
+    xs = collections::append(xs, f)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC mkDup() AS List OF RES fs::File
+  MUT xs AS List OF RES fs::File = []
+  RES f AS fs::File = fs::createTempFile()
+  xs = collections::append(xs, f)
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC
+
+FUNC mkMap() AS Map OF String TO RES fs::File
+  MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}
+  RES f AS fs::File = fs::createTempFile()
+  m = collections::set(m, "a", f)
+  RETURN m
+END FUNC
+
+FUNC mkHolder() AS Holder
+  RES f AS fs::File = fs::createTempFile()
+  RETURN Holder[f, 1]
+END FUNC
+
+FUNC mkHolders() AS List OF Holder
+  MUT hs AS List OF Holder = []
+  RES f AS fs::File = fs::createTempFile()
+  hs = collections::append(hs, Holder[f, 1])
+  RETURN hs
+END FUNC
+
+FUNC mkNested() AS List OF List OF RES fs::File
+  MUT outer AS List OF List OF RES fs::File = []
+  outer = collections::append(outer, mkList())
+  RETURN outer
+END FUNC
+
+FUNC mkHandles() AS List OF RES Handle
+  MUT xs AS List OF RES Handle = []
+  RES f AS Handle = fs::createTempFile()
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC
+
+FUNC mkLayer() AS Layer
+  RETURN Layer[items := mkList()]
+END FUNC
+
+FUNC mkFrom(f AS fs::File) AS List OF RES fs::File
+  MUT xs AS List OF RES fs::File = []
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC
+
+FUNC viewG() AS List OF RES fs::File
+  RETURN gKeep
+END FUNC
+
+FUNC count(xs AS List OF RES fs::File) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH h IN xs
+    fs::writeAll(h, "x")
+    t = t + 1
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC countFail(xs AS List OF RES fs::File) AS Integer
+  IF len(xs) > 0 THEN
+    FAIL error(77, "boom")
+  END IF
+  RETURN 0
+END FUNC
+
+FUNC stash(xs AS List OF RES fs::File) AS Integer
+  gKeep = collections::append(gKeep, collections::get(xs, 0))
+  RETURN 1
+END FUNC
+
+FUNC useH(h AS Holder) AS Integer
+  RETURN h.n
+END FUNC
+
+FUNC countH(hs AS List OF Holder) AS Integer
+  RETURN len(hs)
+END FUNC
+
+FUNC early(i AS Integer) AS Integer
+  IF i MOD 2 = 0 THEN
+    RETURN len(mkList())
+  END IF
+  RETURN count(mkList()) + len(mkList())
+END FUNC
+
+
+TYPE HLayer
+  items AS List OF RES Handle
+END TYPE
+
+TYPE MLayer
+  m AS Map OF String TO RES fs::File
+END TYPE
+
+TYPE Outer
+  layer AS Layer
+  tag AS Integer
+END TYPE
+
+MUT gLayer AS Layer = Layer[items := []]
+
+FUNC mkHLayer() AS HLayer
+  RETURN HLayer[items := mkHandles()]
+END FUNC
+
+FUNC countHandles(xs AS List OF RES Handle) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH h IN xs
+    MATCH h
+      CASE fs::File(f)
+        fs::writeAll(f, "x")
+        t = t + 1
+      CASE ELSE
+        t = t + 100
+    END MATCH
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC useHres(h AS Holder) AS Integer
+  fs::writeAll(h.h, "x")
+  RETURN h.n
+END FUNC
+
+FUNC ctorEarly(i AS Integer) AS Integer
+  LET back AS Layer = Layer[items := mkList()]
+  IF i MOD 2 = 0 THEN
+    RETURN 1
+  END IF
+  RETURN len(back.items)
+END FUNC
+
+FUNC mk2() AS Layer
+  LET back AS Layer = Layer[items := mkList()]
+  RETURN back
+END FUNC
+
+FUNC loopReturn(i AS Integer) AS Integer
+  FOR EACH h IN mkList()
+    fs::writeAll(h, "x")
+    IF i MOD 2 = 0 THEN
+      RETURN 7
+    END IF
+  NEXT
+  RETURN 1
+END FUNC
+
+FUNC itemsOf(l AS Layer) AS List OF RES fs::File
+  RETURN l.items
+END FUNC
+
+FUNC same(xs AS List OF RES fs::File) AS List OF RES fs::File
+  RETURN xs
+END FUNC
+
+FUNC condReturn(i AS Integer) AS Integer
+  IF len(mkList()) > i MOD 3 THEN
+    RETURN 5
+  END IF
+  RETURN 1
+END FUNC
+
+
+FUNC openOne() AS RES fs::File
+  RETURN fs::openFile("/tmp/g933/data.txt")
+END FUNC
+
+FUNC openH() AS RES Handle
+  RES h AS Handle = fs::openFile("/tmp/g933/data.txt")
+  RETURN h
+END FUNC
+
+FUNC ident(f AS fs::File) AS RES fs::File
+  RETURN f
+END FUNC
+
+FUNC readOnce(i AS Integer) AS Integer
+  IF i MOD 2 = 0 THEN
+    RETURN len(fs::readAll(openOne()))
+  END IF
+  RETURN len(fs::readAll(fs::openFile("/tmp/g933/data.txt")))
+END FUNC
+
+FUNC keepF(f AS fs::File) AS Integer
+  gKeep = collections::append(gKeep, f)
+  RETURN 1
+END FUNC
+
+FUNC hLen(h AS Handle) AS Integer
+  MATCH h
+    CASE fs::File(f)
+      RETURN len(fs::readAll(f))
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+TYPE HB2
+  h AS RES fs::File
+END TYPE
+
+FUNC mkNested2() AS List OF List OF RES fs::File
+  MUT outer AS List OF List OF RES fs::File = []
+  outer = collections::append(outer, mkList())
+  outer = collections::append(outer, mkList())
+  outer = collections::append(outer, mkList())
+  RETURN outer
+END FUNC
+
+TYPE WA
+  v AS List OF RES fs::File
+END TYPE
+
+MUT gWA AS List OF WA = []
+
+FUNC mkWA() AS WA
+  RETURN WA[v := mkList()]
+END FUNC
+
+FUNC retA() AS WA
+  LET w AS WA = WA[v := mkList()]
+  RETURN w
+END FUNC
+
+FUNC cntA(x AS List OF RES fs::File) AS Integer
+  RETURN len(x)
+END FUNC
+
+TYPE WB
+  v AS List OF RES Handle
+END TYPE
+
+MUT gWB AS List OF WB = []
+
+FUNC mkWB() AS WB
+  RETURN WB[v := mkHandles()]
+END FUNC
+
+FUNC retB() AS WB
+  LET w AS WB = WB[v := mkHandles()]
+  RETURN w
+END FUNC
+
+FUNC cntB(x AS List OF RES Handle) AS Integer
+  RETURN len(x)
+END FUNC
+
+TYPE WC
+  v AS Map OF String TO RES fs::File
+END TYPE
+
+MUT gWC AS List OF WC = []
+
+FUNC mkWC() AS WC
+  RETURN WC[v := mkMap()]
+END FUNC
+
+FUNC retC() AS WC
+  LET w AS WC = WC[v := mkMap()]
+  RETURN w
+END FUNC
+
+FUNC cntC(x AS Map OF String TO RES fs::File) AS Integer
+  RETURN len(x)
+END FUNC
+
+TYPE WD
+  v AS Holder
+END TYPE
+
+MUT gWD AS List OF WD = []
+
+FUNC mkWD() AS WD
+  RETURN WD[v := mkHolder()]
+END FUNC
+
+FUNC retD() AS WD
+  LET w AS WD = WD[v := mkHolder()]
+  RETURN w
+END FUNC
+
+FUNC cntD(x AS Holder) AS Integer
+  RETURN useH(x)
+END FUNC
+
+TYPE WE
+  v AS Layer
+END TYPE
+
+MUT gWE AS List OF WE = []
+
+FUNC mkWE() AS WE
+  RETURN WE[v := mkLayer()]
+END FUNC
+
+FUNC retE() AS WE
+  LET w AS WE = WE[v := mkLayer()]
+  RETURN w
+END FUNC
+
+FUNC cntE(x AS Layer) AS Integer
+  RETURN len(x.items)
+END FUNC
+
+TYPE WF
+  v AS List OF List OF RES fs::File
+END TYPE
+
+MUT gWF AS List OF WF = []
+
+FUNC mkWF() AS WF
+  RETURN WF[v := mkNested2()]
+END FUNC
+
+FUNC retF() AS WF
+  LET w AS WF = WF[v := mkNested2()]
+  RETURN w
+END FUNC
+
+FUNC cntF(x AS List OF List OF RES fs::File) AS Integer
+  RETURN len(x)
+END FUNC
+
+FUNC retTake() AS List OF RES fs::File
+  RETURN collections::take(mkList(), 1)
+END FUNC
+
+FUNC retGet() AS RES fs::File
+  RETURN collections::get(mkList(), 0)
+END FUNC
+
+FUNC retField() AS List OF RES fs::File
+  RETURN mkLayer().items
+END FUNC
+
+FUNC main AS Integer
+  MUT n AS Integer = 0
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    LET a AS Layer = mkLayer()
+    LET b AS Layer = WITH a { items := mkList() }
+    n = n + len(b.items)
+  NEXT
+  io::print("n=" & toString(n))
+  RETURN 0
+END FUNC

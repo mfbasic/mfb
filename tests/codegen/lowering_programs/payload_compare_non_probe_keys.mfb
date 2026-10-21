@@ -1,0 +1,46 @@
+IMPORT collections
+IMPORT io
+
+TYPE Pt
+  x AS Integer
+  y AS Integer
+END TYPE
+
+ENUM Colour
+  Red, Green, Blue
+END ENUM
+
+FUNC main() AS Integer
+  MUT n AS Integer = 0
+  LET pts AS List OF Pt = [Pt[1, 2], Pt[3, 4], Pt[1, 2]]
+  IF collections::contains(pts, Pt[3, 4]) THEN
+    n = n + 1
+  END IF
+  MUT dedup AS List OF Pt = pts
+  dedup = collections::distinct(dedup)
+  LET sub AS List OF Pt = [Pt[3, 4], Pt[1, 2]]
+  n = n + collections::find(pts, sub) + len(dedup)
+  MUT ms AS Set OF Money = Set OF Money { 1.00m, 2.00m }
+  ms = collections::add(ms, 3.00m)
+  ms = collections::remove(ms, 1.00m)
+  LET ms2 AS Set OF Money = collections::remove(ms, 2.00m)
+  MUT cs AS Set OF Colour = Set OF Colour { Colour.Red }
+  cs = collections::add(cs, Colour.Blue)
+  cs = collections::remove(cs, Colour.Red)
+  LET cs2 AS Set OF Colour = collections::remove(cs, Colour.Blue)
+  MUT byPt AS Map OF Pt TO String = Map OF Pt TO String { Pt[1, 2] := "a" }
+  byPt = collections::set(byPt, Pt[3, 4], "b")
+  byPt = collections::set(byPt, Pt[1, 2], "c")
+  LET byPt2 AS Map OF Pt TO String = collections::removeKey(byPt, Pt[1, 2])
+  IF collections::hasKey(byPt, Pt[3, 4]) THEN
+    n = n + 1
+  END IF
+  MUT byColour AS Map OF Colour TO Integer = Map OF Colour TO Integer { Colour.Red := 1 }
+  byColour = collections::set(byColour, Colour.Green, 2)
+  n = n + collections::getOr(byColour, Colour.Green, 0) + len(ms2) + len(cs2) + len(byPt2)
+  LET fixed AS List OF Money = [1.00m, 2.00m, 1.00m]
+  MUT fixedDistinct AS List OF Money = fixed
+  fixedDistinct = collections::distinct(fixedDistinct)
+  io::print(toString(n + len(fixedDistinct)))
+  RETURN 0
+END FUNC

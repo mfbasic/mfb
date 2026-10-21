@@ -1,0 +1,47 @@
+IMPORT collections
+IMPORT io
+
+TYPE Leaf
+  v AS Integer
+END TYPE
+
+TYPE Node
+  kids AS List OF Tree
+END TYPE
+
+UNION Tree
+  Node
+  Leaf
+END UNION
+
+FUNC build(n AS Integer) AS Tree
+  IF n < 0 THEN
+    FAIL error(1, "negative")
+  END IF
+  IF n = 0 THEN
+    RETURN Leaf[v := 0]
+  END IF
+  RETURN Node[kids := [build(n - 1), Leaf[v := n]]]
+END FUNC
+
+FUNC buildAll(n AS Integer) AS List OF Tree
+  IF n < 0 THEN
+    FAIL error(2, "negative")
+  END IF
+  RETURN [build(n), build(n + 1)]
+END FUNC
+
+FUNC probe(n AS Integer) AS Integer
+  LET t AS Tree = build(n) TRAP(e)
+    RETURN 0 - 1
+  END TRAP
+  LET ts AS List OF Tree = buildAll(n) TRAP(e)
+    RETURN 0 - 2
+  END TRAP
+  RETURN len(ts)
+END FUNC
+
+FUNC main() AS Integer
+  io::print(toString(probe(2) + probe(0 - 1)))
+  RETURN 0
+END FUNC

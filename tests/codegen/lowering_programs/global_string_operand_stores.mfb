@@ -1,0 +1,15 @@
+IMPORT io
+
+MUT g AS String = "a"
+
+FUNC bump() AS String
+  g = "reset"
+  RETURN "b"
+END FUNC
+
+FUNC main() AS Integer
+  g = g & "x"
+  g = g & bump()
+  io::print(g)
+  RETURN 0
+END FUNC

@@ -1,0 +1,53 @@
+IMPORT collections
+IMPORT io
+IMPORT thread
+
+TYPE Dot
+  x AS Integer
+END TYPE
+
+TYPE Tag
+  name AS String
+END TYPE
+
+UNION Shape
+  Dot
+  Tag
+END UNION
+
+FUNC risky(n AS Integer) AS Integer
+  IF n < 0 THEN FAIL error(1, "neg")
+  RETURN n
+END FUNC
+
+ISOLATED FUNC work(w AS ThreadWorker OF Nothing TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main() AS Integer
+  MUT count AS Integer = 0
+  LET base AS Integer = 4
+  LET s AS Shape = Dot[x := 1]
+  LET bump AS FUNC(Integer) AS String = LAMBDA(v AS Integer) -> typeName(base) & typeName(v)
+  io::print(bump(1))
+  collections::forEach([1], LAMBDA(each1 AS Integer) -> count = count + len(typeName(count)))
+  io::print("a" & typeName(LAMBDA(v AS Integer) -> v) & "b")
+  MATCH s
+    CASE Dot(d)
+      io::print("d" & typeName(d) & typeName(d.x))
+    CASE Tag(t)
+      io::print("t" & typeName(t) & typeName(t.name))
+  END MATCH
+  LET r AS Integer = risky(-1) TRAP(e)
+    io::print("e" & typeName(e) & typeName(e.code) & typeName(e.message))
+    RECOVER 0
+  END TRAP
+  RES th AS Thread OF Nothing TO Integer = thread::start(work, 1)
+  io::print("h" & typeName(th))
+  LET out AS Integer = thread::waitFor(th)
+  FOR EACH k IN collections::keys(Map OF String TO Integer { "a" := 1 })
+    io::print("k" & typeName(k))
+  NEXT
+  io::print(typeName(r))
+  RETURN 0
+END FUNC

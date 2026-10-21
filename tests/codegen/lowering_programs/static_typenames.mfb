@@ -1,0 +1,59 @@
+IMPORT collections
+IMPORT io
+IMPORT math
+IMPORT strings
+
+ENUM Colour
+  Red, Green
+END ENUM
+
+TYPE P
+  x AS Integer
+  name AS String
+END TYPE
+
+TYPE Q
+  y AS Float
+END TYPE
+
+UNION U
+  P
+  Q
+END UNION
+
+FUNC twice(n AS Integer) AS Integer
+  RETURN n * 2
+END FUNC
+
+FUNC pick(flag AS Boolean) AS U
+  IF flag THEN
+    RETURN P[x := 1, name := "p"]
+  END IF
+  RETURN Q[y := 1.5]
+END FUNC
+
+FUNC main() AS Integer
+  LET a AS Integer = 5
+  LET p AS P = P[x := 1, name := "p"]
+  LET u AS U = pick(TRUE)
+  LET xs AS List OF Integer = [1, 2, 3]
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1 }
+  LET s AS Set OF Integer = Set OF Integer { 1, 2 }
+  LET f AS FUNC(Integer) AS Integer = twice
+  LET g AS FUNC(Integer) AS Integer = LAMBDA(v AS Integer) -> v + a
+  io::print(typeName(a) & typeName(p) & typeName(u) & typeName(xs) & typeName(m) & typeName(s))
+  io::print(typeName(f) & typeName(g) & typeName(P[x := 2, name := "q"]))
+  io::print(typeName([1, 2]) & typeName(Map OF String TO Integer { "k" := 2 }) & typeName(Set OF Integer { 3 }))
+  io::print(typeName(WITH p { x := 3 }) & typeName(a + 1) & typeName(-a) & typeName(a = 1) & typeName(NOT TRUE))
+  io::print(typeName(p.x) & typeName(p.name) & typeName(collections::get(xs, 0)) & typeName(collections::keys(m)))
+  io::print(typeName(math::abs(a)) & typeName(twice(a)) & typeName(f(a)) & typeName(g(a)) & typeName(pick(FALSE)))
+  io::print(typeName(strings::upper("abc")) & typeName(toString(a)) & typeName("a" & "b") & typeName(len(xs)))
+  LET t1 AS String = toString(5)
+  LET t2 AS String = toString(2.5)
+  LET t3 AS String = toString(TRUE)
+  LET t4 AS String = typeName(a)
+  LET t5 AS String = strings::upper("shout") & strings::lower("QUIET") & strings::caseFold("FOLD")
+  LET t6 AS String = strings::normalizeNfc("abc") & toString("lit")
+  io::print(t1 & t2 & t3 & t4 & t5 & t6)
+  RETURN 0
+END FUNC

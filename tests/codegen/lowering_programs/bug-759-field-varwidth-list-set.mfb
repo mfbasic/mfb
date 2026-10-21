@@ -1,0 +1,81 @@
+' bug-759 reproduction: `collections::set` on a variable-width list held in a
+' record or STATE field rebuilds the owner every statement (O(n) per set), while
+' the same statement on a plain local, or on a fixed-width field, is in place.
+' Prints ns per `set` at two sizes; an in-place path is flat in n.
+IMPORT collections
+IMPORT datetime
+IMPORT fs
+IMPORT io
+
+TYPE RecDyn
+  before AS Integer
+  xs AS List OF String
+  after AS Integer
+END TYPE
+
+TYPE RecFix
+  before AS Integer
+  xs AS List OF Integer
+  after AS Integer
+END TYPE
+
+FUNC strs(n AS Integer) AS List OF String
+  MUT out AS List OF String = []
+  FOR i = 0 TO n - 1
+    out = collections::append(out, "s" & toString(i))
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC ints(n AS Integer) AS List OF Integer
+  MUT out AS List OF Integer = []
+  FOR i = 0 TO n - 1
+    out = collections::append(out, i)
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC localDyn(n AS Integer) AS Integer
+  MUT xs AS List OF String = strs(n)
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR j = 0 TO n - 1
+    xs = collections::set(xs, j, collections::get(xs, j) & "!")
+  NEXT
+  RETURN (datetime::monotonicNanos() - t0) / n + len(collections::get(xs, 0)) * 0
+END FUNC
+
+FUNC fieldDyn(n AS Integer) AS Integer
+  MUT rec AS RecDyn = RecDyn[1, strs(n), 2]
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR j = 0 TO n - 1
+    rec = WITH rec { xs := collections::set(rec.xs, j, collections::get(rec.xs, j) & "!") }
+  NEXT
+  RETURN (datetime::monotonicNanos() - t0) / n + len(collections::get(rec.xs, 0)) * 0
+END FUNC
+
+FUNC stateDyn(f AS fs::File STATE RecDyn, n AS Integer) AS Integer
+  f.state = RecDyn[1, strs(n), 2]
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR j = 0 TO n - 1
+    f.state.xs = collections::set(f.state.xs, j, collections::get(f.state.xs, j) & "!")
+  NEXT
+  RETURN (datetime::monotonicNanos() - t0) / n + len(collections::get(f.state.xs, 0)) * 0
+END FUNC
+
+FUNC fieldFix(n AS Integer) AS Integer
+  MUT rec AS RecFix = RecFix[1, ints(n), 2]
+  LET t0 AS Integer = datetime::monotonicNanos()
+  FOR j = 0 TO n - 1
+    rec = WITH rec { xs := collections::set(rec.xs, j, collections::get(rec.xs, j) + 1) }
+  NEXT
+  RETURN (datetime::monotonicNanos() - t0) / n + collections::get(rec.xs, 0) * 0
+END FUNC
+
+FUNC main AS Integer
+  RES f AS fs::File STATE RecDyn = fs::openFile("project.json")
+  FOR EACH n IN [1000, 4000]
+    io::print("n=" & toString(n) & " localDyn=" & toString(localDyn(n)) & " fieldDyn=" & toString(fieldDyn(n)) & " stateDyn=" & toString(stateDyn(f, n)) & " fieldFix=" & toString(fieldFix(n)) & " ns/set")
+  NEXT
+  fs::close(f)
+  RETURN 0
+END FUNC

@@ -1,0 +1,23 @@
+IMPORT collections
+IMPORT io
+
+TYPE Leaf
+  v AS Integer
+END TYPE
+
+TYPE Node
+  kids AS List OF Tree
+END TYPE
+
+UNION Tree
+  Node
+  Leaf
+END UNION
+
+FUNC main() AS Integer
+  MUT m AS Map OF String TO Tree = Map OF String TO Tree { "a" := Leaf[v := 1], "b" := Node[kids := [Leaf[v := 2]]] }
+  m = collections::removeKey(m, "b")
+  m = collections::removeKey(m, "a")
+  io::print(toString(len(m)))
+  RETURN 0
+END FUNC

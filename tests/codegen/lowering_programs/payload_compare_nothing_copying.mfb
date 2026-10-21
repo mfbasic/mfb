@@ -1,0 +1,14 @@
+IMPORT collections
+IMPORT io
+
+FUNC main() AS Integer
+  LET s AS Set OF Nothing = Set OF Nothing { Nothing }
+  LET s2 AS Set OF Nothing = collections::remove(s, Nothing)
+  LET m AS Map OF Nothing TO Integer = Map OF Nothing TO Integer { Nothing := 1 }
+  LET m2 AS Map OF Nothing TO Integer = collections::removeKey(m, Nothing)
+  LET xs AS List OF Nothing = [Nothing, Nothing]
+  MUT ys AS List OF Nothing = xs
+  ys = collections::distinct(ys)
+  io::print(toString(len(s2) + len(m2) + len(ys) + collections::find(xs, [Nothing])))
+  RETURN 0
+END FUNC

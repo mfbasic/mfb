@@ -1,0 +1,24 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+MUT counter AS Integer = 0
+MUT log AS List OF String = []
+
+FUNC mk(prefix AS String) AS FUNC(Integer) AS Integer
+  RES f AS fs::File = fs::createTempFile()
+  RETURN LAMBDA(n AS Integer) -> bump(f, prefix, n)
+END FUNC
+
+FUNC bump(f AS fs::File, prefix AS String, n AS Integer) AS Integer
+  counter = counter + n
+  log = collections::append(log, prefix)
+  fs::writeAll(f, prefix)
+  RETURN counter
+END FUNC
+
+FUNC main() AS Integer
+  LET g AS FUNC(Integer) AS Integer = mk("p")
+  io::print(toString(g(1) + g(2) + len(log)))
+  RETURN 0
+END FUNC

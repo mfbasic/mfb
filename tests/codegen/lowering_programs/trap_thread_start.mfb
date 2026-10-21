@@ -1,0 +1,16 @@
+IMPORT thread
+IMPORT io
+
+ISOLATED FUNC spin(w AS ThreadWorker OF Nothing TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main() AS Integer
+  RES t AS Thread OF Nothing TO Integer = thread::start(spin, 7) TRAP(e)
+    io::print("start failed")
+    RETURN 1
+  END TRAP
+  LET r AS Integer = thread::waitFor(t)
+  io::print(toString(r))
+  RETURN 0
+END FUNC

@@ -1,0 +1,68 @@
+IMPORT io
+IMPORT os
+IMPORT fs
+IMPORT tcp
+IMPORT collections
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE Box
+  hs AS List OF RES Handle
+END TYPE
+
+FUNC describe(hs AS List OF RES Handle) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH h IN hs
+    MATCH h
+      CASE fs::File(f)
+        fs::writeAll(f, "x")
+        t = t + 1
+      CASE tcp::Socket(s)
+        t = t + 100
+      CASE ELSE
+        t = t + 10000
+    END MATCH
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC describeMap(hs AS Map OF String TO RES Handle) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH e IN hs
+    MATCH e.value
+      CASE fs::File(f)
+        fs::writeAll(f, "x")
+        t = t + 1
+      CASE tcp::Socket(s)
+        t = t + 100
+      CASE ELSE
+        t = t + 10000
+    END MATCH
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC give(files AS List OF RES fs::File) AS List OF RES Handle
+  RETURN files
+END FUNC
+
+FUNC main AS Integer
+  MUT n AS Integer = 0
+  MUT files AS List OF RES fs::File = []
+  RES f1 AS fs::File = fs::createTempFile()
+  files = collections::append(files, f1)
+  RES f2 AS fs::File = fs::createTempFile()
+  files = collections::append(files, f2)
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}
+    m = collections::set(m, "a", collections::get(files, 0))
+    n = n + describeMap(m)
+  NEXT
+  fs::writeAll(f1, "still open")
+  fs::writeAll(collections::get(files, 1), "still open")
+  io::print("n=" & toString(n))
+  RETURN 0
+END FUNC

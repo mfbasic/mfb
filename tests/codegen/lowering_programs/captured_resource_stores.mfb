@@ -1,0 +1,47 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT tcp
+
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE Holder
+  files AS List OF RES fs::File
+  tag AS String
+END TYPE
+
+FUNC openOne() AS RES fs::File
+  RES f AS fs::File = fs::createTempFile()
+  RETURN f
+END FUNC
+
+FUNC openStream() AS RES Stream
+  RES f AS fs::File = fs::createTempFile()
+  RETURN f
+END FUNC
+
+FUNC mkFiles() AS List OF RES fs::File
+  RES f AS fs::File = fs::createTempFile()
+  RETURN [f]
+END FUNC
+
+FUNC mkStreams() AS List OF RES Stream
+  RES f AS fs::File = fs::createTempFile()
+  RETURN [f]
+END FUNC
+
+FUNC main() AS Integer
+  MUT files AS List OF RES fs::File = []
+  MUT streams AS List OF RES Stream = []
+  MUT held AS List OF Holder = []
+  collections::forEach([1], LAMBDA(each1 AS Integer) -> files = mkFiles())
+  collections::forEach([1], LAMBDA(each1 AS Integer) -> streams = mkStreams())
+  collections::forEach([1], LAMBDA(each1 AS Integer) -> files = collections::append(files, openOne()))
+  collections::forEach([1], LAMBDA(each1 AS Integer) -> streams = collections::append(streams, openStream()))
+  collections::forEach([1], LAMBDA(each1 AS Integer) -> held = collections::append(held, Holder[files := mkFiles(), tag := "t"]))
+  io::print(toString(len(files) + len(streams) + len(held)))
+  RETURN 0
+END FUNC

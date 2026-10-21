@@ -1,0 +1,42 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT tcp
+
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+
+FUNC note(s AS Stream, text AS String) AS Integer
+  MATCH s
+    CASE fs::File(f)
+      fs::writeAll(f, text)
+    CASE tcp::Socket(sock)
+      RETURN 0
+  END MATCH
+  RETURN len(text)
+END FUNC
+
+FUNC openStream() AS RES Stream
+  RES f AS fs::File = fs::createTempFile()
+  RETURN f
+END FUNC
+
+FUNC mkWriter() AS FUNC(String) AS Integer
+  RES s AS Stream = openStream()
+  RETURN LAMBDA(text AS String) -> note(s, text)
+END FUNC
+
+FUNC main() AS Integer
+  LET w AS FUNC(String) AS Integer = mkWriter()
+  LET a AS Integer = w("abc")
+  RES local AS Stream = openStream()
+  LET w2 AS FUNC(String) AS Integer = LAMBDA(text AS String) -> note(local, text)
+  MUT writers AS List OF FUNC(String) AS Integer = [w2]
+  writers = collections::append(writers, w)
+  LET first AS FUNC(String) AS Integer = collections::get(writers, 0)
+  LET b AS Integer = first("x")
+  io::print(toString(a + b + len(writers)))
+  RETURN 0
+END FUNC

@@ -1,0 +1,16 @@
+IMPORT fs
+IMPORT io
+IMPORT os
+
+FUNC main() AS Integer
+  MUT r AS String = "assets"
+  MUT d AS String = "data"
+  MUT n AS String = "a/b/../c"
+  r = os::appResourcePath(r)
+  r = fs::pathBaseName(r)
+  d = os::appDataPath(d)
+  d = fs::pathBaseName(d)
+  n = fs::pathNormalize(n)
+  io::print(r & d & n)
+  RETURN 0
+END FUNC

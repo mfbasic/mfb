@@ -1,0 +1,8 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+RES g AS fs::File = fs::createTempFile()
+FUNC main AS Integer
+  io::print("y")
+  RETURN 0
+END FUNC

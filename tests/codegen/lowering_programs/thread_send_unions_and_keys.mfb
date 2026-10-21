@@ -1,0 +1,80 @@
+IMPORT collections
+IMPORT io
+IMPORT thread
+
+TYPE Key
+  name AS String
+  id AS Integer
+END TYPE
+
+TYPE Words
+  items AS List OF String
+  tag AS String
+END TYPE
+
+TYPE Table
+  cells AS Map OF String TO List OF String
+END TYPE
+
+TYPE Num
+  n AS Integer
+END TYPE
+
+TYPE Boxed
+  inner AS Words
+  extra AS List OF Integer
+END TYPE
+
+UNION Msg
+  Words
+  Table
+  Num
+  Boxed
+END UNION
+
+ISOLATED FUNC takeKeyed(w AS ThreadWorker OF Map OF Key TO Integer TO Integer, n AS Integer) AS Integer
+  LET m AS Map OF Key TO Integer = thread::receive(w)
+  RETURN len(m)
+END FUNC
+
+ISOLATED FUNC takeKeyedLists(w AS ThreadWorker OF Map OF Key TO List OF String TO Integer, n AS Integer) AS Integer
+  LET m AS Map OF Key TO List OF String = thread::receive(w)
+  RETURN len(m)
+END FUNC
+
+ISOLATED FUNC takeMsgs(w AS ThreadWorker OF List OF Msg TO Integer, n AS Integer) AS Integer
+  LET m AS List OF Msg = thread::receive(w)
+  RETURN len(m)
+END FUNC
+
+ISOLATED FUNC takeMsg(w AS ThreadWorker OF Msg TO Integer, n AS Integer) AS Integer
+  LET m AS Msg = thread::receive(w)
+  RETURN n
+END FUNC
+
+ISOLATED FUNC takeMsgMap(w AS ThreadWorker OF Map OF String TO Msg TO Integer, n AS Integer) AS Integer
+  LET m AS Map OF String TO Msg = thread::receive(w)
+  RETURN len(m)
+END FUNC
+
+FUNC main() AS Integer
+  MUT total AS Integer = 0
+  RES a AS Thread OF Map OF Key TO Integer TO Integer = thread::start(takeKeyed, 1)
+  thread::send(a, Map OF Key TO Integer { Key["k", 1] := 1, Key["j", 2] := 2 }, 100)
+  total = total + thread::waitFor(a)
+  RES b AS Thread OF Map OF Key TO List OF String TO Integer = thread::start(takeKeyedLists, 1)
+  thread::send(b, Map OF Key TO List OF String { Key["k", 1] := ["x", "y"] }, 100)
+  total = total + thread::waitFor(b)
+  LET msgs AS List OF Msg = [Words[items := ["a", "b"], tag := "t"], Table[cells := Map OF String TO List OF String { "k" := ["v"] }], Num[n := 1], Boxed[inner := Words[items := ["c"], tag := "u"], extra := [1, 2]]]
+  RES c AS Thread OF List OF Msg TO Integer = thread::start(takeMsgs, 1)
+  thread::send(c, msgs, 100)
+  total = total + thread::waitFor(c)
+  RES d AS Thread OF Msg TO Integer = thread::start(takeMsg, 1)
+  thread::send(d, Boxed[inner := Words[items := ["c"], tag := "u"], extra := [1, 2]], 100)
+  total = total + thread::waitFor(d)
+  RES e AS Thread OF Map OF String TO Msg TO Integer = thread::start(takeMsgMap, 1)
+  thread::send(e, Map OF String TO Msg { "w" := Words[items := ["a"], tag := "t"], "n" := Num[n := 2] }, 100)
+  total = total + thread::waitFor(e)
+  io::print(toString(total))
+  RETURN 0
+END FUNC

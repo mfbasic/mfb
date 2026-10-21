@@ -1,0 +1,55 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT tcp
+
+TYPE Dot
+  x AS Integer
+END TYPE
+
+TYPE Tag
+  name AS String
+END TYPE
+
+UNION Shape
+  Dot
+  Tag
+END UNION
+
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE Mixed
+  m AS Map OF String TO Integer
+  s AS Set OF Integer
+  u AS Shape
+  n AS Integer
+END TYPE
+
+TYPE Holder
+  stream AS RES Stream
+  n AS Integer
+END TYPE
+
+FUNC openHolder(n AS Integer) AS Holder
+  RES f AS fs::File = fs::createTempFile()
+  RETURN Holder[stream := f, n := n]
+END FUNC
+
+FUNC main() AS Integer
+  LET a AS Mixed = Mixed[Map OF String TO Integer { "a" := 1 }, Set OF Integer { 1 }, Dot[x := 1], 1]
+  LET b AS Mixed = Mixed[Map OF String TO Integer { "b" := 2 }, Set OF Integer { 2 }, Tag[name := "t"], 2]
+  LET c AS Mixed = Mixed[Map OF String TO Integer { "c" := 3 }, Set OF Integer { 3 }, Dot[x := 3], 3]
+  LET h1 AS Holder = openHolder(1)
+  LET h2 AS Holder = openHolder(2)
+  RES f3 AS fs::File = fs::createTempFile()
+  LET h3 AS Holder = Holder[stream := f3, n := 3]
+  RES f4 AS fs::File = fs::createTempFile()
+  LET h4 AS Holder = Holder[stream := f4, n := 4]
+  RES f5 AS fs::File = fs::createTempFile()
+  LET h5 AS Holder = Holder[stream := f5, n := 5]
+  io::print(toString(a.n + b.n + c.n + h1.n + h2.n + h3.n + h4.n + h5.n))
+  RETURN 0
+END FUNC

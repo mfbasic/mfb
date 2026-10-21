@@ -1,0 +1,56 @@
+IMPORT io
+
+TYPE Dot
+  x AS Integer
+END TYPE
+
+TYPE Tag
+  name AS String
+END TYPE
+
+UNION Shape
+  Dot
+  Tag
+END UNION
+
+TYPE Holder
+  s AS Shape
+  n AS Integer
+END TYPE
+
+FUNC mkShape(n AS Integer) AS Shape
+  IF n < 0 THEN FAIL error(1, "neg")
+  RETURN Dot[x := n]
+END FUNC
+
+FUNC mkHolder(n AS Integer) AS Holder
+  IF n < 0 THEN FAIL error(1, "neg")
+  RETURN Holder[s := Dot[x := n], n := n]
+END FUNC
+
+FUNC mkFn(n AS Integer) AS FUNC(Integer) AS Integer
+  IF n < 0 THEN FAIL error(1, "neg")
+  RETURN LAMBDA(x AS Integer) -> x + n
+END FUNC
+
+FUNC mkByte(n AS Integer) AS Byte
+  IF n < 0 THEN FAIL error(1, "neg")
+  RETURN toByte(n)
+END FUNC
+
+FUNC main() AS Integer
+  LET a AS Shape = mkShape(-1) TRAP(e)
+    RECOVER Dot[x := 0]
+  END TRAP
+  LET b AS Holder = mkHolder(-1) TRAP(e)
+    RECOVER Holder[s := Dot[x := 0], n := 0]
+  END TRAP
+  LET c AS FUNC(Integer) AS Integer = mkFn(-1) TRAP(e)
+    RECOVER LAMBDA(x AS Integer) -> x
+  END TRAP
+  LET d AS Byte = mkByte(-1) TRAP(e)
+    RECOVER toByte(0)
+  END TRAP
+  io::print("done")
+  RETURN 0
+END FUNC

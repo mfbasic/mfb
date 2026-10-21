@@ -1,0 +1,29 @@
+IMPORT fs
+IMPORT tcp
+IMPORT io
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+
+FUNC pick(n AS Integer) AS Stream
+  IF n < 0 THEN
+    FAIL error(77070002, "no stream")
+  END IF
+  RES f AS fs::File = fs::createTempFile()
+  RETURN f
+END FUNC
+
+FUNC main() AS Integer
+  RES s AS Stream STATE Cursor = pick(-1) TRAP(e)
+    io::print("trapped")
+    RETURN 1
+  END TRAP
+  s.state.pos = 3
+  RETURN 0
+END FUNC

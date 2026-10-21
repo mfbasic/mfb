@@ -1,0 +1,28 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT math
+IMPORT thread
+
+TYPE Cursor
+  pos AS Integer
+  ratio AS Float
+  names AS List OF String
+END TYPE
+
+ISOLATED FUNC work(w AS ThreadWorker OF Nothing TO Integer, n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main() AS Integer
+  RES h AS fs::File STATE Cursor = fs::createTempFile()
+  h.state.pos = 3
+  h.state.ratio = 1.5
+  h.state.names = ["a"]
+  io::print(toString(h.state.pos) & toString(len(h.state.names)) & toString(math::abs(h.state.pos)))
+  io::print(toString(math::abs(h.state.ratio)) & typeName(h.state) & typeName(h.state.pos))
+  RES t AS Thread OF Nothing TO Integer = thread::start(work, 2)
+  LET r AS Integer = thread::waitFor(t)
+  io::print(toString(math::abs(r)) & typeName(t) & toString(math::max(r, 1)))
+  RETURN 0
+END FUNC

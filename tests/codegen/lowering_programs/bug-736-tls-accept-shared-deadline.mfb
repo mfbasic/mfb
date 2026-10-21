@@ -1,0 +1,40 @@
+' bug-736 repro server: a bounded tls::accept loop.
+'
+' Pair with the Python harness in bugs/bug-736-tls-accept-shares-deadline-with-handshake.md
+' (`## Failing Reproduction`). The harness establishes the raw TCP connection
+' early (so it is popped from the accept queue almost immediately, well inside
+' the 300ms budget below) and then deliberately delays sending the TLS
+' ClientHello until close to the 300ms mark -- exactly what a real client
+' looks like when its own scheduling, DNS, or network latency pushes its
+' handshake bytes out, or when the client's own retry cadence lines up with
+' this server's cycle (the mechanism bug-704's landing note observed and
+' phase-shifted around rather than fixed). Requires cert.pem/key.pem
+' (self-signed, CN=127.0.0.1, subjectAltName=IP:127.0.0.1) next to this file
+' or generate with:
+'   openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 397 \
+'     -nodes -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1" \
+'     -addext "extendedKeyUsage=serverAuth"
+
+IMPORT tls
+IMPORT datetime
+IMPORT io
+
+FUNC main() AS Nothing
+  RES l = tls::listen("127.0.0.1", 18736, "cert.pem", "key.pem")
+  io::print("listening")
+  MUT n AS Integer = 0
+  WHILE n < 40
+    LET t0 AS Integer = datetime::monotonicNanos()
+    RES s = tls::accept(l, 300) TRAP(e)
+      LET t1 AS Integer = datetime::monotonicNanos()
+      io::print("accept#" & toString(n) & " FAILED " & toString(e.code) & " after " & toString((t1 - t0) / 1000000) & "ms")
+      n = n + 1
+      CONTINUE WHILE
+    END TRAP
+    LET t1 AS Integer = datetime::monotonicNanos()
+    io::print("accept#" & toString(n) & " OK after " & toString((t1 - t0) / 1000000) & "ms")
+    tls::close(s)
+    n = n + 1
+  END WHILE
+  tls::close(l)
+END FUNC

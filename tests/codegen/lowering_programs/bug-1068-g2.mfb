@@ -1,0 +1,9 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+MUT gInts AS List OF Integer = []
+FUNC main AS Integer
+  gInts = collections::append(gInts, 5)
+  io::print(toString(len(gInts)))
+  RETURN 0
+END FUNC

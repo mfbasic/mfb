@@ -1,0 +1,67 @@
+IMPORT collections
+IMPORT io
+
+TYPE Named
+  label AS String
+  n AS Integer
+END TYPE
+
+TYPE Dot
+  x AS Integer
+END TYPE
+
+TYPE Tag
+  name AS String
+END TYPE
+
+UNION Shape
+  Dot
+  Tag
+END UNION
+
+TYPE Holder
+  named AS Named
+  shape AS Shape
+END TYPE
+
+FUNC namedOf(h AS Holder) AS Named
+  RETURN h.named
+END FUNC
+
+FUNC shapeOf(h AS Holder) AS Shape
+  RETURN h.shape
+END FUNC
+
+FUNC firstNamed(xs AS List OF Named) AS Named
+  RETURN collections::get(xs, 0)
+END FUNC
+
+FUNC firstShape(xs AS List OF Shape) AS Shape
+  RETURN collections::get(xs, 0)
+END FUNC
+
+FUNC namedOrDefault(m AS Map OF String TO Named, k AS String, d AS Named) AS Named
+  RETURN collections::getOr(m, k, d)
+END FUNC
+
+FUNC guarded(xs AS List OF Shape, i AS Integer) AS Shape
+  LET v AS Shape = collections::get(xs, i) TRAP(e)
+    RETURN Dot[x := 0]
+  END TRAP
+  RETURN v
+END FUNC
+
+FUNC main() AS Integer
+  LET h AS Holder = Holder[named := Named["a", 1], shape := Tag[name := "t"]]
+  LET xs AS List OF Named = [Named["b", 2]]
+  LET ss AS List OF Shape = [Dot[x := 1]]
+  LET m AS Map OF String TO Named = Map OF String TO Named { "k" := Named["c", 3] }
+  LET a AS Named = namedOf(h)
+  LET b AS Shape = shapeOf(h)
+  LET c AS Named = firstNamed(xs)
+  LET d AS Shape = firstShape(ss)
+  LET e AS Named = namedOrDefault(m, "z", Named["d", 4])
+  LET f AS Shape = guarded(ss, 5)
+  io::print(a.label & c.label & e.label)
+  RETURN 0
+END FUNC

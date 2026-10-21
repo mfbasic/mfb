@@ -1,0 +1,41 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT tcp
+
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+
+FUNC pickFile(xs AS List OF RES fs::File, i AS Integer) AS Integer
+  RES g AS fs::File = collections::get(xs, i) TRAP(e)
+    RETURN 0 - 1
+  END TRAP
+  RETURN 1
+END FUNC
+
+FUNC pickStream(xs AS List OF RES Stream, i AS Integer) AS Integer
+  RES s AS Stream = collections::get(xs, i) TRAP(e)
+    RETURN 0 - 1
+  END TRAP
+  RETURN 1
+END FUNC
+
+FUNC pickMapped(m AS Map OF String TO RES fs::File, k AS String) AS Integer
+  RES g AS fs::File = collections::get(m, k) TRAP(e)
+    RETURN 0 - 1
+  END TRAP
+  RETURN 1
+END FUNC
+
+FUNC main() AS Integer
+  RES f AS fs::File = fs::createTempFile()
+  LET files AS List OF RES fs::File = [f]
+  RES h AS fs::File = fs::createTempFile()
+  LET streams AS List OF RES Stream = [h]
+  RES k AS fs::File = fs::createTempFile()
+  LET byName AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { "k" := k }
+  io::print(toString(pickFile(files, 0) + pickFile(files, 3) + pickStream(streams, 0) + pickStream(streams, 2) + pickMapped(byName, "k") + pickMapped(byName, "z")))
+  RETURN 0
+END FUNC

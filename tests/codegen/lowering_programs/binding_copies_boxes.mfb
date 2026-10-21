@@ -1,0 +1,37 @@
+IMPORT collections
+IMPORT io
+
+TYPE Dot
+  x AS Integer
+END TYPE
+
+TYPE Tag
+  name AS String
+END TYPE
+
+UNION Shape
+  Dot
+  Tag
+END UNION
+
+TYPE Holder
+  s AS Shape
+  n AS Integer
+END TYPE
+
+TYPE Named
+  label AS String
+  inner AS Holder
+END TYPE
+
+FUNC main() AS Integer
+  LET h AS Holder = Holder[s := Tag[name := "n"], n := 1]
+  LET s AS Shape = h.s
+  LET xs AS List OF Shape = [Dot[x := 1], Tag[name := "z"]]
+  LET e AS Shape = collections::get(xs, 1)
+  LET nm AS Named = Named[label := "l", inner := h]
+  LET i AS Holder = nm.inner
+  LET s2 AS Shape = nm.inner.s
+  io::print(toString(i.n))
+  RETURN 0
+END FUNC

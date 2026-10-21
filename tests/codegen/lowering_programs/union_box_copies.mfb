@@ -1,0 +1,40 @@
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT tcp
+
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE Holder
+  s AS RES Stream
+  n AS Integer
+END TYPE
+
+FUNC mk() AS Holder
+  RES f AS fs::File = fs::createTempFile()
+  RETURN Holder[s := f, n := 1]
+END FUNC
+
+FUNC firstOf(streams AS List OF RES Stream) AS RES Stream
+  RES e AS Stream = collections::get(streams, 0)
+  RETURN e
+END FUNC
+
+FUNC fieldOf(h AS Holder) AS RES Stream
+  RETURN h.s
+END FUNC
+
+FUNC main() AS Integer
+  LET h AS Holder = mk()
+  RES s AS Stream = h.s
+  MUT streams AS List OF RES Stream = []
+  streams = collections::append(streams, s)
+  RES e AS Stream = collections::get(streams, 0)
+  RES back AS Stream = firstOf(streams)
+  RES viaField AS Stream = fieldOf(h)
+  io::print(toString(len(streams)))
+  RETURN 0
+END FUNC
