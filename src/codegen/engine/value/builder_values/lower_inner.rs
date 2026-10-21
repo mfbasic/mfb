@@ -241,8 +241,12 @@ impl CodeBuilder<'_> {
                     text: format!("capture[{index}]"),
                 })
             }
-            NirValue::Call { .. } => self.lower_call_value(value),
-            NirValue::CallResult { .. } => self.lower_call_result_value(value, scratch9),
+            NirValue::Call { target, args, loc } => {
+                self.lower_call_value(value, target, args, *loc)
+            }
+            NirValue::CallResult { target, args, .. } => {
+                self.lower_call_result_value(value, target, args, scratch9)
+            }
             NirValue::RuntimeCall {
                 helper,
                 target,

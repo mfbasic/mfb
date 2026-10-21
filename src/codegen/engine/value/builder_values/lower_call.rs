@@ -5,12 +5,15 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    /// Lower a direct `NirValue::Call`: inline vector ops, ABI-inline and fast-path calls, then the
-    /// ordinary call.
-    pub(super) fn lower_call_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
-        let NirValue::Call { target, args, loc } = value else {
-            unreachable!("lower_call_value is called from the NirValue::Call arm only")
-        };
+    /// Lower a direct `NirValue::Call` (`value`, whose fields are `target`, `args` and `loc`):
+    /// inline vector ops, ABI-inline and fast-path calls, then the ordinary call.
+    pub(super) fn lower_call_value(
+        &mut self,
+        value: &NirValue,
+        target: &str,
+        args: &[NirValue],
+        loc: NirSourceLoc,
+    ) -> Result<ValueResult, String> {
         // plan-01-vector: inline the pure-arithmetic `vector::` ops
         // (`scale`, `dot`) over Float2/3/4 as their equivalent constructor
         // / sum expression, eliminating the out-of-line FUNC call. The
@@ -18,7 +21,7 @@ impl CodeBuilder<'_> {
         // expression tree, so the result and its finiteness observation are
         // bit-identical; a non-simple (re-evaluation-unsafe) operand or any
         // un-inlined op falls back to the package FUNC call below.
-        if let Some(result) = self.try_inline_vector_op(target, args, *loc)? {
+        if let Some(result) = self.try_inline_vector_op(target, args, loc)? {
             return Ok(result);
         }
         // plan-39 A4: lower the internal `#collections_slice$T` helper
@@ -53,7 +56,7 @@ impl CodeBuilder<'_> {
                         ));
                         Operand::from(register)
                     },
-                    text: target.clone(),
+                    text: target.to_string(),
                 };
                 return self.emit_function_value_call(
                     target,
@@ -79,7 +82,7 @@ impl CodeBuilder<'_> {
                     origin: None,
                     type_: global.type_.clone(),
                     location: Operand::from(register),
-                    text: target.clone(),
+                    text: target.to_string(),
                 };
                 return self.emit_function_value_call(target, &callable, args, Some(&return_type));
             }
@@ -166,10 +169,10 @@ impl CodeBuilder<'_> {
         if target == "isOdd" && args.len() == 1 {
             return self.lower_integer_parity_predicate("isOdd", &args[0], true);
         }
-        if matches!(target.as_str(), "isPositive" | "isNegative" | "isZero") && args.len() == 1 {
+        if matches!(target, "isPositive" | "isNegative" | "isZero") && args.len() == 1 {
             return self.lower_numeric_filter_predicate(target, &args[0]);
         }
-        if matches!(target.as_str(), "isEmpty" | "isNotEmpty") && args.len() == 1 {
+        if matches!(target, "isEmpty" | "isNotEmpty") && args.len() == 1 {
             return self.lower_empty_filter_predicate(target, &args[0]);
         }
         let symbol = self
@@ -188,17 +191,16 @@ impl CodeBuilder<'_> {
         result
     }
 
-    /// Lower a `NirValue::CallResult` (a call whose `Result` is kept): local and global `FUNC`
-    /// values, inline conversions and builtins, then the trapped call. `scratch9` is
-    /// `lower_value_inner`'s first scratch vreg.
+    /// Lower a `NirValue::CallResult` (`value`, a call of `target` over `args` whose `Result`
+    /// is kept): local and global `FUNC` values, inline conversions and builtins, then the
+    /// trapped call. `scratch9` is `lower_value_inner`'s first scratch vreg.
     pub(super) fn lower_call_result_value(
         &mut self,
         value: &NirValue,
+        target: &str,
+        args: &[NirValue],
         scratch9: &VirtualRegister,
     ) -> Result<ValueResult, String> {
-        let NirValue::CallResult { target, args, .. } = value else {
-            unreachable!("lower_call_result_value is called from the NirValue::CallResult arm only")
-        };
         if let Some(local) = self.locals.get(target).cloned() {
             if matches!(local.type_, ParameterType::Func(..)) {
                 let return_type_typed = typed_callable_return_type(&local.type_)
@@ -217,7 +219,7 @@ impl CodeBuilder<'_> {
                         ));
                         Operand::from(register)
                     },
-                    text: target.clone(),
+                    text: target.to_string(),
                 };
                 // bug-448: the inline-TRAP machinery consumes a boxed
                 // `Result` (tag/value/error), so materialize one from the
@@ -314,7 +316,7 @@ impl CodeBuilder<'_> {
         // `Result`: lower the conversion inline but capture its error
         // instead of auto-propagating, then materialize the `Result`.
         if matches!(
-            target.as_str(),
+            target,
             "toInt" | "toFloat" | "toFixed" | "toByte" | "toMoney" | "toScalar"
         ) && (args.len() == 1 || (target == "toInt" && args.len() == 2))
         {
