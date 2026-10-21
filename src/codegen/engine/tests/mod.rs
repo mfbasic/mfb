@@ -29,6 +29,8 @@ mod into_dest_sites;
 #[cfg(test)]
 mod link_library_resolution;
 #[cfg(test)]
+mod link_locator_edges;
+#[cfg(test)]
 mod lower_module_refusals;
 #[cfg(test)]
 mod nir_context;
