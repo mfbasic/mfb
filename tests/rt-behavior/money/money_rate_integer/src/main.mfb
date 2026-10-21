@@ -1,0 +1,24 @@
+' plan-181-A2: money::toRate(Integer) scales a whole-number rate by 10^12 and
+' rejects a rate at or below zero (ErrInvalidArgument) or above 9223372 (ErrOverflow).
+IMPORT io
+IMPORT money
+
+FUNC show(value AS Integer) AS Nothing
+  LET r AS money::Rate = money::toRate(value) TRAP(err)
+    io::print(toString(value) & " error " & toString(err.code))
+    RECOVER money::Rate[scaled := 0]
+  END TRAP
+  IF r.scaled <> 0 THEN
+    io::print(toString(value) & " " & toString(r.scaled))
+  END IF
+END FUNC
+
+FUNC main() AS Integer
+  show(1)
+  show(64)
+  show(9223372)
+  show(9223373)
+  show(0)
+  show(-1)
+  RETURN 0
+END FUNC

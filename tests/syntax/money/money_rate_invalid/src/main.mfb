@@ -1,0 +1,18 @@
+IMPORT money
+' plan-181-A/B: money::toRate has only String and Integer overloads; a binary Float
+' or Fixed rate is rejected, as are wrong arities and a wrong field type.
+' money::convert and money::scale take money::Rate, never a Fixed rate.
+FUNC main() AS Integer
+  LET a = money::toRate(0.842)                    ' no Float overload
+  LET b = money::toRate(0.842F)                   ' no Fixed overload
+  LET c = money::toRate()                         ' arity (needs 1 arg)
+  LET d = money::toRate("1", "2")                 ' arity (needs 1 arg)
+  LET e = money::Rate[scaled := "1"]              ' scaled is an Integer
+  LET r AS money::Rate = money::toRate("1")
+  LET f = money::convert(1m, 1.0842F, r)          ' convert takes Rate, not Fixed
+  LET g = money::convert(1m, r)                   ' convert arity (needs 3 args)
+  LET h = money::convert(1, r, r)                 ' convert wants Money first
+  LET i = money::scale(1m, 0.07F)                 ' scale takes Rate, not Fixed
+  LET j = money::scale(1m, r, r)                  ' scale arity (needs 2 args)
+  RETURN 0
+END FUNC

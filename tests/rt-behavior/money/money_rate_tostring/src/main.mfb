@@ -1,0 +1,20 @@
+' plan-181-A4: toString(money::Rate) prints the decimal value with trailing zeros
+' removed and no point for a whole rate. A record built by hand prints what it holds.
+IMPORT io
+IMPORT money
+
+FUNC main() AS Integer
+  io::print(toString(money::toRate("0.84200")))
+  io::print(toString(money::toRate("1")))
+  io::print(toString(money::toRate("0.0067")))
+  io::print(toString(money::toRate("0.000000000001")))
+  io::print(toString(money::toRate("9223372.036854775807")))
+  io::print(toString(money::toRate(64)))
+  io::print(toString(money::Rate[scaled := 1500000000000]))
+  io::print(toString(money::Rate[scaled := 0]))
+  io::print(toString(money::Rate[scaled := -5]))
+  io::print(toString(money::Rate[scaled := -9223372036854775807 - 1]))
+  ' Rate equality is record equality on `scaled`.
+  io::print(toString(money::toRate("0.50") = money::toRate("0.5")))
+  RETURN 0
+END FUNC

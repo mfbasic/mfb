@@ -1,10 +1,9 @@
 ' ---------------------------------------------------------------------------
 ' Tests: arithmetic on amounts.
 '
-' Every rate here is exact in binary Fixed (1.25 = 5/4, 1.5 = 3/2,
-' 0.0078125 = 1/128, 64), so each expected value is an exact decimal worked
-' out by hand in the case's comment and does not depend on how Money rounds a
-' Fixed product or quotient.
+' Every rate here is an exact money::Rate (1.25, 1.5, 0.0078125, 64), and
+' each expected value is an exact decimal worked out by hand in the case's
+' comment, so none depends on how Money rounds a product or quotient.
 ' ---------------------------------------------------------------------------
 
 IMPORT errorCode
@@ -13,7 +12,7 @@ IMPORT strings
 
 ' The table most cases use: USD is the base.
 PRIVATE FUNC standardRates() AS Nothing
-  importRates(Map OF String TO Fixed { "USD" := 1F, "EUR" := 1.25F, "GBP" := 1.5F, "JPY" := 0.0078125F, "_GOLD" := 64F })
+  importRates(Map OF String TO money::Rate { "USD" := money::toRate(1), "EUR" := money::toRate("1.25"), "GBP" := money::toRate("1.5"), "JPY" := money::toRate("0.0078125"), "_GOLD" := money::toRate(64) })
 END FUNC
 
 TESTING
@@ -142,7 +141,7 @@ TESTING
 
   TGROUP "the two-amount rules"
     TCASE "both currencies need a rate"
-      importRates(Map OF String TO Fixed { "USD" := 1F })
+      importRates(Map OF String TO money::Rate { "USD" := money::toRate(1) })
       expectTrap(add(amount(1m, "USD"), amount(1m, "EUR")), ErrorUnknownCurrency)
       expectTrap(add(amount(1m, "EUR"), amount(1m, "USD")), ErrorUnknownCurrency)
     END TCASE
@@ -155,7 +154,7 @@ TESTING
     END TCASE
 
     TCASE "different currencies need a base currency"
-      importRates(Map OF String TO Fixed { "EUR" := 1.25F, "GBP" := 1.5F })
+      importRates(Map OF String TO money::Rate { "EUR" := money::toRate("1.25"), "GBP" := money::toRate("1.5") })
       expectTrap(add(amount(1m, "EUR"), amount(1m, "GBP")), ErrorNoBaseCurrency)
       expectTrap(subtract(amount(1m, "EUR"), amount(1m, "GBP")), ErrorNoBaseCurrency)
       expectTrap(compare(amount(1m, "EUR"), amount(1m, "GBP")), ErrorNoBaseCurrency)
@@ -163,19 +162,19 @@ TESTING
     END TCASE
 
     TCASE "the same currency does not need a base currency"
-      importRates(Map OF String TO Fixed { "EUR" := 1.25F })
+      importRates(Map OF String TO money::Rate { "EUR" := money::toRate("1.25") })
       expectEqual(add(amount(1m, "EUR"), amount(2m, "EUR")).value, 3m)
       expectInteger(compare(amount(1m, "EUR"), amount(2m, "EUR")), -1)
     END TCASE
 
     TCASE "a missing rate is reported ahead of a missing base"
-      importRates(Map OF String TO Fixed { "EUR" := 1.25F })
+      importRates(Map OF String TO money::Rate { "EUR" := money::toRate("1.25") })
       expectTrap(add(amount(1m, "EUR"), amount(1m, "JPY")), ErrorUnknownCurrency)
       expectTrap(add(amount(1m, "JPY"), amount(1m, "EUR")), ErrorUnknownCurrency)
     END TCASE
 
     TCASE "the messages name the currencies"
-      importRates(Map OF String TO Fixed { "EUR" := 1.25F, "GBP" := 1.5F })
+      importRates(Map OF String TO money::Rate { "EUR" := money::toRate("1.25"), "GBP" := money::toRate("1.5") })
       expectEqual(strings::contains(addMessage(amount(1m, "EUR"), amount(1m, "JPY")), "JPY"), TRUE)
       LET noBase AS String = addMessage(amount(1m, "EUR"), amount(1m, "GBP"))
       expectEqual(strings::contains(noBase, "GBP"), TRUE)
@@ -201,20 +200,20 @@ TESTING
   END TGROUP
 
   TGROUP "one-amount arithmetic"
-    TCASE "multiply by Integer, Fixed and Float"
+    TCASE "multiply by Integer, Rate and Float"
       clearRates()
       LET ticket AS Amount = amount(12.5m, "eur")
       expectEqual(multiply(ticket, 3).value, 37.5m)
-      expectEqual(multiply(ticket, 0.5F).value, 6.25m)
+      expectEqual(multiply(ticket, money::toRate("0.5")).value, 6.25m)
       expectEqual(multiply(ticket, 0.5).value, 6.25m)
       expectString(multiply(ticket, 3).code, "EUR")
     END TCASE
 
-    TCASE "divide by Integer, Fixed and Float"
+    TCASE "divide by Integer, Rate and Float"
       clearRates()
       LET bill AS Amount = amount(12.5m, "EUR")
       expectEqual(divide(bill, 4).value, 3.125m)
-      expectEqual(divide(bill, 0.5F).value, 25m)
+      expectEqual(divide(bill, money::toRate("0.5")).value, 25m)
       expectEqual(divide(bill, 0.5).value, 25m)
     END TCASE
 

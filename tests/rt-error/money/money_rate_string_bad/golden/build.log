@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/rt-error/money/money_rate_string_bad
+Wrote AST to tests/rt-error/money/money_rate_string_bad/money_rate_string_bad.ast
+Wrote IR to tests/rt-error/money/money_rate_string_bad/money_rate_string_bad.ir
+[exit 0]
+$ mfb build tests/rt-error/money/money_rate_string_bad
+Wrote executable to tests/rt-error/money/money_rate_string_bad/build/money_rate_string_bad.out
+[exit 0]
+$ tests/rt-error/money/money_rate_string_bad/build/money_rate_string_bad.out
+[0.0000000000001] 77050003
+[0.8420000000000] 77050003
+[abc] 77050003
+[] 77050003
+[ 1] 77050003
+[1 ] 77050003
+[+1] 77050003
+[1e3] 77050003
+[.5] 77050003
+[1.] 77050003
+[-] 77050003
+[1.2.3] 77050003
+[0] 77050002
+[0.000] 77050002
+[-1] 77050002
+[-99999999999999999999] 77050002
+[9223373] 77050010
+[99999999999999999999999] 77050010
+Thread:   0x00000000
+Error:    7-705-0010
+Message:  a rate must be at most 9223372.036854775807: 9223372.036854775808
+Location: builtins/money.mfb:94:10
+
+[exit 255]

@@ -1,0 +1,40 @@
+' plan-181-A3: money::toRate(String) rejects bad text. Each case but the last is
+' caught and its code printed; the last traps the program with ErrOverflow.
+IMPORT io
+IMPORT money
+
+FUNC show(text AS String) AS Nothing
+  LET r AS money::Rate = money::toRate(text) TRAP(err)
+    io::print("[" & text & "] " & toString(err.code))
+    RETURN
+  END TRAP
+  io::print("[" & text & "] accepted " & toString(r.scaled))
+END FUNC
+
+FUNC main() AS Integer
+  ' ErrInvalidFormat (77050003): 13 places, not a number, empty, whitespace,
+  ' a sign other than a leading '-', an exponent, a bare point.
+  show("0.0000000000001")
+  show("0.8420000000000")
+  show("abc")
+  show("")
+  show(" 1")
+  show("1 ")
+  show("+1")
+  show("1e3")
+  show(".5")
+  show("1.")
+  show("-")
+  show("1.2.3")
+  ' ErrInvalidArgument (77050002): zero or below, checked before the range.
+  show("0")
+  show("0.000")
+  show("-1")
+  show("-99999999999999999999")
+  ' ErrOverflow (77050010): above 9223372.036854775807.
+  show("9223373")
+  show("99999999999999999999999")
+  LET r AS money::Rate = money::toRate("9223372.036854775808")
+  io::print(toString(r.scaled))
+  RETURN 0
+END FUNC

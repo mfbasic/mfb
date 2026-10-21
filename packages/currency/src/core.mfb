@@ -28,11 +28,12 @@ DOC
   DESC underscore, such as `_GOLD` or `_POINTS`. Codes are upper-cased, so
   DESC `"usd"` and `"USD"` are the same code.
   DESC
-  DESC The package keeps one rates table, a `Map OF String TO Fixed` from code
-  DESC to rate, maintained with `currency::setRate`, `currency::removeRate` and
-  DESC `currency::importRates`. A rate says how many units of the base
-  DESC currency one unit of the code is worth. The base currency is whichever
-  DESC currency has rate `1`; there is no separate setting for it.
+  DESC The package keeps one rates table, a `Map OF String TO money::Rate` from
+  DESC code to rate, maintained with `currency::setRate`, `currency::removeRate`
+  DESC and `currency::importRates`. A rate says how many units of the base
+  DESC currency one unit of the code is worth, as an exact decimal with up to 12
+  DESC places. The base currency is whichever currency has rate `1`; there is
+  DESC no separate setting for it.
   DESC
   DESC Arithmetic on two amounts (`add`, `subtract`, `compare`, `convert`)
   DESC needs both codes in the table, and needs a base currency when the codes

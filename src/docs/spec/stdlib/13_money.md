@@ -29,6 +29,10 @@ accounting drifts. With `Money`, the only rounding that ever occurs is the
 integer scaling, and comparison are exact integer operations on the raw i64 and
 never round.
 
+A rate to multiply a `Money` by, such as an exchange rate, has the same need for
+an exact decimal value but more places than five. The package's `money::Rate`
+holds one at twelve places; see `money::Rate` below.
+
 ## Operation formulas
 
 Let `m` and `n` be signed Money raw carriers, `S = 100000`, `Q = 2^32`,
@@ -49,6 +53,27 @@ rational value. The following describes the current implementation.
 | `toFixed(Money)` | `R(m * Q / S)` as a Fixed raw carrier |
 | `toInt(Money)` | `trunc(m / S)` |
 | `toByte(Money)` | `trunc(m / S)`, then range check `0..255` |
+| `money::convert(m, from, to)` | `R(m * from / to)`, with `from` and `to` two `Rate` scaled values |
+| `money::scale(m, r)` | `R(m * r / P)`, with `r` a `Rate` scaled value and `P = 10^12` |
+
+`money::convert` and `money::scale` are exact as well, and round once. The product
+`|m| * |r|` of a Money raw carrier and a `Rate` scaled value is at most `2^126`, so it
+is formed as a full unsigned 128-bit magnitude, then divided by the 64-bit
+magnitude of the divisor (`to`, or `P`) by a restoring long division that keeps the
+exact remainder. In `convert` the two rates' `10^12` factors cancel, so no scale
+constant enters. The quotient magnitude is rounded once under the mode, the sign
+applied, and the rounded carrier range-checked: a result outside the Money range
+raises `ErrOverflow`. Because nothing rounds before the end, one `convert` can
+differ in the last place from scaling twice. Each rate's `scaled` must be above
+zero, checked on every call, or the call raises `ErrInvalidArgument`; this also
+covers a zero `to`, the only zero divisor. For example,
+`money::convert(10000000000m, money::toRate("1"), money::toRate("0.0067"))` is
+`1492537313432.83582m`, and `money::scale(0.00001m, money::toRate("0.5"))` is the
+tie: `0.00001m` under `Commercial`, `0m` under `Banker`.
+[[src/codegen/builtins/money/gen_money_math.rs:emit_money_rescale]]
+[[src/codegen/builtins/money/func_convert.rs:lower_money_convert]]
+[[src/codegen/builtins/money/func_convert.rs:emit_positive_rate_scaled]]
+[[src/codegen/builtins/money/func_scale.rs:lower_money_scale]]
 
 Integer operations check the signed carrier range. The four Money/Fixed rows
 are exact integer arithmetic with no Float intermediate, and they apply `R` to
@@ -198,6 +223,56 @@ return to the five-place `Money` scale. The tie `0.125` illustrates the mode
 split: rounding to two places yields `0.13` under `Commercial` and `0.12` under
 `Banker`.
 
+## `money::Rate`
+
+`money::Rate` is an exported record with one field, `scaled AS Integer`. The rate
+it holds is `scaled / 10^12`: the scale is the constant `10^12` and no function
+takes it as a parameter. The smallest positive rate is `0.000000000001` (`scaled`
+1) and the largest is `9223372.036854775807` (`scaled` 9223372036854775807, the
+largest `Integer`). It exists so a rate such as an exchange rate is held exactly:
+a `Fixed` or `Float` rate is binary, and `0.842` written as either is stored as a
+slightly different value. [[src/codegen/builtins/money/mod.rs:RATE_SCALE]]
+
+`Rate` has no operators of its own. Two rates compare with `=` and `<>` as any
+record whose fields are all comparable does (`./mfb spec language types`), so two
+rates are equal exactly when their `scaled` values are.
+
+**Valid rates and check-on-use.** A usable rate is above zero. `scaled` is an
+ordinary exported field, so `money::Rate[scaled := 0]` and `money::Rate[scaled :=
+-5]` compile and hold those values; nothing prevents building one. Every `money`
+function that computes with a `Rate` checks `scaled > 0` on each call instead and
+raises `ErrInvalidArgument` (`77050002`) otherwise.
+
+**`money::toRate(String)`** reads decimal text exactly, using integer arithmetic
+only. [[src/codegen/builtins/money/func_to_rate_string.rs:BODY]]
+
+- The text is an optional leading `-`, then one or more digits, then optionally a
+  `.` followed by one or more digits. There is no leading or trailing whitespace,
+  no `+`, no exponent and no digit separator; a `.` needs a digit on each side.
+  Leading zeros are allowed. Anything else is `ErrInvalidFormat` (`77050003`).
+- More than 12 fraction digits is `ErrInvalidFormat`, trailing zeros included:
+  `"0.8420000000000"` has 13 places and is rejected. Nothing is rounded.
+- A value at or below zero is `ErrInvalidArgument` (`77050002`), for any
+  magnitude: `"-99999999999999999999"` is `ErrInvalidArgument`, not `ErrOverflow`.
+- A value above `9223372.036854775807` is `ErrOverflow` (`77050010`).
+- The checks apply in that order: format, then the sign, then the range.
+
+**`money::toRate(Integer)`** makes the whole-number rate `n`: `scaled` is
+`n × 10^12`. `n` at or below zero is `ErrInvalidArgument`; `n` above `9223372` is
+`ErrOverflow`. [[src/codegen/builtins/money/func_to_rate_integer.rs:BODY]]
+
+There is no `toRate(Float)` or `toRate(Fixed)`: each would convert a binary value
+and store a rate other than the one written.
+
+**`toString(Rate)`** is the package's override of the general `toString`. It
+prints a `-` when `scaled` is negative, then the whole part, then a `.` and the
+fraction digits with trailing zeros removed. The `.` is omitted when the fraction
+is zero. `toString(money::toRate("0.84200"))` is `0.842`, `toString(money::toRate(1))`
+is `1`. It does not validate: a record built with `scaled` zero prints `0`, and one
+built with `-5` prints `-0.000000000005`. Its output is always text that
+`money::toRate(String)` reads back to the same `scaled` when the rate is valid.
+[[src/codegen/builtins/money/func_to_string_rate.rs:BODY]]
+
 ## Error and overflow model
 
 - **`decimals` out of range** — `money::round` with `decimals` outside `0..5`
@@ -206,6 +281,12 @@ split: rounding to two places yields `0.13` under `Commercial` and `0.12` under
   `Money`, `(q+1) * divisor` can exceed `i64::MAX`. The re-multiply is
   **overflow-checked**: it traps `ErrOverflow` (`77050010`) rather than wrapping to
   a spuriously negative amount. [[src/codegen/builtins/money/func_round.rs:lower_money_round]]
+- **Rates** — `money::toRate` raises `ErrInvalidFormat` (`77050003`) for bad text
+  or more than 12 places, `ErrInvalidArgument` (`77050002`) for a rate at or below
+  zero, and `ErrOverflow` (`77050010`) for one above `9223372.036854775807`.
+  `money::convert` and `money::scale` raise `ErrInvalidArgument` for a `Rate`
+  argument whose `scaled` is at or below zero, and `ErrOverflow` for a result
+  outside the Money range.
 - **`setRounding` / `getRounding`** — neither can fail; both are simple loads and
   stores of a single arena word, and `setRounding` masks its argument to the two
   valid modes.
@@ -218,7 +299,8 @@ These are consistent with the wider `Money` arithmetic error set (owned by
 
 ## See Also
 
-- `./mfb man money` — the per-function API for `money::round`, `money::setRounding`, and `money::getRounding`.
+- `./mfb man money` — the per-function API for `money::round`, `money::setRounding`, `money::getRounding`, `money::toRate`, `money::convert` and `money::scale`.
+- `./mfb man money types` — the `money::Rate` record and the `money::Rounding` enum.
 - `./mfb spec language types` — the `Money` type: literals, range, dimensional algebra, and storage.
 - `./mfb spec memory arenas` — the per-thread arena state, including the `moneyRoundingMode` word.
 - `./mfb spec diagnostics error-codes` — `ErrInvalidArgument`, `ErrOverflow`, and the shared `7-705-*` runtime codes.

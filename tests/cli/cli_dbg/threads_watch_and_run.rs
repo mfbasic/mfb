@@ -136,8 +136,13 @@ fn a_launched_program_lists_its_one_thread_and_steps() {
 fn an_attached_threaded_program_lists_its_threads_and_arenas() {
     let mfb = signed_mfb();
     let binary = debug_example();
+    // One round on one worker, sized to outlast the test (minutes): the
+    // `--debug` arena registry never reuses a slot, so a run of many short
+    // rounds fills its 1024 slots in a few seconds (`mfb spec tooling
+    // debug-report`, `arena.registry_overflow`), and an attach after that sees
+    // a worker whose arena is not listed.
     let mut example = Command::new(&binary)
-        .args(["3000", "20000", "1"])
+        .args(["1", "200000000", "1"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -148,12 +153,13 @@ fn an_attached_threaded_program_lists_its_threads_and_arenas() {
         return;
     }
     let task = |cells: &Vec<String>| cells[3].clone();
-    // Do not guess how long the process needs to start its first worker.
-    // Under the full parallel suite a fixed one-second sleep can expire
-    // while the child is still in startup. Attach/list/detach until the
-    // runtime registry itself reports the state this test exercises.
+    // Do not guess how long the process needs to start its worker. Under the
+    // full parallel suite a fixed sleep can expire while the child is still
+    // in startup, and the thread table records a worker before the worker
+    // registers its arena. Attach/list/detach until the debugger reports the
+    // worker thread and an arena it owns.
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    let (mut session, threads, workers) = loop {
+    let (mut session, threads, workers, arenas) = loop {
         let mut session = Session::start(&mfb, &[&example.id().to_string()]);
         session.until_prompt();
         session.send("list thread\n");
@@ -163,23 +169,24 @@ fn an_attached_threaded_program_lists_its_threads_and_arenas() {
             .filter(|cells| task(cells) == "User Thread")
             .map(|cells| cells[0].clone())
             .collect::<Vec<_>>();
-        if workers.len() == 1 {
-            break (session, threads, workers);
+        session.send("list arena\n");
+        let arenas = table_rows(&session.until_prompt(), ARENA_COLUMNS);
+        if workers.len() == 1 && arenas.iter().any(|row| row.get(1) == Some(&workers[0])) {
+            break (session, threads, workers, arenas);
         }
         session.send("q\n");
         let (code, _) = session.finish();
         assert_eq!(code, Some(0));
         assert!(
             std::time::Instant::now() < deadline,
-            "the example never published its worker thread: {threads:?}"
+            "the example never published a worker thread with its arena: \
+             {threads:?} {arenas:?}"
         );
         std::thread::sleep(Duration::from_millis(50));
     };
     assert_eq!(task(&threads[0]), "MFB Main", "{threads:?}");
     assert_eq!(workers.len(), 1, "{threads:?}");
 
-    session.send("list arena\n");
-    let arenas = table_rows(&session.until_prompt(), ARENA_COLUMNS);
     let rows = arenas.clone();
     assert!(
         rows.iter().all(|row| row.len() == 4
