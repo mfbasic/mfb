@@ -1,4 +1,6 @@
 use super::*;
+
+mod edges;
 use crate::debugger::names::C_PREFIX;
 use crate::debugger::{
     prompt, Ending, Exit, FunctionRange, FunctionSymbol, Program, RegisterGroup, RunStop, Step,
@@ -46,6 +48,11 @@ struct Exiting {
     exited: Option<i32>,
     /// Whether it is a `--debug` build.
     debug: bool,
+    /// Whether it links `write`.
+    links_write: bool,
+    /// Every `set_registers` fails, as for a thread the system will not
+    /// change.
+    frozen: bool,
 }
 
 impl Exiting {
@@ -59,6 +66,8 @@ impl Exiting {
             terminal: String::new(),
             exited: None,
             debug: true,
+            links_write: true,
+            frozen: false,
         }
     }
 
@@ -107,10 +116,10 @@ impl Inferior for Exiting {
         Ok(Ending::AlreadyExited)
     }
     fn functions(&mut self) -> Result<Vec<FunctionSymbol>, String> {
-        let mut functions = vec![
-            function("_main", false, 0x2000),
-            function(&format!("{C_PREFIX}write"), true, WRITE),
-        ];
+        let mut functions = vec![function("_main", false, 0x2000)];
+        if self.links_write {
+            functions.push(function(&format!("{C_PREFIX}write"), true, WRITE));
+        }
         if self.debug {
             functions.push(function(DEBUG_SHUTDOWN_SYMBOL, false, SHUTDOWN));
         }
@@ -173,6 +182,9 @@ impl Inferior for Exiting {
             .collect())
     }
     fn set_registers(&mut self, _: usize, values: &[(String, u64)]) -> Result<(), String> {
+        if self.frozen {
+            return Err("cannot set thread 0's registers".to_string());
+        }
         let text = match self.script[self.next] {
             Event::Write(_, _, text) => text,
             _ => return Err("a register was set outside write".to_string()),
