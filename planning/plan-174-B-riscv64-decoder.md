@@ -240,19 +240,27 @@ Acceptance: the sample covers every mnemonic the corpora contain.
   | sort -u | wc -l` (est. 5 min, mostly `objdump` of libc on box 2232).
   Measured 2026-10-20: 177 and 177 (the second with the `#` header lines
   left out by `grep -v '^#'`).
-Commit: —
+Commit: `782de4def`
 
 ### Phase 2 — base integer, `M`, `A`, system
 
-- [ ] Add `decode/mod.rs`, `integer.rs`, `atomic.rs`; declare `mod decode` in
-      `src/arch/riscv64/mod.rs`.
-- [ ] Tests: `decodes_words_as_objdump_does` over the rows of
+- [x] Add `decode/mod.rs`, `integer.rs`, `atomic.rs`; declare `mod decode` in
+      `src/arch/riscv64/mod.rs`. (Under `cfg(any(all(linux, riscv64), test))`:
+      see Corrections.)
+- [x] Tests: `decodes_words_as_objdump_does` over the rows of
       `objdump_words.txt` whose instruction is 4 bytes and not `F`/`D`/`V`;
       `flow_and_targets` for `beq`, `jal`, `jalr`, `ret`, `ecall`, `lr.w`.
+      (Also `length_is_read_from_the_first_parcel`, and the ignored
+      `decodes_a_corpus_as_objdump_does` of Phase 4, used here already: over the
+      three corpora it reports `0 differing` — every row it decodes matches —
+      with the 2-byte and floating-point rows left undecoded. The one
+      disagreement it found, `0x0100000f`, is `fence w,unknown` to `objdump`
+      2.44, which knows no `pause` by default: the decoder now says the same.)
 
 Acceptance: every 4-byte integer, `M`, `A` and system row decodes to `objdump`'s
 text.
   Check: `cargo test --bin mfb riscv64::decode` → 0 failed (est. 2 min).
+  Measured 2026-10-20: `3 passed; 0 failed; 1 ignored`.
 Commit: —
 
 ### Phase 3 — compressed
@@ -325,6 +333,23 @@ Commit: —
   funct3, plus the CA/CB selector bits, for a 2-byte instruction; opcode and
   funct3 for a 4-byte one). Each key gets up to three shapes; Phase 1's
   acceptance (every corpus mnemonic sampled) still holds.
+- **`mod decode` is compiled where it is used.** Declared with no `cfg`, the
+  decoder is dead code in every macOS build (`cargo build --bin mfb` → 38
+  never-used warnings), and stays so after plan-174-C, since only a riscv64
+  Linux backend reads it. So it is under `cfg(any(all(target_os = "linux",
+  target_arch = "riscv64"), test))`: the Mac builds it for its tests, where they
+  use all of it. On riscv64 Linux it is unread until plan-174-D Phase 3 gives
+  that host a backend; until then a riscv64 build carries its never-used
+  warnings, which that phase ends.
+- **No `effect` field.** §3 gives `Instruction` an `effect: StackEffect` for the
+  unwinder. The decoder carries `word` instead (the instruction, or the base
+  instruction a compressed one expands to), with `rd`, `rs1`, `i_imm` and the
+  other field readers public to the crate. plan-174-C's `riscv64::effect` and
+  plan-174-D's next-address table read the fields they need from it, so the
+  decoder holds no unwinder vocabulary.
+- **`Flow`** follows §3 with one change: `Call` is a direct `jal` that links,
+  and an indirect jump is `Indirect { register, offset, link }` whether or not
+  it links (`jalr` vs `jr`); `value` is an `i64`.
 
 ## Summary
 
