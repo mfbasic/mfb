@@ -407,3 +407,87 @@ fn a_finish_waits_past_a_deeper_call_returning_through_the_same_ret() {
     assert!(twin.runs.is_empty());
     assert!(twin.inserted.is_empty());
 }
+
+#[test]
+fn an_address_a_linked_function_is_bound_at_is_described_by_it() {
+    let mut twin = Twin::new();
+    let free = format!("{}free", crate::debugger::names::C_PREFIX);
+    twin.functions
+        .push(function(&free, true, Some(0x9000), None));
+    let mut breakpoints = Breakpoints::default();
+    assert_eq!(
+        breakpoints
+            .set(&mut twin, &Target::Address(0x9000), None, &[])
+            .unwrap(),
+        ["Set a breakpoint at 0x0000000000009000 in free."]
+    );
+}
+
+#[test]
+fn removing_by_a_written_name_two_functions_share_is_refused() {
+    let mut twin = Twin::new();
+    twin.functions.push(function(
+        "_mfb_fn_show_24Integer",
+        false,
+        Some(0x4000),
+        Some(0x10),
+    ));
+    twin.functions.push(function(
+        "_mfb_fn_show_24String",
+        false,
+        Some(0x4100),
+        Some(0x10),
+    ));
+    let mut breakpoints = Breakpoints::default();
+    for symbol in ["_mfb_fn_show_24Integer", "_mfb_fn_show_24String"] {
+        breakpoints
+            .set(&mut twin, &name(symbol), None, &[])
+            .unwrap();
+    }
+    assert_eq!(
+        breakpoints.remove(&mut twin, &name("show"), None),
+        Err(
+            "'show' is ambiguous: it names _mfb_fn_show_24Integer, _mfb_fn_show_24String; \
+             name one by its symbol"
+                .to_string()
+        )
+    );
+    assert_eq!(twin.inserted, [0x4000, 0x4100]);
+}
+
+#[test]
+fn removing_one_of_two_breakpoints_at_a_place_keeps_its_instruction() {
+    let mut twin = Twin::new();
+    let mut breakpoints = Breakpoints::default();
+    let tested = test("x0", "eq", Some("1"));
+    breakpoints
+        .set(&mut twin, &name("work"), None, &[])
+        .unwrap();
+    breakpoints
+        .set(&mut twin, &name("work"), Some(&tested), &[])
+        .unwrap();
+    breakpoints
+        .remove(&mut twin, &name("work"), Some(&tested))
+        .unwrap();
+    assert_eq!(twin.inserted, [WORK]);
+    breakpoints.remove(&mut twin, &name("work"), None).unwrap();
+    assert!(twin.inserted.is_empty());
+}
+
+#[test]
+fn list_watchpoint_shows_each_watch_s_commands_when_any_has_some() {
+    let mut twin = Twin::new();
+    let mut breakpoints = Breakpoints::default();
+    breakpoints
+        .watch(&mut twin, WATCHED, 8, &["bt".to_string()])
+        .unwrap();
+    breakpoints.watch(&mut twin, WATCHED + 8, 8, &[]).unwrap();
+    assert_eq!(
+        breakpoints.watch_lines(&mut twin),
+        [
+            "Address            | Count | Size | Value                  | Commands",
+            "0x0000000000008000 | 0     | 8    | 0x0000000000000000 (0) | bt",
+            "0x0000000000008008 | 0     | 8    | 0x0000000000000000 (0) | -",
+        ]
+    );
+}
