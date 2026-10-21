@@ -344,18 +344,28 @@ Acceptance: no test expectation changed and the help text is identical.
   grep -E '^[-+].*assert'` → every `-`/`+` pair differs only by the added
   `&AARCH64` argument, plus the two new tests' assertions; `cargo test --bin
   mfb cli::dbg` → `13 passed; 0 failed` (`mfb dbg --help` carries the help).
-Commit: —
+Commit: `873223eca`
 
 ### Phase 3 — instruction size and the decoder call
 
-- [ ] `disassemble.rs`: remove `INSTRUCTION` and the `aarch64::decode` import;
+- [x] `disassemble.rs`: remove `INSTRUCTION` and the `aarch64::decode` import;
       `returns`, `listing`, `read_up_to`, `counted` and `disassemble` use
-      `arch.length`, `arch.decode`, `arch.alignment`.
-- [ ] `prompt.rs:jump`: alignment check and message from `arch.alignment`.
-- [ ] `backtrace.rs:frames`: return address less `arch.alignment`.
-- [ ] `elf.rs`: `read`, `read_dynamic`, `stubs` take `&ElfArch`; `linux.rs`
+      `arch.length`, `arch.decode`, `arch.alignment`. (The walk is
+      `disassemble::instructions`; a counted or unsized read is `count *
+      arch.longest` bytes; an undecoded instruction prints as `.word` at 4
+      bytes and `.short` at 2, which plan-174-C Phase 2 asked for. `counted`
+      still steps back `back * alignment` bytes, exact for fixed 4-byte
+      instructions only: plan-174-C gains the task for 2-or-4-byte code.)
+- [x] `prompt.rs:jump`: alignment check and message from `arch.alignment`.
+      (Its "is the code there readable" probe reads `alignment` bytes.)
+- [x] `backtrace.rs:frames`: return address less `arch.alignment`.
+- [x] `elf.rs`: `read`, `read_dynamic`, `stubs` take `&ElfArch`; `linux.rs`
       passes `&arm64::ELF` (built on box 2226, since `linux.rs` compiles only
-      there).
+      there). (`executable` too. `linux/images.rs` passes `&self.arch().elf`, so
+      the field is read and plan-174-D's backend gets its own. `Arch::elf` and
+      `ElfArch` carry an `allow(dead_code)` under exactly the `cfg` that leaves
+      `elf.rs` out, i.e. on macOS. `linux/` is compile-checked on the Mac with
+      `cargo check --target aarch64-unknown-linux-gnu`, see Corrections.)
 
 Acceptance: listings, `finish` and library lookups are unchanged on both hosts.
   Check: `cargo test --bin mfb debugger::` → 157 passed (est. 3 min), and on box
@@ -460,6 +470,19 @@ Commit: —
   for a 2-or-4-byte processor.
 - **Help text is compared with `52e4535b3`'s, not `c0a48dd4f`'s** (Phase 2's
   test): the text at the plan's base commit is the one this plan must keep.
+- **`linux/` compiles on the Mac for a check.** `cargo check --target
+  aarch64-unknown-linux-gnu --bin mfb` works with `CC_aarch64_unknown_linux_gnu
+  = clang --target=aarch64-linux-gnu --sysroot=<dir>`, the sysroot being box
+  2232's `/usr/include` with box 2223's `aarch64-linux-gnu` headers (`tar
+  -chf`, the `asm` links resolved). For `riscv64gc-unknown-linux-gnu` (after
+  `rustup target add`) Apple's clang has no riscv64 backend, so the C
+  dependencies' compiler is a stand-in that writes empty objects; `cargo
+  check` never links them. Both finish in about a minute. Box 2226 stays the
+  proof that the backend works; the check only catches compile errors early.
+- **`main`'s own warnings on a host with no backend**: `cargo check --target
+  riscv64gc-unknown-linux-gnu --bin mfb` at `52e4535b3` → 5 warnings (the
+  `Ending`, `Exit`, `StepStop`, `RegisterValue`, `RunStop::Watchpoints`
+  variants never constructed). This plan must add none there.
 
 ## Summary
 

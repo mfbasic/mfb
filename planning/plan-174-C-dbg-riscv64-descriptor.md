@@ -267,6 +267,14 @@ Commit: —
       `effect` wired to Phase 3's function (added here answering only `ret` and
       `none`, completed in Phase 3).
 - [ ] `disassemble.rs`: print an undecoded 2-byte instruction as `.short`.
+- [ ] `disassemble.rs:counted` (added from plan-174-A Phase 3): `dis -<n>`
+      steps back `n * alignment` bytes, which is `n` instructions only when
+      every instruction is `alignment` bytes. With 2-and-4-byte code, find the
+      `n`th instruction start before the anchor by decoding forward from the
+      start of the function holding it, and refuse (as today's "there are not
+      `n` instructions before") when the walk cannot reach back that far.
+      AArch64's result is unchanged: its starts are every 4 bytes from any
+      function's start. Test: `on_riscv64_dis_counts_back_by_instructions`.
 - [ ] `prompt.rs` test fake `Recorder`: add an `arch: &'static Arch` field,
       default `&AARCH64`, with riscv64 code and registers when it is `&RISCV64`.
 - [ ] Tests in `prompt.rs`: `on_riscv64_list_reg_shows_the_role_registers`

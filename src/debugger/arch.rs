@@ -49,7 +49,13 @@ pub(crate) struct Arch {
     pub(crate) watch_span: Option<u64>,
     /// The processor's lines of the prompt's help.
     pub(crate) help: ArchHelp,
-    /// How the processor's ELF files are told apart and read.
+    /// How the processor's ELF files are told apart and read. Only `elf.rs`
+    /// reads it, which is compiled where a Linux backend is (and for tests); a
+    /// macOS build reads Mach-O and has no use for it.
+    #[cfg_attr(
+        not(any(all(target_os = "linux", target_arch = "aarch64"), test)),
+        allow(dead_code)
+    )]
     pub(crate) elf: ElfArch,
 }
 
@@ -168,7 +174,12 @@ pub(crate) struct ArchHelp {
     pub(crate) groups: &'static str,
 }
 
-/// How a processor's ELF files are recognised and read.
+/// How a processor's ELF files are recognised and read. Read only by `elf.rs`:
+/// see [`Arch::elf`].
+#[cfg_attr(
+    not(any(all(target_os = "linux", target_arch = "aarch64"), test)),
+    allow(dead_code)
+)]
 pub(crate) struct ElfArch {
     /// `e_machine`.
     pub(crate) machine: u16,

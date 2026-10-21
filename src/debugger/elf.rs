@@ -1,29 +1,30 @@
-//! The functions and data an ELF64 AArch64 file names, read from the file.
+//! The functions and data an ELF64 little-endian file names, read from the
+//! file, for the processor an [`ElfArch`] describes.
 //!
 //! An MFBASIC executable for Linux is a position-independent `ET_DYN` image at
 //! link base 0 (`./mfb spec linker linux-aarch64`): its imports are the
 //! undefined entries of the dynamic symbol table, each bound through a GOT
-//! slot that an `R_AARCH64_JUMP_SLOT` or `R_AARCH64_GLOB_DAT` relocation
-//! names, and each called through a 12-byte stub (`adrp x16` / `ldr x17,
-//! [x16]` / `br x17`) the linker appends to the end of the code. A `--debug` build adds
+//! slot that a jump-slot or data-slot relocation (`R_AARCH64_JUMP_SLOT`,
+//! `R_AARCH64_GLOB_DAT` on AArch64) names, and each called through a stub
+//! (on AArch64 the 12 bytes `adrp x16` / `ldr x17, [x16]` / `br x17`) the
+//! linker appends to the end of the code. A `--debug` build adds
 //! a section table with a `.symtab` of every function and data object; a build
 //! without it has no section table at all, so the dynamic table is reached
 //! through `PT_DYNAMIC`, as the loader reaches it.
 //!
 //! A shared library is read the same way: its exports are the defined entries
 //! of its dynamic symbol table (and of `.symtab` when it was not stripped), and
-//! its `.plt` entries are named by the `R_AARCH64_JUMP_SLOT` relocations in
-//! order.
+//! its `.plt` entries are named by the jump-slot relocations in order.
 //!
 //! The input is a file on disk and is untrusted: every offset is
 //! bounds-checked, and a file whose headers do not fit is refused.
 
+use super::arch::ElfArch;
 use crate::os::inspect::{c_bytes, range, u32_at, u64_at};
 
 const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
 const ELFCLASS64: u8 = 2;
 const ELFDATA2LSB: u8 = 1;
-const EM_AARCH64: u16 = 183;
 /// `e_type`: an executable at a fixed address, and a position-independent
 /// image (a PIE executable or a shared library).
 const ET_EXEC: u16 = 2;
@@ -56,11 +57,7 @@ const STT_GNU_IFUNC: u8 = 10;
 /// `st_info` bindings that export a symbol.
 const STB_GLOBAL: u8 = 1;
 const STB_WEAK: u8 = 2;
-const R_AARCH64_GLOB_DAT: u32 = 1025;
-const R_AARCH64_JUMP_SLOT: u32 = 1026;
-/// The size of one linker-appended import stub.
-const STUB_SIZE: u64 = 12;
-/// A library's `.plt`: the header, then one entry per `R_AARCH64_JUMP_SLOT`.
+/// A library's `.plt`: the header, then one entry per jump-slot relocation.
 const PLT_HEADER: u64 = 32;
 const PLT_ENTRY: u64 = 16;
 /// The most dynamic symbols a hash table is believed to count.
@@ -119,7 +116,7 @@ pub(crate) struct Elf {
     /// Each GOT slot a relocation binds: the dynamic symbol's index and the
     /// slot's link-time address.
     pub(crate) slots: Vec<(usize, u64)>,
-    /// The `R_AARCH64_JUMP_SLOT` relocations' symbols, in table order.
+    /// The jump-slot relocations' symbols, in table order.
     pub(crate) plt_order: Vec<usize>,
     /// `.plt`'s link-time start, when a section table names it.
     pub(crate) plt: Option<(u64, u64)>,
@@ -225,9 +222,9 @@ fn gnu_hash_count(bytes: &[u8], segments: &[Segment], address: u64) -> Option<us
     }
 }
 
-/// Read the ELF64 little-endian AArch64 `bytes`, or `None` when it is not one
-/// or its headers and tables do not fit the file.
-pub(crate) fn read(bytes: &[u8]) -> Option<Elf> {
+/// Read the ELF64 little-endian `bytes` for the processor `arch` describes,
+/// or `None` when it is not one or its headers and tables do not fit the file.
+pub(crate) fn read(bytes: &[u8], arch: &ElfArch) -> Option<Elf> {
     if bytes.get(0..4)? != ELF_MAGIC
         || bytes.get(4)? != &ELFCLASS64
         || bytes.get(5)? != &ELFDATA2LSB
@@ -235,7 +232,7 @@ pub(crate) fn read(bytes: &[u8]) -> Option<Elf> {
         return None;
     }
     let kind = u16_at(bytes, 16)?;
-    if !matches!(kind, ET_EXEC | ET_DYN) || u16_at(bytes, 18)? != EM_AARCH64 {
+    if !matches!(kind, ET_EXEC | ET_DYN) || u16_at(bytes, 18)? != arch.machine {
         return None;
     }
     let entry = u64_at(bytes, 24)?;
@@ -304,7 +301,7 @@ pub(crate) fn read(bytes: &[u8]) -> Option<Elf> {
         plt: None,
     };
     if let Some((offset, size)) = dynamic_range {
-        read_dynamic(bytes, &mut elf, range(bytes, offset, size)?)?;
+        read_dynamic(bytes, &mut elf, range(bytes, offset, size)?, arch)?;
     }
 
     // The section table, when there is one: `.symtab` and `.plt`.
@@ -348,7 +345,7 @@ pub(crate) fn read(bytes: &[u8]) -> Option<Elf> {
 
 /// `DT_*` from the `.dynamic` bytes: the libraries needed, the soname, the
 /// dynamic symbols, and the GOT slots relocations bind.
-fn read_dynamic(bytes: &[u8], elf: &mut Elf, dynamic: &[u8]) -> Option<()> {
+fn read_dynamic(bytes: &[u8], elf: &mut Elf, dynamic: &[u8], arch: &ElfArch) -> Option<()> {
     let mut tags = Vec::new();
     for entry in dynamic.chunks_exact(16) {
         let tag = u64_at(entry, 0)?;
@@ -403,11 +400,11 @@ fn read_dynamic(bytes: &[u8], elf: &mut Elf, dynamic: &[u8]) -> Option<()> {
     let other = relocations(value(DT_RELA), value(DT_RELASZ))?;
     elf.plt_order = plt
         .iter()
-        .filter(|(_, kind, _)| *kind == R_AARCH64_JUMP_SLOT)
+        .filter(|(_, kind, _)| *kind == arch.jump_slot)
         .map(|(_, _, index)| *index)
         .collect();
     for (slot, kind, index) in plt.into_iter().chain(other) {
-        if matches!(kind, R_AARCH64_JUMP_SLOT | R_AARCH64_GLOB_DAT)
+        if (kind == arch.jump_slot || kind == arch.data_slot)
             && index != 0
             && index < elf.dynamic.len()
             && !elf.slots.contains(&(index, slot))
@@ -468,8 +465,8 @@ impl Elf {
 /// Read an MFBASIC executable's functions, data and import stubs: `.symtab`'s
 /// functions in table order, then each undefined dynamic symbol (an import)
 /// with the GOT slot a relocation binds it through.
-pub(crate) fn executable(bytes: &[u8]) -> Option<Executable> {
-    let elf = read(bytes)?;
+pub(crate) fn executable(bytes: &[u8], arch: &ElfArch) -> Option<Executable> {
+    let elf = read(bytes, arch)?;
     let mut functions = Vec::new();
     let mut data = Vec::new();
     for symbol in &elf.symbols {
@@ -502,7 +499,7 @@ pub(crate) fn executable(bytes: &[u8]) -> Option<Executable> {
             location: Location::Import(slot),
         });
     }
-    let stubs = stubs(bytes, &elf);
+    let stubs = stubs(bytes, &elf, arch);
     Some(Executable {
         elf,
         functions,
@@ -512,37 +509,25 @@ pub(crate) fn executable(bytes: &[u8]) -> Option<Executable> {
 }
 
 /// The import stubs at the end of the code: walking back from the end of the
-/// executable segment, every 12 bytes that are `adrp x16` / `ldr x17, [x16]` /
-/// `br x17` are a stub, named by the import whose GOT slot they load
-/// (`crate::os::linux::link::emit_import_stub`).
-fn stubs(bytes: &[u8], elf: &Elf) -> Vec<(String, u64, u64)> {
+/// executable segment, every [`ElfArch::stub_size`] bytes that are a stub
+/// ([`ElfArch::stub_slot`]) are one, named by the import whose GOT slot they
+/// load (`crate::os::linux::link::emit_import_stub`).
+fn stubs(bytes: &[u8], elf: &Elf, arch: &ElfArch) -> Vec<(String, u64, u64)> {
     let mut found = Vec::new();
     let Some(text) = elf.segments.iter().find(|segment| segment.executable) else {
         return found;
     };
     let end = text.vaddr + text.filesz;
+    let size = arch.stub_size;
     let mut at = end;
-    while at >= text.vaddr + STUB_SIZE {
-        let start = at - STUB_SIZE;
-        let Some(code) = at_address(bytes, &elf.segments, start, STUB_SIZE) else {
+    while at >= text.vaddr + size {
+        let start = at - size;
+        let Some(code) = at_address(bytes, &elf.segments, start, size) else {
             break;
         };
-        let word = |index: usize| u32_at(code, index * 4).unwrap_or(0);
-        let (adrp, ldr, br) = (word(0), word(1), word(2));
-        // `adrp x16, page`; `ldr x17, [x16, #imm12*8]`; `br x17`.
-        if adrp & 0x9f00_001f != 0x9000_0010
-            || ldr & 0xffc0_03ff != 0xf940_0211
-            || br != 0xd61f_0220
-        {
+        let Some(slot) = (arch.stub_slot)(code, start) else {
             break;
-        }
-        let immlo = u64::from((adrp >> 29) & 0x3);
-        let immhi = u64::from((adrp >> 5) & 0x7_ffff);
-        let page = (((immhi << 2) | immlo) << 12) as i64;
-        let page = ((page << 31) >> 31) as u64; // sign-extend the 33-bit offset
-        let slot = (start & !0xfff)
-            .wrapping_add(page)
-            .wrapping_add(u64::from((ldr >> 10) & 0xfff) * 8);
+        };
         let name = elf
             .slots
             .iter()
@@ -552,7 +537,7 @@ fn stubs(bytes: &[u8], elf: &Elf) -> Vec<(String, u64, u64)> {
         let Some(name) = name else {
             break;
         };
-        found.push((name, start, STUB_SIZE));
+        found.push((name, start, size));
         at = start;
     }
     found.reverse();
@@ -565,6 +550,7 @@ mod tests {
     use crate::arch::image::{
         EncodedImage, EncodedImport, EncodedSection, EncodedSymbol, ImportKind,
     };
+    use crate::debugger::arm64::ELF;
     use crate::os::linux::flavor::LinuxFlavor;
 
     /// A two-function image importing `write` and `exit`, linked by the
@@ -623,7 +609,7 @@ mod tests {
     #[test]
     fn a_debug_build_names_its_functions_data_imports_and_stubs() {
         let bytes = linked(true);
-        let image = executable(&bytes).expect("an ELF the linker wrote");
+        let image = executable(&bytes, &ELF).expect("an ELF the linker wrote");
         let elf = &image.elf;
         assert!(elf.position_independent);
         assert_eq!(elf.entry, 0x1000);
@@ -680,7 +666,7 @@ mod tests {
     #[test]
     fn a_build_without_debug_still_names_its_imports_through_pt_dynamic() {
         let bytes = linked(false);
-        let image = executable(&bytes).unwrap();
+        let image = executable(&bytes, &ELF).unwrap();
         assert!(image.elf.symbols.is_empty());
         assert_eq!(
             image
@@ -696,7 +682,7 @@ mod tests {
 
     #[test]
     fn the_code_and_defined_functions_are_listed_and_an_executable_has_no_plt() {
-        let image = executable(&linked(true)).unwrap();
+        let image = executable(&linked(true), &ELF).unwrap();
         let elf = &image.elf;
         let code = elf.code();
         assert_eq!(code.len(), 1);
@@ -714,7 +700,7 @@ mod tests {
 
     #[test]
     fn a_plt_entry_is_named_by_its_jump_slot_relocation() {
-        let mut elf = read(&linked(false)).unwrap();
+        let mut elf = read(&linked(false), &ELF).unwrap();
         // A library's `.plt`: a 32-byte header, then 16 bytes per jump slot,
         // in the order of the `R_AARCH64_JUMP_SLOT` relocations.
         elf.plt = Some((0x2000, PLT_HEADER + 2 * PLT_ENTRY));
@@ -732,11 +718,11 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_an_aarch64_elf_is_refused() {
-        assert_eq!(read(b"not an elf at all"), None);
+        assert_eq!(read(b"not an elf at all", &ELF), None);
         let mut bytes = linked(false);
         bytes[18] = 62; // EM_X86_64
-        assert_eq!(read(&bytes), None);
+        assert_eq!(read(&bytes, &ELF), None);
         let truncated = &linked(true)[..200];
-        assert_eq!(read(truncated), None);
+        assert_eq!(read(truncated, &ELF), None);
     }
 }

@@ -4,14 +4,14 @@
 //! symbol sizes (a `--debug` build), its import stubs, or a loaded library's
 //! function starts. Without one, a listing runs to the first `ret` or 64
 //! instructions. Code is read with every breakpoint's original instruction in
-//! place, and decoded by the decoder for the host's architecture — AArch64, the
-//! only one with a debugger backend, whose decoder knows what the compiler
-//! emits and the instructions of dyld and the system libraries; a word it does
-//! not know (SVE, SME, memory tagging) shows as `.word`.
+//! place, and decoded by the decoder of the debuggee's processor
+//! ([`Arch::decode`]), which knows what the compiler emits and the instructions
+//! of the system libraries; an instruction it does not know (on AArch64: SVE,
+//! SME, memory tagging) shows as `.word` (4 bytes) or `.short` (2).
 
+use super::arch::{Arch, Decoded};
 use super::names::{classify, classify_defined, Collisions};
 use super::{FunctionRange, FunctionSymbol, Inferior};
-use crate::arch::aarch64::decode::{decode, Flow};
 
 /// The most instructions a listing without a known extent shows.
 pub(crate) const UNSIZED_LIMIT: usize = 64;
@@ -60,9 +60,6 @@ pub(crate) enum Request {
     /// Every function with this name: all of it, or a count from its start.
     Named { name: String, count: Option<Window> },
 }
-
-/// The size of an AArch64 instruction; every one starts on a multiple of it.
-const INSTRUCTION: u64 = 4;
 
 /// How a function is named in a listing: what the developer wrote for it,
 /// otherwise its symbol (a system library's as C names it), tagged when an
@@ -113,6 +110,7 @@ pub(crate) fn disassemble(
     pc: u64,
     request: &Request,
 ) -> Result<Vec<String>, String> {
+    let alignment = inferior.arch().alignment;
     match request {
         Request::Current => {
             let range = inferior.function_at(pc)?;
@@ -124,10 +122,10 @@ pub(crate) fn disassemble(
         }
         Request::Count(count) => around(inferior, pc, Some(*count), pc),
         Request::At { address, count } => {
-            if address % INSTRUCTION != 0 {
+            if address % alignment != 0 {
                 return Err(format!(
                     "0x{address:016x} is not the start of an instruction: they start every \
-                     {INSTRUCTION} bytes"
+                     {alignment} bytes"
                 ));
             }
             around(inferior, *address, *count, pc)
@@ -183,7 +181,7 @@ fn counted(
 ) -> Result<Vec<String>, String> {
     let back = window.back;
     let from = back
-        .checked_mul(INSTRUCTION)
+        .checked_mul(inferior.arch().alignment)
         .and_then(|bytes| anchor.checked_sub(bytes))
         .ok_or_else(|| format!("there are not {back} instructions before 0x{anchor:016x}"))?;
     listing(inferior, range, from, None, Some(window.length), pc)
@@ -195,16 +193,15 @@ pub(crate) fn returns(
     inferior: &mut dyn Inferior,
     range: &FunctionRange,
 ) -> Result<Vec<u64>, String> {
-    let length = match range.size {
-        Some(size) => size.min(MAX_FUNCTION) as usize,
-        None => UNSIZED_LIMIT * 4,
+    let arch = inferior.arch();
+    let (length, limit) = match range.size {
+        Some(size) => (size.min(MAX_FUNCTION) as usize, usize::MAX),
+        None => (UNSIZED_LIMIT * arch.longest, UNSIZED_LIMIT),
     };
     let code = read_up_to(inferior, range.start, length)?;
     let mut found = Vec::new();
-    for (index, word) in code.chunks_exact(4).enumerate() {
-        let word = u32::from_le_bytes(word.try_into().expect("4 bytes"));
-        let address = range.start + index as u64 * 4;
-        if decode(word, address).is_some_and(|instruction| instruction.flow == Flow::Return) {
+    for (address, bytes) in instructions(arch, &code, range.start).take(limit) {
+        if (arch.decode)(bytes, address).is_some_and(|instruction| instruction.returns) {
             found.push(address);
             if range.size.is_none() {
                 break;
@@ -212,6 +209,41 @@ pub(crate) fn returns(
         }
     }
     Ok(found)
+}
+
+/// Each instruction in `code`, which starts at `from`, with its address: as
+/// many as fit whole.
+pub(crate) fn instructions<'a>(
+    arch: &'a Arch,
+    code: &'a [u8],
+    from: u64,
+) -> impl Iterator<Item = (u64, &'a [u8])> + 'a {
+    let mut offset = 0;
+    std::iter::from_fn(move || {
+        let rest = code.get(offset..)?;
+        let length = (arch.length)(rest);
+        let bytes = rest.get(..length)?;
+        let address = from + offset as u64;
+        offset += length;
+        Some((address, bytes))
+    })
+}
+
+/// How a listing shows an instruction the decoder does not know: the 4 bytes
+/// as a `.word`, 2 as a `.short`.
+fn undecoded(bytes: &[u8]) -> String {
+    match *bytes {
+        [a, b] => format!(".short {:#06x}", u16::from_le_bytes([a, b])),
+        [a, b, c, d] => format!(".word  {:#010x}", u32::from_le_bytes([a, b, c, d])),
+        _ => format!(
+            ".byte  {}",
+            bytes
+                .iter()
+                .map(|byte| format!("{byte:#04x}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
 }
 
 /// A range for code no image names: just its address.
@@ -312,24 +344,28 @@ fn listing(
     count: Option<u64>,
     pc: u64,
 ) -> Result<Vec<String>, String> {
-    let limit = match (count, size) {
-        (Some(count), _) => count.min(MAX_FUNCTION / 4),
-        (None, Some(size)) => size.min(MAX_FUNCTION) / 4,
-        (None, None) => UNSIZED_LIMIT as u64,
+    let arch = inferior.arch();
+    let longest = arch.longest as u64;
+    // How many bytes to read, and the most instructions to show from them.
+    let (bytes, limit) = match (count, size) {
+        (Some(count), _) => {
+            let count = count.min(MAX_FUNCTION / longest);
+            (count * longest, count)
+        }
+        (None, Some(size)) => (size.min(MAX_FUNCTION), u64::MAX),
+        (None, None) => (UNSIZED_LIMIT as u64 * longest, UNSIZED_LIMIT as u64),
     };
-    let code = read_up_to(inferior, from, limit as usize * 4)?;
+    let code = read_up_to(inferior, from, bytes as usize)?;
     let collisions = Collisions::of(&inferior.functions().unwrap_or_default());
     // The functions the listing shows code of, in order; each row holds the
     // index of its own.
     let mut owners = vec![range.clone()];
     let mut rows = Vec::new();
-    for (index, word) in code.chunks_exact(4).enumerate() {
-        let address = from + index as u64 * 4;
-        let word = u32::from_le_bytes(word.try_into().expect("4 bytes"));
-        let decoded = decode(word, address);
+    for (address, bytes) in instructions(arch, &code, from).take(limit as usize) {
+        let decoded = (arch.decode)(bytes, address);
         let returns = decoded
             .as_ref()
-            .is_some_and(|instruction| instruction.flow == Flow::Return);
+            .is_some_and(|instruction| instruction.returns);
         let last = owners.len() - 1;
         let owner = if holds(&owners[last], address) {
             last
@@ -353,7 +389,7 @@ fn listing(
                 }
             }
         };
-        rows.push((address, owner, decoded, word));
+        rows.push((address, owner, decoded, bytes));
         if returns && count.is_none() && size.is_none() {
             break;
         }
@@ -387,7 +423,7 @@ fn listing(
     let mut pages: Vec<(u32, u64)> = Vec::new();
     let mut lines = vec![header(&owners[0], &collisions)];
     let mut shown = 0;
-    for (address, owner, decoded, word) in rows {
+    for (address, owner, decoded, bytes) in rows {
         if owner != shown {
             lines.push(header(&owners[owner], &collisions));
             pages.clear();
@@ -397,7 +433,7 @@ fn listing(
         let marker = if address == pc { "->  " } else { "    " };
         let text = match &decoded {
             Some(instruction) => instruction.text.clone(),
-            None => format!(".word  {word:#010x}"),
+            None => undecoded(bytes),
         };
         let comment = match &decoded {
             Some(instruction) => {
@@ -405,7 +441,7 @@ fn listing(
                     pages
                         .iter()
                         .find(|(page_register, _)| *page_register == register)
-                        .map(|(_, page)| page + offset)
+                        .map(|(_, page)| page.wrapping_add_signed(offset))
                 });
                 if let Some((register, page)) = instruction.page {
                     pages.retain(|(other, _)| *other != register);
@@ -441,9 +477,10 @@ fn read_up_to(inferior: &mut dyn Inferior, address: u64, length: usize) -> Resul
     match inferior.read_code(address, length) {
         Ok(code) => Ok(code),
         Err(message) => {
+            let step = inferior.arch().alignment as usize;
             let mut code = Vec::new();
             while code.len() < length {
-                match inferior.read_code(address + code.len() as u64, 4) {
+                match inferior.read_code(address + code.len() as u64, step) {
                     Ok(word) => code.extend(word),
                     Err(_) if !code.is_empty() => break,
                     Err(_) => return Err(message),
@@ -478,7 +515,7 @@ fn named_address(
 fn comment(
     inferior: &mut dyn Inferior,
     range: &FunctionRange,
-    instruction: &crate::arch::aarch64::decode::Instruction,
+    instruction: &Decoded,
     collisions: &Collisions,
 ) -> Option<String> {
     if let Some(value) = instruction.value {

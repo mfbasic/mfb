@@ -112,7 +112,7 @@ pub(crate) fn frames(
         let lookup = if innermost {
             current.pc
         } else {
-            current.pc.saturating_sub(4)
+            current.pc.saturating_sub(inferior.arch().alignment)
         };
         let function = inferior
             .function_at(lookup)?

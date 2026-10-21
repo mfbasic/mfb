@@ -474,13 +474,15 @@ pub(super) fn jump(
         return Err(no_thread(thread, threads));
     }
     let (address, _) = resolve(inferior, thread, to)?;
-    if address % 4 != 0 {
+    let alignment = inferior.arch().alignment;
+    if address % alignment != 0 {
         return Err(format!(
-            "0x{address:016x} is not the start of an instruction: they start every 4 bytes"
+            "0x{address:016x} is not the start of an instruction: they start every {alignment} \
+             bytes"
         ));
     }
     inferior
-        .read_code(address, 4)
+        .read_code(address, alignment as usize)
         .map_err(|error| format!("cannot jump to 0x{address:016x}: {error}"))?;
     let mut values = vec![("pc".to_string(), address)];
     for (register, location) in registers {
