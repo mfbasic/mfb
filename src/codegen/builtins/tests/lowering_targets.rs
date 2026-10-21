@@ -66,16 +66,6 @@ FUNC main() AS Integer
 END FUNC
 ";
 
-/// Label stems `function` defines, in the plan lowered for `target`.
-fn stems_on(source: &str, function: &str, target: CodeTarget) -> Vec<String> {
-    let plan = code_for_src_cached(source, target, Console);
-    Stream::of(code_function(plan, function))
-        .labels()
-        .into_iter()
-        .map(|(_, name)| name)
-        .collect()
-}
-
 #[test]
 fn a_record_wider_than_the_argument_registers_is_built_by_one_shared_helper() {
     for target in CodeTarget::ALL {
