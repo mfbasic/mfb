@@ -9,7 +9,6 @@ use std::ffi::OsString;
 use super::*;
 use crate::codegen::debug::arena::{
     ARENA_BASE_SYMBOL, ARENA_KIND_MAIN, REGION_COUNT_OFFSET, REGION_HEADER_SIZE, SLOT_KIND_OFFSET,
-    SLOT_SIZE,
 };
 use crate::codegen::error::constants::error_constants::ARENA_CURRENT_ERROR_OFFSET;
 use crate::debugger::{Ending, FunctionRange, Step};
