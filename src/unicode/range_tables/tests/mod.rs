@@ -181,3 +181,15 @@ fn script_boundaries() {
     assert_eq!(table.lookup(0x410), "Cyrillic");
     assert_eq!(table.lookup(0x10FFFF), "Unknown");
 }
+
+/// A table read by value must name integers; one that does not is a
+/// generator defect, refused loudly rather than encoded as garbage.
+#[test]
+#[should_panic(expected = "run value `Lu` is not an integer")]
+fn a_value_table_whose_names_are_not_integers_is_refused() {
+    let table = RangeTable {
+        runs: vec![(0x10FFFF, 0)],
+        names: vec!["Lu"],
+    };
+    let _ = table.values_hex();
+}
