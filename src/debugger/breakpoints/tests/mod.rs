@@ -1,6 +1,7 @@
 use super::*;
 use crate::debugger::{Ending, Exit, FunctionRange, Register, Step, ThreadFacts};
 
+mod raising;
 mod watching;
 
 /// A program whose `_exit` binds when it reaches its entry point, and
