@@ -45,7 +45,10 @@
   { "library": "libSystem", "symbol": "_pthread_self" },
   { "library": "libSystem", "symbol": "_pthread_get_stackaddr_np" },
   { "library": "libSystem", "symbol": "_pthread_get_stacksize_np" },
-  { "library": "libSystem", "symbol": "_write" }
+  { "library": "libSystem", "symbol": "_sysctlbyname" },
+  { "library": "libSystem", "symbol": "_write" },
+  { "library": "libSystem", "symbol": "_pthread_mutex_lock" },
+  { "library": "libSystem", "symbol": "_pthread_mutex_unlock" }
   ],
   "externalSymbols": [],
   "symbolTable": [
@@ -60,10 +63,13 @@
   { "name": "_pthread_self", "kind": "imported", "section": null, "value": null, "stringTableOffset": 69 },
   { "name": "_pthread_get_stackaddr_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 83 },
   { "name": "_pthread_get_stacksize_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 109 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 135 }
+  { "name": "_sysctlbyname", "kind": "imported", "section": null, "value": null, "stringTableOffset": 135 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 149 },
+  { "name": "_pthread_mutex_lock", "kind": "imported", "section": null, "value": null, "stringTableOffset": 156 },
+  { "name": "_pthread_mutex_unlock", "kind": "imported", "section": null, "value": null, "stringTableOffset": 176 }
   ],
   "stringTable": {
-    "size": 142,
+    "size": 198,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_main", "offset": 7 },
@@ -76,7 +82,10 @@
     { "value": "_pthread_self", "offset": 69 },
     { "value": "_pthread_get_stackaddr_np", "offset": 83 },
     { "value": "_pthread_get_stacksize_np", "offset": 109 },
-    { "value": "_write", "offset": 135 }
+    { "value": "_sysctlbyname", "offset": 135 },
+    { "value": "_write", "offset": 149 },
+    { "value": "_pthread_mutex_lock", "offset": 156 },
+    { "value": "_pthread_mutex_unlock", "offset": 176 }
     ]
   },
   "relocations": [
@@ -90,6 +99,9 @@
   { "from": "_main", "to": "_pthread_self", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_pthread_get_stackaddr_np", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_pthread_get_stacksize_np", "kind": "externalCall", "section": "__TEXT,__text" },
-  { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
+  { "from": "_main", "to": "_sysctlbyname", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_pthread_mutex_lock", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_pthread_mutex_unlock", "kind": "externalCall", "section": "__TEXT,__text" }
   ]
 }
