@@ -131,17 +131,16 @@ fn island(hop: &str, over: &str, far: &str) -> Vec<CodeInstruction> {
 /// Point an already-built branch at a different label. The op keeps every other
 /// field (`rv.br` carries `lhs`/`rhs`/`cond`, which must survive), so this
 /// rewrites the `target` entry in place rather than rebuilding the instruction.
-fn retarget(instruction: &mut CodeInstruction, target: &str) -> Result<(), String> {
-    for (key, value) in instruction.fields.iter_mut() {
-        if *key == "target" {
-            *value = Operand::Raw(target.into());
-            return Ok(());
-        }
-    }
-    Err(format!(
-        "rv64 relax: {} has no target field",
-        instruction.op.mnemonic()
-    ))
+///
+/// Only a [`FarJump`] is retargeted, and a jump is collected as one only after
+/// its `target` field was read, so the field is always there.
+fn retarget(instruction: &mut CodeInstruction, target: &str) {
+    let (_, value) = instruction
+        .fields
+        .iter_mut()
+        .find(|(key, _)| *key == "target")
+        .expect("a far jump was collected by its `target` field");
+    *value = Operand::Raw(target.into());
 }
 
 /// A jump this round has to relax: where its `jal` sits, where it is going, and
@@ -201,9 +200,11 @@ fn relax_function(
             let Some(within) = jal_offset_within(instruction.op) else {
                 continue;
             };
-            let target = instruction.get("target").ok_or_else(|| {
-                format!("rv64 relax: {} without a target", instruction.op.mnemonic())
-            })?;
+            // The offset walk above sized every instruction by encoding it, and the
+            // emitter refuses a `b`/`rv.br` with no `target` field, so it is present.
+            let target = instruction
+                .get("target")
+                .expect("instruction_size refused a jump without a target");
             // An unresolved target is left for the encoder to diagnose (it owns the
             // "label does not resolve" error); relaxation only moves targets that
             // exist.
@@ -286,7 +287,10 @@ fn relax_function(
         }
         // Route every far jump onto the outermost rung that is still on its own side
         // of the target — `distance / HOP` rungs in, which is at most `HOP` (plus one
-        // instruction's width) away.
+        // instruction's width) away. A far jump is more than `JAL_LIMIT = 2 * HOP`
+        // from its target, so `distance / HOP >= 2`, and its ladder's span is at
+        // least that distance, so the ladder has at least as many rungs: `index` is
+        // a real rung, and every round inserts at least one island.
         for jump in &far {
             let forward = jump.target_at > jump.jal_at;
             let ladder = &ladders[*ladder_of
@@ -294,23 +298,10 @@ fn relax_function(
                 .expect("every far jump registered its ladder")];
             let distance = (jump.target_at - jump.jal_at).abs();
             let index = ((distance / HOP) as usize).min(ladder.rungs.len());
-            let label = ladder
-                .rungs
-                .get(index.saturating_sub(1))
-                .ok_or_else(|| format!("rv64 relax: no hop rung for a far jump in '{function}'"))?
-                .clone();
-            retarget(&mut instructions[jump.index], &label)?;
+            let label = ladder.rungs[index - 1].clone();
+            retarget(&mut instructions[jump.index], &label);
         }
 
-        if inserts.is_empty() {
-            // Every ladder came out empty although a jump was out of range —
-            // impossible, since a far jump is at least `2 * HOP` from its target.
-            // Guard rather than spin.
-            return Err(format!(
-                "rv64 relax: no hop placed for {} out-of-range jump(s) in '{function}'",
-                far.len()
-            ));
-        }
         // Apply every insertion in a single rebuild. Splicing one at a time is
         // O(len) per island, which is quadratic on exactly the huge functions this
         // pass exists for.
