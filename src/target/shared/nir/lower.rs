@@ -11,8 +11,8 @@ pub(crate) fn lower_module(
     stdin_log_cap: Option<u64>,
     debug: crate::codegen::debug::DebugOptions,
     runtime_helpers: Vec<RuntimeHelper>,
-) -> Result<NirModule, String> {
-    Ok(NirModule {
+) -> NirModule {
+    NirModule {
         target,
         build_mode,
         stdin_log_cap: stdin_log_cap
@@ -35,7 +35,7 @@ pub(crate) fn lower_module(
         native_libraries: ir.native_libraries.clone(),
         max_buffer_bytes: ir.max_buffer_bytes,
         canvas_auto_paint_ms: ir.canvas_auto_paint_ms,
-    })
+    }
 }
 
 /// Build the call-routing entries (name → thunk symbol) for every native `LINK`

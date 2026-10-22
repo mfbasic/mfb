@@ -83,7 +83,7 @@ pub fn lower_project(
             debug,
             helpers,
         )
-    })?;
+    });
     crate::trace::count("NIR functions", module.functions.len() as u64);
     crate::trace::count(
         "NIR statements",
