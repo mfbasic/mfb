@@ -35,6 +35,8 @@ mod entry_refusals;
 #[cfg(test)]
 mod error_exit_refusals;
 #[cfg(test)]
+mod for_each_refusals;
+#[cfg(test)]
 mod inline_call_refusals;
 #[cfg(test)]
 mod inplace_dest_guards;
