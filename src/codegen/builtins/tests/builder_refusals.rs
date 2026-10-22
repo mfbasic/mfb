@@ -14,7 +14,7 @@
 use crate::codegen::engine::builder::{CodeBuilder, GlobalValue, ValueResult};
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::tests::test_support::TestPlatform;
-use crate::codegen::memory::arena::graph_copy::tests::{field, harness, model, record};
+use crate::codegen::memory::arena::graph_copy::tests::{field, harness, model, record, union};
 use crate::operators::BinaryOp;
 use crate::target::shared::nir::{NirEnumMember, NirType, NirValue};
 use crate::types::ParameterType;
@@ -42,10 +42,14 @@ fn refused<T>(result: Result<T, String>, what: &str) -> String {
     }
 }
 
-/// `ENUM Color { Red }` and `TYPE Pt { x, y AS Integer }`.
+/// `ENUM Color { Red }`, `TYPE Pt { x, y AS Integer }`, and `TYPE Holder { shape AS
+/// Shape }` over `UNION Shape { Circle }`.
 fn colors() -> crate::codegen::engine::builder::TypeModel {
     model(vec![
         record("Pt", vec![field("x", "Integer"), field("y", "Integer")]),
+        record("Circle", vec![field("r", "Integer")]),
+        union("Shape", vec![("Circle", vec![field("r", "Integer")])]),
+        record("Holder", vec![field("shape", "Shape")]),
         NirType {
             kind: "enum".to_string(),
             visibility: "private".to_string(),
@@ -73,6 +77,13 @@ fn with_builder<R>(body: impl FnOnce(&mut CodeBuilder<'_>) -> R) -> R {
         GlobalValue {
             type_: ParameterType::list_of(ParameterType::Integer),
             offset: 64,
+        },
+    );
+    harness.globals.insert(
+        "h".to_string(),
+        GlobalValue {
+            type_: ParameterType::declared("Holder"),
+            offset: 80,
         },
     );
     harness.globals.insert(
@@ -153,6 +164,21 @@ fn an_enum_pattern_must_name_an_enum_member() {
             "{error}"
         );
     });
+}
+
+/// A record pattern is matched field by field; a field with no comparison (a union)
+/// is refused, and the refusal reaches the caller.
+#[test]
+fn a_record_pattern_with_an_incomparable_field_is_refused() {
+    let error = with_builder(|builder| {
+        let matched = value_of(builder, ParameterType::declared("Holder"));
+        let pattern = global("h", ParameterType::declared("Holder"));
+        refused(
+            builder.lower_match_compare(&matched, &pattern, "hit"),
+            "a record pattern holding a union field",
+        )
+    });
+    assert!(error.contains("'Shape'"), "{error}");
 }
 
 #[test]
