@@ -21,7 +21,6 @@
 //! `block + COLLECTION_HEADER_SIZE` and is never NULL, so the two cannot be confused.
 //! A target with no Metal renderer has no seam and answers FALSE.
 
-use crate::codegen::collection::layout::list_entry_stride;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
@@ -41,23 +40,11 @@ pub(crate) fn lower_metal_present_scene(
     let symbol = builder.current_symbol.clone();
 
     // The geometry, the glyph coverage and the two integer lists are addressed as flat
-    // payloads at `block + COLLECTION_HEADER_SIZE` — the check `metalDrawScene` makes,
-    // for the same reason: a list that regained a lookup table would have its entry
-    // records read as geometry.
-    for element in [
-        ParameterType::Byte,
-        ParameterType::Float,
-        ParameterType::Integer,
-    ] {
-        let stride = list_entry_stride(&element);
-        if stride != 0 {
-            return Err(format!(
-                "'{symbol}' assumes `List OF {}` is entry-free, but its entry stride is \
-                 {stride} — the payload is no longer contiguous",
-                element.name(),
-            ));
-        }
-    }
+    // payloads at `block + COLLECTION_HEADER_SIZE`, which holds because `List OF Byte`,
+    // `List OF Float` and `List OF Integer` use the entry-free representation: their
+    // entry stride is the constant 0 (`list_entry_stride`, every fixed-width element),
+    // and `builtins/tests/byte_list_entry_free.rs` fails the test suite the moment it
+    // is not — the same arrangement `canvas::blitSurface` relies on.
 
     let mut located = Vec::new();
     for (index, what) in [
