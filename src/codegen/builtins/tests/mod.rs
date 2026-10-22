@@ -150,6 +150,7 @@ mod resource_union_default;
 mod result_field_ownership;
 mod return_passthrough_forms;
 mod shape_refusals;
+mod static_type_oracles;
 mod stems;
 mod strings_fold;
 mod tcp_read_helper;
