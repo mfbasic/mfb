@@ -652,3 +652,34 @@ fn statement_keyword_after_unclosed_bracket_is_reported() {
         assert_eq!(newline_count(&source), 1, "{line}");
     }
 }
+
+/// An EXAMPLE with no `END EXAMPLE` swallows the `END DOC` after it (inside an
+/// example, `END DOC` is example text). The block is still DOC_UNTERMINATED,
+/// but the report names the open EXAMPLE instead of claiming there is no
+/// `END DOC` at all; a block simply missing its `END DOC` keeps the plain text.
+#[test]
+fn an_unterminated_doc_names_the_example_that_swallowed_its_end() {
+    let (ok, diagnostics) = lex_diagnostics(
+        "DOC\nFUNC helper()\nEXAMPLE\n  a\nEND DOC\nFUNC helper() AS Integer\n  RETURN 7\nEND FUNC\n",
+    );
+    assert!(!ok);
+    assert_eq!(
+        diagnostics,
+        [(
+            "DOC_UNTERMINATED".to_string(),
+            "DOC block reached end of file before its `END DOC` line: the EXAMPLE at line 3 \
+             has no `END EXAMPLE`, so every line after it, an `END DOC` included, was read \
+             as example text."
+                .to_string()
+        )]
+    );
+    let (ok, diagnostics) = lex_diagnostics("DOC\nFUNC helper()\nDESC never closed\n");
+    assert!(!ok);
+    assert_eq!(
+        diagnostics,
+        [(
+            "DOC_UNTERMINATED".to_string(),
+            "DOC block reached end of file before its `END DOC` line.".to_string()
+        )]
+    );
+}

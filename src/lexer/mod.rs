@@ -444,6 +444,8 @@ impl Lexer<'_> {
 
         let mut lines = Vec::new();
         let mut in_example = false;
+        // The line of the EXAMPLE still open, for the unterminated report.
+        let mut example_line = 0;
         let mut terminated = false;
         while !self.is_at_end() {
             let line_no = self.line;
@@ -466,6 +468,7 @@ impl Lexer<'_> {
             }
             if !in_example && words.len() == 1 && words[0].eq_ignore_ascii_case("EXAMPLE") {
                 in_example = true;
+                example_line = line_no;
             } else if in_example && is_end_line(&words, "EXAMPLE") {
                 in_example = false;
             }
@@ -476,13 +479,20 @@ impl Lexer<'_> {
         }
 
         if !terminated {
-            self.report(
-                "DOC_UNTERMINATED",
-                "DOC block reached end of file before its `END DOC` line.",
-                doc_line,
-                1,
-                1,
-            );
+            // An `END DOC` inside an open EXAMPLE is example text (an example
+            // may show a DOC block), so an EXAMPLE missing its `END EXAMPLE`
+            // swallows the block's terminator: name it, since the author's
+            // `END DOC` is there and the bare report would deny it.
+            let detail = if in_example {
+                format!(
+                    "DOC block reached end of file before its `END DOC` line: the EXAMPLE \
+                     at line {example_line} has no `END EXAMPLE`, so every line after it, \
+                     an `END DOC` included, was read as example text."
+                )
+            } else {
+                "DOC block reached end of file before its `END DOC` line.".to_string()
+            };
+            self.report("DOC_UNTERMINATED", &detail, doc_line, 1, 1);
         }
 
         Some(DocRaw {
