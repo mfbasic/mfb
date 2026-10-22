@@ -37,6 +37,7 @@ mod arena_transfer_shapes;
 mod bits_shift_forms;
 mod build_replay;
 mod builder_emit_forms;
+mod builder_refusals;
 mod builtin_record_arguments;
 mod byte_list_entry_free;
 mod canvas;
