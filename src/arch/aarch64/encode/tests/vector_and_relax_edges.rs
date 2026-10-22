@@ -108,3 +108,51 @@ fn a_2d_left_shift_past_63_is_refused_by_the_emitter() {
         .expect("63 encodes");
     assert_eq!(encoder.text.len(), 4);
 }
+
+/// Branch relaxation refuses a malformed function by name rather than relaxing
+/// around it: a `label` with no name places no target, and a conditional branch
+/// with no target is refused by the offset walk, which sizes every instruction
+/// by encoding it - the invariant the out-of-range scan relies on.
+#[test]
+fn relaxation_refuses_a_nameless_label_and_a_targetless_branch() {
+    let refusal = |instructions: Vec<CodeInstruction>| {
+        let mut plan = NativeCodePlan {
+            target: "linux-aarch64".to_string(),
+            build_mode: crate::target::NativeBuildMode::Console,
+            arch: "aarch64".to_string(),
+            project: "t".to_string(),
+            entry_symbol: Some("main".to_string()),
+            imports: Vec::new(),
+            data_objects: Vec::new(),
+            functions: vec![CodeFunction {
+                name: "main".to_string(),
+                symbol: "main".to_string(),
+                params: Vec::new(),
+                returns: "Nothing".to_string(),
+                frame: CodeFrame {
+                    stack_size: 0,
+                    callee_saved: Vec::new(),
+                },
+                instructions,
+                relocations: Vec::new(),
+                stack_slots: Vec::new(),
+            }],
+        };
+        crate::arch::aarch64::encode::relax_conditional_branches(&mut plan)
+            .expect_err("a malformed function is refused")
+    };
+    assert_eq!(
+        refusal(vec![
+            CodeInstruction::new("label"),
+            CodeInstruction::new("ret")
+        ]),
+        "AArch64 relax: label without a name"
+    );
+    assert_eq!(
+        refusal(vec![
+            CodeInstruction::new("b.eq"),
+            CodeInstruction::new("ret")
+        ]),
+        "instruction 'b.eq' missing field 'target'"
+    );
+}

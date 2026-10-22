@@ -115,9 +115,11 @@ fn relax_function(
             if !is_conditional_branch(instruction.op) {
                 continue;
             }
+            // The offset walk above sized every instruction by encoding it, and the
+            // emitter refuses a conditional branch with no `target`, so it is present.
             let target = instruction
                 .get("target")
-                .ok_or_else(|| "AArch64 relax: conditional branch without a target".to_string())?;
+                .expect("instruction_size refused a conditional branch without a target");
             // An unresolved target is left for the encoder to diagnose (it owns
             // the "label does not resolve" error); relaxation only moves targets
             // that exist.
