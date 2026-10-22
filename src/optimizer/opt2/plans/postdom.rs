@@ -59,10 +59,9 @@ pub(crate) fn compute(blocks: &[Block]) -> Option<PostDom> {
     let mut order = Vec::with_capacity(n); // postorder of reverse graph
     let mut seen = vec![false; n];
     let mut stack: Vec<(usize, usize)> = Vec::new();
+    // An exit has no successors, so it is no block's CFG predecessor and no
+    // reverse walk from another exit reaches it: each starts unseen.
     for &exit in &exits {
-        if seen[exit] {
-            continue;
-        }
         seen[exit] = true;
         stack.push((exit, 0));
         while let Some(&mut (b, ref mut next)) = stack.last_mut() {
@@ -229,6 +228,15 @@ mod tests {
             "one edge out of the loop is all it takes: every block reaches the \
              exit, so the facts exist"
         );
+    }
+
+    /// An exit exists, but one block (an infinite loop off the entry) cannot
+    /// reach it: still no facts, for the same reason as a graph with no exit.
+    #[test]
+    fn a_block_that_cannot_reach_the_exit_leaves_no_postdominance_facts() {
+        // 0 → {1, 2}; 1 → 1 forever; 2 is the exit.
+        let blocks = vec![block(0, 1, &[1, 2]), block(1, 2, &[1]), block(2, 3, &[])];
+        assert!(compute(&blocks).is_none());
     }
 
     /// Diamond: 0 → {1, 2} → 3(exit). ipdom of every block is 3 (or the
