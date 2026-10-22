@@ -1,8 +1,11 @@
-//! The in-place self-update arms (`collection/assign/**` — replace, sort, distinct,
-//! filter, transform, take/drop, the `math` array members, the set algebra, `merge`,
-//! `mapValues`, the `String` self-updates, and the record-field forms of several),
-//! handed a self-update statement whose NIR disagrees with what the front end
-//! promised, one value at a time.
+//! The in-place self-update arms (`collection/assign/**` — append/prepend/insert/
+//! removeAt/set/mid/repeat, replace, sort, distinct, filter, transform, take/drop, the
+//! `math` array members, the set algebra and add/remove, `merge`, `mapValues`,
+//! removeKey and map `set`, the `String` self-updates, and the record-field forms of
+//! several), handed a self-update statement whose NIR disagrees with what the front
+//! end promised, one value at a time: a constant's or a function value's declared
+//! type, a name, a call's last argument, or the member itself swapped for one over
+//! another collection kind (which each arm's G9 gate must decline).
 //!
 //! `nir_fault.rs` sweeps every value of two broad programs; neither carries most of
 //! these statements, and a corruption only reaches a builder path some value in the
@@ -56,6 +59,14 @@ FUNC main() AS Integer
   xs = collections::transform(xs, twice)
   xs = collections::take(xs, 3)
   xs = collections::drop(xs, 1)
+  xs = collections::append(xs, 9)
+  xs = collections::prepend(xs, 0)
+  xs = collections::insert(xs, 1, 5)
+  xs = collections::removeAt(xs, 0)
+  xs = collections::append(xs, [7, 8])
+  xs = collections::mid(xs, 0, 3)
+  xs = collections::repeat(xs, 4, 2, 1)
+  xs = collections::set(xs, 0, 6)
   MUT names AS List OF String = ["b", "a", "b"]
   names = collections::replace(names, "b", "zz")
   names = collections::sort(names)
@@ -68,9 +79,13 @@ FUNC main() AS Integer
   st = collections::intersection(st, collections::toSet([1, 4]))
   st = collections::difference(st, collections::toSet([1]))
   st = collections::symmetricDifference(st, collections::toSet([9]))
+  st = collections::add(st, 5)
+  st = collections::remove(st, 5)
   MUT mp AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1 }
   mp = collections::merge(mp, Map OF String TO Integer { "b" := 2 }, TRUE)
   mp = collections::mapValues(mp, bump)
+  mp = collections::removeKey(mp, "a")
+  mp = collections::set(mp, "z", 3)
   MUT s AS String = "hello"
   s = strings::replace(s, "l", "L")
   s = strings::upper(s)
@@ -93,6 +108,35 @@ enum Fault {
     Type,
     Name,
     Arity,
+    /// A `collections` member swapped for one of the same arity over ANOTHER
+    /// collection kind (`append` -> `add`): each arm's G9 gate — "`add` mutates a
+    /// Set" — then sees a binding of the wrong kind.
+    Retarget,
+}
+
+/// The member a [`Fault::Retarget`] swaps `member` for.
+fn other_kind_member(member: &str) -> Option<&'static str> {
+    Some(match member {
+        "append" | "prepend" => "add",
+        "add" => "append",
+        "removeAt" | "removeKey" => "remove",
+        "remove" => "removeAt",
+        "insert" => "mid",
+        "mid" => "insert",
+        _ => return None,
+    })
+}
+
+/// `target` with its `collections` member swapped (both post-lowering spellings,
+/// `collections.X` and the monomorph `#collections_X$T…`).
+fn retarget(target: &str) -> Option<String> {
+    let (prefix, rest) = if let Some(rest) = target.strip_prefix("#collections_") {
+        ("#collections_", rest)
+    } else {
+        ("collections.", target.strip_prefix("collections.")?)
+    };
+    let (member, suffix) = rest.split_at(rest.find('$').unwrap_or(rest.len()));
+    Some(format!("{prefix}{}{suffix}", other_kind_member(member)?))
 }
 
 /// Apply `fault` to `value` if it applies; whether it did.
@@ -106,6 +150,19 @@ fn break_value(value: &mut NirValue, fault: Fault) -> bool {
             };
             true
         }
+        // A function value's declared return type: the predicate, key or mapping
+        // function an arm calls per element.
+        (Fault::Type, NirValue::FunctionRef { type_, .. }) => match type_ {
+            ParameterType::Func(_, returns, _) => {
+                **returns = if **returns == ParameterType::Integer {
+                    ParameterType::String
+                } else {
+                    ParameterType::Integer
+                };
+                true
+            }
+            _ => false,
+        },
         (Fault::Name, NirValue::Local(name)) => {
             *name = "__no_such_local__".to_string();
             true
@@ -127,6 +184,13 @@ fn break_value(value: &mut NirValue, fault: Fault) -> bool {
             args.pop();
             true
         }
+        (Fault::Retarget, NirValue::Call { target, .. }) => match retarget(target) {
+            Some(swapped) => {
+                *target = swapped;
+                true
+            }
+            None => false,
+        },
         _ => false,
     }
 }
@@ -209,7 +273,7 @@ fn sweep() {
     let mut swept = 0usize;
     let mut refused = 0usize;
     let mut panicked = Vec::new();
-    for fault in [Fault::Type, Fault::Name, Fault::Arity] {
+    for fault in [Fault::Type, Fault::Name, Fault::Arity, Fault::Retarget] {
         for index in 0.. {
             restore(&mut module, &pristine);
             let Some(broken) = break_nth(&mut module, fault, index) else {
@@ -231,12 +295,13 @@ fn sweep() {
         panicked.len(),
         panicked.join("\n  ")
     );
-    // Measured: 94 corrupted, 61 refused. The rest lowered: a `Const`'s declared type
+    eprintln!("nir_fault_inplace: {refused} of {swept} corrupted self-updates refused");
+    // Measured: 149 corrupted, 111 refused. The rest lowered: a `Const`'s declared type
     // is advisory where the arm re-derives it, and a dropped trailing argument of a
     // member with an optional parameter is still a valid call.
-    assert!(swept >= 90, "the sweep corrupted only {swept} values");
+    assert!(swept >= 140, "the sweep corrupted only {swept} values");
     assert!(
-        refused * 100 >= swept * 60,
+        refused * 100 >= swept * 70,
         "only {refused} of {swept} corrupted self-updates were refused"
     );
 }
