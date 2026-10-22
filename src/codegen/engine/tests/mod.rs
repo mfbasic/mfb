@@ -25,6 +25,8 @@ mod default_res_fields;
 #[cfg(test)]
 mod entry_refusals;
 #[cfg(test)]
+mod inline_call_refusals;
+#[cfg(test)]
 mod into_dest_sites;
 #[cfg(test)]
 mod link_library_resolution;

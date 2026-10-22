@@ -315,12 +315,8 @@ impl CodeBuilder<'_> {
         // (`toInt`, `toFloat`, `toFixed`, `toByte`) traps the raw
         // `Result`: lower the conversion inline but capture its error
         // instead of auto-propagating, then materialize the `Result`.
-        if matches!(
-            target,
-            "toInt" | "toFloat" | "toFixed" | "toByte" | "toMoney" | "toScalar"
-        ) && (args.len() == 1 || (target == "toInt" && args.len() == 2))
-        {
-            return self.lower_inline_conversion_raw(target, args);
+        if let Some(result) = self.lower_inline_conversion_raw(target, args) {
+            return result;
         }
         // bug-486: the fallibility census is name-keyed except for the
         // overloads whose argument type decides it — today only

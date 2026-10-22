@@ -85,29 +85,43 @@ impl CodeBuilder<'_> {
         self.materialize_current_result(success_type, "checked".to_string(), false, raw_success)
     }
 
-    /// Lower an inline conversion built-in (`toInt`/`toFloat`/`toFixed`/`toByte`)
-    /// for an inline `TRAP`: emit the normal inline conversion but capture its
-    /// error return (which would otherwise auto-propagate) so the raw `Result`
-    /// is left in the standard registers, then materialize it as a value.
+    /// Lower an inline conversion built-in (`toInt`/`toFloat`/`toFixed`/`toByte`/
+    /// `toMoney`/`toScalar`) for an inline `TRAP`: emit the normal inline
+    /// conversion but capture its error return (which would otherwise
+    /// auto-propagate) so the raw `Result` is left in the standard registers, then
+    /// materialize it as a value. `None` when `target` over `args` is not one of
+    /// those conversions (every one takes a single argument; `toInt` also takes a
+    /// base) — the caller goes on to its other inline-`TRAP` lowerings.
     pub(super) fn lower_inline_conversion_raw(
         &mut self,
         target: &str,
         args: &[NirValue],
+    ) -> Option<Result<ValueResult, String>> {
+        let convert: fn(&mut Self, &[NirValue]) -> Result<ValueResult, String> =
+            match (target, args.len()) {
+                ("toInt", 1 | 2) => |builder, args| builder.lower_to_int(args),
+                ("toFloat", 1) => |builder, args| builder.lower_to_float(&args[0]),
+                ("toFixed", 1) => |builder, args| builder.lower_to_fixed(&args[0]),
+                ("toByte", 1) => |builder, args| builder.lower_to_byte(&args[0]),
+                ("toMoney", 1) => |builder, args| builder.lower_to_money(&args[0]),
+                ("toScalar", 1) => |builder, args| builder.lower_to_scalar(&args[0]),
+                _ => return None,
+            };
+        Some(self.lower_inline_conversion_raw_with(target, args, convert))
+    }
+
+    fn lower_inline_conversion_raw_with(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+        convert: fn(&mut Self, &[NirValue]) -> Result<ValueResult, String>,
     ) -> Result<ValueResult, String> {
         let success_type = builtins::call_return_type(target)
             .ok_or_else(|| format!("native raw conversion '{target}' has no return type"))?;
         let capture = self.label("raw_conversion_done");
         let previous = self.raw_result_capture.take();
         self.raw_result_capture = Some(capture.clone());
-        let lowered = match target {
-            "toInt" => self.lower_to_int(args),
-            "toFloat" => self.lower_to_float(&args[0]),
-            "toFixed" => self.lower_to_fixed(&args[0]),
-            "toByte" => self.lower_to_byte(&args[0]),
-            "toMoney" => self.lower_to_money(&args[0]),
-            "toScalar" => self.lower_to_scalar(&args[0]),
-            other => Err(format!("native raw conversion '{other}' is not supported")),
-        };
+        let lowered = convert(self, args);
         self.raw_result_capture = previous;
         let success = lowered?;
         // Success fall-through: tag the converted value as the `Ok` result.
@@ -214,8 +228,8 @@ impl CodeBuilder<'_> {
         let lowered = crate::trace::timed_tally(
             "abi_inline builtin",
             || target.to_string(),
-            || Some(lower(self, &arg_values, &ctx)),
-        )?;
+            || lower(self, &arg_values, &ctx),
+        );
         // plan-134-E: a collection built out of other values owns its elements' graphs.
         // A member whose result already owns its graphs is not one: an element READ
         // (`get`/`getOr`) is `materialize_owned_element`'s independent copy, and
@@ -564,6 +578,28 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Whether a `thread::` data/resource-plane call's handle (its first argument)
+    /// is the worker's view — which decides the queue direction its code form
+    /// reads or writes. `member` names the call in the refusal.
+    ///
+    /// For `receive`/`accept` the refusals cannot fire: their return type is read
+    /// off this same handle (`thread_runtime_return_type`), so a call that got
+    /// here has already typed it. `send`/`transfer` return `Nothing` without
+    /// looking at the handle, so for them this is where a missing or untyped
+    /// handle is caught.
+    fn thread_handle_is_worker(
+        &self,
+        member: &str,
+        helper_args: &[NirValue],
+    ) -> Result<bool, String> {
+        let handle =
+            self.static_type_name(helper_args.first().ok_or_else(|| {
+                format!("native runtime thread.{member} missing handle argument")
+            })?)
+            .ok_or_else(|| format!("native runtime thread.{member} handle has unknown type"))?;
+        Ok(crate::types::is_worker_thread_handle(&handle))
+    }
+
     pub(crate) fn lower_runtime_helper_call(
         &mut self,
         helper: runtime::RuntimeHelper,
@@ -783,28 +819,14 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
         let runtime_target = match target {
             "thread.send" => {
-                let handle = self
-                    .static_type_name(helper_args.first().ok_or_else(|| {
-                        "native runtime thread.send missing handle argument".to_string()
-                    })?)
-                    .ok_or_else(|| {
-                        "native runtime thread.send handle has unknown type".to_string()
-                    })?;
-                if crate::types::is_worker_thread_handle(&handle) {
+                if self.thread_handle_is_worker("send", &helper_args)? {
                     "thread.emit"
                 } else {
                     "thread.send"
                 }
             }
             "thread.receive" => {
-                let handle = self
-                    .static_type_name(helper_args.first().ok_or_else(|| {
-                        "native runtime thread.receive missing handle argument".to_string()
-                    })?)
-                    .ok_or_else(|| {
-                        "native runtime thread.receive handle has unknown type".to_string()
-                    })?;
-                if crate::types::is_worker_thread_handle(&handle) {
+                if self.thread_handle_is_worker("receive", &helper_args)? {
                     "thread.receive"
                 } else {
                     "thread.read"
@@ -818,28 +840,14 @@ impl CodeBuilder<'_> {
             // reads the inbound queue (`acceptResource`); on a parent handle it
             // reads the outbound queue (`readResource`).
             "thread.transferResource" => {
-                let handle = self
-                    .static_type_name(helper_args.first().ok_or_else(|| {
-                        "native runtime thread.transfer missing handle argument".to_string()
-                    })?)
-                    .ok_or_else(|| {
-                        "native runtime thread.transfer handle has unknown type".to_string()
-                    })?;
-                if crate::types::is_worker_thread_handle(&handle) {
+                if self.thread_handle_is_worker("transfer", &helper_args)? {
                     "thread.emitResource"
                 } else {
                     "thread.transferResource"
                 }
             }
             "thread.acceptResource" => {
-                let handle = self
-                    .static_type_name(helper_args.first().ok_or_else(|| {
-                        "native runtime thread.accept missing handle argument".to_string()
-                    })?)
-                    .ok_or_else(|| {
-                        "native runtime thread.accept handle has unknown type".to_string()
-                    })?;
-                if crate::types::is_worker_thread_handle(&handle) {
+                if self.thread_handle_is_worker("accept", &helper_args)? {
                     "thread.acceptResource"
                 } else {
                     "thread.readResource"
