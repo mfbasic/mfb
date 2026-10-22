@@ -91,6 +91,7 @@ mod lowering_shapes_fields;
 mod lowering_targets;
 mod marshal_record;
 mod math;
+mod math_dispatch;
 mod mfb_body_declared_errors;
 mod mir_dump;
 mod mixed_with_shapes;

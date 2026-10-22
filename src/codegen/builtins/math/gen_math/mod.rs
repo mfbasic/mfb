@@ -142,11 +142,12 @@ impl CodeBuilder<'_> {
     /// three classes exactly as the integer magnitude compare did: a finite `|x|`
     /// is strictly less than +Inf, ±Inf compares equal, and a NaN compares
     /// unordered (the V flag, caught by `b.vs`). The error each class raises — and
-    /// the line/char it stamps — is byte-identical to the GPR path.
+    /// the line/char it stamps — is byte-identical to the GPR path with
+    /// `FloatInfinityError::Overflow`: this twin's only callers are the observation
+    /// boundaries, and an infinity escaping one is `ErrFloatOverflow`.
     pub(crate) fn emit_float_result_check_fp(
         &mut self,
         value: impl Into<Reg>,
-        infinity_error: FloatInfinityError,
     ) -> Result<(), String> {
         let value: Reg = value.into();
         let nan = self.label("float_result_nan");
@@ -167,10 +168,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_vs(&nan)); // unordered => NaN
         self.emit(abi::branch_ne(&ok)); // |x| < +inf (ordered, not equal) => finite
                                         // Fall-through: |x| == +inf, i.e. the value is exactly ±inf.
-        match infinity_error {
-            FloatInfinityError::Infinity => self.raise_error_bare("ErrFloatInf")?,
-            FloatInfinityError::Overflow => self.raise_error_bare("ErrFloatOverflow")?,
-        }
+        self.raise_error_bare("ErrFloatOverflow")?;
         self.emit(abi::label(&nan));
         self.raise_error_bare("ErrFloatNaN")?;
         self.emit(abi::label(&ok));
@@ -204,16 +202,15 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         if result.type_ == ParameterType::Float && float_arith_node(value) {
             let saved = self.current_loc;
-            if let Some(loc) = crate::codegen::engine::value::value_loc(value) {
-                self.current_loc = loc;
-            }
+            // Every node `float_arith_node` admits carries a location.
+            self.current_loc = crate::codegen::engine::value::value_loc(value).unwrap_or(saved);
             // A `d`-native result is checked in the FP domain (plan-01
             // float-dnative): the value is still resident in its FP register, so
             // the boundary check reads it there and the store-back stays a plain
             // `str d` with no GPR shuttle — exactly the promoted-accumulator path
             // (plan-16/17). A GP-native result is checked on its bit pattern.
             let outcome = if Self::float_is_dnative(result) {
-                self.emit_float_result_check_fp(&result.location, FloatInfinityError::Overflow)
+                self.emit_float_result_check_fp(&result.location)
             } else {
                 self.emit_float_result_check(&result.location, FloatInfinityError::Overflow)
             };
@@ -235,10 +232,9 @@ impl CodeBuilder<'_> {
         let d: Reg = d.into();
         if float_arith_node(value) {
             let saved = self.current_loc;
-            if let Some(loc) = crate::codegen::engine::value::value_loc(value) {
-                self.current_loc = loc;
-            }
-            let outcome = self.emit_float_result_check_fp(d, FloatInfinityError::Overflow);
+            // Every node `float_arith_node` admits carries a location.
+            self.current_loc = crate::codegen::engine::value::value_loc(value).unwrap_or(saved);
+            let outcome = self.emit_float_result_check_fp(d);
             self.current_loc = saved;
             outcome?;
         }
