@@ -157,6 +157,7 @@ mod result_field_ownership;
 mod return_passthrough_forms;
 mod shape_refusals;
 mod sort_declines;
+mod static_name_prepass;
 mod static_type_oracles;
 mod stems;
 mod strings_fold;
