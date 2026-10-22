@@ -171,3 +171,30 @@ fn a_control_transfer_that_left_a_temporary_unfreed_is_reported() {
         .expect("a fall-through statement clears its temporaries");
     assert!(builder.pending_temp_frees.is_empty());
 }
+
+/// A direct call to a symbol the platform import list declares relocates as an
+/// EXTERNAL call bound to that library; any other symbol is an internal call with
+/// no library.
+#[test]
+fn a_symbol_call_binds_an_imported_symbol_to_its_library() {
+    use crate::codegen::engine::tests::test_support::{BuilderHarness, TestPlatform};
+    let mut harness = BuilderHarness::default();
+    harness
+        .platform_imports
+        .insert("_getpid".to_string(), "libc".to_string());
+    let mut builder = harness.builder("symbol_call", &TestPlatform);
+    builder.emit_symbol_call("_getpid");
+    builder.emit_symbol_call("_mfb_rt_helper");
+    let bindings: Vec<(&str, &str, Option<&str>)> = builder
+        .relocations
+        .iter()
+        .map(|r| (r.to.as_str(), r.binding.as_str(), r.library.as_deref()))
+        .collect();
+    assert_eq!(
+        bindings,
+        vec![
+            ("_getpid", "external", Some("libc")),
+            ("_mfb_rt_helper", "internal", None),
+        ]
+    );
+}
