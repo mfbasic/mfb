@@ -236,21 +236,29 @@ impl DynamicPayload {
             "riscv64" => R_RISCV_RELATIVE,
             _ => R_AARCH64_RELATIVE,
         };
-        for (index, name) in image.initializers.iter().enumerate() {
-            let symbol = image
-                .symbols
-                .iter()
-                .find(|symbol| symbol.name == *name && symbol.section == EncodedSection::Text)
-                .ok_or_else(|| format!("initializer '{name}' does not resolve to a text symbol"))?;
+        // Each initializer's load-relative address, resolved once: the RELATIVE
+        // relocs here and the `.init_array` slots below both carry it.
+        let initializer_addends = image
+            .initializers
+            .iter()
+            .map(|name| {
+                image
+                    .symbols
+                    .iter()
+                    .find(|symbol| symbol.name == *name && symbol.section == EncodedSection::Text)
+                    .map(|symbol| DYN_IMAGE_BASE + TEXT_FILE_OFFSET as u64 + symbol.offset as u64)
+                    .ok_or_else(|| {
+                        format!("initializer '{name}' does not resolve to a text symbol")
+                    })
+            })
+            .collect::<Result<Vec<u64>, String>>()?;
+        for (index, addend) in initializer_addends.iter().enumerate() {
             put_u64(
                 &mut bytes,
                 data_vmaddr + init_array_offset as u64 + (index * 8) as u64,
             );
             put_u64(&mut bytes, relative_type as u64);
-            put_u64(
-                &mut bytes,
-                DYN_IMAGE_BASE + TEXT_FILE_OFFSET as u64 + symbol.offset as u64,
-            );
+            put_u64(&mut bytes, *addend);
         }
 
         bytes.resize(got_offset - payload_start, 0);
@@ -292,23 +300,13 @@ impl DynamicPayload {
 
         if !image.initializers.is_empty() {
             bytes.resize(init_array_offset - payload_start, 0);
-            for name in &image.initializers {
-                let symbol = image
-                    .symbols
-                    .iter()
-                    .find(|symbol| symbol.name == *name && symbol.section == EncodedSection::Text)
-                    .ok_or_else(|| {
-                        format!("initializer '{name}' does not resolve to a text symbol")
-                    })?;
+            for addend in &initializer_addends {
                 // PIE: store the file-relative addend; the R_*_RELATIVE reloc
                 // emitted in the .rela table biases it to base + addend at load
                 // time (bug-186). The value here is also the addend the loader
                 // reads, so pre-filling it keeps REL/RELA implementations that
                 // add-in-place correct too.
-                put_u64(
-                    &mut bytes,
-                    DYN_IMAGE_BASE + TEXT_FILE_OFFSET as u64 + symbol.offset as u64,
-                );
+                put_u64(&mut bytes, *addend);
             }
         }
 
