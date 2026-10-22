@@ -264,6 +264,29 @@ pub(super) fn wrap_mfp(binary_repr: &[u8], name: &str, ident: &str, version: &st
     bytes
 }
 
+/// A `.mfp` for package `name` whose first function carries a cleanup with the
+/// record-secondary-close-failure flag set. The writer never emits a cleanup
+/// from lowering, so a reader of that flag (`mfb audit`, `mfb pkg info`) can
+/// only be driven by a crafted package: this one splices the cleanup in, as a
+/// package from another producer would carry it.
+pub(crate) fn mfp_with_secondary_close_cleanup(name: &str) -> Vec<u8> {
+    let metadata = BinaryReprMetadata::new(name.to_string(), "1.0.0".to_string());
+    let mut lowered = lower_project(&rich_project(), &metadata).expect("lower");
+    lowered.functions[0].registers.push(Register {
+        type_id: TYPE_INTEGER,
+        flags: 0,
+    });
+    lowered.functions[0].cleanups.push(Cleanup {
+        id: 7,
+        start_pc: 1,
+        end_pc: 2,
+        resource_register: 0,
+        close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
+        flags: CLEANUP_FLAG_RECORD_SECONDARY_CLOSE_FAILURE,
+    });
+    wrap_mfp(&lowered.encode(), name, name, "1.0.0")
+}
+
 /// Write a `.mfp` byte blob to a temp file and return its path.
 pub(super) fn temp_mfp(bytes: &[u8]) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};

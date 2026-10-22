@@ -13,7 +13,7 @@ mod builder;
 mod reader;
 mod sections;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod writer;
 
 use builder::*;

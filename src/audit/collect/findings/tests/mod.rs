@@ -399,3 +399,46 @@ fn package_findings_skip_a_declared_package_with_no_mfp() {
     package_findings(dir.path(), &manifest, &[], &mut findings);
     assert!(findings.is_empty(), "{}", findings.len());
 }
+
+/// A declared package whose `.mfp` records a cleanup that keeps secondary close
+/// failures yields one `AUDIT-RESOURCE-SECONDARY-CLOSE` note naming the package
+/// and the function, at the package's path.
+#[test]
+fn package_findings_note_a_cleanup_that_records_secondary_close_failures() {
+    let dir = tempfile::tempdir().unwrap();
+    let packages_dir = dir.path().join("packages");
+    std::fs::create_dir_all(&packages_dir).unwrap();
+    std::fs::write(
+        packages_dir.join("closer.mfp"),
+        crate::binary_repr::tests::fixtures::mfp_with_secondary_close_cleanup("closer"),
+    )
+    .unwrap();
+    let manifest = "{ \"packages\": [ { \"name\": \"closer\" } ] }"
+        .parse::<JsonValue>()
+        .unwrap()
+        .get::<HashMap<String, JsonValue>>()
+        .unwrap()
+        .clone();
+    let mut findings = Vec::new();
+    package_findings(dir.path(), &manifest, &[], &mut findings);
+    let notes: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| f.code == "AUDIT-RESOURCE-SECONDARY-CLOSE")
+        .collect();
+    assert_eq!(
+        notes.len(),
+        1,
+        "{:?}",
+        findings.iter().map(|f| &f.code).collect::<Vec<_>>()
+    );
+    let note = notes[0];
+    assert!(note.severity == Severity::Info);
+    assert_eq!(note.category, "resource");
+    assert_eq!(note.path.as_deref(), Some("packages/closer.mfp"));
+    assert_eq!(note.package.as_deref(), Some("closer"));
+    assert_eq!(note.line, None);
+    assert_eq!(
+        note.message,
+        "package `closer` cleanup in `main` records secondary close failures"
+    );
+}

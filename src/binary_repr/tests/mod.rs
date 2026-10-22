@@ -5,7 +5,7 @@ mod cross_package_tests;
 mod default_literals;
 // `doc_table_tests` moved to `wire/src/docs.rs`'s test module with the
 // section-17 codec it covers (plan-126-D).
-mod fixtures;
+pub(crate) mod fixtures;
 mod gap_tests;
 mod mod_error_path_tests;
 mod mod_inner_ir_error_tests;
