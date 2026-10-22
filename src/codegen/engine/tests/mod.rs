@@ -45,6 +45,8 @@ mod operator_refusals;
 #[cfg(test)]
 mod platform_family;
 #[cfg(test)]
+mod provable_index_loops;
+#[cfg(test)]
 mod regalloc_outcome;
 #[cfg(test)]
 mod register_allocation_entry;
