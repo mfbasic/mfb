@@ -213,3 +213,26 @@ fn a_plan_whose_entry_symbol_resolves_to_no_function_is_invalid() {
         "native plan entry symbol '_mfb_fn_nowhere' does not resolve"
     );
 }
+
+/// A module lowered for one target is refused by another target's plan
+/// platform, naming both, rather than planned with the wrong imports.
+#[test]
+fn a_module_lowered_for_another_target_is_refused() {
+    use crate::testutil::{nir_for_src, CodeTarget};
+    let module = nir_for_src(
+        "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
+        CodeTarget::LinuxX86_64,
+        crate::target::NativeBuildMode::Console,
+    )
+    .expect("the program lowers to NIR");
+    match lower_module_for_platform(&module, &TestPlatform) {
+        Ok(_) => panic!("a linux-x86_64 module was planned for test-target"),
+        Err(message) => assert_eq!(
+            message,
+            format!(
+                "native plan platform 'test-target' cannot lower module target '{}'",
+                module.target
+            )
+        ),
+    }
+}
