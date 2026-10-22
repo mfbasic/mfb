@@ -53,20 +53,27 @@ pub(crate) fn build_icns(source: Option<&Path>) -> Result<Vec<u8>, String> {
     let canvas = normalize_source(source)?;
     let shaped = apply_squircle_mask(canvas);
 
+    // Past `normalize_source` nothing here can fail: `resize` returns exactly
+    // `size`×`size` RGBA pixels, which is the length `from_data` checks; every
+    // `ICON_ENTRIES` row pairs an icon type with its own pixel size, which is
+    // the dimension check `add_icon_with_type` makes before PNG-encoding a
+    // valid RGBA image into memory; and writing the family into a `Vec` does no
+    // fallible I/O. (`build_icns_default_has_all_entries_at_exact_sizes` reads
+    // every entry back.)
     let mut family = IconFamily::new();
     for &(size, icon_type) in ICON_ENTRIES {
         let scaled = image::imageops::resize(&shaped, size, size, FilterType::Lanczos3);
         let entry = IcnsImage::from_data(PixelFormat::RGBA, size, size, scaled.into_raw())
-            .map_err(|err| format!("failed to build {size}×{size} icon entry: {err}"))?;
+            .expect("a resized entry has exactly size × size RGBA pixels");
         family
             .add_icon_with_type(&entry, icon_type)
-            .map_err(|err| format!("failed to encode {size}×{size} icon entry: {err}"))?;
+            .expect("each ICON_ENTRIES type matches its pixel size");
     }
 
     let mut buf = Vec::new();
     family
         .write(&mut buf)
-        .map_err(|err| format!("failed to encode .icns: {err}"))?;
+        .expect("writing an icon family into memory cannot fail");
     Ok(buf)
 }
 
