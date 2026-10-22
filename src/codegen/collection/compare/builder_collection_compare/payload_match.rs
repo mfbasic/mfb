@@ -1,5 +1,13 @@
 //! plan-176-Q: matching collection payloads against a value or each other. The byte compares
 //! and comparable matches live in `collection/compare/builder_collection_compare/mod.rs`.
+//!
+//! Every caller matches a COMPARABLE payload: a `Map` key or `Set` element (the
+//! collection type rule), or the element of a `contains`/`find`/`replace` list (and
+//! `distinct`, whose body calls `contains`) — `ir::verify`'s `is_comparable` gates
+//! all of them. Comparable is a primitive, an enum, or a record of comparables, so
+//! a collection, resource, function or union payload never reaches these matches
+//! and has no arm: it is refused by name, never compared as a pointer or as raw
+//! bytes, neither of which is the language's equality for it.
 
 use super::*;
 
@@ -89,13 +97,6 @@ impl CodeBuilder<'_> {
                     not_equal_label,
                 );
             }
-            other if self.is_pointer_collection_payload_type(other) => {
-                let candidate = self.allocate_register();
-                self.emit(abi::load_u64(&candidate, &data, 0));
-                self.emit(abi::compare_registers(&candidate, value));
-                self.emit(abi::branch_eq(equal_label));
-                self.emit(abi::branch(not_equal_label));
-            }
             other if self.type_model.record_fields.contains_key(other) => {
                 self.emit_comparable_keys_match_branch(
                     other,
@@ -105,16 +106,8 @@ impl CodeBuilder<'_> {
                     not_equal_label,
                 )?;
             }
-            other if self.inline_collection_payload_size(other).is_some() => {
-                self.emit_compare_bytes_branch(
-                    &data,
-                    value,
-                    length,
-                    equal_label,
-                    not_equal_label,
-                    "collection_inline_match",
-                );
-            }
+            // No arm for a collection, resource or union payload: none is comparable
+            // (see the module comment), so none reaches here from a program.
             other => {
                 return Err(format!(
                     "native collection packed payload does not support type '{other}'"
@@ -211,12 +204,6 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
-            other if self.is_pointer_collection_payload_type(other) => {
-                self.emit(abi::load_u64(cval, cur, 0));
-                self.emit(abi::compare_registers(cval, value));
-                self.emit(abi::branch_eq(equal_label));
-                self.emit(abi::branch(not_equal_label));
-            }
             other if self.type_model.record_fields.contains_key(other) => {
                 self.emit_comparable_keys_match_branch(
                     other,
@@ -225,16 +212,6 @@ impl CodeBuilder<'_> {
                     equal_label,
                     not_equal_label,
                 )?;
-            }
-            other if self.inline_collection_payload_size(other).is_some() => {
-                self.emit_compare_bytes_branch(
-                    cur,
-                    value,
-                    length,
-                    equal_label,
-                    not_equal_label,
-                    "collection_inline_value_match",
-                );
             }
             other => {
                 return Err(format!(
@@ -340,13 +317,6 @@ impl CodeBuilder<'_> {
                     not_equal_label,
                 );
             }
-            other if self.is_pointer_collection_payload_type(other) => {
-                self.emit(abi::load_u64(lval, lcur, 0));
-                self.emit(abi::load_u64(rval, rcur, 0));
-                self.emit(abi::compare_registers(lval, rval));
-                self.emit(abi::branch_eq(equal_label));
-                self.emit(abi::branch(not_equal_label));
-            }
             other if self.type_model.record_fields.contains_key(other) => {
                 self.emit(abi::compare_registers(left_length, right_length));
                 self.emit(abi::branch_ne(not_equal_label));
@@ -357,18 +327,6 @@ impl CodeBuilder<'_> {
                     equal_label,
                     not_equal_label,
                 )?;
-            }
-            other if self.inline_collection_payload_size(other).is_some() => {
-                self.emit(abi::compare_registers(left_length, right_length));
-                self.emit(abi::branch_ne(not_equal_label));
-                self.emit_compare_bytes_branch(
-                    lcur,
-                    rcur,
-                    left_length,
-                    equal_label,
-                    not_equal_label,
-                    "collection_inline_pair_match",
-                );
             }
             other => {
                 return Err(format!(
