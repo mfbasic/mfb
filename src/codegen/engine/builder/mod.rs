@@ -78,6 +78,8 @@ mod module_finish;
 mod module_helpers;
 mod module_layout;
 mod runtime_helpers;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use error_messages::{
     native_link_error_messages, standard_error_message_symbol, standard_error_messages,
