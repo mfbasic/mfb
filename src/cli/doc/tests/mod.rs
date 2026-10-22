@@ -142,6 +142,36 @@ fn run_doc_command_writes_html_for_file() {
     assert!(out.is_file());
 }
 
+/// With no operands `mfb doc` documents the current directory into
+/// `doc.html`. The test process runs in the crate root, which is not an
+/// MFBASIC project, so it fails project validation and writes nothing.
+#[test]
+fn run_doc_command_defaults_to_the_current_directory() {
+    assert!(
+        !Path::new("project.json").exists(),
+        "the crate root is no project"
+    );
+    assert!(!Path::new("doc.html").exists());
+    assert_eq!(run_doc_command(&[]), 1);
+    assert!(
+        !Path::new("doc.html").exists(),
+        "a failed doc writes no page"
+    );
+}
+
+/// A project whose source does not parse is refused by name.
+#[test]
+fn build_source_doc_page_unparseable_project_errors() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join("project.json"), PROJECT_MANIFEST).unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(dir.path().join("src").join("main.mfb"), "FUNC main( AS\n").unwrap();
+    assert_eq!(
+        build_source_doc_page(dir.path()).err(),
+        Some("failed to parse project source".to_string())
+    );
+}
+
 #[test]
 fn run_doc_command_reports_build_error() {
     let dir = tempdir().unwrap();

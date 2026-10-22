@@ -79,7 +79,7 @@ fn build_source_doc_page(path: &Path) -> Result<(doc::DocPage, bool), String> {
             .get("name")
             .and_then(|value| value.get::<String>())
             .cloned()
-            .unwrap_or_else(|| "package".to_string());
+            .expect("validate_project_manifest requires a string `name`");
         let ast = ast::parse_project(&name, path, &manifest)
             .map_err(|_| "failed to parse project source".to_string())?;
         // Rebuild the source-directory packages first, as `mfb build` does: the
@@ -103,7 +103,8 @@ fn build_source_doc_page(path: &Path) -> Result<(doc::DocPage, bool), String> {
             name: stem,
             files: vec![file],
         };
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        // A file that was just read has a parent (`""` for a bare file name).
+        let parent = path.parent().expect("a readable file has a parent");
         let valid = resolver::validate_project_docs(parent, &project);
         Ok((doc::from_source(&project), valid))
     }
