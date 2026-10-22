@@ -76,8 +76,7 @@ fn a_file_where_an_appdir_directory_belongs_names_the_directory() {
         None,
         "0.1.0",
     )
-    .err()
-    .expect("a file in place of usr/ fails the build");
+    .expect_err("a file in place of usr/ fails the build");
     assert!(error.starts_with("failed to create '"), "{error}");
     assert!(error.contains("usr"), "{error}");
 }
