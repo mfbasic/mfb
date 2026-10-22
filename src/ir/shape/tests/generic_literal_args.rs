@@ -155,3 +155,41 @@ END FUNC
         ]
     );
 }
+
+#[test]
+fn only_plain_numeric_literals_are_retyped() {
+    // A suffixed Fixed/Money literal keeps its type, a negated variable is no
+    // literal, and a list literal with any non-literal element is not re-typed
+    // element-wise: each stays the argument mismatch exact selection gives.
+    let src = "\
+IMPORT collections
+FUNC main() AS Integer
+  MUT xs AS List OF Byte = [1, 2]
+  LET n AS Integer = 3
+  xs = collections::append(xs, 2F)
+  xs = collections::append(xs, 2m)
+  xs = collections::append(xs, -n)
+  xs = collections::append(xs, [n, 2])
+  RETURN 0
+END FUNC
+";
+    let expected = |line: usize, actual: &str| {
+        (
+            "TYPE_CALL_ARGUMENT_MISMATCH".to_string(),
+            line,
+            format!(
+                "Call to `collections.append` has argument type(s) ({actual}), \
+                 expected List OF T, T or List OF T, List OF T."
+            ),
+        )
+    };
+    assert_eq!(
+        found(src),
+        [
+            expected(5, "List OF Byte, Fixed"),
+            expected(6, "List OF Byte, Money"),
+            expected(7, "List OF Byte, Integer"),
+            expected(8, "List OF Byte, List OF Integer"),
+        ]
+    );
+}
