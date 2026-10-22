@@ -73,3 +73,30 @@ fn a_link_block_with_locators_writes_the_native_library_table() {
     assert!(sources.contains(&"libm.so.6"), "{sources:?}");
     assert!(sources.contains(&"msvcrt.dll"), "{sources:?}");
 }
+
+/// A thread handle's resource plane is part of an export's ABI hash: the same
+/// function over a thread type without it hashes differently.
+#[test]
+fn a_thread_type_s_resource_plane_is_part_of_the_abi_hash() {
+    let hash = |thread: &str| {
+        let (_dir, path) = built(
+            "threads",
+            &format!(
+                "IMPORT fs\nIMPORT thread\n\nEXPORT FUNC watch(t AS {thread}) AS Integer\n  \
+                 RETURN 1\nEND FUNC\n"
+            ),
+            "",
+        );
+        read_package_info(&path)
+            .expect("info")
+            .exports
+            .into_iter()
+            .find(|export| export.name == "watch")
+            .expect("watch is exported")
+            .sig_hash
+    };
+    assert_ne!(
+        hash("Thread OF Integer RES fs::File TO Integer"),
+        hash("Thread OF Integer TO Integer")
+    );
+}
