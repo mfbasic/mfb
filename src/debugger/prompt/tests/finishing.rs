@@ -51,6 +51,9 @@ struct Stack {
     inserted: Vec<u64>,
     runs: VecDeque<RunStop>,
     steps: VecDeque<StepStop>,
+    /// When set, the thread is gone once it has stepped: `threads` lists none.
+    vanishes: bool,
+    stepped: bool,
 }
 
 impl Stack {
@@ -61,6 +64,8 @@ impl Stack {
             inserted: Vec::new(),
             runs: VecDeque::new(),
             steps: VecDeque::new(),
+            vanishes: false,
+            stepped: false,
         }
     }
 }
@@ -129,6 +134,9 @@ impl Inferior for Stack {
         Ok(None)
     }
     fn threads(&mut self) -> Result<Vec<ThreadFacts>, String> {
+        if self.vanishes && self.stepped {
+            return Ok(Vec::new());
+        }
         Ok(vec![ThreadFacts {
             id: 0x501,
             handle: 0x501,
@@ -159,6 +167,7 @@ impl Inferior for Stack {
     /// The scripted stop; a finished step over `work`'s `ret` returns to
     /// `_main` with the frame popped.
     fn step(&mut self, threads: &[usize], count: u64) -> Result<Vec<Step>, String> {
+        self.stepped = true;
         let stop = self.steps.pop_front().unwrap_or(StepStop::Finished);
         if stop == StepStop::Finished && self.pc == WORK_RET {
             self.pc = RETURN;
@@ -453,4 +462,82 @@ fn a_session_whose_output_closes_stops_with_why() {
         true,
     );
     assert_eq!(result, Err("cannot write: broken pipe".to_string()));
+}
+
+/// A finish from a function no symbol names says it returned from "the
+/// function"; one whose thread is gone after the step over the `ret` says it
+/// returned to "an unknown place".
+#[test]
+fn a_finish_names_an_unnamed_function_and_a_vanished_thread_as_well_as_it_can() {
+    let mut stack = Stack::at(0x3000);
+    stack
+        .runs
+        .push_back(RunStop::Breakpoints(vec![(0, 0x3004)]));
+    let (out, err) = session_on(&mut stack, "finish\nq\n");
+    assert_eq!(err, "");
+    assert!(
+        out.starts_with("Thread 0 returned from the function to 0x0000000000003004"),
+        "{out}"
+    );
+
+    let mut stack = Stack::at(0x2004);
+    stack.vanishes = true;
+    stack
+        .runs
+        .push_back(RunStop::Breakpoints(vec![(0, WORK_RET)]));
+    let (out, err) = session_on(&mut stack, "finish\nq\n");
+    assert_eq!(err, "");
+    assert!(
+        out.starts_with(
+            "Thread 0 returned from work to an unknown place: x0 = 0x0000000000000000 (0), \
+             x1 = 0x000000000000002a (42).\n"
+        ),
+        "{out}"
+    );
+}
+
+/// A stop heard while the output is closed: writing its line fails, the `run`
+/// answers that as its error (on the error stream, which is still open), and
+/// the session ends at the next prompt with why. Without echo, the first write
+/// after the prompt is the stop's own line.
+#[test]
+fn a_stop_written_to_a_closed_output_is_the_run_s_error() {
+    let mut stack = Stack::at(0x2000);
+    stack.runs.push_back(RunStop::Exception {
+        thread: 0,
+        what: "EXC_BAD_ACCESS".to_string(),
+    });
+    let mut err = Vec::new();
+    let result = run(
+        &mut stack,
+        CONSOLE,
+        None,
+        &mut "run\n".as_bytes(),
+        &mut Closing { writes: 0 },
+        &mut err,
+        false,
+    );
+    assert_eq!(
+        String::from_utf8(err).unwrap(),
+        "error: cannot write: broken pipe\n"
+    );
+    assert_eq!(
+        result,
+        Err("cannot write the prompt: broken pipe".to_string())
+    );
+}
+
+/// A watchpoint stop that reaches the printer as the raw `Watchpoints` an
+/// inferior answers (the session turns it into `Changed` first) names each
+/// thread it stopped, without a change.
+#[test]
+fn a_raw_watchpoint_stop_prints_each_thread_it_stopped() {
+    let mut stack = Stack::at(0x2008);
+    assert_eq!(
+        stop_lines(&mut stack, &RunStop::Watchpoints(vec![0, 3]), false),
+        [
+            "--[WP] T: 0 P: 0x0000000000002008 F: (work) _mfb_fn_work+0x8",
+            "--[WP] T: - P: - F: -",
+        ]
+    );
 }
