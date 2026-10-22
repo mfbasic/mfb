@@ -1,9 +1,10 @@
-# plan-171-H: Shared function exits (AArch64)
+# plan-171-H: Shared function exits (AArch64 and x86-64)
 
 Last updated: 2026-10-21
 Effort: large (3h–1d)
 Depends on: plan-171-G (letter order; the row runs last in plan-171-A's
-machine hook, after A's epilogue pairing has fixed the exit sequences)
+machine hook, after A's epilogue pairing has fixed the exit sequences) and
+plan-169 (Win64 unwind tables, which must describe the exits this row moves)
 
 `finalize_frame` writes a full epilogue (one restore per callee-saved
 register, then `add sp`) in front of **every** `ret`, and a function has many.
@@ -14,12 +15,13 @@ exactly that shape (`/tmp/p171h/tool/tails3.py`). Inside one function every
 epilogue is the same text. So all but one copy can become a single `b` to a
 shared copy, and repeated error exits can also share their `bl`.
 
-Outcome: on `macos-aarch64` and `linux-aarch64` at `-O1` and above, including
-`--debug` builds, each function keeps one copy of each distinct exit sequence.
-Every other exit with the same sequence is one `b` to it, and every other
-error exit calling the same helper is one `b` to a shared `bl`. `-O0`,
-x86-64 and riscv64 output are byte-identical to the start of this sub-plan,
-and every program's output is unchanged.
+Outcome: on `macos-aarch64`, `linux-aarch64`, `linux-x86_64` and
+`windows-x86_64` at `-O1` and above, including `--debug` builds, each function
+keeps one copy of each distinct exit sequence. Every other exit with the same
+sequence is one `b`/`jmp` to it, and every other error exit calling the same
+helper is one branch to a shared call. `-O0` and riscv64 output are
+byte-identical to the start of this sub-plan, and every program's output is
+unchanged.
 
 References: plan-171-A's list, plus
 - `src/codegen/engine/util/vreg_frame.rs:finalize_frame`, `restore_callee_saved`
@@ -29,6 +31,10 @@ References: plan-171-A's list, plus
 - `src/debugger/backtrace/mod.rs:state_at` (`Effect::Leave` handling),
   `src/debugger/arm64/mod.rs` (`Effect::of` for branches),
   `src/debugger/breakpoints/errors.rs` (`breakerror`'s `back` address).
+- plan-169-A/B (Win64 `.pdata`/`.xdata` and fixed frames): the exit form
+  Windows' unwinder must recognize.
+- `src/arch/x86_64/regmodel.rs:STACK_POINTER` (`rsp`, the x86 spelling of the
+  stack base in the post-frame stream).
 - `planning/optimizations.md` rows "Tail merging (cross jumping)",
   "Prologue / epilogue optimization".
 - `mfb spec tooling debugger`; `mfb man debug`.
@@ -40,6 +46,7 @@ See plan-171-A §Prerequisites. In addition:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-171-G complete | `ls planning/plan-171-G-* 2>/dev/null` → no match | NOT MET |
+| plan-169 complete (Win64 unwind tables and fixed frames) | `ls planning/plan-169-* 2>/dev/null` → no match | NOT MET |
 
 Everything below assumes A–G have landed. In particular
 `optimizer::opt2::machine::finish` exists and runs after A's epilogue pairing.
@@ -49,7 +56,7 @@ Everything below assumes A–G have landed. In particular
 - One Level-1 machine row, "Shared function exits", in
   `src/optimizer/opt2/shared_exit.rs`, called **last** in `machine::finish`,
   gated `level_enabled(1)` and `active_backend().supports_shared_exits()`
-  (AArch64 `true`, x86-64 and riscv64 `false`).
+  (AArch64 and x86-64 `true`, riscv64 `false`).
 - Per function, exits are grouped by their exact instruction text
   (`source` ignored). In each group of two or more, one canonical copy stays,
   every other copy becomes `b` to it, and the most frequent helper call
@@ -60,8 +67,10 @@ Everything below assumes A–G have landed. In particular
 - No change to any value, trap, error code or error origin. The `ErrorLoc` a
   raise reports is built before the shared `bl` and passed in `x3`, so it still
   names the raising site.
-- No change to `-O0` output, or to x86-64 and riscv64 (Win64 unwind data is
-  plan-169's subject; riscv64 is out of the owner's scope for this letter).
+- No change to `-O0` output or to riscv64 (out of the owner's scope).
+- No change to the Win64 unwind tables' format (plan-169's subject). An
+  exit moved by this row is still inside its function's `.pdata` range, and
+  keeps the instruction text plan-169's unwinder rules accept (§2).
 - No merging of anything but an exit sequence (the run of epilogue
   restores, `add sp` and `ret`) plus at most one directly preceding `bl`.
   General cross-jumping of body code stays the open L3 catalog row.
@@ -93,6 +102,21 @@ Everything below assumes A–G have landed. In particular
   raiser. `mfb dbg`'s own tests build `--debug -O0`
   (`tests/cli/cli_dbg/session_launch_and_list.rs:build_debug`), so this row
   never reaches them.
+- **x86-64 exits** have the same shape after frame lowering: `ldr_u64 reg,
+  [rsp, #k]` restores (plus `ldr_q` for `xmm6`–`xmm15` on Win64), `add_sp`,
+  `ret`. The `-ncode` stream spells the base `rsp`. Measured on `sorts`
+  (`linux-x86_64`, `-O1`) with the §Phase 1 prototype's `isrest` accepting
+  base `rsp`: 37,240 of 1,169,823 instructions saved (3.18%,
+  `/tmp/p171x/hmerge_x86.py`). x86 has no `mfb dbg` backend
+  (`src/debugger/` has `arm64` and `riscv64` only), so the debugger notes below
+  are AArch64-only.
+- **Win64 unwinding** (after plan-169): the Windows x64 unwinder treats a pc as
+  inside an epilogue only when the code from the pc is `add rsp` / `lea rsp`,
+  then pops, then `ret`/`jmp`. Elsewhere it applies the prologue's unwind
+  codes. A shared exit is the same instruction text, so every pc in it
+  classifies exactly as it did in the copy it replaced. The `jmp` to a shared
+  exit is body code where the prologue's codes already apply. Phase 2 re-runs
+  plan-169's attach-and-backtrace check to prove it.
 - No AArch64 unwind tables are emitted: `__unwind_info` is a placeholder
   section name in `src/os/macos/link/commands.rs`, and no `.eh_frame` is
   written (`rg -li 'eh_frame|compact_unwind|__unwind_info|debug_frame|UNWIND_INFO' src`
@@ -166,10 +190,10 @@ over a `RETURN` and `breakerror` running to the raiser. The printed error
 origin stays exact. `--debug -O0` is unchanged; the man and spec pages say so.
 
 **Gate class:** behavior-preserving, golden-changing. Expected diffs: every
-aarch64 golden with a function that has two or more identical exits, which
-is all seven committed `.ncode` goldens (§2) and the aarch64 `.ncodesum`
-family. A
-`linux-x86_64`, `linux-riscv64` or Windows golden diff is a bug to localize.
+aarch64 and x86-64 golden with a function that has two or more identical
+exits. That is all seven committed aarch64 `.ncode` goldens (§2) and the
+aarch64, `linux-x86_64` and `windows-x86_64` `.ncodesum` families. A
+`linux-riscv64` golden diff is a bug to localize.
 
 **Rejected alternatives**
 - *One epilogue block built by `finalize_frame` itself* (emit the epilogue once
@@ -178,8 +202,9 @@ family. A
 - *Tail calls through the shared exit:* 148 instructions in `sorts`
   (§2), against a frame-escape proof whose failure corrupts memory.
 - *Error exits only:* a subset (§2); the owner chose all identical exits.
-- *x86-64 and riscv64:* owner scope. On Win64 the exit layout is also what
-  plan-169's unwind data describes.
+- *riscv64:* owner scope.
+- *x86-64 Linux only, Windows later:* the owner chose one design for both
+  x86 targets, with plan-169 as a prerequisite instead of a follow-up.
 
 ## 4. Detailed Design
 
@@ -187,7 +212,8 @@ family. A
 
 1. **Find exits.** For each `ret` at index `r`, the exit starts at the
    earliest `s ≤ r` such that every instruction in `s..r` is an epilogue
-   instruction: an `ldr*`/`ldp*` with base `sp` (any index mode), or
+   instruction: an `ldr*`/`ldp*` whose base is the stack pointer (`sp`, or
+   the backend's `STACK_POINTER`, `rsp` on x86-64; any index mode), or
    `add_sp`. A label stops the run.
 2. **Group** exits by the text of `s..=r` (op and fields, `source` ignored).
    Skip groups of one member, and skip groups whose sequence is `ret` alone
@@ -230,7 +256,7 @@ a ±128 MiB range, so no relaxation is involved.
               if s.startswith('"instructions"'): cur = []; fs.append(cur)
               elif s.startswith('{ "op"') and cur is not None: cur.append(json.loads(s.rstrip(',')))
           return fs
-      def isrest(x): return ((x['op'].startswith('ldr') or x['op'].startswith('ldp')) and x.get('base') == 'sp') or x['op'] == 'add_sp'
+      def isrest(x): return ((x['op'].startswith('ldr') or x['op'].startswith('ldp')) and x.get('base') in ('sp', 'rsp')) or x['op'] == 'add_sp'
       def key(xs): return json.dumps([{k: v for k, v in x.items() if k != 'source'} for x in xs])
       for p in sys.argv[1:]:
           saved = n = 0
@@ -253,9 +279,9 @@ a ±128 MiB range, so no relaxation is involved.
                       if c >= 2: saved += c - 1
           print(p.split('/')[-1], 'instrs', n, 'saved', saved, f'{100*saved/n:.2f}%')
       ```
-- [ ] Run it for `macos-aarch64` on the post-G tree. Record the measured
-      "after A" row in §2, replacing the modelled one, and note the model's
-      error.
+- [ ] Run it for `macos-aarch64`, `linux-x86_64` and `windows-x86_64` on the
+      post-G tree. Record the measured "after A" row in §2, replacing the
+      modelled one, note the model's error, and add the x86 rows.
 
 Acceptance: §2's second savings row is measured.
   Check: `grep -c 'modelled' planning/plan-171-H-*.md` → 0 (est. 20 min — corpus build).
@@ -283,7 +309,7 @@ Commit: —
 - [ ] Catalog row "Shared function exits" (level 1, stage `machine`) and
       `stats::SHARED_EXITS`. `planning/optimizations.md`: "Tail merging (cross
       jumping)" `~` with the landing note (function exits only, Level 1,
-      AArch64; owner decision 2026-10-21), and a line under "Prologue /
+      AArch64 and x86-64; owner decision 2026-10-21), and a line under "Prologue /
       epilogue optimization".
 - [ ] rt fixtures: `tests/rt-behavior/functions/many-exits` (valid): a function
       with eight `RETURN`s on different paths and one with six fallible
@@ -294,24 +320,31 @@ Commit: —
 - [ ] `tests/runtime/rt_codegen_forms.rs::shared_exits`: in the fixture's
       aarch64 `-O1` dump, the eight-`RETURN` function has one `ret` per
       distinct exit text and `b shared_exit_` branches. At `-O0` it has eight
-      `ret`s. The `linux-x86_64`/`linux-riscv64` dumps contain no
-      `shared_exit_` label.
+      `ret`s. The `linux-x86_64` and `windows-x86_64` dumps show the same
+      sharing; the `linux-riscv64` dump contains no `shared_exit_` label.
 - [ ] `rt_regalloc_levels_agree`: add both fixtures.
-- [ ] Golden re-baseline (aarch64 only), following plan-171-A Phase 3's
-      procedure. Proof is the `-ncode` diff of ONE fixture per aarch64 target
-      showing only exit rewrites (`census.py --diff`, `exits` pattern).
+- [ ] Golden re-baseline (aarch64 and x86-64), following plan-171-A Phase 3's
+      procedure. Proof is the `-ncode` diff of ONE fixture per target showing
+      only exit rewrites (`census.py --diff`, `exits` pattern).
 - [ ] Runtime: `bash scripts/test-accept.sh target/release/mfb /tmp/171h-accept`
-      on macOS; `bash scripts/linux-runtime-proof.sh target/release/mfb 2223 linux-aarch64`.
+      on macOS; `bash scripts/linux-runtime-proof.sh target/release/mfb 2223 linux-aarch64`;
+      `linux-runtime-proof.sh … 2227 linux-x86_64`; both fixtures on Windows
+      box 206.
+- [ ] Win64 unwinding: re-run plan-169-C's attach-and-backtrace check (its
+      box and command, recorded in `planning/completed/plan-169-C-*.md`) on an
+      `-O1` build. Every backtrace reaches `_main`.
 - [ ] Benchmark (macOS host): `./benchmark/language/run.sh 10` vs.
       `benchmark/language/baseline/mfb-O1.log` with `rank.py`; record rows and
       binary sizes of the four corpus programs (`ls -l`) before/after in
       Corrections. No baseline regeneration.
 
-Acceptance: identical exits are shared at `-O1` on aarch64 only; outputs and
-error origins are unchanged.
+Acceptance: identical exits are shared at `-O1` on aarch64 and x86-64; outputs,
+error origins and Win64 backtraces are unchanged.
   Check: `cargo test --bin mfb opt2::shared_exit debugger::backtrace` → pass (est. 3 min);
   `cargo test --release --test rt_codegen_forms shared_exits` → pass (est. 2 min);
-  `linux-runtime-proof.sh … 2223 linux-aarch64` → 0 mismatches (est. 25 min — the only check that executes Linux aarch64 code).
+  `linux-runtime-proof.sh … 2223 linux-aarch64` → 0 mismatches (est. 25 min — the only check that executes Linux aarch64 code);
+  `linux-runtime-proof.sh … 2227 linux-x86_64` → 0 mismatches (est. 60–120 min, emulated — the only Linux x86 execution);
+  the plan-169-C backtrace check → every trace reaches `_main` (the only proof the Win64 unwinder accepts shared exits).
 Commit: —
 
 ### Phase 3 — spec and docs
@@ -321,8 +354,10 @@ Commit: —
       `breakerror`'s run to the raiser, reports the shared copy's line. The
       printed error origin is exact. `--debug -O0` keeps every line exact. Run
       `.ai/man-content.md`'s rules for the man page; render both.
-- [ ] `mfb spec architecture aarch64-instruction-set` (or the frame topic that
-      describes epilogues): exits may be shared at `-O1`+.
+- [ ] `mfb spec architecture aarch64-instruction-set` and
+      `x86_64-instruction-set` (or the frame topic that describes epilogues):
+      exits may be shared at `-O1`+; on Win64 a shared exit keeps the
+      unwinder's epilogue form.
 - [ ] `.ai/codegen-invariants.md`: "after the machine hook, a function may have
       fewer `ret`s than exits; code that counts or patches epilogues must look
       for `shared_exit_` labels".
@@ -338,7 +373,9 @@ Commit: —
 - Coverage: every function with ≥ 2 exits passes through the row at `-O1`.
   Check that `mfb build -vv` reports a non-zero `SHARED_EXITS` count on the
   fixture before trusting a green gate.
-- Runtime proof: macOS acceptance; `linux-runtime-proof.sh` on 2223.
+- Runtime proof: macOS acceptance; `linux-runtime-proof.sh` on 2223
+  (aarch64) and 2227 (x86_64); Windows fixtures on box 206; the plan-169-C
+  backtrace check.
 - Doc sync: Phase 3.
 - Final gate (once, after Phase 3): `cargo test --no-fail-fast > /tmp/171h.log 2>&1; echo EXIT=$?` → `EXIT=0`, `grep -c '^failures:' /tmp/171h.log` → 0 (est. 60–90 min; includes `artifact_gate_all` and `cli_dbg`).
 
@@ -346,7 +383,8 @@ Commit: —
 
 1. Identical exit merging is part of plan-171, as its own letter H.
 2. It covers every identical exit, not only error exits.
-3. AArch64 only, `-O1` and above.
+3. AArch64 and x86-64 (Linux and Windows, with plan-169 first), `-O1` and
+   above. x86-64 was added on 2026-10-21 with the x86 letters I and J.
 4. `--debug` builds are merged too, and the debugger docs state the line
    effect.
 5. Tail calls are not in plan-171.
@@ -358,7 +396,7 @@ Commit: —
 ## Summary
 
 The largest single size win in plan-171: 3–4% of instructions by the post-A
-model, in a rewrite that adds no instruction form and touches no builder. Its
+model on AArch64 and 3.18% measured on x86-64 today, in a rewrite that adds no instruction form and touches no builder. Its
 risks are a misplaced canonical copy and a call shared across a label. Both
 are unit-tested, and the error-origin fixtures prove raises still report their
 own site.
