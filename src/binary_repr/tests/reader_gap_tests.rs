@@ -358,3 +358,96 @@ fn read_function_table_rejects_nonempty_code_region() {
     // code buffer is empty, so code_end > code.len() -> truncated code error.
     assert!(read_function_table(&bytes, &[], &strings, &empty).is_err());
 }
+
+/// One raw type entry of `kind` over `payload`, as a corrupted `.mfp` hands it
+/// to the reader.
+fn raw_entry(kind: u16, payload: Vec<u8>) -> TypeEntry {
+    TypeEntry {
+        kind,
+        name: 0,
+        owner_package: 0,
+        abi_export_kind: None,
+        payload,
+    }
+}
+
+fn words(values: &[u32]) -> Vec<u8> {
+    values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect()
+}
+
+/// A composite naming a table id no entry defines is refused by name, through
+/// a list element and through the resource plane of a thread or worker handle.
+#[test]
+fn type_entry_names_refuses_a_reference_to_an_undefined_type_id() {
+    let missing = FIRST_TABLE_TYPE_ID + 7;
+    let strings = vec!["T".to_string()];
+    for entry in [
+        raw_entry(4, words(&[missing])),
+        raw_entry(7, words(&[TYPE_INTEGER, TYPE_INTEGER, missing])),
+        raw_entry(10, words(&[TYPE_INTEGER, TYPE_INTEGER, missing])),
+    ] {
+        let kind = entry.kind;
+        let mut types = TypeTable::new();
+        types.entries.push(entry);
+        assert_eq!(
+            type_entry_names(&types, &strings),
+            Err(format!("unknown type id {missing}")),
+            "kind {kind}"
+        );
+    }
+}
+
+/// A FUNC export pointed at a type entry is not a type export.
+#[test]
+fn decode_type_export_refuses_a_function_export() {
+    let entry = raw_entry(1, Vec::new());
+    assert_eq!(
+        decode_type_export(
+            "f",
+            BinaryReprExportKind::Func,
+            &entry,
+            &HashMap::new(),
+            &[]
+        )
+        .map(|export| export.name),
+        Err("export `f` is not a type export".to_string())
+    );
+}
+
+/// A record field with a visibility no writer emits is refused.
+#[test]
+fn decode_type_export_refuses_an_unknown_field_visibility() {
+    let entry = raw_entry(1, words(&[1, 0, TYPE_INTEGER, 9]));
+    let strings = vec!["x".to_string()];
+    assert_eq!(
+        decode_type_export(
+            "R",
+            BinaryReprExportKind::Type,
+            &entry,
+            &HashMap::new(),
+            &strings
+        )
+        .map(|export| export.name),
+        Err("unsupported type field visibility 9".to_string())
+    );
+}
+
+/// Bytes past the last enum member are refused, not ignored.
+#[test]
+fn decode_type_export_refuses_trailing_payload_bytes() {
+    let entry = raw_entry(3, words(&[0, 42]));
+    assert_eq!(
+        decode_type_export(
+            "E",
+            BinaryReprExportKind::Enum,
+            &entry,
+            &HashMap::new(),
+            &[]
+        )
+        .map(|export| export.name),
+        Err("exported type `E` has trailing payload bytes".to_string())
+    );
+}
