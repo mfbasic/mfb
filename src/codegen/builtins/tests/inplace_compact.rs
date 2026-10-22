@@ -200,7 +200,7 @@ fn permute_in_place_reorders_lanes_and_entries_without_a_gather() {
 }
 
 /// plan-142-D: `intersection` writes one membership mark per entry and then
-/// compacts the entry table once (`lower_map_compact_in_place`); `union` reserves
+/// compacts the entry table once (`lower_set_compact_in_place`); `union` reserves
 /// room for the whole batch once (`emit_map_reserve`) and then adds in place.
 /// bug-732: `difference` walks only its argument — each element is looked up in
 /// `x` and a hit claimed (`inplace_claim_loop`) — and never marks every entry of

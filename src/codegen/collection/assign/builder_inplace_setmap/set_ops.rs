@@ -78,7 +78,7 @@ impl CodeBuilder<'_> {
                 key_area,
                 "inplace_intersection_mark",
             )?;
-            self.lower_map_compact_in_place(dest, marks, &set_type)?;
+            self.lower_set_compact_in_place(dest, marks);
         }
         self.close_field_dest(&target.dest, &opened)?;
         self.clear_self_update_constant(site.name);
@@ -108,7 +108,7 @@ impl CodeBuilder<'_> {
         if alias {
             // `difference(s, s)` is empty.
             let dest = self.inplace_collection_slot(&opened)?;
-            self.lower_map_clear_in_place(dest, &set_type)?;
+            self.lower_set_clear_in_place(dest);
         } else {
             let other = self.lower_other_collection(&target.args[1], &set_type, "difference")?;
             let dest = self.inplace_collection_slot(&opened)?;
@@ -231,7 +231,7 @@ impl CodeBuilder<'_> {
         let opened = self.open_inplace_dest(&target.dest)?;
         if alias {
             let dest = self.inplace_collection_slot(&opened)?;
-            self.lower_map_clear_in_place(dest, &set_type)?;
+            self.lower_set_clear_in_place(dest);
         } else {
             let other =
                 self.lower_other_collection(&target.args[1], &set_type, "symmetricDifference")?;

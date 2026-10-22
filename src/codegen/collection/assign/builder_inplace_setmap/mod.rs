@@ -10,7 +10,7 @@
 //!   order — `add` in place per element of `t`.
 //! * `intersection(s, t)`: the elements of `s` that are in `t`, in `s`'s order —
 //!   one membership pass writing a mark per entry, then one
-//!   `lower_map_compact_in_place` (every element of `s` is tested).
+//!   `lower_set_compact_in_place` (every element of `s` is tested).
 //! * `difference(s, t)`: the elements of `s` not in `t`, in `s`'s order — each
 //!   element of `t` is looked up in `s` and a hit claimed for removal, then one
 //!   compaction from the first claimed entry (bug-732: the call costs `t` and the

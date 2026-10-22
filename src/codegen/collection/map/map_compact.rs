@@ -1,13 +1,13 @@
-//! plan-142-D: shrink a `Map`/`Set` **in place** to a subset of its entries, and
-//! reserve room for a batch of inserts before the first one.
+//! plan-142-D: shrink a `Set` **in place** to a subset of its entries, and reserve
+//! room in a `Map`/`Set` for a batch of inserts before the first one.
 //!
 //! A map block is `[header][capacity × 40-byte entries][data][capacity × 16-byte
 //! buckets]`; each entry locates its key and value payloads in the data region by
-//! offset. `lower_map_compact_in_place` is the many-key form of
-//! `lower_map_remove_key_in_place`: the survivors' entries move down in their
-//! order (iteration order is insertion order, so it is preserved), a dropped
-//! value's graph is freed first, and the hash index is marked not-ready so the
-//! next probe rebuilds it. As for `removeKey`, a dropped entry's payload bytes
+//! offset. `lower_set_compact_in_place` is the many-key form of
+//! `lower_map_remove_key_in_place`, for the set algebra's in-place arms (its only
+//! callers): the survivors' entries move down in their order (iteration order is
+//! insertion order, so it is preserved) and the hash index is marked not-ready so
+//! the next probe rebuilds it. As for `removeKey`, a dropped entry's payload bytes
 //! stay behind in the data region.
 //!
 //! `emit_map_reserve` grows a map once, geometrically, so that a following batch of
@@ -16,71 +16,17 @@
 //! write, which keeps a multi-key self-update (`union`, `merge`, …) failure-atomic.
 
 use crate::codegen::engine::builder::*;
-use crate::codegen::engine::types::typed_map_type_parts;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
 impl CodeBuilder<'_> {
-    /// Keep the entries of the map in `map_slot` whose mark byte (at the address in
+    /// Keep the elements of the set in `set_slot` whose mark byte (at the address in
     /// `marks_slot`, one per entry) is non-zero; drop the rest. Cannot fail and
-    /// allocates nothing.
-    pub(crate) fn lower_map_compact_in_place(
-        &mut self,
-        map_slot: usize,
-        marks_slot: usize,
-        map_type: &ParameterType,
-    ) -> Result<(), String> {
-        let value_type = typed_map_type_parts(map_type)
-            .map(|(_, value)| value.clone())
-            .or_else(|| {
-                crate::codegen::engine::types::typed_set_element_type(map_type)
-                    .map(|_| ParameterType::Boolean)
-            })
-            .ok_or_else(|| format!("native in-place map compaction of non-map {map_type}"))?;
-        // A dropped value that owns a graph is freed before its entry is
-        // overwritten; the drop calls, so this is its own pass over slots.
-        if self.owns_graph(&value_type) {
-            let index_slot = self.allocate_stack_object("mcompact_drop_index", 8);
-            let entry_slot = self.allocate_stack_object("mcompact_drop_entry", 8);
-            let top = self.label("mcompact_drop_loop");
-            let next = self.label("mcompact_drop_next");
-            let done = self.label("mcompact_drop_done");
-            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), index_slot));
-            self.emit(abi::label(&top));
-            let base = self.temporary_vreg();
-            let count = self.temporary_vreg();
-            let index = self.temporary_vreg();
-            let mark = self.temporary_vreg();
-            self.emit(abi::load_u64(&base, abi::stack_pointer(), map_slot));
-            self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
-            self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
-            self.emit(abi::compare_registers(&index, &count));
-            self.emit(abi::branch_ge(&done));
-            self.emit(abi::load_u64(&mark, abi::stack_pointer(), marks_slot));
-            self.emit(abi::add_registers(&mark, &mark, &index));
-            self.emit(abi::load_u8(&mark, &mark, 0));
-            self.emit(abi::compare_immediate(&mark, "0"));
-            self.emit(abi::branch_ne(&next));
-            let entry = self.temporary_vreg();
-            self.emit(abi::move_immediate(
-                &entry,
-                "Integer",
-                &COLLECTION_ENTRY_SIZE.to_string(),
-            ));
-            self.emit(abi::multiply_registers(&entry, &index, &entry));
-            self.emit(abi::add_registers(&entry, &entry, &base));
-            self.emit(abi::add_immediate(&entry, &entry, COLLECTION_HEADER_SIZE));
-            self.emit(abi::store_u64(&entry, abi::stack_pointer(), entry_slot));
-            self.emit_drop_entry_value(map_slot, entry_slot, &value_type)?;
-            self.emit(abi::label(&next));
-            let index = self.temporary_vreg();
-            self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
-            self.emit(abi::add_immediate(&index, &index, 1));
-            self.emit(abi::store_u64(&index, abi::stack_pointer(), index_slot));
-            self.emit(abi::branch(&top));
-            self.emit(abi::label(&done));
-        }
+    /// allocates nothing. A dropped entry needs no free before it is overwritten: a
+    /// `Set` element is comparable (`ir::verify`'s `is_comparable`), so it is never
+    /// a collection, a function or a resource, and owns no graph.
+    pub(crate) fn lower_set_compact_in_place(&mut self, set_slot: usize, marks_slot: usize) {
         // Move each survivor's entry to the next free position.
         let base = self.temporary_vreg();
         let count = self.temporary_vreg();
@@ -97,7 +43,7 @@ impl CodeBuilder<'_> {
         let in_place = self.label("mcompact_in_place");
         let next = self.label("mcompact_next");
         let done = self.label("mcompact_done");
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), set_slot));
         self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&marks, abi::stack_pointer(), marks_slot));
         self.emit(abi::move_immediate(&index, "Integer", "0"));
@@ -135,69 +81,16 @@ impl CodeBuilder<'_> {
         let zero = self.temporary_vreg();
         self.emit(abi::move_immediate(&zero, "Byte", "0"));
         self.emit(abi::store_u8(&zero, &base, COLLECTION_OFFSET_BUCKETS_READY));
-        Ok(())
     }
 
-    /// Empty the map in `map_slot` in place — the result of `difference(s, s)` and
-    /// `symmetricDifference(s, s)`. Frees any value graphs, then zeroes `count` and
-    /// `dataLength` and marks the index not-ready.
-    pub(crate) fn lower_map_clear_in_place(
-        &mut self,
-        map_slot: usize,
-        map_type: &ParameterType,
-    ) -> Result<(), String> {
-        // Free every value's graph first (a map with no graph-owning values — every
-        // `Set`, and most maps — skips this pass entirely).
-        let value_type = typed_map_type_parts(map_type).map(|(_, value)| value.clone());
-        if value_type
-            .as_ref()
-            .is_some_and(|value| self.owns_graph(value))
-        {
-            let index_slot = self.allocate_stack_object("mclear_index", 8);
-            let entry_slot = self.allocate_stack_object("mclear_entry", 8);
-            let top = self.label("mclear_drop_loop");
-            let done = self.label("mclear_drop_done");
-            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), index_slot));
-            self.emit(abi::label(&top));
-            let base = self.temporary_vreg();
-            let count = self.temporary_vreg();
-            let index = self.temporary_vreg();
-            self.emit(abi::load_u64(&base, abi::stack_pointer(), map_slot));
-            self.emit(abi::load_u64(&count, &base, COLLECTION_OFFSET_COUNT));
-            self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
-            self.emit(abi::compare_registers(&index, &count));
-            self.emit(abi::branch_ge(&done));
-            let entry = self.temporary_vreg();
-            self.emit(abi::move_immediate(
-                &entry,
-                "Integer",
-                &COLLECTION_ENTRY_SIZE.to_string(),
-            ));
-            self.emit(abi::multiply_registers(&entry, &index, &entry));
-            self.emit(abi::add_registers(&entry, &entry, &base));
-            self.emit(abi::add_immediate(&entry, &entry, COLLECTION_HEADER_SIZE));
-            // bug-760 B1: a tombstone's value was freed when it was removed.
-            let flags = self.temporary_vreg();
-            let dead = self.label("mclear_drop_dead");
-            self.emit(abi::load_u8(&flags, &entry, COLLECTION_ENTRY_OFFSET_FLAGS));
-            self.emit(abi::compare_immediate(
-                &flags,
-                &COLLECTION_ENTRY_FLAG_REMOVED.to_string(),
-            ));
-            self.emit(abi::branch_eq(&dead));
-            self.emit(abi::store_u64(&entry, abi::stack_pointer(), entry_slot));
-            self.emit_drop_entry_value(map_slot, entry_slot, value_type.as_ref().unwrap())?;
-            self.emit(abi::label(&dead));
-            let index = self.temporary_vreg();
-            self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
-            self.emit(abi::add_immediate(&index, &index, 1));
-            self.emit(abi::store_u64(&index, abi::stack_pointer(), index_slot));
-            self.emit(abi::branch(&top));
-            self.emit(abi::label(&done));
-        }
+    /// Empty the set in `set_slot` in place — the result of `difference(s, s)` and
+    /// `symmetricDifference(s, s)`. Zeroes `count` and `dataLength` and marks the
+    /// index not-ready; a `Set` owns no graph (see `lower_set_compact_in_place`), so
+    /// nothing is freed first.
+    pub(crate) fn lower_set_clear_in_place(&mut self, set_slot: usize) {
         let base = self.temporary_vreg();
         let zero = self.temporary_vreg();
-        self.emit(abi::load_u64(&base, abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), set_slot));
         self.emit(abi::store_u64(abi::ZERO, &base, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(
             abi::ZERO,
@@ -207,7 +100,6 @@ impl CodeBuilder<'_> {
         // Index not ready and — bug-760 B1 — no tombstones left: the whole word.
         self.emit(abi::move_immediate(&zero, "Integer", "0"));
         self.emit(abi::store_u32(&zero, &base, COLLECTION_OFFSET_MAP_STATE));
-        Ok(())
     }
 
     /// Make the map in `map_slot` able to take `extra_entries_slot` more entries
