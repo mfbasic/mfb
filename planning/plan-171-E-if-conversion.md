@@ -115,7 +115,7 @@ Commit: —
 - [ ] `rt_regalloc_levels_agree`: add the fixture (all levels agree).
 - [ ] Golden re-baseline only if Phase 1 found `-O3` goldens.
 - [ ] Runtime: macOS acceptance; 2223 and 2227 `linux-runtime-proof.sh` for the
-      fixture (`FILTER=if-select-shapes`); 2230 Windows run.
+      fixture (`FILTER=if-select-shapes`); Windows run on box 206.
 - [ ] Benchmark (macOS host): `run.sh 10` compares `mfb-O3` rows against
       `benchmark/language/baseline/mfb-O3.log`.
 

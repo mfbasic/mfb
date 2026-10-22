@@ -1,7 +1,7 @@
 # plan-171-A: Instruction-form census tool and AArch64 `stp`/`ldp`
 
 Last updated: 2026-10-21
-Overall Effort: huge (>3d across A–I)
+Overall Effort: huge (>3d across A–K)
 Effort: large (3h–1d)
 Depends on: nothing (see Prerequisites)
 
@@ -28,7 +28,9 @@ order:
 | F | jump tables for dense `MATCH`; `adr` and PAC/BTI decisions | large |
 | G | AArch64 addressing and arithmetic forms: register-offset and folded-offset loads/stores, shifted-operand `add`/`sub`, `madd`/`msub`, `ubfx`/`sbfx`/`ubfiz`/`sbfiz`, `csinc`/`csneg` | large |
 | H | shared function exits (AArch64): identical exit sequences in a function become one | large |
-| I | short branch and immediate encodings (rv64 B-type, x86 rel8/imm8); cross-form review; final validation | large |
+| I | x86-64 register pool: `rbp`, `r13` and the argument registers become allocatable (calls declare the argument registers they read) | large |
+| J | x86-64 frame layout and memory operands: hot stack objects first, load folding, `lea`/SIB/offset folding, two-address hints | large |
+| K | short branch and immediate encodings (rv64 B-type, x86 rel8/imm8); cross-form review; final validation | large |
 
 **This sub-plan** builds the measuring instrument every later letter uses (an
 `-ncode` instruction-pattern census) and then teaches AArch64 the
@@ -62,7 +64,7 @@ References:
 
 ## Prerequisites
 
-Stated once for the whole plan-171 family; B–I point here.
+Stated once for the whole plan-171 family; B–K point here.
 
 | Must be true | Command | Status |
 |---|---|---|
@@ -208,7 +210,7 @@ examples and benchmarks is UNMEASURED; Phase 1 measures it.
   `UNWIND_INFO` that plan-169 writes describes the prologue shape — a push-based
   prologue is that plan's business, not this one's. Today the saves are
   `mov [rsp+disp32], r` (`save_callee_saved` → `str_u64` →
-  `mem_disp32`); a shorter `disp8` form is sub-plan I.
+  `mem_disp32`); a shorter `disp8` form is sub-plan K.
 - **riscv64: none.** RV64GC has no pair load/store (Zilsd is RV32-only), and
   the encoder emits no compressed instructions (`c.sdsp` would be a size, not a
   pairing, change). Saves are one `sd`/`fsd` per register.
@@ -577,5 +579,5 @@ Commit: —
 
 Risk sits in the epilogue `sp` fold and in load pairing's register rules; both
 land behind round-trip tests, frame unit tests and Linux execution. x86-64 and
-riscv64 are untouched by design. B–I reuse the census tool and the
+riscv64 are untouched by design. B–K reuse the census tool and the
 `rt_codegen_forms` test file this letter creates.

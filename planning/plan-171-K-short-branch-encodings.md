@@ -1,8 +1,8 @@
-# plan-171-I: Short branch and immediate encodings (rv64 B-type, x86 rel8/imm8); plan-171 closing review
+# plan-171-K: Short branch and immediate encodings (rv64 B-type, x86 rel8/imm8); plan-171 closing review
 
 Last updated: 2026-10-21
 Effort: large (3h–1d)
-Depends on: plan-171-H
+Depends on: plan-171-J
 
 Two backends never use their short encodings. riscv64 emits **every**
 conditional branch as the 8-byte long form `b<inverse> rs1, rs2, +8; jal zero,
@@ -24,6 +24,11 @@ x86-64 branches within ±127 bytes are 2 bytes, immediates that fit in 8 bits
 use the `83` forms, `mov_imm` uses the shortest exact encoding, stack accesses
 within ±127 use `disp8`; all outputs unchanged.
 
+How many stack accesses `disp8` reaches depends on plan-171-J, which moves the
+most-used stack objects nearest `rsp`. In `sorts` (`linux-x86_64`, `-O1`),
+`rsp` accesses at offset ≤ 127 rise from 45,323 to at most 113,985 of 306,886
+(object-granular simulation, plan-171-J §2).
+
 References: plan-171-A's list, plus
 - `src/arch/encode_plan.rs:InstructionEncoder::instruction_size` (sizes are
   measured by encoding into a throwaway encoder — `sizing.rs`).
@@ -36,8 +41,8 @@ References: plan-171-A's list, plus
 
 ## Prerequisites
 
-See plan-171-A §Prerequisites. In addition: plan-171-H complete
-(`ls planning/plan-171-H-* 2>/dev/null` → no match), and the "value-independent
+See plan-171-A §Prerequisites. In addition: plan-171-J complete
+(`ls planning/plan-171-J-* 2>/dev/null` → no match), and the "value-independent
 size" rationale recorded by plan-171-B Phase 1 (`grep -n 'value-independent' planning/completed/plan-171-B-*.md` → its recorded finding).
 
 ## 1. Goal
@@ -113,7 +118,7 @@ anyway — the relaxation pass is the same work, done once in the right place).
       immediates fitting i8, `mov_imm` classes, `disp8`-eligible accesses;
       record in §2.
 
-Acceptance: §2 has no UNMEASURED. Check: `grep -c UNMEASURED planning/plan-171-I-*.md` → 0 (est. 20 min).
+Acceptance: §2 has no UNMEASURED. Check: `grep -c UNMEASURED planning/plan-171-K-*.md` → 0 (est. 20 min).
 Commit: —
 
 ### Phase 2 — riscv64 short branches
@@ -143,8 +148,8 @@ Commit: —
       `0x8000_0000` as `mov r32` vs `C7`), relaxation units.
 - [ ] Golden re-baseline (x86 targets).
 - [ ] Runtime: `linux-runtime-proof.sh` on 2227 (musl) and 2228 (glibc);
-      Windows: the acceptance runnable fixtures on box 2230; if plan-169 has
-      landed, its unwind-table check (`mfb man debug backtraces` examples via
+      Windows: the acceptance runnable fixtures on box 206; plan-169's
+      unwind-table check (plan-169 is a prerequisite of plan-171-H) (`mfb man debug backtraces` examples via
       `bash scripts/man-debug-examples.sh target/release/mfb windows`) on box 206.
 
 Acceptance: short forms used where they fit; outputs unchanged on SysV and Win64.
@@ -160,7 +165,8 @@ Commit: —
       (e.g. "flags live", "non-encodable mask", "guarded MATCH").
 - [ ] Hand-written emitters outside `finalize_frame` (B Phase 5's list) re-checked
       against all forms (pairs, logical immediates, selects, tables, G's
-      addressing/multiply-add/bitfield/`csinc`/`csneg` forms, H's shared exits).
+      addressing/multiply-add/bitfield/`csinc`/`csneg` forms, H's shared exits,
+      I's register pool, J's memory-operand forms and frame order).
 - [ ] `planning/optimizations.md`: every row plan-171 touched is current.
 - [ ] Benchmark (macOS host): full `./benchmark/language/run.sh 10` vs.
       `benchmark/language/baseline/` with `rank.py`; regenerate `benchmark/language/baseline/`
@@ -187,9 +193,9 @@ Commit: —
   (classify `git status --porcelain` by target infix).
 - Runtime proof, all five targets, once at the end of the family: macOS
   acceptance; `linux-runtime-proof.sh` on 2223 (aarch64), 2227/2228 (x86_64),
-  2229/2232 (riscv64); Windows fixtures on 2230.
+  2229/2232 (riscv64); Windows fixtures on box 206.
 - Doc sync: every letter's Phase-docs; `mfb man optimizations`.
-- Final gate (once): `cargo test --no-fail-fast > /tmp/171i.log 2>&1; echo EXIT=$?` → `EXIT=0`; `grep -c '^failures:' /tmp/171i.log` → 0; `bash scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)` (est. 90 min).
+- Final gate (once): `cargo test --no-fail-fast > /tmp/171k.log 2>&1; echo EXIT=$?` → `EXIT=0`; `grep -c '^failures:' /tmp/171k.log` → 0; `bash scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)` (est. 90 min).
 
 ## Open Decisions
 

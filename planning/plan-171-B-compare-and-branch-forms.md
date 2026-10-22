@@ -55,7 +55,7 @@ See plan-171-A §Prerequisites (stated once for the family). In addition:
 - No change to `MATCH`/`IF` semantics, trap order, or any value.
 - `cbz`/`tbz` never appear in the register allocator's input (they name a
   register at a terminator — the bug-746 hazard class; §3).
-- No change to riscv64 branch *size* (8-byte long form stays; sub-plan I).
+- No change to riscv64 branch *size* (8-byte long form stays; sub-plan K).
 
 ## 2. Current State
 
@@ -282,7 +282,7 @@ Commit: —
 - [ ] Runtime: macOS acceptance; `linux-runtime-proof.sh` on 2223
       (`linux-aarch64`), 2227 (`linux-x86_64`, emulated — needed because x86
       bytes changed), 2229 (`linux-riscv64`); the fixture built for
-      `windows-x86_64` and run on box 2230 (`scp` + `ssh -p 2230 … .\fixture.exe`),
+      `windows-x86_64` and run on box 206 (`scp` + `ssh test@192.168.1.206 … .\fixture.exe`),
       output compared with its golden `build.log` run section.
 - [ ] Benchmark on the macOS host (`./benchmark/language/run.sh 10`; `rank.py`); x86/rv64
       are compared by census instruction counts only (their boxes are emulated,

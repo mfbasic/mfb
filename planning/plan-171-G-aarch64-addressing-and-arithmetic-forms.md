@@ -486,7 +486,7 @@ Commit: —
 2. Tail calls are not in plan-171 (§3, rejected).
 3. Scope is AArch64 only.
 4. These forms land as their own letter, G; the short-encoding and closing
-   letter became I.
+   letter became I, and later K (x86 letters I and J were inserted before it).
 
 ## Corrections
 
