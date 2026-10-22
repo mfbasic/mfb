@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod online;
+
 /// Every truncation and every single-byte corruption of a real header is read
 /// without a panic: the file is untrusted, and each offset it names is checked.
 #[test]
@@ -819,5 +821,43 @@ fn a_proof_naming_another_signing_key_or_an_unowned_ident_is_refused() {
     assert_eq!(
         trust_chain(&chain.blob(), &chain.registry()),
         "NOT VERIFIED (proof ident does not belong to the signing owner)"
+    );
+}
+
+/// plan-168-C: a transfer to the signer whose acceptance signature is not the
+/// recipient's does not verify, so the ident is not the signer's — the registry
+/// serving the link is not enough.
+#[test]
+fn a_transfer_with_a_forged_acceptance_is_refused() {
+    let chain = Chain::signed_by("bob", "alice#probe");
+    let mut index = probe_index(
+        &chain,
+        Some(("bob", &chain.ident_public, &chain.ident_private)),
+    );
+    index.transfers[0].accept_signature = Some(crypto::encode_bytes(&[0; 64]));
+    let forged = FakeRegistry {
+        indexes: vec![index],
+        ..chain.registry()
+    };
+    assert_eq!(
+        trust_chain(&chain.blob(), &forged),
+        "NOT VERIFIED (proof ident does not belong to the signing owner)"
+    );
+}
+
+/// A validly signed proof that names no ident is refused by name, and the
+/// missing ident prints as `<none>` rather than an empty field.
+#[test]
+fn a_signed_proof_without_an_ident_is_not_verified() {
+    let mut chain = Chain::new();
+    let mut proof: serde_json::Value = serde_json::from_str(&chain.proof).unwrap();
+    proof.as_object_mut().unwrap().remove("ident");
+    chain.proof = proof.to_string();
+    let lines = signing_lines(&chain.blob(), Some(DIGEST), &chain.registry());
+    assert_eq!(signed_line(&lines, "ident"), "<none>");
+    assert_eq!(signed_line(&lines, "version"), "1.2.3");
+    assert_eq!(
+        signed_line(&lines, "trust chain"),
+        "NOT VERIFIED (proof has no `ident`)"
     );
 }
