@@ -15,6 +15,8 @@ mod arithmetic_forms;
 #[cfg(test)]
 mod borrowed_resources;
 #[cfg(test)]
+mod closure_creation_refusals;
+#[cfg(test)]
 mod closure_value_forms;
 #[cfg(test)]
 mod concat_spine;
