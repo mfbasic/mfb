@@ -230,8 +230,8 @@ fn signing_lines(
         _ => "<none>".to_string(),
     };
     let (ident_key, trust_chain) = match verify_chain(&blob, &proof, registry) {
-        Ok((repo_fingerprint, IdentState::Replaced(current))) => (
-            format!("REPLACED without a rotation link (current identFingerprint {current})"),
+        Ok((repo_fingerprint, state @ IdentState::Replaced(_))) => (
+            state.describe(),
             format!(
                 "NOT VERIFIED (the owner's ident key was replaced without a rotation link; \
                  repoFingerprint {repo_fingerprint})"

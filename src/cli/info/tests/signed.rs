@@ -765,3 +765,59 @@ fn a_signed_debug_image_reports_intact_contents() {
         );
     }
 }
+
+/// The proof's `issued` is shown only when it is a whole number of seconds.
+#[test]
+fn an_issued_time_that_is_not_whole_seconds_is_shown_as_none() {
+    let mut chain = Chain::new();
+    chain.proof = chain
+        .proof
+        .replace("\"issued\":1000000000", "\"issued\":1.5");
+    assert!(chain.proof.contains("\"issued\":1.5"), "{}", chain.proof);
+    let lines = signing_lines(&chain.blob(), Some(DIGEST), &chain.registry());
+    assert_eq!(signed_line(&lines, "issued"), "<none>");
+}
+
+/// A blob sealed with anything but Ed25519 is malformed signing metadata.
+#[test]
+fn a_signature_type_other_than_ed25519_is_malformed() {
+    let chain = Chain::new();
+    let blob = String::from_utf8(chain.blob())
+        .unwrap()
+        .replace("\"signatureType\":\"Ed25519\"", "\"signatureType\":\"RSA\"");
+    let lines = signing_lines(blob.as_bytes(), Some(DIGEST), &chain.registry());
+    assert_eq!(
+        lines,
+        vec!["trust chain: NOT VERIFIED (malformed signing metadata: unknown signatureType `RSA`)"]
+    );
+}
+
+/// A signing key that does not decode leaves the contents unverified, and the
+/// chain refuses it too.
+#[test]
+fn an_undecodable_signing_key_leaves_the_contents_unverified() {
+    let mut chain = Chain::new();
+    chain.signing_key = "ed25519:not base64!".to_string();
+    let (contents, _, trust) = verdicts(&chain.blob(), Some(DIGEST), &chain.registry());
+    assert!(contents.starts_with("unverified ("), "{contents}");
+    assert!(trust.starts_with("NOT VERIFIED ("), "{trust}");
+}
+
+/// A validly signed proof that names another signing key, and one whose ident
+/// has no owner prefix, are refused.
+#[test]
+fn a_proof_naming_another_signing_key_or_an_unowned_ident_is_refused() {
+    let mut chain = Chain::new();
+    let other = crypto::fingerprint(b"another key");
+    chain.proof = chain.proof.replace(&chain.signing_fingerprint, &other);
+    assert_eq!(
+        trust_chain(&chain.blob(), &chain.registry()),
+        "NOT VERIFIED (proof signingFingerprint does not match the signing metadata)"
+    );
+    let mut chain = Chain::new();
+    chain.proof = chain.proof.replace("alice#probe", "aliceprobe");
+    assert_eq!(
+        trust_chain(&chain.blob(), &chain.registry()),
+        "NOT VERIFIED (proof ident does not belong to the signing owner)"
+    );
+}
