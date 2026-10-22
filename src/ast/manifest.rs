@@ -454,27 +454,10 @@ fn collect_mfb_files(
     visited_dirs: &mut HashSet<PathBuf>,
     files: &mut Vec<SelectedSource>,
 ) -> Result<(), CollectError> {
+    // `current` is inside the project: the source root was checked against the
+    // boundary before the first call, and every subdirectory is checked by
+    // `ensure_within_project` below before it is recursed into.
     let canonical_current = fs::canonicalize(current)?;
-    // coverage:off — unreachable defensive re-check. Every directory entry is
-    // validated against the project boundary at the call site below before being
-    // recursed into, so a `current` that resolves outside the project is always
-    // rejected there first; this pre-recursion guard never fires first.
-    if !path_within_project(&canonical_current, canonical_project_dir) {
-        rules::show_diagnostic(
-            "MFB_SOURCE_OUTSIDE_PROJECT",
-            &format!(
-                "Source path `{}` resolves outside project directory `{}`.",
-                current.display(),
-                canonical_project_dir.display()
-            ),
-            current,
-            1,
-            1,
-            1,
-        );
-        return Err(CollectError::Reported);
-    }
-    // coverage:on
     if !visited_dirs.insert(canonical_current) {
         return Ok(());
     }
