@@ -3,6 +3,9 @@
 
 use super::*;
 
+#[cfg(test)]
+mod tests;
+
 /// Lifts the calls nested inside an inline-`TRAP` scrutinee out in front of it,
 /// rewriting `root` to read their results from locals (bug-457).
 ///

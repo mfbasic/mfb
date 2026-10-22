@@ -1,6 +1,7 @@
 use super::*;
 use crate::types::ParameterType;
 
+mod inline_trap_hoist_shapes;
 mod inline_trap_short_circuit;
 
 /// Shared source-driven test helpers (plan-12 IR coverage). These write a
