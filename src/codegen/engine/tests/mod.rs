@@ -11,6 +11,8 @@ pub(crate) use test_support::*;
 #[cfg(test)]
 mod arena_symbols;
 #[cfg(test)]
+mod arithmetic_forms;
+#[cfg(test)]
 mod borrowed_resources;
 #[cfg(test)]
 mod closure_value_forms;
