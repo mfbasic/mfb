@@ -13,6 +13,8 @@ mod arena_symbols;
 #[cfg(test)]
 mod arithmetic_forms;
 #[cfg(test)]
+mod bind_fallbacks;
+#[cfg(test)]
 mod borrowed_resources;
 #[cfg(test)]
 mod closure_creation_refusals;
