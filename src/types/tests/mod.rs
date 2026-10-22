@@ -1,5 +1,7 @@
 use super::*;
 
+mod more;
+
 /// bug-844: a view's own `STATE` clause never changes which side the view is.
 /// A stateful worker answered "parent", so its `send`/`receive`/`transfer`/
 /// `accept` were routed to the parent's queues and every message was lost.
