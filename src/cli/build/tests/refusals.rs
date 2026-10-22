@@ -229,3 +229,54 @@ fn a_windows_dump_whose_path_is_a_directory_is_refused() {
         assert!(taken.join("keep").is_file(), "{flag}");
     }
 }
+
+/// The vendor steps name what stopped them: a declared package that cannot be
+/// read while collecting the native-library tables fails with its path, and an
+/// output directory that cannot be created fails the copy with that directory.
+#[test]
+fn a_vendor_step_that_cannot_read_a_package_or_create_an_output_names_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    let ir = crate::testutil::lower_src("FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n");
+    let missing = root.join("packages").join("ghost.mfp");
+    let err = resolved_vendor_libraries(
+        &ir,
+        std::slice::from_ref(&missing),
+        &target::BuildTarget::host(),
+        target::NativeBuildMode::Console,
+    )
+    .expect_err("an unreadable package stops the vendor resolve");
+    assert!(err.contains(&missing.display().to_string()), "{err}");
+
+    let locator = NativeLibraryLocator {
+        os: "linux".to_string(),
+        arch: Some("x86_64".to_string()),
+        libc: Some(Libc::Glibc),
+        lib_type: LibType::Vendor,
+        source: "libfoo.so".to_string(),
+        hash: Some([1u8; 32]),
+    };
+    let library = crate::codegen::link::locator::ResolvedLibrary {
+        dlopen_name: crate::codegen::link::locator::dlopen_name(&locator, "sqlite3"),
+        declaring_unit: "sqlite3".to_string(),
+        locator,
+    };
+    let source = vendor_source_path(root, "app", &library);
+    std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+    std::fs::write(&source, b"bytes").unwrap();
+    let blocker = root.join("not-a-dir");
+    std::fs::write(&blocker, "x").unwrap();
+    let out = blocker.join("vendor");
+    let err = copy_vendor_libraries(
+        std::slice::from_ref(&library),
+        root,
+        "app",
+        std::slice::from_ref(&out),
+    )
+    .expect_err("an output directory under a file cannot be created");
+    assert!(
+        err.starts_with(&format!("failed to create '{}': ", out.display())),
+        "{err}"
+    );
+}
