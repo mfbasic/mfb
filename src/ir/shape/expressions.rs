@@ -374,9 +374,18 @@ impl<'a> Walker<'a> {
             .iter()
             .map(|argument| self.type_of(argument, locals).without_state())
             .collect();
+        // A bare general built-in (`len(toString)`) has no value type, so lowering
+        // types it `Unknown`; name it as written, as the package path does
+        // (`bare_builtin_misfit`), rather than report "(Unknown)".
         let names: Vec<String> = arg_types
             .iter()
-            .map(|type_| type_.name().into_owned())
+            .zip(normalized)
+            .map(
+                |(type_, argument)| match (type_, self.bare_general_builtin(argument, locals)) {
+                    (ParameterType::Unknown, Some(name)) => name.to_string(),
+                    _ => type_.name().into_owned(),
+                },
+            )
             .collect();
         let expected_overloads = || {
             builtins::expected_arguments(canonical)

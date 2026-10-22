@@ -261,3 +261,21 @@ END FUNC
         ]
     );
 }
+
+/// A bare general built-in passed to a general built-in (`len(toString)`) is
+/// named as written, as it is at a package member's parameter, not reported as
+/// an "(Unknown)" argument: lowering has no value type for the bare name.
+#[test]
+fn a_bare_builtin_at_a_general_builtin_is_named() {
+    let src = "\
+FUNC main() AS Integer
+  LET n AS Integer = len(toString)
+  RETURN n
+END FUNC
+";
+    assert_eq!(
+        mismatches(src),
+        ["Call to `len` has argument type(s) (toString), \
+          expected String, List OF T, Set OF T, or Map OF K TO V."]
+    );
+}
