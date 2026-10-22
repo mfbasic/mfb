@@ -22,6 +22,7 @@ mod nir_constfold;
 mod nir_json_edges;
 mod plan_imports;
 mod plan_storage;
+mod runtime_helpers;
 
 /// The app-mode-capable targets, as a `(name, supports_app_mode)` table.
 /// Kept explicit rather than derived so that registering a backend, or

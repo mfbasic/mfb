@@ -148,7 +148,6 @@ pub(crate) const THREAD_WORKER_TYPE: &str = crate::types::THREAD_WORKER_TYPE;
 pub(crate) const TRANSFER_RESOURCE: &str = "thread.transferResource";
 pub(crate) const ACCEPT_RESOURCE: &str = "thread.acceptResource";
 pub(crate) const EMIT_RESOURCE: &str = "thread.emitResource";
-pub(crate) const READ_RESOURCE: &str = "thread.readResource";
 
 /// plan-156-C: the hidden drop op of a parent `Thread` view — the close op the
 /// resource machinery registers for it and scope exit runs. Never user-callable (an
@@ -162,17 +161,6 @@ pub(crate) const DROP: &str = "thread.drop";
 /// only during IR lowering and are not user-callable (bug-173 E).
 pub(crate) fn is_thread_call(name: &str) -> bool {
     crate::codegen::registry::registry().owning_package(name) == Some("thread")
-}
-
-/// Post-lowering classifier: [`is_thread_call`] plus the internal resource-plane
-/// names that IR lowering synthesizes. Used by `runtime::helper_for_call` to route
-/// codegen for these lowered-only targets. Byte-identical to the legacy predicate.
-pub(crate) fn is_thread_runtime_call(name: &str) -> bool {
-    is_thread_call(name)
-        || matches!(
-            name,
-            TRANSFER_RESOURCE | ACCEPT_RESOURCE | EMIT_RESOURCE | READ_RESOURCE
-        )
 }
 
 // A `Thread`/`ThreadWorker` handle pattern with explicit per-slot patterns. A slot a

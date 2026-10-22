@@ -170,19 +170,19 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         // (they stay `NirValue::Call` and lower inline), so gate on the slot. An
         // `abi_function` member keeps its owning package's family when it has one
         // (plan-101: `io` stays `Io`), else the shared `Abi` family (crypto).
+        //
+        // Every member of `app`, `io`, `thread` and `tls`, and the calls IR
+        // lowering synthesizes for them (`thread.transferResource` & co.,
+        // `tls.closeListener`), is an `abi_function` and takes this arm, so
+        // those families need no arm of their own below
+        // (`target::tests::runtime_helpers` pins each member's family).
         Some(abi_function_family(name))
-    } else if crate::codegen::registry::registry().owning_package(name) == Some("app") {
-        Some(RuntimeHelper::App)
     } else if crate::codegen::builtins::general::is_general_call(name) {
         Some(RuntimeHelper::General)
-    } else if crate::codegen::registry::registry().owning_package(name) == Some("io") {
-        Some(RuntimeHelper::Io)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("math") {
         Some(RuntimeHelper::Math)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("term") {
         Some(RuntimeHelper::Term)
-    } else if crate::codegen::builtins::thread::is_thread_runtime_call(name) {
-        Some(RuntimeHelper::Thread)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("net") {
         // The `net.connectTcpAddr`/`net.pollList` code forms are `os_aliases`, not
         // descriptor members, so `owning_package` yields `None` for them — they are
@@ -194,13 +194,6 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         || name == "process.__drop"
     {
         Some(RuntimeHelper::Process)
-    } else if crate::codegen::registry::registry().owning_package(name) == Some("tls")
-        || name == "tls.closeListener"
-    {
-        // `tls.closeListener` is the internal listener-shaped scope-drop close body
-        // (not a descriptor member), synthesized during IR lowering — routed here like
-        // `process.__drop`.
-        Some(RuntimeHelper::Tls)
     } else {
         None
     }
