@@ -93,36 +93,40 @@ fn emit(
     let right_offset = builder.temporary_vreg();
     let right_length = builder.temporary_vreg();
     let stride = ParameterType::named("");
+    // By reference, as every production caller passes them: each entry is generic
+    // over `impl Into<abi::Reg>`, and llvm-cov counts a function's lines from its
+    // best-covered instantiation, not their union, so a by-value call would be a
+    // separate instantiation whose lines the gate never credits.
     match entry {
         Entry::PayloadMatch => builder.emit_collection_payload_match_branch(
             type_,
             &stride,
-            left,
-            left_offset,
-            left_length,
-            right,
+            &left,
+            &left_offset,
+            &left_length,
+            &right,
             "probe_equal",
             "probe_unequal",
         )?,
         Entry::MatchesValue => builder.emit_collection_payload_matches_value_branch(
             type_,
             &stride,
-            left,
-            left_offset,
-            left_length,
-            right,
+            &left,
+            &left_offset,
+            &left_length,
+            &right,
             "probe_equal",
             "probe_unequal",
         )?,
         Entry::PayloadsMatch => builder.emit_collection_payloads_match_branch(
             type_,
             &stride,
-            left,
-            left_offset,
-            left_length,
-            right,
-            right_offset,
-            right_length,
+            &left,
+            &left_offset,
+            &left_length,
+            &right,
+            &right_offset,
+            &right_length,
             "probe_equal",
             "probe_unequal",
         )?,
