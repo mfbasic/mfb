@@ -194,10 +194,7 @@ fn agrees_with_tinyjson_on_every_project_json_under_tests() {
 #[test]
 fn a_short_unicode_escape_or_an_unterminated_string_is_refused() {
     let message = |text: &str| parse_lossless(text).expect_err("refused").message;
-    assert_eq!(
-        message("\"\\u12\""),
-        "expected four hex digits after `\\u`"
-    );
+    assert_eq!(message("\"\\u12\""), "expected four hex digits after `\\u`");
     assert_eq!(message("\"abc"), "unterminated string");
     // A backslash with nothing after it.
     assert_eq!(message("\"abc\\"), "unterminated string");

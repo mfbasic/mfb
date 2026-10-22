@@ -220,11 +220,22 @@ fn a_span_outliving_its_parent_records_nothing() {
     drop(outer);
     drop(inner);
     let guard = STATE.lock().expect("trace state");
-    let root = guard.as_ref().expect("enabled").root.as_ref().expect("root");
+    let root = guard
+        .as_ref()
+        .expect("enabled")
+        .root
+        .as_ref()
+        .expect("root");
     let parent = child(root, "test-parent-first");
     assert_eq!(parent.count, 1);
-    assert!(parent.children.iter().all(|c| c.name != "test-orphaned-child"));
-    assert!(root.children.iter().all(|c| c.name != "test-orphaned-child"));
+    assert!(parent
+        .children
+        .iter()
+        .all(|c| c.name != "test-orphaned-child"));
+    assert!(root
+        .children
+        .iter()
+        .all(|c| c.name != "test-orphaned-child"));
     drop(guard);
     disable_for_test();
 }
@@ -246,7 +257,12 @@ fn a_repeated_stage_name_accumulates_into_one_row() {
         end_stage();
     }
     let guard = STATE.lock().expect("trace state");
-    let root = guard.as_ref().expect("enabled").root.as_ref().expect("root");
+    let root = guard
+        .as_ref()
+        .expect("enabled")
+        .root
+        .as_ref()
+        .expect("root");
     let parent = child(root, "test-stage-parent");
     assert_eq!(child(parent, "test-stage-repeat").count, 2);
     drop(guard);
