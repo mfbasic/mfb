@@ -869,7 +869,7 @@ so glyph outlines are always filled even-odd.
 [[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
 [[src/codegen/runtime/canvas/scene_layout.rs:HEADER_POLYGON_RULE]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeCrossing32]]
-[[src/target/macos_aarch64/app/metal.rs:edgeCrossing32]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.metal:edgeCrossing32]]
 
 **A `PolyLine` is the union of its segments' round-capped bands.** Its `points` are
 offsets from `position` (Placement, above). For `n` points it
