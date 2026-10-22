@@ -359,26 +359,13 @@ pub(in crate::ir) fn expression_type(
         } => {
             let canonical_callee = canonical_import_name(callee, context);
             if crate::codegen::builtins::general::is_general_call(&canonical_callee) {
+                // No general built-in is also a registry member taking a unary
+                // callback (pinned by
+                // `ir::shape::tests::builtin_callbacks::no_general_builtin_is_a_callback_member`),
+                // so the bare-predicate typing the collections arm needs never
+                // applies here.
                 let normalized =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
-                if crate::codegen::registry::callback_member_bare(callee) && normalized.len() == 2 {
-                    if let HirExpression::Identifier(predicate) = normalized[1] {
-                        if let Some(collection_type) =
-                            expression_type(normalized[0], locals, context)
-                        {
-                            if let Some(predicate_type) =
-                                filter_predicate_arg_type(predicate, &collection_type)
-                            {
-                                let arg_types = vec![collection_type, predicate_type];
-                                return builtins::resolve_call_return_type_typed(
-                                    &canonical_callee,
-                                    &arg_types,
-                                    false,
-                                );
-                            }
-                        }
-                    }
-                }
                 let arg_types = normalized
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))

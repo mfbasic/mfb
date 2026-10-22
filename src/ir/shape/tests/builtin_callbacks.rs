@@ -186,3 +186,42 @@ END FUNC
         ]
     );
 }
+
+/// No general built-in shares its name with a registry member that takes a
+/// unary callback. Lowering's typing of a general call relies on it: the
+/// bare-predicate derivation (`filter(xs, isEven)`) belongs to the collections
+/// members alone, so a general call never needs it.
+#[test]
+fn no_general_builtin_is_a_callback_member() {
+    for name in [
+        "error",
+        "len",
+        "typeName",
+        "toString",
+        "toInt",
+        "toFloat",
+        "toFixed",
+        "toByte",
+        "toMoney",
+        "toScalar",
+        "isNumeric",
+        "isEven",
+        "isOdd",
+        "isPositive",
+        "isNegative",
+        "isZero",
+        "isEmpty",
+        "isNotEmpty",
+    ] {
+        assert!(
+            crate::codegen::builtins::general::is_general_call(name),
+            "{name} is a general built-in"
+        );
+        assert!(
+            !crate::codegen::registry::callback_member_bare(name),
+            "{name} is also a callback member"
+        );
+    }
+    // The control: a collections callback member is one.
+    assert!(crate::codegen::registry::callback_member_bare("filter"));
+}
