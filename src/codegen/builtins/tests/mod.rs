@@ -105,6 +105,7 @@ mod multi_file_projects;
 mod nir_build;
 mod nir_dump;
 mod nir_fault;
+mod nir_fault_callees;
 mod nir_fault_loops;
 mod nir_fault_operators;
 mod nir_fault_records;
