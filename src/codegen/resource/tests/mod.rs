@@ -419,6 +419,7 @@ fn free_helpers_match_registry() {
     ));
 }
 
+mod cleanup_registry;
 mod closure_carry;
 mod closure_carry_emitters;
 mod owner_emitters;
