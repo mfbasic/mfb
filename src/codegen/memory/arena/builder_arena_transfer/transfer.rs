@@ -499,31 +499,11 @@ impl CodeBuilder<'_> {
         if slots.is_empty() {
             return Ok(());
         }
-        // Every declared slot must live wholly inside the shared record
-        // envelope and past the header the caller already copied. A descriptor
-        // that violates either would corrupt a neighbouring record or re-copy
-        // the header, so it is a compiler bug, not a user error.
-        for slot in &slots {
-            if slot.offset < RESOURCE_OFFSET_STATE + 8 {
-                return Err(format!(
-                    "resource `{}` declares a live slot at offset {} inside the canonical header \
-                     (tag/handle/closed/STATE end at {}): {}",
-                    type_.name(),
-                    slot.offset,
-                    RESOURCE_OFFSET_STATE + 8,
-                    slot.what
-                ));
-            }
-            if slot.offset + 8 > RESOURCE_RECORD_SIZE_BYTES {
-                return Err(format!(
-                    "resource `{}` declares a live slot at offset {} past the {}-byte record: {}",
-                    type_.name(),
-                    slot.offset,
-                    RESOURCE_RECORD_SIZE_BYTES,
-                    slot.what
-                ));
-            }
-        }
+        // Every declared slot lives wholly inside the shared record envelope and past
+        // the header the caller already copied: the descriptors are static registry
+        // data, so that is pinned over every resource and backend at once by
+        // `every_builtin_resource_live_slot_is_past_the_header_and_inside_the_record`
+        // (`codegen/builtins/tests/arena_transfer_shapes.rs`), not re-checked per copy.
         for (index, slot) in slots.iter().enumerate() {
             let prefix = format!("thread_copy_res_slot{index}");
             match slot.transfer {

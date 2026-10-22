@@ -521,7 +521,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&fallback_label));
         let is_data_union = self.union_is_data(type_);
         let union_copied_slot = self.allocate_stack_object("thread_copy_union_field", 8);
-        for (variant, _, fields) in &variants {
+        for (variant, _, _) in &variants {
             self.emit(abi::label(&labels[variant]));
             if is_data_union {
                 // The active variant's flat record block was byte-copied at +16
@@ -577,38 +577,12 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch(&done_label));
                 continue;
             }
-            for (index, (_, field_type)) in fields.iter().enumerate() {
-                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-                self.emit(abi::load_u64(&scratch10, &scratch9, 8 * (index + 1)));
-                // plan-134-B: inside the walker a cycle-typed edge is pushed.
-                if let Some(kind) = self.graph_copy_edge_kind(field_type)? {
-                    self.emit_graph_copy_push(
-                        kind,
-                        &scratch10,
-                        Some((destination_slot, 8 * (index + 1))),
-                    )?;
-                    continue;
-                }
-                let copied = self.copy_value_to_current_arena(field_type, &scratch10)?;
-                // Stash before reloading the destination pointer: `copied` may be x9.
-                self.emit(abi::store_u64(
-                    &copied,
-                    abi::stack_pointer(),
-                    union_copied_slot,
-                ));
-                self.emit(abi::load_u64(
-                    &scratch9,
-                    abi::stack_pointer(),
-                    destination_slot,
-                ));
-                self.emit(abi::load_u64(
-                    &scratch10,
-                    abi::stack_pointer(),
-                    union_copied_slot,
-                ));
-                self.emit(abi::store_u64(&scratch10, &scratch9, 8 * (index + 1)));
-            }
-            self.emit(abi::branch(&done_label));
+            // A union is all-data or all-resource (`TYPE_MIXED_RESOURCE_UNION`), so every
+            // variant of a union that is not data is a resource, handled above.
+            return Err(format!(
+                "native thread transfer: '{variant}' of the resource union '{type_}' is not a \
+                 resource (a mixed union is refused as TYPE_MIXED_RESOURCE_UNION)"
+            ));
         }
         self.emit(abi::label(&fallback_label));
         self.emit(abi::label(&done_label));

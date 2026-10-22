@@ -33,6 +33,7 @@ mod abi_inline_element_types;
 mod abi_inline_platforms;
 mod app_mode_io;
 mod app_surface;
+mod arena_transfer_shapes;
 mod bits_shift_forms;
 mod build_replay;
 mod builder_emit_forms;
