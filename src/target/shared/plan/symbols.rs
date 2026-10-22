@@ -475,17 +475,52 @@ fn os_env_lock_helper_symbols(module: &NirModule) -> Vec<String> {
 /// program that binds no resource of that type. A user function's own resources
 /// are bound inside its body, which defines their closes already; this adds the
 /// ones only a call site can reach, e.g. `useIt(fs::createTempFile())`.
+///
+/// The walk also descends into declared records' fields and unions' variants, as
+/// the codegen resource walk (`emit_for_each_resource`) does when it closes the
+/// result: a call returning a union whose record variant holds a `RES fs::File`
+/// field references `fs.close` even when the program never calls `fs` itself.
 pub(super) fn produced_resource_closes(module: &NirModule) -> Vec<&'static str> {
     use super::nir::visit::{walk_value, NirVisitor};
-    fn leaves(type_: &ParameterType, out: &mut Vec<&'static str>) {
+    fn leaves(
+        type_: &ParameterType,
+        types: &HashMap<String, &super::nir::NirType>,
+        expanded: &mut Vec<String>,
+        out: &mut Vec<&'static str>,
+    ) {
         match type_ {
-            ParameterType::Res(inner) | ParameterType::ResultOf(inner) => leaves(inner, out),
-            ParameterType::ListOf(element) => leaves(element, out),
-            ParameterType::MapOf(_, value) => leaves(value, out),
+            ParameterType::Res(inner) | ParameterType::ResultOf(inner) => {
+                leaves(inner, types, expanded, out)
+            }
+            ParameterType::ListOf(element) => leaves(element, types, expanded, out),
+            ParameterType::MapOf(_, value) => leaves(value, types, expanded, out),
             other => {
                 if let Some(close) = crate::codegen::builtins::resource_close_function(other) {
                     if !out.contains(&close) {
                         out.push(close);
+                    }
+                    return;
+                }
+                let name = other.without_state().name().into_owned();
+                let Some(declared) = types.get(&name) else {
+                    return;
+                };
+                if expanded.contains(&name) {
+                    return;
+                }
+                expanded.push(name);
+                for field in &declared.fields {
+                    leaves(&field.type_, types, expanded, out);
+                }
+                for variant in &declared.variants {
+                    leaves(
+                        &ParameterType::declared(&variant.name),
+                        types,
+                        expanded,
+                        out,
+                    );
+                    for field in &variant.fields {
+                        leaves(&field.type_, types, expanded, out);
                     }
                 }
             }
@@ -493,6 +528,7 @@ pub(super) fn produced_resource_closes(module: &NirModule) -> Vec<&'static str> 
     }
     struct Calls<'m> {
         returns: HashMap<&'m str, &'m ParameterType>,
+        types: HashMap<String, &'m super::nir::NirType>,
         closes: Vec<&'static str>,
     }
     impl NirVisitor for Calls<'_> {
@@ -506,7 +542,7 @@ pub(super) fn produced_resource_closes(module: &NirModule) -> Vec<&'static str> 
                     None => crate::codegen::builtins::call_return_type(target),
                 };
                 if let Some(returned) = returned {
-                    leaves(&returned, &mut self.closes);
+                    leaves(&returned, &self.types, &mut Vec::new(), &mut self.closes);
                 }
             }
             walk_value(self, value);
@@ -517,6 +553,11 @@ pub(super) fn produced_resource_closes(module: &NirModule) -> Vec<&'static str> 
             .functions
             .iter()
             .map(|function| (function.name.as_str(), &function.returns))
+            .collect(),
+        types: module
+            .types
+            .iter()
+            .map(|type_| (type_.name.clone(), type_))
             .collect(),
         closes: Vec::new(),
     };

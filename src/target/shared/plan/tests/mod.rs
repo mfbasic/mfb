@@ -1,4 +1,6 @@
 use super::*;
+
+mod produced_closes;
 use crate::target::shared::nir::{NirEntryPoint, NirFunction, NirModule, NirOp, NirValue};
 use crate::target::shared::runtime::{RuntimeHelper, RuntimeHelperSpec};
 use crate::types::ParameterType;
