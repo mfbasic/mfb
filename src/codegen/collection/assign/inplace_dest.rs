@@ -314,8 +314,10 @@ impl CodeBuilder<'_> {
         }
         // `G5`/`G6` — the mutated collection must be exactly the binding being
         // assigned. `name = append(other, x)` installs a fresh value and must
-        // take the copying path.
-        if !site.is_self(&args[0]) {
+        // take the copying path. A caller that passes `args.len()` as the arity
+        // (the `math` arm) can hand over a call with no operand at all; that is
+        // no self-update either.
+        if !args.first().is_some_and(|first| site.is_self(first)) {
             return None;
         }
         // `G-global-operand` (plan-142-H) — a global's block is reachable from any
