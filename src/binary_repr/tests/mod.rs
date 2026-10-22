@@ -12,6 +12,7 @@ mod mod_inner_ir_error_tests;
 mod mod_tests;
 mod native_library_table_tests;
 mod package_info_and_validation_tests;
+mod package_section_tests;
 mod reader_gap_tests;
 mod reader_tests;
 mod resource_table_tests;
