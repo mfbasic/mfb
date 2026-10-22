@@ -1264,20 +1264,6 @@ pub(crate) fn format_thread_type(
     }
 }
 
-/// Whether `name` spells a parent `Thread` handle type. Part of the thread-type
-/// vocabulary the man pages cite; the parent/worker split is now enforced structurally
-/// by the `thread` descriptor's kind-split overloads, so this predicate has no
-/// remaining code caller.
-#[allow(dead_code)]
-pub(crate) fn is_parent_thread_type(name: &str) -> bool {
-    thread_parts(name).is_some_and(|(kind, _, _)| kind == THREAD_TYPE)
-}
-
-/// A thread handle's `(kind, message, output)`, dropping the resource plane.
-pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str, &str)> {
-    thread_parts_full(name).map(|(kind, message, _, output)| (kind, message, output))
-}
-
 /// Full structural view of a thread type: `(kind, message, resource, output)`.
 /// `message` is the data-plane message type (`"Nothing"` for a resource-only
 /// thread); `resource` is the resource-plane type, present only when the type
