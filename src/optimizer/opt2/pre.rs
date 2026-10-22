@@ -158,9 +158,7 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
             if !operands_reach(instructions, &models.0, &overlay, &where_of, leader, gap) {
                 continue;
             }
-            let Some(point) = insertion_point(instructions, &blocks[gap]) else {
-                continue;
-            };
+            let point = insertion_point(instructions, &blocks[gap]);
             // A block dominates itself, so `operands_reach` would accept an
             // operand the gap block defines *after* the insertion point.
             if !operands_precede(
@@ -333,7 +331,7 @@ fn operands_precede(
 /// setter. Going further would risk stepping over a definition the inserted
 /// computation reads, and buys nothing: splitting a setter/branch pair is the
 /// only hazard being avoided.
-fn insertion_point(instructions: &[CodeInstruction], block: &Block) -> Option<usize> {
+fn insertion_point(instructions: &[CodeInstruction], block: &Block) -> usize {
     let floor = if instructions[block.start].op == crate::arch::ops::CodeOp::Label {
         block.start + 1
     } else {
@@ -350,7 +348,9 @@ fn insertion_point(instructions: &[CodeInstruction], block: &Block) -> Option<us
     while point > floor && is_flag_setter(instructions[point - 1].op) {
         point -= 1;
     }
-    (point >= floor).then_some(point)
+    // `point` starts at the block end (never below `floor`: a block holds at
+    // least its leading label) and only steps down while above `floor`.
+    point
 }
 
 /// The ops whose whole purpose is to leave a condition in the flags for the
@@ -517,6 +517,52 @@ mod tests {
         let mut off = stream();
         run(&mut off, 3);
         assert_eq!(ops(&off), ops(&stream()));
+    }
+
+    /// The leader's operands must be available at the end of the gap
+    /// predecessor: here `%v1` is defined only in the arm, so a copy of the
+    /// multiply placed in the gap arm would read an undefined register, and
+    /// the row declines. Likewise a physical-register operand is an ABI
+    /// effect, not a value the row can name, so nothing is keyed on it.
+    #[test]
+    fn a_leader_whose_operands_do_not_reach_the_gap_is_left_alone() {
+        let local_operand = || {
+            vec![
+                ci("cmp_imm", &[("lhs", "%v9"), ("rhs", "0")]),
+                ci("b.eq", &[("target", "arm")]),
+                ci("b", &[("target", "join")]),
+                ci("label", &[("name", "arm")]),
+                ci(
+                    "mov_imm",
+                    &[("dst", "%v1"), ("type", "Integer"), ("value", "7")],
+                ),
+                ci("mul", &[("dst", "%v3"), ("lhs", "%v1"), ("rhs", "%v2")]),
+                ci("b", &[("target", "join")]),
+                ci("label", &[("name", "join")]),
+                ci("mul", &[("dst", "%v4"), ("lhs", "%v1"), ("rhs", "%v2")]),
+                ci("mov", &[("dst", "%v5"), ("src", "%v4")]),
+                ci("ret", &[]),
+            ]
+        };
+        let physical_operand = || {
+            vec![
+                ci("cmp_imm", &[("lhs", "%v9"), ("rhs", "0")]),
+                ci("b.eq", &[("target", "arm")]),
+                ci("b", &[("target", "join")]),
+                ci("label", &[("name", "arm")]),
+                ci("mul", &[("dst", "%v3"), ("lhs", "x0"), ("rhs", "%v2")]),
+                ci("b", &[("target", "join")]),
+                ci("label", &[("name", "join")]),
+                ci("mul", &[("dst", "%v4"), ("lhs", "x0"), ("rhs", "%v2")]),
+                ci("mov", &[("dst", "%v5"), ("src", "%v4")]),
+                ci("ret", &[]),
+            ]
+        };
+        for stream in [local_operand, physical_operand] {
+            let mut run_on = stream();
+            run(&mut run_on, 3);
+            assert_eq!(ops(&run_on), ops(&stream()));
+        }
     }
 
     /// A leader that dominates the join is fully redundant — the value
