@@ -336,3 +336,40 @@ fn suppressed_count_is_seen_minus_the_cap() {
     );
     report_suppressed_diagnostics();
 }
+
+/// A bare `$` (nothing token-shaped after it) ends the token being rewritten;
+/// the mangled name after it still is.
+#[test]
+fn a_bare_dollar_sign_is_left_and_the_mangled_name_after_it_rewritten() {
+    let mut table = HashMap::new();
+    table.insert("Box$Integer".to_string(), "Box OF Integer".to_string());
+    set_template_spellings(table);
+    let (_, collected) = collecting_diagnostics(|| {
+        show_diagnostic(
+            "IMPORT_PACKAGE_INVALID",
+            "cost$ 5 for Box$Integer",
+            Path::new("absent.mfb"),
+            1,
+            1,
+            1,
+        );
+    });
+    set_template_spellings(HashMap::new());
+    assert_eq!(collected[0].1, "cost$ 5 for Box OF Integer");
+}
+
+/// Past the cap, diagnostics are counted, not rendered (bug-505). Renders to
+/// stderr, which the harness captures; afterwards every rendered diagnostic in
+/// this process is only counted, which changes no test's outcome.
+#[test]
+fn diagnostics_past_the_cap_are_counted_not_rendered() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("src.mfb");
+    std::fs::write(&file, "line one\nline two\n").expect("write source");
+    let before = SEEN.load(Ordering::Relaxed);
+    for _ in 0..=MAX_RENDERED_DIAGNOSTICS {
+        show_diagnostic("IMPORT_PACKAGE_INVALID", "flood", &file, 2, 1, 4);
+    }
+    assert!(SEEN.load(Ordering::Relaxed) >= before + MAX_RENDERED_DIAGNOSTICS + 1);
+    report_suppressed_diagnostics();
+}
