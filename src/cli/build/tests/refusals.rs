@@ -206,3 +206,26 @@ fn a_linux_dump_whose_path_is_a_directory_is_refused() {
         assert!(taken.join("keep").is_file(), "{flag}");
     }
 }
+
+/// The Windows backend writes its own dumps too, and refuses the same way.
+#[test]
+fn a_windows_dump_whose_path_is_a_directory_is_refused() {
+    for (flag, extension) in [
+        ("-nir", "nir"),
+        ("-nplan", "nplan"),
+        ("-ncode", "ncode"),
+        ("-mir", "mir"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        let taken = dir.path().join(format!("app.{extension}"));
+        std::fs::create_dir(&taken).unwrap();
+        std::fs::write(taken.join("keep"), b"x").unwrap();
+        assert_eq!(
+            build(dir.path(), &[flag, "-target", "windows-x86_64"]),
+            Err(()),
+            "{flag}"
+        );
+        assert!(taken.join("keep").is_file(), "{flag}");
+    }
+}
