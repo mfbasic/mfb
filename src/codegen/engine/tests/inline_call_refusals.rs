@@ -275,5 +275,9 @@ FUNC main() AS Integer
   RETURN 0
 END FUNC
 ";
-    assert_eq!(transfer_instructions(SOURCE), 0, "the borrowed element was copied");
+    assert_eq!(
+        transfer_instructions(SOURCE),
+        0,
+        "the borrowed element was copied"
+    );
 }
