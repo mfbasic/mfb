@@ -64,6 +64,7 @@ mod element_update_forms;
 mod entry;
 mod exit_cleanup_forms;
 mod fast_path_answers;
+mod field_access_shapes;
 mod field_replace_forms;
 mod field_with_forms;
 mod fixture_projects;
