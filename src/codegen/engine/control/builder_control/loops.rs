@@ -535,20 +535,15 @@ impl CodeBuilder<'_> {
     }
 
     /// Update a promoted float local's resident register from an assignment
-    /// result (an FP-resident result is a `d`-to-`d` move; a GPR result is moved
+    /// result (a `d`-native result is a `d`-to-`d` move; a GPR result is moved
     /// in via `fmov d, x`).
     pub(crate) fn update_promoted_float(&mut self, d: impl Into<abi::Reg>, result: &ValueResult) {
         let d: abi::Reg = d.into();
         // A `d`-native result already lives in an FP register: move it `d`-to-`d`
-        // (plan-01 float-dnative). Otherwise reuse a recorded FP resident, or
-        // shuttle the GPR bits in (`fmov d, x`).
+        // (plan-01 float-dnative). Otherwise shuttle the GPR bits in (`fmov d, x`).
         if Self::float_is_dnative(result) {
             if result.location != d {
                 self.emit(abi::float_move_d_from_d(d, &result.location));
-            }
-        } else if let Some(d_res) = self.float_residents.get(&result.location.render()).cloned() {
-            if d_res != d {
-                self.emit(abi::float_move_d_from_d(d, &d_res));
             }
         } else {
             self.emit(abi::float_move_d_from_x(d, &result.location));

@@ -188,10 +188,6 @@ impl CodeBuilder<'_> {
                 return self.lower_float_arithmetic_dnative(op, left, right);
             }
         }
-        // Carry FP-residency (plan-03 Stage C) across the operand slot
-        // round-trip: the reloaded operand register holds the same value, so it
-        // is resident in the same `d`-register.
-        let left_resident = self.float_residents.get(&left.location.render()).cloned();
         let left_slot = self.allocate_stack_object("arith_left", 8);
         // A `d`-native float operand (possible here only as the right operand of
         // an `Integer op Float`) materializes its bits into a GPR before the
@@ -200,7 +196,6 @@ impl CodeBuilder<'_> {
         let left_spill = self.float_value_as_gpr(&left)?;
         self.emit(abi::store_u64(&left_spill, abi::stack_pointer(), left_slot));
         let right = self.lower_value(right)?;
-        let right_resident = self.float_residents.get(&right.location.render()).cloned();
         let right_slot = self.allocate_stack_object("arith_right", 8);
         let right_spill = self.float_value_as_gpr(&right)?;
         self.emit(abi::store_u64(
@@ -224,12 +219,6 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             right_slot,
         ));
-        if let Some(fp) = left_resident {
-            self.float_residents.insert(left_register.to_string(), fp);
-        }
-        if let Some(fp) = right_resident {
-            self.float_residents.insert(right_register.to_string(), fp);
-        }
         let left = ValueResult {
             origin: None,
             type_: left.type_,

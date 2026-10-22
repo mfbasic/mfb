@@ -163,13 +163,6 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) used_callee_saved: Vec<String>,
     pub(crate) stack_size: usize,
     pub(crate) next_register: usize,
-    /// Float values whose bits in a GPR `ValueResult.location` are *also* resident
-    /// in an FP virtual register (the `d`-register a float op left its result in).
-    /// Lets a chained float operand be read straight from the `d`-register instead
-    /// of round-tripping back through a GPR (plan-03 Stage C). Sound because both
-    /// names hold the same value and neither vreg is ever redefined; the allocator
-    /// keeps the FP vreg live (or spills/reloads it) wherever it is used.
-    pub(crate) float_residents: HashMap<String, abi::Reg>,
     /// Float locals currently promoted to an FP virtual register for the duration
     /// of an enclosing loop (plan-03 Stage D part 2): name -> the `%fN` holding
     /// the live value. While promoted, reads of the local come from this register
@@ -782,7 +775,6 @@ impl<'a> CodeBuilder<'a> {
             used_callee_saved: Vec::new(),
             stack_size: 0,
             next_register: 8,
-            float_residents: HashMap::new(),
             promoted_float_locals: HashMap::new(),
             address_taken_locals: HashSet::new(),
             borrow_get_locals: HashSet::new(),

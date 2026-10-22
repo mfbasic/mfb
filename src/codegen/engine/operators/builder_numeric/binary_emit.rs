@@ -386,18 +386,13 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// Materialize `value` into a `d`-register and return it. A `Float` operand
-    /// already resident in an FP virtual register (a prior float op's result, or a
-    /// `d`-native load) is returned directly with no reload; otherwise a fresh FP
-    /// virtual register is loaded (plan-03 Stage C / plan-01 float-dnative).
+    /// Materialize `value` into a `d`-register and return it. A `d`-native `Float`
+    /// operand (a prior float op's result, or a `d`-native load) is returned
+    /// directly with no reload; otherwise a fresh FP virtual register is loaded
+    /// (plan-01 float-dnative).
     pub(crate) fn operand_as_double(&mut self, value: &ValueResult) -> Result<abi::Reg, String> {
         if Self::float_is_dnative(value) {
             return Ok(abi::Reg::from(&value.location));
-        }
-        if value.type_ == ParameterType::Float {
-            if let Some(resident) = self.float_residents.get(&value.location.render()).cloned() {
-                return Ok(resident);
-            }
         }
         let dst = self.allocate_fp_register();
         self.load_numeric_as_double(&dst, value)?;

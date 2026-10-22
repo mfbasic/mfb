@@ -151,7 +151,6 @@ pub(crate) fn lower_function(
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
-        float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
         borrow_get_locals: HashSet::new(),
