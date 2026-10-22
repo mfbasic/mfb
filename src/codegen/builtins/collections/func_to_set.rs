@@ -118,7 +118,7 @@ impl CodeBuilder<'_> {
         let key_align = self.collection_payload_alignment(element_type);
         let value_align = self.collection_payload_alignment(&ParameterType::Boolean);
         let value_width = list_element_is_fixed_width(&ParameterType::Boolean)
-            .ok_or_else(|| "native toSet: the Boolean tag is not fixed-width".to_string())?;
+            .expect("a Boolean is a one-byte fixed-width value");
         let stride =
             (width.next_multiple_of(value_align) + value_width).next_multiple_of(key_align);
 
