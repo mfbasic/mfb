@@ -519,13 +519,14 @@ mod tests {
         assert_eq!(ops(&off), ops(&stream()));
     }
 
-    /// The leader's operands must be available at the end of the gap
-    /// predecessor: here `%v1` is defined only in the arm, so a copy of the
-    /// multiply placed in the gap arm would read an undefined register, and
-    /// the row declines. Likewise a physical-register operand is an ABI
+    /// Two multiplies that spell the same registers are not the same
+    /// expression unless they read the same values: here `%v1` is defined only
+    /// in the arm, so at the join it is a different SSA value (the merge of
+    /// "undefined" and the arm's definition) and the arm's multiply is no
+    /// leader for the join's. Likewise a physical-register operand is an ABI
     /// effect, not a value the row can name, so nothing is keyed on it.
     #[test]
-    fn a_leader_whose_operands_do_not_reach_the_gap_is_left_alone() {
+    fn a_multiply_over_different_values_or_physical_registers_is_left_alone() {
         let local_operand = || {
             vec![
                 ci("cmp_imm", &[("lhs", "%v9"), ("rhs", "0")]),
