@@ -16,7 +16,7 @@ use crate::manifest::package::{
     imported_type_defs, imported_type_defs_from_files, installed_package_files, package_metadata,
 };
 use crate::manifest::project_kind;
-use crate::manifest::validate_project_manifest;
+use crate::manifest::validate_project_manifest_text;
 use crate::manifest::{build_mode_is_app, icon_path};
 use crate::monomorph;
 use crate::resolver;
@@ -297,13 +297,13 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let reporter = Reporter::new(options.verbosity);
     let target = options.target.clone();
     let project_path = options.location.join("project.json");
-    let manifest = validate_project_manifest(&project_path)?;
+    let (manifest, manifest_text) = validate_project_manifest_text(&project_path)?;
     // plan-167-C: select the named config on every path of the invoked
     // project's build, so an undeclared `--config` name fails a package build
     // too. A source dependency's build (`package_output_dir` set) selects
     // nothing: it emits a `.mfp`, which never folds.
     let selected_config = if options.package_output_dir.is_none() {
-        select_build_config(options, &project_path)?
+        select_build_config(options, &project_path, &manifest_text)?
     } else {
         crate::manifest::config::SelectedConfig::default()
     };
@@ -377,8 +377,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             Some(rel) => {
                 let resolved = options.location.join(rel);
                 if !resolved.is_file() {
-                    let contents = std::fs::read_to_string(&project_path).unwrap_or_default();
-                    let (line, column) = crate::manifest::field_position(&contents, "icon");
+                    let (line, column) = crate::manifest::field_position(&manifest_text, "icon");
                     rules::show_diagnostic(
                         "PROJECT_JSON_ICON_MISSING",
                         &format!("icon `{rel}` does not resolve to a readable file."),
@@ -1214,27 +1213,21 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
 /// `--config` names, or `release` (plan-167-C), after `project-local.json` is
 /// merged over `project.json`'s `config`. Every diagnostic is rendered against
 /// the file it belongs to. An undeclared name is `PROJECT_JSON_CONFIG_UNKNOWN`
-/// at the `config` line.
+/// at the `config` line. `contents` is the `project.json` text the manifest
+/// was validated from.
 fn select_build_config(
     options: &BuildOptions,
     project_path: &Path,
+    contents: &str,
 ) -> Result<crate::manifest::config::SelectedConfig, ()> {
     use crate::manifest::config;
-    let contents = std::fs::read_to_string(project_path).map_err(|err| {
-        rules::show_diagnostic(
-            "PROJECT_JSON_READ_FAILED",
-            &err.to_string(),
-            project_path,
-            1,
-            1,
-            1,
-        );
-    })?;
     let project_config =
-        config::load_project_config(&options.location, &contents).map_err(|diagnostics| {
+        config::load_project_config(&options.location, contents).map_err(|diagnostics| {
             for diagnostic in &diagnostics {
                 let (path, text) = match diagnostic.file {
-                    config::ConfigFile::Project => (project_path.to_path_buf(), contents.clone()),
+                    config::ConfigFile::Project => {
+                        (project_path.to_path_buf(), contents.to_string())
+                    }
                     config::ConfigFile::Local => {
                         let path = options.location.join(config::PROJECT_LOCAL_JSON);
                         let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -1251,7 +1244,7 @@ fn select_build_config(
             crate::manifest::render_config_diagnostic(
                 &project_config.unknown_name(name),
                 project_path,
-                &contents,
+                contents,
             );
         })
 }

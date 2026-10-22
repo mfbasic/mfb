@@ -153,3 +153,31 @@ fn a_declared_package_that_cannot_be_decoded_stops_every_build_kind() {
     assert_eq!(build(dir.path(), &[]), Err(()));
     assert!(artifacts(dir.path()).is_empty());
 }
+
+/// A dependency the manifest declares but nothing imports, and that was never
+/// installed: no import names it, so the resolver has nothing to refuse, and
+/// the signature gate skips a missing file (it leaves the message to the
+/// install check). The install check is what stops the build — for an
+/// executable, a package, and a native dump alike — and nothing is written.
+#[test]
+fn a_declared_but_uninstalled_package_stops_every_build_kind() {
+    for (kind, flags) in [
+        ("executable", &[][..]),
+        ("package", &[][..]),
+        ("executable", &["-ncode"][..]),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        declare_base(dir.path(), kind, b"");
+        std::fs::remove_file(dir.path().join("packages/base.mfp")).unwrap();
+        assert_eq!(build(dir.path(), flags), Err(()), "{kind} {flags:?}");
+        assert!(artifacts(dir.path()).is_empty(), "{kind} {flags:?}");
+        assert!(
+            !dir.path()
+                .join(crate::os::BUILD_DIR)
+                .join("app.out")
+                .exists(),
+            "{kind} {flags:?}"
+        );
+    }
+}

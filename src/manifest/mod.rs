@@ -241,6 +241,15 @@ mod canvas_auto_paint_tests {
 pub(crate) fn validate_project_manifest(
     project_path: &Path,
 ) -> Result<HashMap<String, JsonValue>, ()> {
+    validate_project_manifest_text(project_path).map(|(manifest, _)| manifest)
+}
+
+/// [`validate_project_manifest`], also returning the `project.json` text it
+/// validated, for a caller that renders further diagnostics against that
+/// file without reading it a second time.
+pub(crate) fn validate_project_manifest_text(
+    project_path: &Path,
+) -> Result<(HashMap<String, JsonValue>, String), ()> {
     if !project_path.exists() {
         rules::show_diagnostic(
             "PROJECT_JSON_MISSING",
@@ -357,7 +366,7 @@ pub(crate) fn validate_project_manifest(
     }
 
     if valid {
-        Ok(manifest.clone())
+        Ok((manifest.clone(), contents))
     } else {
         Err(())
     }

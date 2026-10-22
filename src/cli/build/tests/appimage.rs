@@ -45,6 +45,29 @@ fn each_libc_world_s_appimage_carries_only_its_own_vendored_library() {
     assert!(contains(&musl, musl_lib) && !contains(&musl, glibc_lib));
 }
 
+/// A `libraries` entry that covers the target's OS and architecture but not
+/// one of the libc worlds a Linux build emits: the manifest check only warns
+/// (the entry exists and its files hash), and resolving the glibc world's
+/// vendor library is what refuses the build, before anything is written.
+#[test]
+fn a_vendor_library_with_no_locator_for_one_libc_world_stops_the_build() {
+    let dir = tempfile::tempdir().unwrap();
+    vendoring_project(dir.path());
+    let manifest = std::fs::read_to_string(dir.path().join("project.json")).unwrap();
+    let glibc = "      {\n        \"os\": \"linux\",\n        \"arch\": \"x86_64\",\n        \"libc\": \"glibc\",\n        \"type\": \"vendor\",\n        \"source\": \"libsndfile.so.1.0.37-x86_64-glibc\"\n      },\n";
+    assert!(manifest.contains(glibc), "fixture manifest layout changed");
+    std::fs::write(dir.path().join("project.json"), manifest.replace(glibc, "")).unwrap();
+    let project = dir.path().to_str().unwrap();
+    let options = parse_build_options(s(&["-target", "linux-x86_64", project])).expect("options");
+    assert_eq!(build_project(&options), Err(()));
+    let build = dir.path().join(crate::os::BUILD_DIR);
+    for flavor in ["glibc", "musl"] {
+        assert!(!build
+            .join(format!("libsnd_open_file_info_rt-{flavor}.out"))
+            .exists());
+    }
+}
+
 /// A `LINK` block with no `libraries` entry to locate it: the native dump
 /// refuses it as the build does.
 #[test]

@@ -407,6 +407,35 @@ fn build_project_coverage_test_writes_a_report() {
     assert!(dir.path().join(crate::testing::COVERAGE_HTML).is_file());
 }
 
+/// A coverage map that cannot be written (a directory holds its path) is a
+/// warning, not a failure: the cases still build, run and pass.
+#[test]
+fn an_unwritable_coverage_map_does_not_fail_the_test_run() {
+    let dir = tempfile::tempdir().unwrap();
+    write_executable_project(dir.path());
+    std::fs::write(
+        dir.path().join("src").join("main.mfb"),
+        concat!(
+            "FUNC main AS Integer\n",
+            "  RETURN 0\n",
+            "END FUNC\n\n",
+            "TESTING\n",
+            "  TGROUP \"g\"\n",
+            "    TCASE \"c\"\n",
+            "      expectInteger(1, 1)\n",
+            "    END TCASE\n",
+            "  END TGROUP\n",
+            "END TESTING\n"
+        ),
+    )
+    .unwrap();
+    std::fs::create_dir(dir.path().join(crate::testing::COVMAP_FILE)).unwrap();
+    let options =
+        parse_test_options(s(&["--coverage", dir.path().to_str().unwrap()])).expect("options");
+    build_project(&options).expect("the cases still pass without a coverage map");
+    assert!(dir.path().join(crate::testing::COVMAP_FILE).is_dir());
+}
+
 /// An unknown project `kind` is a warning, not an error: the build validates
 /// and returns Ok having produced no artifact (bug-300 E8).
 #[test]
