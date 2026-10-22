@@ -112,13 +112,12 @@ impl<'a> Walker<'a> {
                     // `ir::verify`'s `check_argument_state_agreement`, as for
                     // a declared FUNC; the resource itself is compared here.
                     let expected = &expected.without_state();
-                    if !self.expression_compatible(expected, &actual, value) {
+                    if let Some(actual) = self.argument_misfit(expected, &actual, value, locals) {
                         self.emit(
                             "TYPE_CALL_ARGUMENT_MISMATCH",
                             format!(
-                                "Argument {} for `{callee}` has type {}, expected {}.",
+                                "Argument {} for `{callee}` has type {actual}, expected {}.",
                                 index + 1,
-                                actual.name(),
                                 expected.name()
                             ),
                             line,
@@ -396,13 +395,14 @@ impl<'a> Walker<'a> {
                         continue;
                     };
                     let actual = self.type_of(argument, locals).without_state();
-                    if !self.expression_compatible(&params[index].type_, &actual, argument) {
+                    if let Some(actual) =
+                        self.argument_misfit(&params[index].type_, &actual, argument, locals)
+                    {
                         self.emit(
                             "TYPE_CALL_ARGUMENT_MISMATCH",
                             format!(
-                                "Argument {} for `{callee}` has type {}, expected {}.",
+                                "Argument {} for `{callee}` has type {actual}, expected {}.",
                                 index + 1,
-                                actual.name(),
                                 params[index].type_.name()
                             ),
                             line,
@@ -411,6 +411,26 @@ impl<'a> Walker<'a> {
                 }
             }
         }
+    }
+
+    /// How a user-call argument that does not fit its parameter is spelled in
+    /// the mismatch, or `None` when it fits: its type by `expression_compatible`,
+    /// except that a bare general built-in named as a value is judged by
+    /// [`Self::bare_builtin_fits`] and spelled by its NAME — its own type is
+    /// `Unknown`, which fits anything, so `useP(toString)` used to pass here and
+    /// fail in native lowering.
+    fn argument_misfit(
+        &self,
+        expected: &ParameterType,
+        actual: &ParameterType,
+        argument: &HirExpression,
+        locals: &HashMap<String, ParameterType>,
+    ) -> Option<String> {
+        if let Some(name) = self.bare_general_builtin(argument, locals) {
+            return (!self.bare_builtin_fits(name, expected)).then(|| name.to_string());
+        }
+        (!self.expression_compatible(expected, actual, argument))
+            .then(|| actual.name().into_owned())
     }
 
     /// A builtin argument-type rejection after which the checker typed the

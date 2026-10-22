@@ -165,6 +165,16 @@ the rule a call to it follows; otherwise the name is the built-in.
 A general built-in predicate named as a value (`isEven` where a
 `FUNC(Integer) AS Boolean` is expected) is selected by a separate mechanism in IR
 lowering, not by this rule. [[src/ir/lower/expression.rs:builtin_predicate_ref_type]]
+Only a predicate has such a value, and only as `FUNC(E) AS Boolean` over an
+element type `E` it accepts. Any other general built-in named as an argument —
+a non-predicate (`toString`, `len`), or a predicate whose parameter's callable
+type it does not fit (`isEmpty` where `FUNC(Integer) AS Boolean` is expected,
+`isEven` where the slot is not a unary callable) — is
+`TYPE_CALL_ARGUMENT_MISMATCH` on the call, spelling that argument by its name
+where a type would stand: "has type toString, expected FUNC(Integer) AS Boolean"
+at a declared function or function value, "argument type(s) (List OF Integer,
+toString)" at a built-in such as `collections::filter`.
+[[src/ir/shape/expressions.rs:bare_builtin_fits]] [[src/ir/shape/expressions.rs:bare_builtin_misfit]] [[src/ir/shape/calls.rs:argument_misfit]]
 
 A call through a function value supplies every parameter **positionally**.
 Declaration defaults are not retained, and missing arguments are

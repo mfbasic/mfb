@@ -418,47 +418,56 @@ impl<'a> Walker<'a> {
             // A bare general built-in predicate in the callback position
             // (bug-368): its type derives from the list's element type, and the
             // diagnostic quotes the predicate's NAME.
+            //
+            // A general built-in that is no predicate at all (`toString`, `len`)
+            // takes this path too: it has no callable type to derive, so the call
+            // is the same mismatch naming it, not an `Unknown` argument the
+            // member's callback parameter silently absorbs.
             if crate::codegen::registry::callback_member(canonical) && normalized.len() == 2 {
-                if let HirExpression::Identifier(predicate) = normalized[1] {
-                    if crate::codegen::builtins::general::builtin_function_id(predicate).is_some() {
-                        let collection = arg_types[0].clone();
-                        // plan-111-C: the typed twin, so the predicate type is a
-                        // `Func` rather than a `format!`ed spelling.
-                        let predicate_type = match &arg_types[0] {
-                            ParameterType::ListOf(element) => {
-                                crate::codegen::builtins::general::filter_predicate_type_typed(
-                                    predicate, element,
-                                )
-                            }
-                            _ => None,
-                        };
-                        let Some(predicate_type) = predicate_type else {
-                            let detail = mismatch(
-                                &[collection.name().into_owned(), predicate.clone()],
-                                expected_overloads(),
-                            );
-                            self.emit_call_typed_unknown(detail, line);
-                            return;
-                        };
-                        let trial = vec![collection, predicate_type];
-                        if builtins::resolve_call_return_type_with_kinds(
-                            canonical,
-                            &trial,
-                            true,
-                            &ShapeKinds(&self.types),
-                        )
-                        .is_none()
-                        {
-                            let names: Vec<String> =
-                                trial.iter().map(|t| t.name().into_owned()).collect();
-                            let detail = mismatch(&names, expected_overloads());
-                            self.emit_call_typed_unknown(detail, line);
+                if let Some(predicate) = self.bare_general_builtin(normalized[1], locals) {
+                    let collection = arg_types[0].clone();
+                    // plan-111-C: the typed twin, so the predicate type is a
+                    // `Func` rather than a `format!`ed spelling.
+                    let predicate_type = match &arg_types[0] {
+                        ParameterType::ListOf(element) => {
+                            crate::codegen::builtins::general::filter_predicate_type_typed(
+                                predicate, element,
+                            )
                         }
+                        _ => None,
+                    };
+                    let Some(predicate_type) = predicate_type else {
+                        let detail = mismatch(
+                            &[collection.name().into_owned(), predicate.to_string()],
+                            expected_overloads(),
+                        );
+                        self.emit_call_typed_unknown(detail, line);
                         return;
+                    };
+                    let trial = vec![collection, predicate_type];
+                    if builtins::resolve_call_return_type_with_kinds(
+                        canonical,
+                        &trial,
+                        true,
+                        &ShapeKinds(&self.types),
+                    )
+                    .is_none()
+                    {
+                        let names: Vec<String> =
+                            trial.iter().map(|t| t.name().into_owned()).collect();
+                        let detail = mismatch(&names, expected_overloads());
+                        self.emit_call_typed_unknown(detail, line);
                     }
+                    return;
                 }
             }
             if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
+                return;
+            }
+            if let Some(names) = self.bare_builtin_misfit(canonical, &arg_types, normalized, locals)
+            {
+                let detail = mismatch(&names, expected_overloads());
+                self.emit_call_typed_unknown(detail, line);
                 return;
             }
             if builtins::resolve_call_return_type_with_kinds(
@@ -557,6 +566,11 @@ impl<'a> Walker<'a> {
         if self.check_builtin_arity(callee, canonical, normalized.len(), line) {
             return;
         }
+        if let Some(names) = self.bare_builtin_misfit(canonical, &arg_types, normalized, locals) {
+            let detail = mismatch(&names, expected_overloads());
+            self.emit_call_typed_unknown(detail, line);
+            return;
+        }
         if resolve_table_call_with_byte_literals(
             canonical,
             &arg_types,
@@ -569,6 +583,85 @@ impl<'a> Walker<'a> {
             let detail = mismatch(&names, expected_overloads());
             self.emit_call_typed_unknown(detail, line);
         }
+    }
+
+    /// A bare general built-in named as a value (`isEven`, `toString` written
+    /// where a callable is expected) that no local, global or declared
+    /// function shadows. Lowering types such a name only through the callable
+    /// type its position expects (`builtin_function_id_for_type`), so on its
+    /// own it is `Unknown` — which every compatibility check accepts. The
+    /// shape pass therefore judges it by [`Self::bare_builtin_fits`] instead.
+    pub(super) fn bare_general_builtin<'e>(
+        &self,
+        expression: &'e HirExpression,
+        locals: &HashMap<String, ParameterType>,
+    ) -> Option<&'e str> {
+        let HirExpression::Identifier(name) = expression else {
+            return None;
+        };
+        let shadowed = locals.contains_key(name)
+            || self.functions.contains_key(name)
+            || self.context.binding_type(name).is_some();
+        (!shadowed && crate::codegen::builtins::general::is_general_call(name))
+            .then_some(name.as_str())
+    }
+
+    /// Whether the bare general built-in `name` can stand where `expected` is
+    /// required: only a predicate does (bug-368), as `FUNC(E) AS Boolean`
+    /// over an element `E` it accepts — the type lowering selects for it.
+    /// A non-predicate (`toString`, `len`) has no callable type at all.
+    pub(super) fn bare_builtin_fits(&self, name: &str, expected: &ParameterType) -> bool {
+        let ParameterType::Func(params, _, _) = expected else {
+            return false;
+        };
+        let [element] = params.as_slice() else {
+            return false;
+        };
+        crate::codegen::builtins::general::filter_predicate_type_typed(name, element)
+            .is_some_and(|predicate| self.compatible(expected, &predicate))
+    }
+
+    /// The argument spellings of a registry built-in call in which a bare
+    /// general built-in stands where its parameter's type — read in lowering's
+    /// `call_argument_expected_type` order — is not one it can take, each
+    /// misfit spelled by its NAME as the bug-368 mismatch spells a predicate;
+    /// `None` when every such argument fits. `collections::reduce(xs, 0,
+    /// toString)` is the mismatch `filter(xs, toString)` is, not an `Unknown`
+    /// callback the call silently accepts.
+    fn bare_builtin_misfit(
+        &self,
+        canonical: &str,
+        arg_types: &[ParameterType],
+        normalized: &[&HirExpression],
+        locals: &HashMap<String, ParameterType>,
+    ) -> Option<Vec<String>> {
+        let mut names: Vec<String> = arg_types
+            .iter()
+            .map(|type_| type_.name().into_owned())
+            .collect();
+        let mut misfit = false;
+        for (index, argument) in normalized.iter().enumerate() {
+            let Some(name) = self.bare_general_builtin(argument, locals) else {
+                continue;
+            };
+            let expected = builtins::argument_types_typed(canonical)
+                .and_then(|params| params.get(index).cloned())
+                .or_else(|| builtins::agreed_argument_type(canonical, index))
+                .or_else(|| {
+                    builtins::resolved_argument_type(
+                        canonical,
+                        index,
+                        arg_types,
+                        None,
+                        &ShapeKinds(&self.types),
+                    )
+                });
+            if !expected.is_some_and(|expected| self.bare_builtin_fits(name, &expected)) {
+                names[index] = name.to_string();
+                misfit = true;
+            }
+        }
+        misfit.then_some(names)
     }
 
     /// Whether a generic built-in call whose exact-typed selection failed

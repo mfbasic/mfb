@@ -1,0 +1,21 @@
+IMPORT collections
+
+' A general built-in named as a callback must be a predicate whose
+' FUNC(E) AS Boolean fits the slot. A non-predicate (toString, len) or a
+' predicate over an element it rejects (isEmpty over Integer) is the argument
+' mismatch naming it -- not an Unknown argument accepted by the front end and
+' left to fail in native lowering.
+FUNC useP(p AS FUNC(Integer) AS Boolean) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  LET ys = collections::filter([1, 2], toString)
+  collections::forEach([1, 2], toString)
+  LET r AS Integer = collections::reduce([1, 2], 0, len)
+  LET a AS Integer = useP(toString)
+  LET b AS Integer = useP(isEmpty)
+  MUT fns AS List OF FUNC(Integer) AS Boolean = []
+  fns = collections::append(fns, isEven)
+  RETURN 0
+END FUNC
