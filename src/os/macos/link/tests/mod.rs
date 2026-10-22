@@ -8,6 +8,7 @@ use crate::os::link_encode::{read_u32, symbol_vmaddr};
 mod bundles_and_debug;
 mod dylib_paths;
 mod mach_o;
+mod write_failures;
 
 fn import(library: &str, symbol: &str) -> EncodedImport {
     EncodedImport {
