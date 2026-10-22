@@ -126,7 +126,9 @@ fn a_doc_example_runs_to_its_end_and_keeps_its_blank_lines() {
     // open swallows the END DOC and runs to the end of the file.
     assert_eq!(
         first(&documented("  f()\n")),
-        "DOC block reached end of file before its `END DOC` line."
+        "DOC block reached end of file before its `END DOC` line: the EXAMPLE at line 4 \
+         has no `END EXAMPLE`, so every line after it, an `END DOC` included, was read as \
+         example text."
     );
     let file = parse_ok(&documented("  LET a = f()\n\n  RETURN a\nEND EXAMPLE\n"));
     let Some(Item::Doc(doc)) = file.items.iter().find(|item| matches!(item, Item::Doc(_))) else {
