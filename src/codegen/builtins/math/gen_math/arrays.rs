@@ -282,17 +282,15 @@ impl CodeBuilder<'_> {
         let code = Self::numeric_element_type_code(&element).ok_or_else(|| {
             format!("math.{function} array overload does not accept List OF {element}")
         })?;
-        let kernel = match (function, &element) {
-            ("min", ParameterType::Float) => SimdBinaryKernel::MinFloat,
-            ("max", ParameterType::Float) => SimdBinaryKernel::MaxFloat,
-            // Integer and raw Q32.32 Fixed are both signed-i64 lane compares.
-            ("min", ParameterType::Integer | ParameterType::Fixed) => SimdBinaryKernel::MinSigned,
-            ("max", ParameterType::Integer | ParameterType::Fixed) => SimdBinaryKernel::MaxSigned,
-            _ => {
-                return Err(format!(
-                    "math.{function} array overload does not accept List OF {element}"
-                ))
-            }
+        // `code` admits only Float, Integer and Fixed; Integer and raw Q32.32 Fixed
+        // are both signed-i64 lane compares. `lower_math_call` routes only `min`
+        // and `max` here.
+        let float = element == ParameterType::Float;
+        let kernel = match (function == "min", float) {
+            (true, true) => SimdBinaryKernel::MinFloat,
+            (false, true) => SimdBinaryKernel::MaxFloat,
+            (true, false) => SimdBinaryKernel::MinSigned,
+            (false, false) => SimdBinaryKernel::MaxSigned,
         };
         let text = format!("math.{function}({}, {})", left.text, right.text);
         self.lower_simd_binary(kernel, left_slot, right_slot, &result_type, code, text)
@@ -334,14 +332,12 @@ impl CodeBuilder<'_> {
         let code = Self::numeric_element_type_code(&element).ok_or_else(|| {
             format!("math.clamp array overload does not accept List OF {element}")
         })?;
-        let kernel = match element {
-            ParameterType::Float => SimdClampKernel::Float,
-            ParameterType::Integer | ParameterType::Fixed => SimdClampKernel::Signed,
-            other => {
-                return Err(format!(
-                    "math.clamp array overload does not accept List OF {other}"
-                ))
-            }
+        // `code` admits only Float, Integer and Fixed; Integer and raw Q32.32 Fixed
+        // share the signed-i64 lane clamp.
+        let kernel = if element == ParameterType::Float {
+            SimdClampKernel::Float
+        } else {
+            SimdClampKernel::Signed
         };
         let text = format!("math.clamp({}, {}, {})", input.text, low.text, high.text);
         self.lower_simd_clamp(

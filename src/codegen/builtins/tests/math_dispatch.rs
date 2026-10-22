@@ -109,3 +109,31 @@ fn a_trapped_builtin_call_is_observed_like_the_plain_call_and_a_checked_value_is
         "a Checked capture is not observed again"
     );
 }
+
+/// The array overloads (`math/gen_math/arrays.rs`) take a list of Float, Integer or
+/// Fixed — the element kinds their SIMD kernels have lanes for. A list of anything
+/// else is refused by name before any kernel is chosen.
+#[test]
+fn an_array_math_overload_refuses_a_list_it_has_no_lanes_for() {
+    let strings = ParameterType::list_of(ParameterType::String);
+    let bytes = ParameterType::list_of(ParameterType::Byte);
+    for (member, types, want) in [
+        (
+            "min",
+            vec![strings.clone(), strings.clone()],
+            "math.min array overload does not accept List OF String",
+        ),
+        (
+            "max",
+            vec![bytes.clone(), bytes.clone()],
+            "math.max array overload does not accept List OF Byte",
+        ),
+        (
+            "clamp",
+            vec![strings, ParameterType::String, ParameterType::String],
+            "math.clamp array overload does not accept List OF String",
+        ),
+    ] {
+        assert_eq!(refusal_of(member, &types), want, "math.{member}");
+    }
+}
