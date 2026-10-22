@@ -252,9 +252,8 @@ fn refined_list_literal_type(
 }
 
 /// Allocate a `List OF Byte` of `count_off` elements: size the block, write the
-/// header, and fill the lookup table with the identity mapping
-/// (`valueOffset = i`, `valueLength = 1`). The payload bytes are left
-/// uninitialized for the caller to fill.
+/// header (a fixed-width list has no lookup table, plan-57-D). The payload bytes
+/// are left uninitialized for the caller to fill.
 ///
 /// Lives here rather than in `audio/` (plan-58-B): `link_thunk`'s `OUT CBuffer`
 /// staging needs the same block, and a LINK thunk reaching into the audio module
@@ -282,14 +281,12 @@ pub(crate) fn emit_alloc_byte_list(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let entry_loop = format!("{symbol}_{tag}_bl_entry");
-    let entry_done = format!("{symbol}_{tag}_bl_entry_done");
     // Minted from the one per-compilation id source every caller's minter draws
     // on (bug-721), so none of these can alias a register the caller holds. The
     // callers share nothing with this body but frame slots, and the signature
     // stays as the five call sites know it. `vN` is the register once spelled `%vN`.
     let mut vregs = Vregs::new();
-    let [v9, v10, v11, v12, v13, v14, v15] = std::array::from_fn(|_| vregs.next());
+    let [v9, v10, v11, v12, _, _, v15] = std::array::from_fn(|_| vregs.next());
     instructions.extend([
         abi::load_u64(v10, abi::stack_pointer(), count_off),
         abi::move_immediate(v11, "Integer", &byte_list_entry_stride().to_string()),
@@ -315,38 +312,19 @@ pub(crate) fn emit_alloc_byte_list(
         abi::store_u64(v10, v15, COLLECTION_OFFSET_CAPACITY),
         abi::store_u64(v10, v15, COLLECTION_OFFSET_DATA_LENGTH),
         abi::store_u64(v10, v15, COLLECTION_OFFSET_DATA_CAPACITY),
-        // entry array: entry[i] = { USED, value_offset=i, value_length=1 }
     ]);
-    // kind 2 has no entry array to fill (plan-57-D), so the ENTIRE loop is
-    // skipped — not just its body.
-    //
-    // plan-57-D guarded only the body, which left `label; cmp i,count;
-    // bge done; i++; b loop` behind: a no-op loop that still ran `count` times at
-    // RUNTIME. Every audio capture allocation paid it, and it scales with the
-    // buffer — a 3-minute stereo 48 kHz read burned ~34 million iterations doing
-    // nothing. Correct output, silently linear waste, which is why nothing caught
-    // it. The header stores above already set count/capacity/dataLength/
-    // dataCapacity, so under kind 2 there is nothing left for the loop to do.
-    if byte_list_entry_stride() != 0 {
-        instructions.extend([
-            abi::add_immediate(v11, v15, COLLECTION_HEADER_SIZE), // entry cursor
-            abi::move_immediate(v13, "Integer", "0"),             // i
-            abi::label(&entry_loop),
-            abi::compare_registers(v13, v10),
-            abi::branch_ge(&entry_done),
-            abi::move_immediate(v14, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8(v14, v11, COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64(v13, v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate(v14, "Integer", "1"),
-            abi::store_u64(v14, v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-            abi::add_immediate(v11, v11, byte_list_entry_stride()),
-            abi::add_immediate(v13, v13, 1),
-            abi::branch(&entry_loop),
-            abi::label(&entry_done),
-        ]);
-    }
+    // A `List OF Byte` is a fixed-width (kind 2) list: it has no entry array to fill
+    // (plan-57-D), so the header stores above are the whole block. (plan-57-D first
+    // guarded only the loop's BODY, which left a no-op loop running `count` times at
+    // run time on every audio capture allocation — ~34 million iterations for a
+    // 3-minute stereo 48 kHz read.) The identity-mapped entry loop this once wrote
+    // for a stride-carrying layout is gone with that layout; should Byte lists ever
+    // carry entries again, this allocation must fill them, hence the pin.
+    debug_assert_eq!(
+        byte_list_entry_stride(),
+        0,
+        "a List OF Byte has no entry array; emit_alloc_byte_list writes none"
+    );
 }
 
 /// The `kind` byte for a `List OF Byte`, for those same runtime helpers.
