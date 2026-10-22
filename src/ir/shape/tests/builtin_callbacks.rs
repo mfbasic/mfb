@@ -152,3 +152,37 @@ END FUNC
         [mismatch(5, "toString"), mismatch(6, "isEmpty")]
     );
 }
+
+/// A bare general built-in passed to a package member's plain (non-callable)
+/// parameter is a mismatch naming the built-in in place of its type: through
+/// the shared package table (`math::sqrt`) as through `collections`.
+#[test]
+fn a_builtin_passed_to_a_package_members_plain_parameter_is_named() {
+    let src = "\
+IMPORT math
+IMPORT collections
+FUNC main() AS Integer
+  LET f AS Float = math::sqrt(toString)
+  LET xs AS List OF Integer = collections::append([1], toString)
+  RETURN 0
+END FUNC
+";
+    assert_eq!(
+        located_mismatches(src),
+        [
+            (
+                "TYPE_CALL_ARGUMENT_MISMATCH".to_string(),
+                4,
+                "Call to `math.sqrt` has argument type(s) (toString), expected Float | Fixed."
+                    .to_string()
+            ),
+            (
+                "TYPE_CALL_ARGUMENT_MISMATCH".to_string(),
+                5,
+                "Call to `collections.append` has argument type(s) (List OF Integer, toString), \
+                 expected List OF T, T or List OF T, List OF T."
+                    .to_string()
+            ),
+        ]
+    );
+}
