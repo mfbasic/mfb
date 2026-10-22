@@ -53,6 +53,8 @@ mod nir_context;
 #[cfg(test)]
 mod operator_refusals;
 #[cfg(test)]
+mod ownership_refusals;
+#[cfg(test)]
 mod platform_family;
 #[cfg(test)]
 mod provable_index_loops;
