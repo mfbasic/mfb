@@ -760,3 +760,5 @@ fn walk_visits_diverse_expression_and_statement_forms() {
     assert!(flow.iter().any(|f| f.function == "f"));
     assert!(permissions.iter().any(|p| p.capability == "filesystem"));
 }
+
+mod walks;
