@@ -274,7 +274,6 @@ fn refined_list_literal_type(
 /// Decisions).
 pub(crate) fn emit_alloc_byte_list(
     symbol: &str,
-    tag: &str,
     count_off: usize,
     list_off: usize,
     alloc_fail: &str,
@@ -283,8 +282,8 @@ pub(crate) fn emit_alloc_byte_list(
 ) {
     // Minted from the one per-compilation id source every caller's minter draws
     // on (bug-721), so none of these can alias a register the caller holds. The
-    // callers share nothing with this body but frame slots, and the signature
-    // stays as the five call sites know it. `vN` is the register once spelled `%vN`.
+    // callers share nothing with this body but frame slots. `vN` is the register
+    // once spelled `%vN`.
     let mut vregs = Vregs::new();
     let [v9, v10, v11, v12, _, _, v15] = std::array::from_fn(|_| vregs.next());
     instructions.extend([

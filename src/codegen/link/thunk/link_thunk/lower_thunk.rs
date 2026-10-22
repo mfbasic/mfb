@@ -439,7 +439,6 @@ pub(super) fn lower_link_thunk(
         // callee writes nothing.
         emit_alloc_byte_list(
             &symbol,
-            &format!("cbuf{buf_seq}"),
             phys_off,
             out_off,
             &alloc_fail,

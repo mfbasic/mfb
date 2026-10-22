@@ -741,7 +741,6 @@ pub(crate) fn lower_read(
     // its payload base. `got` accumulates across ring fills.
     emit_alloc_byte_list(
         symbol,
-        "main",
         NEED_OFF,
         LIST_PTR_OFF,
         &alloc_fail,
@@ -933,7 +932,6 @@ pub(crate) fn lower_read(
     ]);
     emit_alloc_byte_list(
         symbol,
-        "final",
         BYTES_GOT_OFF,
         FINAL_LIST_OFF,
         &alloc_fail,

@@ -58,7 +58,6 @@ pub(crate) fn lower_new_surface(
 
     emit_alloc_byte_list(
         &symbol,
-        "canvas_surface",
         count_slot,
         list_slot,
         &fail,

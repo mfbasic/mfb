@@ -169,7 +169,7 @@ pub(crate) fn lower_read(
             abi::store_u64(&v9, abi::stack_pointer(), TIMEOUT_OFF),
         ]);
     }
-    emit_alloc_byte_list(symbol, "main", NEED_OFF, LIST_OFF, &alloc_fail, &mut ins, &mut rel);
+    emit_alloc_byte_list(symbol, NEED_OFF, LIST_OFF, &alloc_fail, &mut ins, &mut rel);
     ins.extend([
         abi::load_u64(&v11, abi::stack_pointer(), LIST_OFF),
         abi::load_u64(&v9, abi::stack_pointer(), NEED_OFF),
@@ -359,7 +359,7 @@ pub(crate) fn lower_read(
             abi::multiply_registers(&v9, &v9, &v13),
             abi::store_u64(&v9, abi::stack_pointer(), GOTBYTES_OFF),
         ]);
-        emit_alloc_byte_list(symbol, "final", GOTBYTES_OFF, FINAL_LIST_OFF, &alloc_fail, &mut ins, &mut rel);
+        emit_alloc_byte_list(symbol, GOTBYTES_OFF, FINAL_LIST_OFF, &alloc_fail, &mut ins, &mut rel);
         ins.extend([
             abi::load_u64(&v9, abi::stack_pointer(), GOTBYTES_OFF),
             abi::load_u64(&v11, abi::stack_pointer(), FINAL_LIST_OFF),

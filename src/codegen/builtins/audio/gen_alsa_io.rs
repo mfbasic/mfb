@@ -304,7 +304,6 @@ pub(crate) fn lower_read(
     }
     emit_alloc_byte_list(
         symbol,
-        "main",
         NEED_OFF,
         LIST_OFF,
         &alloc_fail,
@@ -617,7 +616,6 @@ pub(crate) fn lower_read(
         ]);
         emit_alloc_byte_list(
             symbol,
-            "final",
             GOTBYTES_OFF,
             FINAL_LIST_OFF,
             &alloc_fail,
