@@ -89,19 +89,9 @@ pub(super) fn marshal_struct_in(
                 function.alias, function.name, field.name, decl.name
             ));
         };
-        // `check_cstruct` rejects a field ctype outside the 16 before lowering,
-        // and `compute_c_layout` above would have failed on one, so this is
-        // always `Some` here — but it stays a hard error rather than a default.
-        let Some(ctype) = decl.fields[pos].ctype.c_abi() else {
-            return Err(format!(
-                "LINK function '{}.{}' CSTRUCT '{}' field '{}' has unknown C type '{}'",
-                function.alias,
-                function.name,
-                decl.name,
-                field.name,
-                decl.fields[pos].ctype.name()
-            ));
-        };
+        // `layout` is `decl`'s (`compute_c_layout`, which refuses a field with no
+        // C ABI type), so every field has its type there.
+        let ctype = layout.ctypes[pos];
         let off = buf_off + layout.offsets[pos];
 
         // plan-50-F: a `CString` field takes an MFBASIC String and gives C a
@@ -277,18 +267,9 @@ pub(super) fn marshal_struct_out(
                 function.alias, function.name, decl.maps_to
             ));
         };
-        // `check_cstruct` rejected any field outside the 16 before lowering; the
-        // hard error stands in for the `_` a `&str` scrutinee would have needed.
-        let Some(ctype) = decl.fields[cpos].ctype.c_abi() else {
-            return Err(format!(
-                "LINK function '{}.{}' CSTRUCT '{}' field '{rname}' has unknown C type '{}'",
-                function.alias,
-                function.name,
-                decl.name,
-                decl.fields[cpos].ctype.name()
-            ));
-        };
-        plan.push((rec_idx, ctype, buf_off + layout.offsets[cpos]));
+        // `layout` is `decl`'s (`compute_c_layout`, which refuses a field with no
+        // C ABI type), so every field has its type there.
+        plan.push((rec_idx, layout.ctypes[cpos], buf_off + layout.offsets[cpos]));
     }
 
     // Pass 0: measure. For each CString field stash [char*, len] and validate the

@@ -73,12 +73,15 @@ pub(crate) struct IrCStructField {
 }
 
 /// A computed C struct layout: total size, alignment, and each field's byte
-/// offset (parallel to the declaration order).
+/// offset and C ABI type (both parallel to the declaration order). A layout
+/// exists only when every field has a C ABI type, so the marshalling code reads
+/// a field's type here instead of re-deriving it from the declaration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CLayout {
     pub(crate) size: usize,
     pub(crate) align: usize,
     pub(crate) offsets: Vec<usize>,
+    pub(crate) ctypes: Vec<CAbiType>,
 }
 
 /// The `(size, align)` of an ABI ctype as a C struct member, for `target`.
@@ -140,11 +143,17 @@ pub(crate) fn compute_c_layout(
     let mut offset = 0usize;
     let mut struct_align = 1usize;
     let mut offsets = Vec::with_capacity(fields.len());
+    let mut ctypes = Vec::with_capacity(fields.len());
     for (name, ctype) in fields {
-        let (fsize, falign) = ctype_size_align(ctype, target)
+        // `ctype_size_align` answers only for a type with a C ABI, so the pair is
+        // `Some` exactly when it is.
+        let (abi, (fsize, falign)) = ctype
+            .c_abi()
+            .zip(ctype_size_align(ctype, target))
             .ok_or_else(|| format!("field `{name}` has no C layout for type `{}`", ctype.name()))?;
         offset = offset.div_ceil(falign) * falign;
         offsets.push(offset);
+        ctypes.push(abi);
         offset += fsize;
         struct_align = struct_align.max(falign);
     }
@@ -153,6 +162,7 @@ pub(crate) fn compute_c_layout(
         size,
         align: struct_align,
         offsets,
+        ctypes,
     })
 }
 
