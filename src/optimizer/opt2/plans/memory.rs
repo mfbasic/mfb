@@ -183,17 +183,21 @@ pub(crate) fn forwardable_loads(
 
     // Single-definition int vregs: the only registers whose value at a later
     // point is provably still the one this analysis recorded.
-    // `def_at` keeps each register's (last) defining instruction: for a
-    // single-def holder that is THE definition, which the partial-load test
-    // needs to know where the holder is live.
+    // `uses_at` lists each register's reading instructions: the partial-load
+    // test needs to know where a holder is still read.
     let mut def_count: HashMap<Var, u32> = HashMap::new();
-    let mut def_at: HashMap<Var, usize> = HashMap::new();
+    let mut uses_at: HashMap<Var, Vec<usize>> = HashMap::new();
     for (index, instruction) in instructions.iter().enumerate() {
         for model in [&models.0, &models.1] {
-            for def in effect(instruction, model).defs {
+            let effect = effect(instruction, model);
+            for def in effect.defs {
                 if let RegRef::VReg(id) = def {
                     *def_count.entry((model.is_fp, id)).or_insert(0) += 1;
-                    def_at.insert((model.is_fp, id), index);
+                }
+            }
+            for used in effect.uses {
+                if let RegRef::VReg(id) = used {
+                    uses_at.entry((model.is_fp, id)).or_default().push(index);
                 }
             }
         }
@@ -277,7 +281,7 @@ pub(crate) fn forwardable_loads(
                     // longer describe what is true at this point.
                     let holders = Holders {
                         def_count: &def_count,
-                        def_at: &def_at,
+                        uses_at: &uses_at,
                     };
                     if let Some(candidate) =
                         partially_available(blocks, &preds[b], &exit_state, &holders, i, offset)
@@ -292,20 +296,19 @@ pub(crate) fn forwardable_loads(
     (found, partial)
 }
 
-/// Where each register is defined: how many times, and (for a single-def
-/// register) by which instruction.
+/// How many times each register is defined, and which instructions read it.
 struct Holders<'a> {
     def_count: &'a HashMap<Var, u32>,
-    def_at: &'a HashMap<Var, usize>,
+    uses_at: &'a HashMap<Var, Vec<usize>>,
 }
 
 /// The Store PRE / Load PRE test: all but one predecessor leave the slot's
 /// value in the same single-definition register, the odd one out reaches
 /// this block unconditionally (so a load placed at its end runs exactly as
-/// often as the edge into this block is taken), and the holder's definition
-/// cannot reach the odd one out (the placed load REDEFINES the holder, so the
-/// holder must carry no value of its own on that path — otherwise every later
-/// reader of the holder on the gap path would see the reloaded slot instead).
+/// often as the edge into this block is taken), and nothing reads the holder
+/// once the odd one out has run (the placed load REDEFINES the holder, so any
+/// such reader — the gap's own terminator, or anything reachable from its
+/// successors — would see the reloaded slot instead of the holder's value).
 fn partially_available(
     blocks: &[Block],
     preds: &[usize],
@@ -349,9 +352,15 @@ fn partially_available(
     if blocks[gap].succ.len() != 1 {
         return None;
     }
-    let def_block = block_of(blocks, *holders.def_at.get(&leader.holder_var)?);
-    if reaches(blocks, def_block, gap) {
-        return None;
+    if let Some(uses) = holders.uses_at.get(&leader.holder_var) {
+        let after_gap = reachable_from_successors(blocks, gap);
+        let terminator = blocks[gap].end - 1;
+        if uses
+            .iter()
+            .any(|&used| used == terminator || after_gap[block_of(blocks, used)])
+        {
+            return None;
+        }
     }
     Some(PartialLoad {
         inst,
@@ -366,16 +375,18 @@ fn block_of(blocks: &[Block], inst: usize) -> usize {
     blocks.partition_point(|block| block.start <= inst) - 1
 }
 
-/// Whether some CFG path leads from block `from` to block `to` (`from`
-/// itself included).
-fn reaches(blocks: &[Block], from: usize, to: usize) -> bool {
+/// The blocks some CFG path reaches from the end of block `from` (through its
+/// successors; `from` itself only when it lies on a cycle).
+fn reachable_from_successors(blocks: &[Block], from: usize) -> Vec<bool> {
     let mut seen = vec![false; blocks.len()];
-    let mut stack = vec![from];
-    seen[from] = true;
-    while let Some(b) = stack.pop() {
-        if b == to {
-            return true;
+    let mut stack: Vec<usize> = Vec::new();
+    for &s in &blocks[from].succ {
+        if !seen[s] {
+            seen[s] = true;
+            stack.push(s);
         }
+    }
+    while let Some(b) = stack.pop() {
         for &s in &blocks[b].succ {
             if !seen[s] {
                 seen[s] = true;
@@ -383,7 +394,7 @@ fn reaches(blocks: &[Block], from: usize, to: usize) -> bool {
             }
         }
     }
-    false
+    seen
 }
 
 /// The block's entry state: empty for the entry block, otherwise the meet of
