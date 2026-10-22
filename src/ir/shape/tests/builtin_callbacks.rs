@@ -225,3 +225,39 @@ fn no_general_builtin_is_a_callback_member() {
     // The control: a collections callback member is one.
     assert!(crate::codegen::registry::callback_member_bare("filter"));
 }
+
+/// The cascade a mistyped initializer draws is the same under an inline
+/// TRAP as without it, and a non-predicate built-in bound where a predicate
+/// type is declared has no known type (it is no predicate), not an accepted
+/// `Unknown`.
+#[test]
+fn unknown_initializers_cascade_under_an_inline_trap_and_for_a_non_predicate() {
+    let src = "\
+IMPORT math
+FUNC main() AS Integer
+  LET x AS Float = math::cos(1) TRAP(e)
+    RECOVER 0.0
+  END TRAP
+  LET f AS FUNC(Integer) AS Boolean = toString
+  RETURN 0
+END FUNC
+";
+    let unknown = |binding: &str| {
+        (
+            "TYPE_UNKNOWN_VALUE".to_string(),
+            format!("Initializer for binding `{binding}` does not have a known type."),
+        )
+    };
+    assert_eq!(
+        found(src),
+        [
+            (
+                "TYPE_CALL_ARGUMENT_MISMATCH".to_string(),
+                "Call to `math.cos` has argument type(s) (Integer), expected Float | Fixed."
+                    .to_string()
+            ),
+            unknown("x"),
+            unknown("f"),
+        ]
+    );
+}
