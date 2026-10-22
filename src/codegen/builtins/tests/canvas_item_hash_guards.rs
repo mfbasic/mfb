@@ -208,6 +208,20 @@ fn scene_hashes_without_the_carried_hashes_is_refused() {
     );
 }
 
+/// `itemHash` and `sceneIdBits` each read one argument; a body handed none names the
+/// argument it is missing instead of reading a register nothing set.
+#[test]
+fn the_single_argument_bodies_without_their_argument_are_refused() {
+    assert_eq!(
+        lower("itemHash", &[], &[]).err().as_deref(),
+        Some("'_mfb_canvas_probe' expects the DrawItem argument")
+    );
+    assert_eq!(
+        lower("sceneIdBits", &[], &[]).err().as_deref(),
+        Some("'_mfb_canvas_probe' expects the scene list argument")
+    );
+}
+
 /// The id pass reads every hashed variant's id from its record's FIRST slot, and a
 /// picture's shape's id one load further: a variant that breaks either assumption
 /// fails the build instead of answering from the wrong slot.
