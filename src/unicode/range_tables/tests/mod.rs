@@ -193,3 +193,24 @@ fn a_value_table_whose_names_are_not_integers_is_refused() {
     };
     let _ = table.values_hex();
 }
+
+/// A corrupt embedded table fails loudly at first use, naming the artifact
+/// and the offending line, instead of yielding a wrong lookup.
+#[test]
+#[should_panic(expected = "t.txt: malformed run line `1114111`")]
+fn a_run_line_without_a_name_is_refused() {
+    parse("# header\n1114111\n", "t.txt");
+}
+
+#[test]
+#[should_panic(expected = "t.txt: non-numeric run end in `x Lu`")]
+fn a_run_line_with_a_non_numeric_end_is_refused() {
+    parse("x Lu\n", "t.txt");
+}
+
+#[test]
+fn a_well_formed_table_parses_into_runs_and_names() {
+    let table = parse("# c\n64 Cc\n\n1114111 Lu\n", "t.txt");
+    assert_eq!(table.runs, vec![(64, 0), (0x10FFFF, 1)]);
+    assert_eq!(table.names, vec!["Cc", "Lu"]);
+}
