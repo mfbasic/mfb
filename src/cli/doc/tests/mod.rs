@@ -185,3 +185,29 @@ fn run_doc_command_write_failure_returns_one() {
     ]));
     assert_eq!(code, 1);
 }
+
+/// A DOC block that fails validation still writes the page, but the command
+/// exits 1 (the diagnostics were already reported).
+#[test]
+fn run_doc_command_writes_the_page_and_exits_one_for_an_invalid_doc_block() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("prog.mfb");
+    fs::write(
+        &file,
+        "DOC\n  FUNC main\n  PROP p A property is not valid on a function.\nEND DOC\n\
+         FUNC main() AS Nothing\nEND FUNC\n",
+    )
+    .unwrap();
+    let out = dir.path().join("out.html");
+    let (code, diagnostics) = crate::rules::collecting_diagnostics(|| {
+        run_doc_command(&s(&[
+            file.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ]))
+    });
+    assert_eq!(code, 1);
+    let rules: Vec<&str> = diagnostics.iter().map(|(rule, _)| rule.as_str()).collect();
+    assert_eq!(rules, vec!["DOC_PROP_INVALID_CONTEXT"]);
+    assert!(out.is_file());
+}
