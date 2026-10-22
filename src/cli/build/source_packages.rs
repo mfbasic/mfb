@@ -143,11 +143,10 @@ fn source_dependency_dirs(
     };
     packages
         .iter()
+        // `project_package_dependency` drops an entry whose name is not a valid
+        // package name, so every name here is a single path component.
         .filter_map(crate::manifest::package::project_package_dependency)
         .filter_map(|dependency| {
-            if crate::manifest::package::validate_package_name(&dependency.name).is_err() {
-                return None;
-            }
             if project_dir
                 .join("packages")
                 .join(format!("{}.mfp", dependency.name))
