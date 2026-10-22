@@ -91,15 +91,10 @@ impl CodeBuilder<'_> {
         // here "for the string-typed payload emitters below" is gone with
         // plan-111-E: those emitters take the type.
         let map_entry_types = match &iterable_value.type_ {
-            ParameterType::MapOf(..) => {
-                let (key, value) =
-                    typed_map_type_parts(&iterable_value.type_).ok_or_else(|| {
-                        format!(
-                            "native code FOR EACH target '{}' is not a valid map type",
-                            iterable_value.type_
-                        )
-                    })?;
-                Some((key.clone(), value.clone()))
+            // `typed_map_type_parts`'s own split, taken from the arm that matched:
+            // the key, and the value with any `RES` marker stripped.
+            ParameterType::MapOf(key, value) => {
+                Some(((**key).clone(), typed_strip_res_marker(value).clone()))
             }
             _ => None,
         };
