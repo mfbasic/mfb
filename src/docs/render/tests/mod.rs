@@ -199,3 +199,69 @@ fn horizontal_rule_spans_width() {
     let out = render("---", &plain_style(10));
     assert_eq!(out, "─".repeat(10));
 }
+
+fn color_style(width: usize) -> Style {
+    Style { width, color: true }
+}
+
+#[test]
+fn an_unclosed_fence_runs_to_the_end_and_a_bare_heading_is_empty() {
+    let out = render("```\nlet x = 1\n", &plain_style(80));
+    assert_eq!(out.lines().next(), Some("  let x = 1"));
+    // Four or more hashes render as a level-3 heading; a bare run of hashes
+    // is a heading with no text.
+    assert_eq!(
+        render("#### Deep", &plain_style(80)),
+        render("### Deep", &plain_style(80))
+    );
+    assert_eq!(
+        render("####", &plain_style(80)),
+        render("###", &plain_style(80))
+    );
+}
+
+#[test]
+fn table_columns_align_left_center_and_right() {
+    let md = "| a | b | c |\n|:---|:---:|---:|\n| 1 | 22 | 333 |\n| 4444 | 5 | 6 |\n";
+    let out = render(md, &plain_style(80));
+    // Left pads after the text, right before it, center splits the padding
+    // (the odd space after).
+    assert!(
+        out.lines().any(|line| line == "│ 1    │ 22 │ 333 │"),
+        "{out}"
+    );
+    assert!(
+        out.lines().any(|line| line == "│ 4444 │ 5  │   6 │"),
+        "{out}"
+    );
+    let wide = render("| x |\n|:---:|\n| abcde |\n| a |\n", &plain_style(80));
+    assert!(wide.lines().any(|line| line == "│   a   │"), "{wide}");
+}
+
+#[test]
+fn a_cell_ending_in_a_backslash_keeps_it() {
+    let out = render("| a |\n|---|\n| x\\ |\n", &plain_style(80));
+    assert!(out.contains("x\\"), "{out}");
+}
+
+#[test]
+fn a_citation_left_open_and_a_link_without_a_target_render_as_text() {
+    assert_eq!(plain("see [[file:sym and more"), "see [[file:sym and more");
+    assert_eq!(plain("a [b] c"), "a [b] c");
+    assert_eq!(plain("a [b](x c"), "a [b](x c");
+}
+
+#[test]
+fn italic_and_bold_are_styled_with_color() {
+    let out = render("*slanted* and **heavy**", &color_style(80));
+    assert!(out.contains("\x1b[3mslanted"), "{out:?}");
+    assert!(out.contains("heavy"), "{out:?}");
+    let heading = render("# Title", &color_style(80));
+    assert!(heading.contains("\x1b[1m"), "{heading:?}");
+}
+
+#[test]
+fn an_empty_list_item_still_shows_its_marker() {
+    let out = render("- ", &plain_style(80));
+    assert!(out.contains('•'), "{out:?}");
+}
