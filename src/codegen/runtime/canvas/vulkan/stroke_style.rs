@@ -10,9 +10,7 @@ use super::*;
 /// The words are float32 bit patterns: the phase (header slot `HEADER_DASH_PHASE`), then
 /// the record's dash tail — the entry count, the period, each entry's end, and the kind's
 /// perimeter data (`helper_dashes.rs`) — found at `slot1 − stops·5 − dashes`, right before
-/// the gradient stops. Floats rather than 16.16: the pattern's lengths and an outline's
-/// perimeter positions are compared, never added to a coordinate, and fp32 holds a
-/// thousand-pixel perimeter to 6e-5 px. A frame whose words would pass the region's cap
+/// the gradient stops. fp32 holds a thousand-pixel perimeter to 6e-5 px. A frame whose words would pass the region's cap
 /// is declined by the predicate, so the over-cap arm is unreachable and leaves the stroke
 /// solid rather than write past the region.
 pub(super) fn emit_dash_upload(
@@ -165,6 +163,12 @@ pub(super) fn emit_dash_upload(
     builder.emit(abi::label(&done));
 }
 
+/// plan-163-B: the item's join records (`helper_joins.rs`) into the frame's edge region
+/// after its own edges, two edge slots per record -- each record's four points as eight
+/// float32 words, exactly as an edge's endpoints travel. `strokeStyle.x` is the first slot and `strokeStyle.y` the
+/// record count; both are 0 for an item with none, and so are the dash words. The
+/// records sit right before the gradient stops, so they are found from the record's end:
+/// `header + (slot1 - stops * 5 - records * 8) * 8`. Metal's `emit_join_buffer` twin.
 pub(super) fn emit_join_upload(
     builder: &mut CodeBuilder,
     off_state: usize,
@@ -181,9 +185,6 @@ pub(super) fn emit_join_upload(
     let source = abi::SCRATCH[4];
     let target = abi::SCRATCH[5];
     let slots = abi::SCRATCH[6];
-    let residual_target = abi::SCRATCH[1];
-    let scale = abi::FP_SCRATCH[0];
-    let residual_scale = abi::FP_SCRATCH[3];
     let style = off_item + ITEM_OFFSET_STROKE_STYLE;
 
     builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
@@ -251,27 +252,6 @@ pub(super) fn emit_join_upload(
         abi::stack_pointer(),
         off_edge_cursor,
     ));
-    builder.emit(abi::move_immediate(
-        residual_target,
-        "Integer",
-        &(VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4).to_string(),
-    ));
-    builder.emit(abi::add_registers(residual_target, residual_target, target));
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(
-        residual_scale,
-        abi::SCRATCH[0],
-    ));
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
     // source = header + (slot1 - stops * 5 - dashes - records * 8) * 8: the dash tail
     // (plan-163-B) sits between the records and the stops.
     builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 8));
@@ -330,37 +310,11 @@ pub(super) fn emit_join_upload(
     builder.emit(abi::branch_ge(&done));
     for word in 0..4usize {
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, word * 8));
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[0], abi::FP_SCRATCH[1]) {
+            builder.emit(instruction);
+        }
         builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
         builder.emit(abi::add_immediate(target, target, 4));
-        builder.emit(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[0],
-        ));
-        builder.emit(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
-        builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
-        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
     }
     builder.emit(abi::add_immediate(source, source, 32));
     builder.emit(abi::add_immediate(index, index, 1));

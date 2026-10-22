@@ -21,12 +21,12 @@
 # the oracle (11.8% of the frame, past GPU_DEFAULT's 2%) — blend precision, not edges.
 #
 # The six `*_on_black` rows are bug-687's: shapes over the default black surface, where
-# one step of coverage is several sRGB levels, so a GPU distance that rounds to a different
-# coverage step than the oracle's shows past `GPU_DEFAULT`. The eleven after them are
+# one step of coverage is up to 13 sRGB levels -- the step `GPU_DEFAULT` allows the GPUs'
+# fp32 distances to round to, and no more. The eleven after them are
 # bug-735's: the same bar for every other shape kind, a non-grid stroke half-width, a
 # non-grid group offset, transformed and clipped shapes, and rectangle and clip edges
-# placed beside a coverage step; and `hairline`, a blended item stroked under the 16.16
-# step, which the draw list and the emitters used to split differently. `groupaffine` is
+# placed beside a coverage step; and `hairline`, a blended item stroked thinner than
+# 2^-16 px, which the draw list and the emitters used to split differently. `groupaffine` is
 # plan-172-H's: groups turned, scaled unevenly and nested, carrying a gradient, a
 # rectangle clip, a stroke and a run of text (the fixture font is shipped with it).
 # `particles` and `particlesgroup` are plan-150-A's: `canvas::ParticleSystem`, each live
@@ -43,8 +43,8 @@
 # under every cap, join, dash and fill rule, under their own transforms and inside turned
 # groups, under an `AutoPaint` (at rest and hovered), as a `Picture`'s shape, and a few
 # thousandths of a unit across under a 30,000-fold transform, which draws right only if
-# every piece's residual words reached the buffer. They are judged under
-# `Tolerance::GPU_CURVE`. `vertexrow` is the bug that plan found in the POLYGON path:
+# every piece reaches the GPU as float32 rather than 16.16 fixed point (a 16.16 step is
+# half a pixel there). `vertexrow` is the bug that plan found in the POLYGON path:
 # polygons with a vertex exactly on a pixel-centre row, where the double-float crossing
 # test rebuilt an edge's end as `a + (b - a)` and two edges disagreed about the vertex
 # they share -- one whole row of the shape inverted.
@@ -148,8 +148,6 @@ host="test@127.0.0.1"
 
 # name | scene file | kind [| NAME=value]
 #   render   sw + gpu, compared; the gpu frame must be a GPU frame
-#   curve    as `render`, judged under Tolerance::GPU_CURVE (a frame that draws a curve
-#            shape; `tests/common/canvas_image.rs`)
 #   geo      one GPU run with MFB_CANVAS_SYNC; geometry verification only
 #   race     one GPU run WITHOUT MFB_CANVAS_SYNC; geometry verification only
 # The optional fourth field is one environment assignment every run of the row gets.
@@ -201,12 +199,12 @@ pictureshapes|picture_shapes_on_black|render
 pictureauto|picture_shapes_on_black|render|MFB_CANVAS_POINTER=0,770,470,0,1
 texeledge|picture_texel_edge|render
 hairline|blended_hairline_stroke|render
-curves|curves|curve
-curveshover|curves|curve|MFB_CANVAS_POINTER=0,200,440,0,1
-curvestrokes|curve_strokes_on_black|curve
-curvesplaced|curves_placed_on_black|curve
-curvepictures|curve_pictures_on_black|curve
-curveresiduals|curve_residuals_on_black|curve
+curves|curves|render
+curveshover|curves|render|MFB_CANVAS_POINTER=0,200,440,0,1
+curvestrokes|curve_strokes_on_black|render
+curvesplaced|curves_placed_on_black|render
+curvepictures|curve_pictures_on_black|render
+curveresiduals|curve_residuals_on_black|render
 vertexrow|vertex_on_a_pixel_row|render
 items65535|many_items|render|MFB_TEST_ITEMS=65535
 items65536|many_items|render|MFB_TEST_ITEMS=65536
@@ -348,7 +346,7 @@ while IFS='|' read -r row scene kind ROW_ENV <&3; do
   echo "--- $row ($scene, $kind) ---"
   ship "$row" "$scene"
   case "$kind" in
-    render|curve)
+    render)
       run_remote "$row" sw 1 0
       run_remote "$row" gpu 1 1
       sw_stats="$(tail -1 "$work/$row/sw.txt" 2>/dev/null || true)"
@@ -380,9 +378,7 @@ while IFS='|' read -r row scene kind ROW_ENV <&3; do
         cp "$work/$row/sw.rgba" "$KEEP/$row-sw.rgba"
         cp "$work/$row/gpu.rgba" "$KEEP/$row-gpu.rgba"
       fi
-      tolerance=""
-      [ "$kind" = curve ] && tolerance=curve
-      verdict="$(python3 scripts/rgba_compare.py "$work/$row/sw.rgba" "$work/$row/gpu.rgba" 900 $tolerance 2>&1 || true)"
+      verdict="$(python3 scripts/rgba_compare.py "$work/$row/sw.rgba" "$work/$row/gpu.rgba" 900 2>&1 || true)"
       case "$verdict" in
         ok*) pass "$row: Vulkan matches the software oracle ($verdict, $lit lit)" ;;
         *) fail "$row: Vulkan disagrees with the software oracle: $verdict" ;;

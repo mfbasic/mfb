@@ -19,9 +19,9 @@ END = "// @CURVES-END"
 
 # `curve_shader.rs:curve_coord`, GLSL.
 CURVE_COORD = (
-    "vec2 curveCoord(int slot, int w) {\n"
+    "vec2 curvePoint(int slot, int w) {\n"
     "  int i = slot * 4 + w;\n"
-    "  return edgeCoord(i, i + EDGE_RESIDUAL_BASE);\n"
+    "  return vec2(fx(edges.values[i]), fx(edges.values[i + 1]));\n"
     "}\n"
     "float curveWeight(int slot) {\n"
     "  return intBitsToFloat(edges.values[slot * 4 + 2]);\n"

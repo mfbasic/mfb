@@ -17,40 +17,34 @@
 // and `the_item_block_matches_the_std430_stride` in `vulkan/tests/mod.rs` pins that agreement.
 
 struct ItemBlock {
-    ivec4 quad;    //  0: bounds minX, minY, maxX, maxY (16.16 px)
-    ivec4 shape;   // 16: p0..p3 (16.16 px)
+    ivec4 quad;    //  0: bounds minX, minY, maxX, maxY (float32 bits)
+    ivec4 shape;   // 16: p0..p3 (float32 bits)
     ivec4 fill;    // 32: RGBA 0..255
     ivec4 stroke;  // 48: RGBA 0..255
-    ivec4 misc;    // 64: kind, radius (16.16), strokeHalf (16.16), edgeCount
+    ivec4 misc;    // 64: kind, radius, strokeHalf (float32 bits), edgeCount
     ivec4 arc;     // 80: glyph/picture height, arc reflex flag (bug-735) / polygon fill
                    //   rule (plan-163-A), edgeBase, capStyle
     ivec4 surface; //  96: width, height, blendMode, gradient kind (0 linear, 1 radial)
-    ivec4 clip;    // 112: the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
+    ivec4 clip;    // 112: the clip rectangle x0,y0,x1,y1 (float32 bits); zero-area = unclipped
     ivec4 xform0;  // 128: inverse transform ia,ib,ic,id as float32 BITS
     ivec4 xform1;  // 144: itx, ity (float32 bits), hasTransform (0 or 1); then
-                   //      (bug-1083) how much of the quad's x sides is rim, 16.16
-    ivec4 arcCaps; // 160: an arc's sweep endpoints startX,startY,endX,endY (16.16 px)
-    ivec4 ellipse; // 176: an ellipse's rotation cos, sin (16.16); then a gradient's
+                   //      (bug-1083) how much of the quad's x sides is rim, float32 bits
+    ivec4 arcCaps; // 160: an arc's sweep endpoints startX,startY,endX,endY (float32 bits)
+    ivec4 ellipse; // 176: an ellipse's rotation cos, sin (float32 bits); then a gradient's
                    //      stop count and first-stop index
-    ivec4 gradient; // 192: a gradient's axis startX,startY,endX,endY (16.16 px)
-    // bug-735: the residual words (units of 2^-47 px) of every field a distance reads.
-    // Declared here as well as in the fragment stage because THIS declaration sets the
-    // array stride (288); the vertex stage reads none of them.
-    ivec4 shapeLo;  // 208: of shape.xyzw
-    ivec4 capsLo;   // 224: of arcCaps.xyzw
-    ivec4 clipLo;   // 240: of clip.xyzw
-    ivec4 miscLo;   // 256: of misc.y, misc.z, ellipse.x, ellipse.y
+    ivec4 gradient; // 192: a gradient's axis startX,startY,endX,endY (float32 bits)
     // plan-163-B: join records' first edge slot and count, dash pattern's first entry
-    // and count. The vertex stage reads none of them either.
-    ivec4 strokeStyle; // 272
-    ivec4 clipBand;    // 288, plan-163-C
-    ivec4 clipPath;    // 304
+    // and count. Declared here as well as in the fragment stage because THIS declaration
+    // sets the array stride (304); the vertex stage reads none of them.
+    ivec4 strokeStyle; // 208
+    ivec4 clipBand;    // 224, plan-163-C
+    ivec4 clipPath;    // 240
     // plan-163-D: a radial gradient's inverse (float32 bits) and flag, and its focal
-    // offset and radius (16.16). The vertex stage reads none of them, except (bug-1083)
-    // `gradInv1.w`: how much of the quad's y sides is rim, 16.16.
-    ivec4 gradInv0;    // 320
-    ivec4 gradInv1;    // 336
-    ivec4 gradFocal;   // 352
+    // offset and radius (float32 bits). The vertex stage reads none of them, except
+    // (bug-1083) `gradInv1.w`: how much of the quad's y sides is rim, float32 bits.
+    ivec4 gradInv0;    // 256
+    ivec4 gradInv1;    // 272
+    ivec4 gradFocal;   // 288
 };
 
 layout(std430, set = 0, binding = 1) readonly buffer Items {
@@ -63,7 +57,7 @@ layout(std430, set = 0, binding = 1) readonly buffer Items {
 // available there.
 layout(location = 0) flat out int vItem;
 
-// plan-116-H: the group translation for THIS draw, in 16.16.
+// plan-116-H: the group translation for THIS draw, as float32 bits.
 //
 // Per-draw rather than per-item, which is the whole point: a group referenced twice is
 // one set of item blocks and two draws differing only by this. Both stages declare it —
@@ -71,7 +65,7 @@ layout(location = 0) flat out int vItem;
 // range no stage consumes is a layout the validation layers reject, which is why
 // plan-116-A deleted the range rather than leaving it empty (H4).
 //
-// bug-735: `zw` are the residual words of `xy`; only the fragment stage reads them.
+// `zw` are reserved and zero.
 //
 // plan-172-H: `inverse` is the linear part of the INVERSE of the enclosing groups'
 // composed affine, as four float32 bit patterns — `ia`, `ib`, `ic`, `id`, so a point
@@ -82,9 +76,8 @@ layout(push_constant) uniform Draw {
     ivec4 inverse;
 } draw;
 
-const float FIXED = 65536.0;
-
-float fx(int v) { return float(v) / FIXED; }
+// A word as the float32 it holds: every position reaches the GPU as float32 bits.
+float fx(int v) { return intBitsToFloat(v); }
 
 void main() {
     // `gl_InstanceIndex` includes `firstInstance`, so a run of consecutive items drawn

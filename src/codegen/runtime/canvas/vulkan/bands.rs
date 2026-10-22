@@ -4,9 +4,11 @@
 use super::*;
 
 /// The stack slots `emit_band_index` works in (bug-688): the frame's band-region cursor
-/// and one polygon's working state — its first and past-the-last 16.16 edge in the
-/// shared buffer, its lowest edge y (16.16), the band reach `2r` (16.16), the band
-/// height (16.16), the band count, and the table's address.
+/// and one polygon's working state — its first and past-the-last edge in the shared
+/// buffer, its lowest edge y (16.16), the band reach `2r` (16.16), the band height
+/// (16.16), the band count, and the table's address. The builder's arithmetic is 16.16
+/// integers; the edges and the header it writes are float32 (`emit_f32_word_to_fixed`,
+/// `emit_fixed_to_f32_bits`).
 pub(super) struct BandSlots {
     state: usize,
     item: usize,
@@ -85,9 +87,8 @@ pub(super) const CLIP_BANDS: BandSet = BandSet {
 /// Metal's instructions; bug-688 keeps Metal unchanged.
 ///
 /// Runs after `emit_edge_upload` has converted the polygon's edges, and works on those
-/// 16.16 words — exactly what the shader reads — rather than on the header's doubles,
-/// so the band arithmetic is integer and a rounding difference between the two cannot
-/// put an edge in the wrong band.
+/// float32 words — exactly what the shader reads — taken to 16.16 integers (within 2^-17
+/// of a unit, inside the guard below), so the band arithmetic is integer.
 ///
 /// ## Why the result is bit-identical to the full loop
 ///
@@ -111,7 +112,7 @@ pub(super) const CLIP_BANDS: BandSet = BandSet {
 ///   only when `1.5·N <= 2·F_built`, walking every edge otherwise.
 ///
 /// Plus a **1-unit guard** in shape space, for the float error of the shader's band
-/// lookup against these integer bands.
+/// lookup against these integer bands, and of the float32 header against them.
 ///
 /// ## Sizing
 ///
@@ -162,8 +163,9 @@ pub(super) fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: Ba
     // --- ymin (s2) and ymax (s3) over both endpoints of every edge ----------------
     let measure_head = builder.label("vk_band_measure_head");
     let measure_done = builder.label("vk_band_measure_done");
-    builder.emit(abi::load_u32(s[2], s[0], 4));
-    builder.emit(abi::sign_extend_word(s[2], s[2]));
+    for instruction in emit_f32_word_to_fixed(s[2], s[0], 4, s[4], f[0], f[7]) {
+        builder.emit(instruction);
+    }
     builder.emit(abi::move_register(s[3], s[2]));
     builder.emit(abi::label(&measure_head));
     builder.emit(abi::compare_registers(s[0], s[1]));
@@ -171,8 +173,9 @@ pub(super) fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: Ba
     for offset in [4usize, 12] {
         let not_lower = builder.label("vk_band_not_lower");
         let not_higher = builder.label("vk_band_not_higher");
-        builder.emit(abi::load_u32(s[4], s[0], offset));
-        builder.emit(abi::sign_extend_word(s[4], s[4]));
+        for instruction in emit_f32_word_to_fixed(s[4], s[0], offset, s[5], f[0], f[7]) {
+            builder.emit(instruction);
+        }
         builder.emit(abi::compare_registers(s[4], s[2]));
         builder.emit(abi::branch_ge(&not_lower));
         builder.emit(abi::move_register(s[2], s[4]));
@@ -284,12 +287,13 @@ pub(super) fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: Ba
     // --- to 16.16, rounding UP: s4 = r, s5 = the minimum height ---------------------
     builder.emit(abi::move_immediate(s[4], "Integer", FIXED_POINT_SCALE));
     builder.emit(abi::signed_convert_to_float_d(f[7], s[4]));
-    // bug-1085: and F_built, rounded DOWN (it is positive, so truncation is the floor),
-    // into the header's norm word -- what the shader holds a pixel's composed norm to
-    // before it takes the band. A value too large for the word is a reach past the bound
-    // below, and `none` writes 0 over it.
-    builder.emit(abi::float_multiply_d(f[6], f[6], f[7]));
-    builder.emit(abi::float_convert_to_signed_x(s[6], f[6]));
+    // bug-1085: and F_built, as float32 bits, into the header's norm word -- what the
+    // shader holds a pixel's composed norm to before it takes the band. A reach past the
+    // bound below sends the builder to `none`, which writes 0 over it.
+    builder.emit(abi::float_move_d_from_d(f[0], f[6]));
+    for instruction in emit_f32_bits(s[6], f[0]) {
+        builder.emit(instruction);
+    }
     builder.emit(abi::store_u32(s[6], sp(), at.item + set.norm));
     builder.emit(abi::float_multiply_d(f[1], f[1], f[7]));
     builder.emit(abi::float_ceil_to_signed_x(s[4], f[1]));
@@ -317,8 +321,8 @@ pub(super) fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: Ba
     builder.emit(abi::move_immediate(s[5], "Integer", "1"));
     builder.emit(abi::label(&height_positive));
 
-    // --- span = extent + 2r (s3); top = ymin - r must be an int32, and so must the
-    // bottom, because the shader reads `top` as a 16.16 `int` ----------------------
+    // --- span = extent + 2r (s3); top = ymin - r, and the bottom, are held to int32,
+    // the range the builder's band arithmetic was written for ------------------------
     builder.emit(abi::shift_left_immediate(s[4], s[4], 1));
     builder.emit(abi::store_u64(s[4], sp(), at.reach));
     builder.emit(abi::add_registers(s[3], s[3], s[4]));
@@ -417,11 +421,17 @@ pub(super) fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: Ba
     builder.emit(abi::store_u32(s[5], sp(), block(ITEM_BAND_START)));
     builder.emit(abi::store_u32(s[6], sp(), block(ITEM_BAND_COUNT)));
     builder.emit(abi::load_u64(s[4], sp(), at.height));
+    for instruction in emit_fixed_to_f32_bits(s[4], s[4], s[8], f[0], f[7]) {
+        builder.emit(instruction);
+    }
     builder.emit(abi::store_u32(s[4], sp(), block(ITEM_BAND_HEIGHT)));
     builder.emit(abi::load_u64(s[4], sp(), at.reach));
     builder.emit(abi::shift_right_immediate(s[4], s[4], 1));
     builder.emit(abi::load_u64(s[7], sp(), at.ymin));
     builder.emit(abi::subtract_registers(s[7], s[7], s[4]));
+    for instruction in emit_fixed_to_f32_bits(s[7], s[7], s[8], f[0], f[7]) {
+        builder.emit(instruction);
+    }
     builder.emit(abi::store_u32(s[7], sp(), block(ITEM_BAND_TOP)));
 
     // --- the table's address: mapped + BAND_BASE*4 + start*4 ----------------------
@@ -562,9 +572,9 @@ pub(super) fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: Ba
     builder.emit(abi::label(&done));
 }
 
-/// The bands the 16.16 edge at `SCRATCH[0]` goes in: first in `SCRATCH[4]`, last in
+/// The bands the edge at `SCRATCH[0]` goes in: first in `SCRATCH[4]`, last in
 /// `SCRATCH[5]` (inclusive), from the working state `emit_band_index` parked. Uses
-/// `SCRATCH[6]` as a temporary.
+/// `SCRATCH[6]`, `FP_SCRATCH[0]` and `FP_SCRATCH[7]` as temporaries.
 ///
 /// With `top = ymin − r`: first = ⌊(ylo − ymin) / h⌋ and last = ⌊(yhi − ymin + 2r) / h⌋.
 /// Both numerators are non-negative (every y is at least ymin), so the unsigned divide
@@ -572,10 +582,13 @@ pub(super) fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: Ba
 fn emit_band_range(builder: &mut CodeBuilder, at: &BandSlots) {
     let s = abi::SCRATCH;
     let ordered = builder.label("vk_band_ordered");
-    builder.emit(abi::load_u32(s[4], s[0], 4));
-    builder.emit(abi::sign_extend_word(s[4], s[4]));
-    builder.emit(abi::load_u32(s[5], s[0], 12));
-    builder.emit(abi::sign_extend_word(s[5], s[5]));
+    let f = abi::FP_SCRATCH;
+    for instruction in emit_f32_word_to_fixed(s[4], s[0], 4, s[6], f[0], f[7]) {
+        builder.emit(instruction);
+    }
+    for instruction in emit_f32_word_to_fixed(s[5], s[0], 12, s[6], f[0], f[7]) {
+        builder.emit(instruction);
+    }
     builder.emit(abi::compare_registers(s[4], s[5]));
     builder.emit(abi::branch_le(&ordered));
     builder.emit(abi::move_register(s[6], s[4]));

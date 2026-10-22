@@ -124,17 +124,17 @@ pub(super) fn emit_split_or_publish(
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
     builder.emit(abi::branch_eq(&single));
-    // ...and the item actually strokes: `strokeHalf` > 0, which since bug-735 is its
-    // 16.16 word > 0 or, for a word of 0, its residual > 0 -- `emit_item_stroke_sign`
-    // makes that exactly the header's f64 `half > 0.0`, the test
-    // `__canvas_blockInstances` counts two records on. Before it this read the word
-    // alone, so a blended filled item stroked thinner than 2^-16 px was counted as two
-    // records and published as one, and every later draw named the wrong blocks.
+    // ...and the item actually strokes: `strokeHalf` > 0, its float32 bits read as a
+    // SIGNED integer -- positive exactly when the value is above +0, which
+    // `emit_item_stroke_sign` makes exactly the header's f64 `half > 0.0`, the test
+    // `__canvas_blockInstances` counts two records on. A mismatch publishes a different
+    // number of records than the draw list counts, and every later draw names the wrong
+    // blocks.
     //
     // SIGNED, and that is the whole point. `__canvas_strokeHalf` returns **-1.0** for a
-    // paint that does not stroke, which is `0xFFFF0000` in 16.16 -- and `load_u32`
-    // zero-extends, so the 64-bit compare below saw 4294901760 and every blended
-    // fill-only item took the SPLIT path. The comment under `single` has always claimed
+    // paint that does not stroke, whose bits have the top bit set -- and `load_u32`
+    // zero-extends, so without the sign extension the 64-bit compare below would see a
+    // large positive number and every blended fill-only item would take the SPLIT path. The comment under `single` has always claimed
     // such an item is fill-only and takes the single path; this is the load that makes
     // it true.
     //
@@ -147,15 +147,6 @@ pub(super) fn emit_split_or_publish(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         off_item + ITEM_OFFSET_MISC + 8,
-    ));
-    builder.emit(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
-    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
-    builder.emit(abi::branch_gt(&strokes));
-    builder.emit(abi::branch_lt(&single));
-    builder.emit(abi::load_u32(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_item + ITEM_OFFSET_MISC_LO + 4,
     ));
     builder.emit(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
@@ -207,10 +198,8 @@ pub(super) fn emit_split_or_publish(
     // harness reported `worst=215` with the GPU painting stroke pixels the oracle
     // never touched.
     //
-    // Off is -1.0 (`0xFFFF0000`), the value `__canvas_strokeHalf` reports for a paint
-    // that does not stroke: since bug-735 the shader strokes on the word PLUS its
-    // residual, and a zero word under a positive residual would still stroke. Spelled
-    // unsigned: the store keeps the low 32 bits.
+    // Off is -1.0 (float32 `0xBF800000`), the value `__canvas_strokeHalf` reports for a
+    // paint that does not stroke.
     builder.emit(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -221,12 +210,11 @@ pub(super) fn emit_split_or_publish(
         abi::stack_pointer(),
         off_saved_stroke,
     ));
-    // -1.0 in 16.16, spelled unsigned: the immediate is never negative, and the store
-    // keeps the low 32 bits.
+    // -1.0 as float32 bits, spelled unsigned: the immediate is never negative.
     builder.emit(abi::move_immediate(
         abi::SCRATCH[0],
         "Integer",
-        "4294901760",
+        "3212836864",
     ));
     builder.emit(abi::store_u32(
         abi::SCRATCH[0],
@@ -286,7 +274,7 @@ pub(super) fn emit_split_or_publish(
 /// "a glyph run is N draws by design" shape predates plan-116-A putting the block in a
 /// buffer indexed by instance, and the draw list's counts are already in instances.
 ///
-/// Each entry is four `i32`s: `base`, `count`, `dx`, `dy` — the offsets in 16.16, which
+/// Each entry starts `base`, `count`, `dx`, `dy` — the offsets as float32 bits, which
 /// is the form the push constant wants, so they travel from MFBASIC to the shader
 /// without a conversion on either side.
 #[allow(clippy::too_many_arguments)]
@@ -307,7 +295,7 @@ pub(super) fn emit_draw_list_pass(
 
     let off_push_fn = builder.allocate_stack_object("vk_push_fn", 8);
     let off_index = builder.allocate_stack_object("vk_drawlist_index", 8);
-    // The two 16.16 words, their residual words and (plan-172-H) the four words of the
+    // The two offset words, two zero words and (plan-172-H) the four words of the
     // inverse linear part, contiguous, so `pValues` can point straight at them.
     let off_offset_pair = builder.allocate_stack_object("vk_push_offset", PUSH_OFFSET_BYTES);
 
@@ -415,14 +403,19 @@ pub(super) fn emit_draw_list_pass(
     ));
     emit_call_fn(builder, off_bind_fn);
 
-    // Now the offset pair, (bug-735) its residual words, entry words 5 and 6, and
-    // (plan-172-H) the inverse linear part, entry words 8-11, which are zero in an entry
-    // with no matrix -- into the slot the bind above borrowed.
+    // Now the offset pair, entry words 2 and 3, the push constant's two reserved zero
+    // words, and (plan-172-H) the inverse linear part, entry words 8-11, which are zero
+    // in an entry with no matrix -- into the slot the bind above borrowed.
+    for at in [8usize, 12] {
+        builder.emit(abi::store_u32(
+            abi::ZERO,
+            abi::stack_pointer(),
+            off_offset_pair + at,
+        ));
+    }
     for (word_index, at) in [
         (2usize, 0usize),
         (3, 4),
-        (5, 8),
-        (6, 12),
         (8, 16),
         (9, 20),
         (10, 24),
@@ -857,7 +850,7 @@ pub(super) fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlot
     builder.emit(abi::label(&copy_done));
 
     // --- the glyph's own item block ----------------------------------------------
-    // quad is 16.16 like every other kind's; shape.x/.y are WHOLE pixels, because the
+    // quad is float32 like every other kind's; shape.x/.y are WHOLE pixels, because the
     // shader indexes the bitmap with them and a fixed-point origin would have to be
     // converted back — losing the exactness that makes the lookup a lookup.
     builder.emit(abi::load_u64(
@@ -928,7 +921,10 @@ pub(super) fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlot
             (abi::SCRATCH[4], 2),
             (abi::SCRATCH[5], 3),
         ] {
-            builder.emit(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
+            builder.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[1], register));
+            for instruction in emit_f32_bits(abi::SCRATCH[6], abi::FP_SCRATCH[1]) {
+                builder.emit(instruction);
+            }
             builder.emit(abi::store_u32(
                 abi::SCRATCH[6],
                 abi::stack_pointer(),

@@ -59,19 +59,19 @@ use crate::codegen::runtime::canvas::metal::{
     METAL_FAILED, METAL_UNTRIED, MTL_CREATE_DEVICE,
 };
 use crate::codegen::runtime::canvas::{
-    emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
-    emit_square_cap_reach, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT,
-    ITEM_BAND_HEIGHT, ITEM_BAND_NORM, ITEM_BAND_START, ITEM_BAND_TOP, ITEM_CLIP_BAND_NORM,
-    ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
+    emit_f32_bits, emit_f32_word_to_fixed, emit_fixed_to_f32_bits, emit_item_arc_flags,
+    emit_item_float_field, emit_item_polygon_rule, emit_item_stroke_sign, emit_square_cap_reach,
+    BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT,
+    ITEM_BAND_NORM, ITEM_BAND_START, ITEM_BAND_TOP, ITEM_CLIP_BAND_NORM, ITEM_FLOAT_FIELDS,
+    METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
 };
 use crate::codegen::runtime::canvas::{
-    BLEND_MODE_COUNT, EDGE_RESIDUAL_SCALE, GRAPHICS_OFFSET_ATTR, GRAPHICS_OFFSET_MTL_DEVICE,
+    BLEND_MODE_COUNT, GRAPHICS_OFFSET_ATTR, GRAPHICS_OFFSET_MTL_DEVICE,
     GRAPHICS_OFFSET_MTL_ITEM_BUFFER, GRAPHICS_OFFSET_MTL_ITEM_CONTENTS,
     GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE,
     GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
     GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
-    METAL_EDGE_BASE_WORDS, METAL_EDGE_RESIDUAL_BASE_WORDS, METAL_MAX_FRAME_EDGES,
-    METAL_MAX_FRAME_ITEMS,
+    METAL_EDGE_BASE_WORDS, METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_ITEMS,
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
@@ -172,10 +172,8 @@ pub(super) static METAL_SHADER_SOURCE: LazyLock<String> = LazyLock::new(|| {
     format!(
         "#include <metal_stdlib>\n\
          using namespace metal;\n\
-         constant float FIXED = 65536.0;\n\
          constant float PI = 3.141592653589793;\n\
          constant int METAL_EDGE_BASE = {METAL_EDGE_BASE_WORDS};\n\
-         constant int METAL_EDGE_RESIDUAL_BASE = {METAL_EDGE_RESIDUAL_BASE_WORDS};\n\
          constant int METAL_BAND_BASE = {METAL_BAND_BASE_WORDS};\n\
          constant int METAL_GRADIENT_BASE = {METAL_GRADIENT_BASE_WORDS};\n\
          constant int METAL_DASH_BASE = {METAL_DASH_BASE_WORDS};\n\
@@ -3197,7 +3195,7 @@ fn emit_glyph_publish(asm: &mut Asm) {
     }
 
     // --- the glyph's own item block ------------------------------------------------
-    // quad is 16.16 like every other kind's; shape.x/.y are WHOLE pixels, because the
+    // quad is float32 like every other kind's; shape.x/.y are WHOLE pixels, because the
     // shader indexes the bitmap with them.
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
@@ -3259,7 +3257,10 @@ fn emit_glyph_publish(asm: &mut Asm) {
             (abi::SCRATCH[4], 2),
             (abi::SCRATCH[5], 3),
         ] {
-            asm.push(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
+            asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[1], register));
+            for instruction in emit_f32_bits(abi::SCRATCH[6], abi::FP_SCRATCH[1]) {
+                asm.push(instruction);
+            }
             asm.push(abi::store_u32(
                 abi::SCRATCH[6],
                 abi::stack_pointer(),
@@ -3353,15 +3354,8 @@ fn emit_glyph_publish(asm: &mut Asm) {
 /// the glyph loop, one per glyph.
 fn emit_item_block(asm: &mut Asm, tag: &str) {
     let header = abi::SCRATCH[0];
-    let scale = abi::FP_SCRATCH[0];
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[1]));
 
-    // The 16.16 fields no distance reads: the bounds and the gradient axis.
+    // The float32 fields no distance reads: the bounds and the gradient axis.
     for (item_offset, slots) in [
         (
             ITEM_OFFSET_QUAD,
@@ -3373,7 +3367,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
             ],
         ),
         // plan-116-F: the gradient's axis, four consecutive header slots narrowing to
-        // 16.16 exactly like the bounds and the arc caps.
+        // float32 exactly like the bounds and the arc caps.
         (
             ITEM_OFFSET_GRADIENT,
             [
@@ -3386,15 +3380,9 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     ] {
         for (index, slot) in slots.into_iter().enumerate() {
             asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-            asm.push(abi::float_multiply_d(
-                abi::FP_SCRATCH[1],
-                abi::FP_SCRATCH[1],
-                scale,
-            ));
-            asm.push(abi::float_round_to_signed_x(
-                abi::SCRATCH[1],
-                abi::FP_SCRATCH[1],
-            ));
+            for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+                asm.push(instruction);
+            }
             asm.push(abi::store_u32(
                 abi::SCRATCH[1],
                 abi::stack_pointer(),
@@ -3402,7 +3390,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
             ));
         }
     }
-    // bug-1083: how much of that box is rim, 16.16 like the box, in the two words the
+    // bug-1083: how much of that box is rim, float32 like the box, in the two words the
     // vertex stage reads it from under a group matrix (`ITEM_RIM_WORDS`).
     for (index, word) in crate::codegen::runtime::canvas::ITEM_RIM_WORDS
         .into_iter()
@@ -3410,15 +3398,9 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     {
         let slot = crate::codegen::runtime::canvas::HEADER_RIM + index;
         asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[1],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
@@ -3426,23 +3408,12 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
         ));
     }
 
-    // bug-735: every field a distance reads -- the shape parameters, the radius and
-    // stroke half-width, an arc's sweep endpoints, an ellipse's rotation and the clip --
-    // as its 16.16 word and, in the block's residual `ivec4`s, its residual. The twin of
-    // the `ITEM_RESIDUAL_FIELDS` loop in `runtime/canvas/vulkan/item_block.rs`, from the same table.
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        abi::FP_SCRATCH[3],
-        abi::SCRATCH[1],
-    ));
-    for (slot, word, residual) in ITEM_RESIDUAL_FIELDS {
-        for instruction in
-            emit_item_residual_field(header, slot, OFF_ITEM + word, OFF_ITEM + residual)
-        {
+    // Every field a distance reads -- the shape parameters, the radius and stroke
+    // half-width, an arc's sweep endpoints, an ellipse's rotation and the clip -- as
+    // float32. The twin of the `ITEM_FLOAT_FIELDS` loop in
+    // `runtime/canvas/vulkan/item_block.rs`, from the same table.
+    for (slot, word) in ITEM_FLOAT_FIELDS {
+        for instruction in emit_item_float_field(header, slot, OFF_ITEM + word) {
             asm.push(instruction);
         }
     }
@@ -3496,7 +3467,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     }
 
     // misc = { kind, radius, strokeHalf, edgeCount }: the two whole numbers here, the
-    // two 16.16 ones with their residuals above.
+    // two float32 ones above.
     for (index, slot) in [(0usize, HEADER_KIND), (3, HEADER_AUX0)] {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
         asm.push(abi::float_convert_to_signed_x(
@@ -3567,30 +3538,15 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
         ));
     }
     debug_assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        abi::FP_SCRATCH[2],
-        abi::SCRATCH[1],
-    ));
     for index in 0..3 {
         asm.push(abi::load_double(
             abi::FP_SCRATCH[1],
             header,
             (HEADER_GRADIENT_FOCAL_X + index) * 8,
         ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[1],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
@@ -3781,18 +3737,18 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq(&single));
-    // ...and the item actually strokes: `strokeHalf` > 0, which since bug-735 is its
-    // 16.16 word > 0 or, for a word of 0, its residual > 0 -- `emit_item_stroke_sign`
-    // makes that exactly the header's f64 `half > 0.0`, the test
-    // `__canvas_blockInstances` counts two records on. Before it this read the word
-    // alone, so a blended filled item stroked thinner than 2^-16 px was counted as two
-    // records and published as one, and every later draw named the wrong blocks.
+    // ...and the item actually strokes: `strokeHalf` > 0, its float32 bits read as a
+    // SIGNED integer -- positive exactly when the value is above +0, which
+    // `emit_item_stroke_sign` makes exactly the header's f64 `half > 0.0`, the test
+    // `__canvas_blockInstances` counts two records on. A mismatch publishes a different
+    // number of records than the draw list counts, and every later draw names the wrong
+    // blocks.
     //
     // SIGNED, for the reason the Vulkan twin records (plan-116-H **H15**):
-    // `__canvas_strokeHalf` reports "does not stroke" as **-1.0**, which is
-    // `0xFFFF0000` in 16.16, and `load_u32` zero-extends -- so without the `sxtw` the
-    // 64-bit compare sees 4294901760 and every blended fill-only item is published as
-    // TWO records. The comment below already claims such an item takes the single path.
+    // `__canvas_strokeHalf` reports "does not stroke" as **-1.0**, whose bits have the
+    // top bit set, and `load_u32` zero-extends -- so without the `sxtw` the 64-bit
+    // compare would see a large positive number and every blended fill-only item would
+    // be published as TWO records. The comment below already claims such an item takes the single path.
     //
     // It was latent while the draw came from `emit_run_flush`, whose instance count was
     // `cursor - run_start` -- whatever had actually been published, so the spurious
@@ -3803,15 +3759,6 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
         abi::SCRATCH[0],
         abi::stack_pointer(),
         OFF_ITEM + ITEM_OFFSET_MISC + 8,
-    ));
-    asm.push(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
-    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
-    asm.push(abi::branch_gt(&strokes));
-    asm.push(abi::branch_lt(&single));
-    asm.push(abi::load_u32(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        OFF_ITEM + ITEM_OFFSET_MISC_LO + 4,
     ));
     asm.push(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
@@ -3855,10 +3802,9 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
 
     // Record one: the fill, with the stroke switched off. `strokeHalf` is parked on the
     // STACK — `emit_item_publish` owns the low scratch registers, so a register saved
-    // across it comes back holding a mapped address. Off is -1.0 (`0xFFFF0000`), the
-    // value `__canvas_strokeHalf` reports for a paint that does not stroke: since
-    // bug-735 the shader strokes on the word PLUS its residual, and a zero word under a
-    // positive residual would still stroke.
+    // across it comes back holding a mapped address. Off is -1.0 (float32
+    // `0xBF800000`), the value `__canvas_strokeHalf` reports for a paint that does not
+    // stroke.
     asm.push(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -3869,12 +3815,11 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
         abi::stack_pointer(),
         OFF_SAVED_STROKE,
     ));
-    // -1.0 in 16.16, spelled unsigned: the immediate is never negative, and the store
-    // keeps the low 32 bits.
+    // -1.0 as float32 bits, spelled unsigned: the immediate is never negative.
     asm.push(abi::move_immediate(
         abi::SCRATCH[0],
         "Integer",
-        "4294901760",
+        "3212836864",
     ));
     asm.push(abi::store_u32(
         abi::SCRATCH[0],
@@ -3999,16 +3944,21 @@ fn emit_draw_list_pass(asm: &mut Asm) {
         abi::stack_pointer(),
         OFF_DRAW_COUNT,
     ));
-    // The two 16.16 offsets and (bug-735) their residual words, then (plan-172-H) the
+    // The two offsets (float32 bits), two reserved zero words, then (plan-172-H) the
     // inverse linear part, written as 32-bit words side by side so the thirty-two bytes
     // at `OFF_DRAW_PAIR` are exactly the `MfbDraw` both shader stages declare. Entry
-    // words 2, 3, 5, 6 and 8-11 (`__canvas_pushOneDraw`); the last four are zero in an
-    // entry with no matrix, which is how the shader knows.
+    // words 2, 3 and 8-11 (`__canvas_pushOneDraw`); the last four are zero in an entry
+    // with no matrix, which is how the shader knows.
+    for at in [8usize, 12] {
+        asm.push(abi::store_u32(
+            abi::ZERO,
+            abi::stack_pointer(),
+            OFF_DRAW_PAIR + at,
+        ));
+    }
     for (word, at) in [
         (2usize, 0usize),
         (3, 4),
-        (5, 8),
-        (6, 12),
         (8, 16),
         (9, 20),
         (10, 24),
@@ -4162,7 +4112,6 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
-    let scale = abi::FP_SCRATCH[0];
 
     asm.push(abi::load_u64(
         header,
@@ -4274,13 +4223,6 @@ fn emit_gradient_buffer(asm: &mut Asm) {
         abi::SCRATCH[6],
         abi::SCRATCH[5],
     ));
-
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     asm.push(abi::move_immediate(index, "Integer", "0"));
 
     asm.push(abi::label(&head));
@@ -4288,15 +4230,9 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     asm.push(abi::branch_ge(&done));
     // The offset in 16.16, then four whole 0..255 channels.
     asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 0));
-    asm.push(abi::float_multiply_d(
-        abi::FP_SCRATCH[1],
-        abi::FP_SCRATCH[1],
-        scale,
-    ));
-    asm.push(abi::float_round_to_signed_x(
-        abi::SCRATCH[5],
-        abi::FP_SCRATCH[1],
-    ));
+    for instruction in emit_f32_bits(abi::SCRATCH[5], abi::FP_SCRATCH[1]) {
+        asm.push(instruction);
+    }
     asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
     asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
     for channel in 1..=4usize {
@@ -4333,9 +4269,6 @@ fn emit_clip_buffer(asm: &mut Asm) {
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
     let target = abi::SCRATCH[6];
-    let residual_target = abi::SCRATCH[1];
-    let scale = abi::FP_SCRATCH[0];
-    let residual_scale = abi::FP_SCRATCH[3];
     let clip = OFF_ITEM + ITEM_OFFSET_CLIP_PATH;
     let band = OFF_ITEM + ITEM_OFFSET_CLIP_BAND;
 
@@ -4461,27 +4394,6 @@ fn emit_clip_buffer(asm: &mut Asm) {
         &(METAL_EDGE_BASE_WORDS * 4).to_string(),
     ));
     asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
-    asm.push(abi::move_immediate(
-        residual_target,
-        "Integer",
-        &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
-    ));
-    asm.push(abi::add_registers(residual_target, residual_target, target));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        residual_scale,
-        abi::SCRATCH[5],
-    ));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     // source = header + (slot1 - stops * 5 - count * 5) * 8.
     asm.push(abi::load_u64(
         header,
@@ -4523,37 +4435,11 @@ fn emit_clip_buffer(asm: &mut Asm) {
                 abi::FP_SCRATCH[2],
             ));
         }
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[5], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(abi::SCRATCH[5], target, 0));
         asm.push(abi::add_immediate(target, target, 4));
-        asm.push(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[5],
-        ));
-        asm.push(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
-        asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
-        asm.push(abi::add_immediate(residual_target, residual_target, 4));
     }
     asm.push(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     asm.push(abi::add_immediate(index, index, 1));
@@ -4784,19 +4670,14 @@ fn emit_picture_buffer(asm: &mut Asm) {
     let source_done = format!("{METAL_DRAW_SYMBOL}_tile_source_done");
     asm.push(abi::compare_immediate(kind, GEO_KIND_TILE));
     asm.push(abi::branch_ne(&source_done));
-    asm.push(abi::move_immediate(temp, "Integer", FIXED_POINT_SCALE));
-    asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], temp));
     for (index, slot) in [TILE_SOURCE_X, TILE_SOURCE_Y, TILE_SOURCE_W, TILE_SOURCE_H]
         .into_iter()
         .enumerate()
     {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[0],
-        ));
-        asm.push(abi::float_round_to_signed_x(temp, abi::FP_SCRATCH[1]));
+        for instruction in emit_f32_bits(temp, abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(
             temp,
             abi::stack_pointer(),
@@ -5105,9 +4986,6 @@ fn emit_join_buffer(asm: &mut Asm) {
     let source = abi::SCRATCH[4];
     let target = abi::SCRATCH[5];
     let slots = abi::SCRATCH[6];
-    let residual_target = abi::SCRATCH[1];
-    let scale = abi::FP_SCRATCH[0];
-    let residual_scale = abi::FP_SCRATCH[3];
     let style = OFF_ITEM + ITEM_OFFSET_STROKE_STYLE;
 
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
@@ -5180,27 +5058,6 @@ fn emit_join_buffer(asm: &mut Asm) {
         &(METAL_EDGE_BASE_WORDS * 4).to_string(),
     ));
     asm.push(abi::add_registers(target, target, abi::SCRATCH[0]));
-    asm.push(abi::move_immediate(
-        residual_target,
-        "Integer",
-        &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
-    ));
-    asm.push(abi::add_registers(residual_target, residual_target, target));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        residual_scale,
-        abi::SCRATCH[0],
-    ));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
     // source = header + (slot1 - stops * 5 - dashes - records * 8) * 8: the dash tail
     // (plan-163-B) sits between the records and the stops.
     asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 8));
@@ -5259,37 +5116,11 @@ fn emit_join_buffer(asm: &mut Asm) {
     asm.push(abi::branch_ge(&done));
     for word in 0..4usize {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, word * 8));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[0], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(abi::SCRATCH[0], target, 0));
         asm.push(abi::add_immediate(target, target, 4));
-        asm.push(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[0],
-        ));
-        asm.push(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
-        asm.push(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
-        asm.push(abi::add_immediate(residual_target, residual_target, 4));
     }
     asm.push(abi::add_immediate(source, source, 32));
     asm.push(abi::add_immediate(index, index, 1));
@@ -5322,9 +5153,6 @@ fn emit_edge_buffer(asm: &mut Asm) {
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
-    let residual_target = abi::SCRATCH[1];
-    let scale = abi::FP_SCRATCH[0];
-    let residual_scale = abi::FP_SCRATCH[3];
 
     asm.push(abi::load_u64(
         header,
@@ -5475,34 +5303,6 @@ fn emit_edge_buffer(asm: &mut Asm) {
         abi::SCRATCH[5],
     ));
 
-    // bug-687: each word's residual goes to the same edge's slot in the residual
-    // region, a fixed distance past its 16.16 word (`METAL_EDGE_RESIDUAL_BASE_WORDS`).
-    // Through a register for the same reason as the region offset above.
-    asm.push(abi::move_immediate(
-        residual_target,
-        "Integer",
-        &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
-    ));
-    asm.push(abi::add_registers(
-        residual_target,
-        residual_target,
-        abi::SCRATCH[6],
-    ));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        residual_scale,
-        abi::SCRATCH[5],
-    ));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     asm.push(abi::add_immediate(source, header, HEADER_SLOTS * 8));
     asm.push(abi::move_immediate(index, "Integer", "0"));
 
@@ -5512,7 +5312,7 @@ fn emit_edge_buffer(asm: &mut Asm) {
     // y-monotone and its two ends are its whole y-range, so `emit_band_index` indexes
     // pieces exactly as it indexes edges. Then each piece's control point and weight,
     // `x1, y1, w1, 0`, in the `count` slots after: piece `e`'s is slot `base + count +
-    // e`. The weight takes the same 16.16 word and residual a coordinate does.
+    // e`. The weight is float32 bits like a coordinate.
     //
     // The kind is read again here because every scratch register the dispatch above
     // held it in has been used since.
@@ -5533,40 +5333,14 @@ fn emit_edge_buffer(asm: &mut Asm) {
     ));
     asm.push(abi::branch_ne(&head));
 
-    // One double of the record as its 16.16 word and its residual, each cursor advanced.
+    // One double of the record as its float32 bits, the cursor advanced.
     let word = |asm: &mut Asm, slot: usize| {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[5], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
         asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
-        asm.push(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[5],
-        ));
-        asm.push(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
-        asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
-        asm.push(abi::add_immediate(residual_target, residual_target, 4));
     };
     asm.push(abi::label(&chords));
     asm.push(abi::compare_registers(index, count));
@@ -5586,24 +5360,11 @@ fn emit_edge_buffer(asm: &mut Asm) {
     for slot in [2usize, 3] {
         word(asm, slot);
     }
-    // The weight as its fp32 BITS, not a 16.16 word: the shader's arithmetic on it is
-    // single precision either way, and a weight has no 32767 to stay under.
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 6 * 8));
-    asm.push(abi::float_convert_s_from_d(
-        abi::FP_SCRATCH[1],
-        abi::FP_SCRATCH[1],
-    ));
-    asm.push(abi::float_move_x_from_d(
-        abi::SCRATCH[5],
-        abi::FP_SCRATCH[1],
-    ));
-    asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
+    // The weight, float32 bits like the coordinates, then a zero word.
+    word(asm, 6);
     asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", "0"));
-    asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 4));
-    asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 8));
-    asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
-    asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 4));
-    asm.push(abi::add_immediate(residual_target, residual_target, 8));
+    asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
+    asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
     asm.push(abi::add_immediate(source, source, CURVE_PIECE_SLOTS * 8));
     asm.push(abi::add_immediate(index, index, 1));
     asm.push(abi::branch(&controls));
@@ -5611,10 +5372,7 @@ fn emit_edge_buffer(asm: &mut Asm) {
     asm.push(abi::label(&head));
     asm.push(abi::compare_registers(index, count));
     asm.push(abi::branch_ge(&band));
-    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy), each as its 16.16 word and,
-    // in the residual region, `round((v * 65536 - word) * 2^31)` (bug-687,
-    // `EDGE_RESIDUAL_SCALE`). `v * 65536 - word` is exact: the two are within half a
-    // step of each other.
+    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy), each as float32 bits.
     for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
         if let Some(delta) = delta {
@@ -5625,37 +5383,11 @@ fn emit_edge_buffer(asm: &mut Asm) {
                 abi::FP_SCRATCH[2],
             ));
         }
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[5], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
         asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
-        asm.push(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[5],
-        ));
-        asm.push(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
-        asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
-        asm.push(abi::add_immediate(residual_target, residual_target, 4));
     }
     asm.push(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     asm.push(abi::add_immediate(index, index, 1));
@@ -5797,8 +5529,9 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     asm.push(abi::store_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
 
     // --- ymin (s2) and ymax (s3) over both endpoints of every edge ----------------
-    asm.push(abi::load_u32(s[2], s[0], 4));
-    asm.push(abi::sign_extend_word(s[2], s[2]));
+    for instruction in emit_f32_word_to_fixed(s[2], s[0], 4, s[4], f[0], f[7]) {
+        asm.push(instruction);
+    }
     asm.push(abi::move_register(s[3], s[2]));
     asm.push(abi::label(&label("measure_head")));
     asm.push(abi::compare_registers(s[0], s[1]));
@@ -5806,8 +5539,9 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     for (n, offset) in [(0, 4usize), (1, 12)] {
         let not_lower = label(&format!("measure_not_lower_{n}"));
         let not_higher = label(&format!("measure_not_higher_{n}"));
-        asm.push(abi::load_u32(s[4], s[0], offset));
-        asm.push(abi::sign_extend_word(s[4], s[4]));
+        for instruction in emit_f32_word_to_fixed(s[4], s[0], offset, s[5], f[0], f[7]) {
+            asm.push(instruction);
+        }
         asm.push(abi::compare_registers(s[4], s[2]));
         asm.push(abi::branch_ge(&not_lower));
         asm.push(abi::move_register(s[2], s[4]));
@@ -5919,12 +5653,13 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     // --- to 16.16, rounding UP: s4 = r, s5 = the minimum height ---------------------
     asm.push(abi::move_immediate(s[4], "Integer", FIXED_POINT_SCALE));
     asm.push(abi::signed_convert_to_float_d(f[7], s[4]));
-    // bug-1085: and F_built, rounded DOWN (it is positive, so truncation is the floor),
-    // into the header's norm word -- what the shader holds a pixel's composed norm to
-    // before it takes the band. A value too large for the word is a reach past the bound
-    // below, and `none` writes 0 over it.
-    asm.push(abi::float_multiply_d(f[6], f[6], f[7]));
-    asm.push(abi::float_convert_to_signed_x(s[6], f[6]));
+    // bug-1085: and F_built, as float32 bits, into the header's norm word -- what the
+    // shader holds a pixel's composed norm to before it takes the band. A reach past the
+    // bound below sends the builder to `none`, which writes 0 over it.
+    asm.push(abi::float_move_d_from_d(f[0], f[6]));
+    for instruction in emit_f32_bits(s[6], f[0]) {
+        asm.push(instruction);
+    }
     asm.push(abi::store_u32(s[6], abi::stack_pointer(), set.norm));
     asm.push(abi::float_multiply_d(f[1], f[1], f[7]));
     asm.push(abi::float_ceil_to_signed_x(s[4], f[1]));
@@ -6051,6 +5786,9 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
         block(ITEM_BAND_COUNT),
     ));
     asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    for instruction in emit_fixed_to_f32_bits(s[4], s[4], s[8], f[0], f[7]) {
+        asm.push(instruction);
+    }
     asm.push(abi::store_u32(
         s[4],
         abi::stack_pointer(),
@@ -6060,6 +5798,9 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     asm.push(abi::shift_right_immediate(s[4], s[4], 1));
     asm.push(abi::load_u64(s[7], abi::stack_pointer(), OFF_BAND_YMIN));
     asm.push(abi::subtract_registers(s[7], s[7], s[4]));
+    for instruction in emit_fixed_to_f32_bits(s[7], s[7], s[8], f[0], f[7]) {
+        asm.push(instruction);
+    }
     asm.push(abi::store_u32(
         s[7],
         abi::stack_pointer(),
@@ -6193,7 +5934,7 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
 
 /// The bands the 16.16 edge at `SCRATCH[0]` goes in: first in `SCRATCH[4]`, last in
 /// `SCRATCH[5]` (inclusive), from the working state `emit_band_index` parked. Uses
-/// `SCRATCH[6]` as a temporary.
+/// `SCRATCH[6]`, `FP_SCRATCH[0]` and `FP_SCRATCH[7]` as temporaries.
 ///
 /// With `top = ymin − r`: first = ⌊(ylo − r − top) / h⌋ = ⌊(ylo − ymin) / h⌋ and last =
 /// ⌊(yhi + r − top) / h⌋ = ⌊(yhi − ymin + 2r) / h⌋. Both numerators are non-negative
@@ -6202,10 +5943,13 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
 fn emit_band_range(asm: &mut Asm, tag: &str, site: &str) {
     let s = abi::SCRATCH;
     let ordered = format!("{METAL_DRAW_SYMBOL}_{tag}_{site}_ordered");
-    asm.push(abi::load_u32(s[4], s[0], 4));
-    asm.push(abi::sign_extend_word(s[4], s[4]));
-    asm.push(abi::load_u32(s[5], s[0], 12));
-    asm.push(abi::sign_extend_word(s[5], s[5]));
+    let f = abi::FP_SCRATCH;
+    for instruction in emit_f32_word_to_fixed(s[4], s[0], 4, s[6], f[0], f[7]) {
+        asm.push(instruction);
+    }
+    for instruction in emit_f32_word_to_fixed(s[5], s[0], 12, s[6], f[0], f[7]) {
+        asm.push(instruction);
+    }
     asm.push(abi::compare_registers(s[4], s[5]));
     asm.push(abi::branch_le(&ordered));
     asm.push(abi::move_register(s[6], s[4]));
@@ -6883,26 +6627,14 @@ mod tests {
                  `in.pos.xy` draws a correctly placed shape with the wrong contents",
             );
         }
-        // bug-687 (polygons), bug-735 (every kind): the shape distance is taken at the
-        // double-float twin of `p`, which has to be built from the surface point itself
-        // (`p` has already rounded to fp32). It is the third and last legitimate mention,
-        // and it is held to the same rule: the group offset -- word and residual -- comes
-        // off.
+        // The shape's coverage is taken at `p` itself.
         assert!(
-            body.contains("dfShapePoint(in.pos.xy, draw.offset)"),
-            "the shape's double-float point must be the surface point minus the draw \
-             offset, like `p`",
-        );
-        assert!(
-            METAL_SHADER_SOURCE.contains(
-                "return float4(dfSub(float2(surface.x, 0.0), dfFixed(offset.x, offset.z)), \
-                 dfSub(float2(surface.y, 0.0), dfFixed(offset.y, offset.w)));"
-            ),
-            "`dfShapePoint` must subtract the draw offset from the surface point",
+            body.contains("int4 cov = shapeCoverage(item, edges, p, gi, grouped);"),
+            "the shape's coverage must be taken at the shape-space point `p`",
         );
         // plan-164-C: the curve shapes are drawn from `curveWalk`, which takes the
-        // double-float shape point `sampleDistance` was given and a piece's coordinates
-        // RELATIVE to it (`curvePiece`). The generated block is spliced in ahead of the
+        // shape point `sampleDistance` was given and a piece's coordinates RELATIVE to it
+        // (`curvePiece`). The generated block is spliced in ahead of the
         // fragment entry point, so it is checked on its own: nothing in it may name the
         // surface position.
         let curves = curve_shader(ShaderLanguage::Msl);
@@ -6912,13 +6644,13 @@ mod tests {
              point it is handed",
         );
         assert!(
-            curves.contains("k.p0 = float2(dfF(dfSub(curveCoord(item, edges, s, 0), x)), dfF(dfSub(curveCoord(item, edges, s, 1), y)));"),
-            "a piece's points must be taken relative to the shape-space point, in \
-             double-float, before anything is done in single precision",
+            curves.contains("k.p0 = curvePoint(item, edges, s, 0) - pt;"),
+            "a piece's points must be taken relative to the shape-space point before \
+             anything else is done with them",
         );
         for call in [
-            "curveWalk(item, edges, band, x, y, kind == 12 ? 0 : (item.strokeStyle.w > 0 ? 3 : 1),",
-            "curveWalk(item, edges, band, cqx, cqy, dashed ? 3 : 2, dfF(half2), item.arc.w)",
+            "curveWalk(item, edges, band, p, kind == 12 ? 0 : (item.strokeStyle.w > 0 ? 3 : 1),",
+            "curveWalk(item, edges, band, cq, dashed ? 3 : 2, halfW, item.arc.w)",
         ] {
             assert!(
                 METAL_SHADER_SOURCE.contains(call),
@@ -6927,9 +6659,9 @@ mod tests {
         }
         assert_eq!(
             body.matches("in.pos.xy").count(),
-            2,
-            "only `p`'s own definition and its double-float twin may mention \
-             `in.pos.xy` — another use is a consumer that was not moved into shape space",
+            1,
+            "only `p`'s own definition may mention `in.pos.xy` — another use is a \
+             consumer that was not moved into shape space",
         );
     }
 
@@ -6976,24 +6708,10 @@ mod tests {
              ({METAL_BAND_BASE_WORDS}); every banded polygon would read another region \
              as its edge lists"
         );
-        // bug-687 put the edge residuals between the edges and the band index.
-        assert!(
-            METAL_SHADER_SOURCE.contains(&format!(
-                "constant int METAL_EDGE_RESIDUAL_BASE = {METAL_EDGE_RESIDUAL_BASE_WORDS};"
-            )),
-            "the MSL declares an edge-residual base that is not \
-             METAL_EDGE_RESIDUAL_BASE_WORDS ({METAL_EDGE_RESIDUAL_BASE_WORDS}); every \
-             polygon vertex would be corrected by another region's words"
-        );
-        assert_eq!(
-            METAL_EDGE_RESIDUAL_BASE_WORDS * 4,
-            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
-            "the edge-residual region must start where the edge region ends"
-        );
         assert_eq!(
             METAL_BAND_BASE_WORDS * 4,
-            METAL_EDGE_RESIDUAL_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
-            "the band region must start where the edge-residual region ends"
+            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
+            "the band region must start where the edge region ends"
         );
         assert_eq!(
             METAL_GRADIENT_BASE_WORDS * 4,

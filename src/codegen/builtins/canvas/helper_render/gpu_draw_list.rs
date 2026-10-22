@@ -143,9 +143,9 @@ FUNC __canvas_memoLookup(slot AS Integer, variant AS Integer) AS Integer
   RETURN -1
 END FUNC
 
-' Append one draw entry: offsets in 16.16 so the whole list stays `List OF Integer`
-' and reaches an emitter without a second parallel Float list -- each with its residual
-' word (bug-735), so the shaders recover the offset the oracle subtracts to 2^-47 px.
+' Append one draw entry: offsets as float32 bit patterns so the whole list stays
+' `List OF Integer` and reaches an emitter without a second parallel Float list -- the
+' form both shaders read every position in.
 FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float, mat AS Integer) AS Nothing
   IF count <= 0 THEN
     RETURN
@@ -181,27 +181,21 @@ FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS 
   ' code, with a backtrace containing no MFBASIC frame at all.
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, instBase)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, instCount)
-  LET wordX AS Integer = toInt(dx * 65536.0)
-  LET wordY AS Integer = toInt(dy * 65536.0)
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, wordX)
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, wordY)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, __canvas_float32Bits(dx))
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, __canvas_float32Bits(dy))
   ' The BlendMode every block in this run shares. It travels with the entry because the
   ' pipeline is bound per draw and the draws are issued in a second pass, so a binding
   ' left in the publish walk would apply the LAST item's mode to the whole frame.
   LET mode AS Integer = toInt(__canvas_geoAt(collections::getOr(__CANVAS_DRAW_BLOCKS, base, 0), 26))
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, mode)
-  ' bug-735: words 5 and 6 are the offsets' residual words, `(d * 65536 - word) * 2^31`
-  ' in units of 2^-47 px (`EDGE_RESIDUAL_SCALE`) -- the 16.16 word alone is up to 2^-16
-  ' px from the offset the software rasteriser subtracts, and that moved a coverage step
-  ' of every grouped item near black. `d * 65536 - word` is exact (the two are within one
-  ' of each other) and under 1 in magnitude, so the residual fits the 32-bit word the
-  ' emitters store. A frame with no group lays its entries out natively
-  ' (`canvas::sceneDrawsFlat`) at offset 0, residuals 0.
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt((dx * 65536.0 - toFloat(wordX)) * 2147483648.0))
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt((dy * 65536.0 - toFloat(wordY)) * 2147483648.0))
+  ' Words 5 and 6 are reserved and zero: they held the offsets' 16.16 residuals until the
+  ' shaders went to fp32. A frame with no group lays its entries out natively
+  ' (`canvas::sceneDrawsFlat`) at offset 0, whose float32 bits are 0 too.
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
   ' plan-172-G: word 7 is `hasMatrix`, words 8-11 the inverse linear part of the groups'
   ' composed affine as float32 bits, words 12-15 reserved. The translation stays in
-  ' words 2-3 and 5-6 either way.
+  ' words 2-3 either way.
   MUT hasMatrix AS Integer = 0
   MUT inverseA AS Integer = 0
   MUT inverseB AS Integer = 0

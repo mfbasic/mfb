@@ -718,15 +718,14 @@ With rim 0 each site is exactly what it was before the bug, which is what keeps 
 pictures and arcs inside a group byte-identical on each device.
 
 The rim reaches the vertex stage in two words of the item block that nothing else
-wrote, the fourth words of `xform1` and `gradInv1` (`ITEM_RIM_WORDS`), 16.16. That is
+wrote, the fourth words of `xform1` and `gradInv1` (`ITEM_RIM_WORDS`), float32 bits. That is
 why this did not grow `ITEM_BLOCK_SIZE` and the fragment stage's SPIR-V did not change:
 do not hand those two words to anything else.
 
-`dx`/`dy` are 16.16 words (`toInt(d * 65536)`, truncated) and `dxLo`/`dyLo` their residual
-words in units of 2^-47 px (bug-735): both backends bind all four as the stage offset
-(`int4`/`ivec4`, 16 bytes), and the fragment stage subtracts word plus residual in
-double-float. The 16.16 word alone is up to 2^-16 px from the offset the software
-rasteriser subtracts, and near black that moved a coverage step of every grouped item.
+`dx`/`dy` are float32 bit patterns (`__canvas_float32Bits`), entry words 2-3; words 5-6
+held their 16.16 residuals until the shaders went to fp32 and are now reserved zeros. Both
+backends still bind four words as the stage offset (`int4`/`ivec4`, 16 bytes), the last
+two zero, so the push-constant range and `MfbDraw` did not change size.
 
 The matrix is bound to the fragment stage as well as the vertex stage for the reason
 the offset is, below: bound to the vertex stage alone, a turned group has the right
@@ -926,19 +925,19 @@ The split is what made the feature cheap, and it is the thing to keep:
   puts more in a pass than the emitter can fit; `rt_canvas_metal.rs` pins the factor
   with a 512-ring frame that is one pass and a 513-ring frame that is two, both of which
   must match the oracle.
-- The weight is fp32 BITS, not 16.16: a weight is not a coordinate and has no 32,767.
 - The shader text is ONE template, `shaders/curves.tpl`, expanded to MSL at run time and
   into `mfb_canvas.frag` by `tools/canvas-curve-shader/generate.py`. Edit the template,
   run the tool, then `scripts/regen-spirv.sh`; a unit test fails on a stale GLSL copy,
   but nothing fails on a stale `.spv` except the Vulkan lanes.
-- A piece is evaluated in fp32 on coordinates taken relative to the pixel in
-  double-float (`curvePiece`). That is why curve rows are judged under
-  `Tolerance::GPU_CURVE` and every other row under `GPU_DEFAULT`; do not move a
-  non-curve row to the looser one.
+- A piece is evaluated in fp32 on coordinates taken relative to the pixel first
+  (`curvePiece`), and judged under `GPU_DEFAULT` like every other row. The 30,000x
+  `curve_residuals_on_black` row is what failed (139 levels) while positions travelled
+  as 16.16 and the shaders ignored the residuals: a 16.16 step is half a pixel there.
+  That is why positions are float32, not fixed point.
 
-**Two edges that share a vertex must READ one value for it.** `dfCrossing` used to
-rebuild an edge's end as `ay + vy`, and double-float addition does not always give back
-`by`: with a vertex exactly on a pixel-centre row the two edges disagreed about which
+**Two edges that share a vertex must READ one value for it.** The double-float shaders'
+`dfCrossing` used to rebuild an edge's end as `ay + vy`, and double-float addition does
+not always give back `by`: with a vertex exactly on a pixel-centre row the two edges disagreed about which
 side of the row it was on, both counted, and that whole row of the polygon came out
 inverted. It predates the curve shapes (it reproduces with plain polygons on the commit
 before them) and was invisible until a picture was clipped to a flattened
@@ -1719,7 +1718,8 @@ join record count, first dash word, dash word count), and plan-163-C the `clipBa
 polygon one; then first clip edge, clip edge count, mode | rule << 2, a picture's
 transparency step T at 304), and plan-163-D the `gradInv0`/`gradInv1`/`gradFocal`
 `ivec4`s (368: a radial gradient's own inverse as float32 bits and its flag at 320/336,
-its focal offset and radius in 16.16 at 352); each time it moved the same set. Three of them are unrelated by any type, and none of the three
+its focal offset and radius at 352), then the move to fp32 removed the four residual
+`ivec4`s (304); each time it moved the same set. Three of them are unrelated by any type, and none of the three
 fails loudly.
 
 It was five until plan-116-F added a **third** buffer region; the sixth is item 5.
@@ -1780,7 +1780,7 @@ GPU emitters that copy a part out (`emit_join_buffer`/`emit_join_upload`,
 parts after it the same way.
 
 A path clip's edges share the frame's EDGE region with the polygons' — copied after the
-item's own edges and join records, 16.16 words plus residuals like any edge, and counted
+item's own edges and join records, float32 words like any edge, and counted
 against the same edge region, one pass's, by `__canvas_blockCost` — and are banded by the same
 `emit_band_index`, parameterised by a `BandSet` (which count, base and header words; a
 clip's reach has no stroke, cap or join term). A clip that would pass the region is left at

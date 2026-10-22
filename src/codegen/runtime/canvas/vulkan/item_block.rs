@@ -13,8 +13,8 @@ use super::*;
 /// and the header slots are one definition in `runtime/canvas/scene_layout.rs`. A change to
 /// the contract therefore cannot move one backend without moving the other.
 ///
-/// Positions narrow to 16.16 fixed point; colours cross as the whole 0–255 values
-/// the header already stores, so nothing rounds a colour.
+/// Positions narrow to float32 bit patterns (`emit_f32_bits`); colours cross as the
+/// whole 0–255 values the header already stores, so nothing rounds a colour.
 pub(super) fn emit_item_block(
     builder: &mut CodeBuilder,
     off_item: usize,
@@ -22,15 +22,8 @@ pub(super) fn emit_item_block(
     off_height: usize,
 ) {
     let header = abi::SCRATCH[0];
-    let scale = abi::FP_SCRATCH[0];
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[1]));
 
-    // The 16.16 fields no distance reads: the bounds and the gradient axis.
+    // The float32 fields no distance reads: the bounds and the gradient axis.
     for (item_offset, slots) in [
         (
             ITEM_OFFSET_QUAD,
@@ -42,7 +35,7 @@ pub(super) fn emit_item_block(
             ],
         ),
         // plan-116-F: the gradient's axis, four consecutive header slots narrowing to
-        // 16.16 exactly like the bounds and the arc caps.
+        // float32 exactly like the bounds and the arc caps.
         (
             ITEM_OFFSET_GRADIENT,
             [
@@ -55,15 +48,9 @@ pub(super) fn emit_item_block(
     ] {
         for (index, slot) in slots.into_iter().enumerate() {
             builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-            builder.emit(abi::float_multiply_d(
-                abi::FP_SCRATCH[1],
-                abi::FP_SCRATCH[1],
-                scale,
-            ));
-            builder.emit(abi::float_round_to_signed_x(
-                abi::SCRATCH[1],
-                abi::FP_SCRATCH[1],
-            ));
+            for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+                builder.emit(instruction);
+            }
             builder.emit(abi::store_u32(
                 abi::SCRATCH[1],
                 abi::stack_pointer(),
@@ -71,7 +58,7 @@ pub(super) fn emit_item_block(
             ));
         }
     }
-    // bug-1083: how much of that box is rim, 16.16 like the box, in the two words the
+    // bug-1083: how much of that box is rim, float32 like the box, in the two words the
     // vertex stage reads it from under a group matrix (`ITEM_RIM_WORDS`).
     for (index, word) in crate::codegen::runtime::canvas::ITEM_RIM_WORDS
         .into_iter()
@@ -79,15 +66,9 @@ pub(super) fn emit_item_block(
     {
         let slot = crate::codegen::runtime::canvas::HEADER_RIM + index;
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[1],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+            builder.emit(instruction);
+        }
         builder.emit(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
@@ -95,23 +76,11 @@ pub(super) fn emit_item_block(
         ));
     }
 
-    // bug-735: every field a distance reads -- the shape parameters, the radius and
-    // stroke half-width, an arc's sweep endpoints, an ellipse's rotation and the clip --
-    // as its 16.16 word and, in the block's residual `ivec4`s, its residual. The twin of
-    // the loop in Metal's `emit_item_block`, from the same table.
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(
-        abi::FP_SCRATCH[3],
-        abi::SCRATCH[1],
-    ));
-    for (slot, word, residual) in ITEM_RESIDUAL_FIELDS {
-        for instruction in
-            emit_item_residual_field(header, slot, off_item + word, off_item + residual)
-        {
+    // Every field a distance reads -- the shape parameters, the radius and stroke
+    // half-width, an arc's sweep endpoints, an ellipse's rotation and the clip -- as
+    // float32. The twin of the loop in Metal's `emit_item_block`, from the same table.
+    for (slot, word) in ITEM_FLOAT_FIELDS {
+        for instruction in emit_item_float_field(header, slot, off_item + word) {
             builder.emit(instruction);
         }
     }
@@ -156,7 +125,7 @@ pub(super) fn emit_item_block(
     }
 
     // misc = { kind, radius, strokeHalf, edgeCount }: the two whole numbers here, the
-    // two 16.16 ones with their residuals above.
+    // two float32 ones above.
     for (index, slot) in [(0usize, HEADER_KIND), (3, HEADER_AUX0)] {
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
         builder.emit(abi::float_convert_to_signed_x(
@@ -209,7 +178,7 @@ pub(super) fn emit_item_block(
 
     // plan-163-D: a radial gradient's own inverse -- six float32 bit patterns and the
     // flag, header slots 57-63 -- word for word into `gradInv0`/`gradInv1`, the
-    // transform's layout; and its focal offset and radius narrowed to 16.16 (`gradFocal`).
+    // transform's layout; and its focal offset and radius narrowed to float32 (`gradFocal`).
     for index in 0..7 {
         builder.emit(abi::load_double(
             abi::FP_SCRATCH[1],
@@ -227,30 +196,15 @@ pub(super) fn emit_item_block(
         ));
     }
     debug_assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(
-        abi::FP_SCRATCH[2],
-        abi::SCRATCH[1],
-    ));
     for index in 0..3 {
         builder.emit(abi::load_double(
             abi::FP_SCRATCH[1],
             header,
             (HEADER_GRADIENT_FOCAL_X + index) * 8,
         ));
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[1],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+            builder.emit(instruction);
+        }
         builder.emit(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
@@ -342,22 +296,6 @@ pub(super) fn emit_item_block(
     ));
 }
 
-/// Append this item's polygon edges to the frame's edge buffer and record where they
-/// landed.
-///
-/// **Why an offset rather than a rebind.** A Vulkan command buffer is recorded now
-/// and executed later, all at once. There is one edge buffer for the frame, so
-/// rewriting it per item — or rebinding the same buffer per item — would give every
-/// polygon whatever the *last* one wrote. Each polygon therefore takes a slice and
-/// carries its start index in its own item block, which is per-item. Metal has the
-/// opposite property and needs none of this: `setFragmentBytes:` copies the bytes
-/// into the command buffer at record time.
-///
-/// The geometry cache stores each edge as `x0, y0, dx, dy, invLenSq` doubles; the
-/// shader wants the two endpoints in 16.16, and recomputes the rest. `invLenSq` is
-/// the one quantity fixed point represents badly — a 100-px edge gives 1e-4, which
-/// is 6 in 16.16 — and a GPU has the divide for free, so dropping it from the
-/// payload is both smaller and more accurate.
 /// Copy this item's gradient stops into the frame buffer's third region, and record
 /// where they landed in the item block.
 ///
@@ -371,7 +309,7 @@ pub(super) fn emit_item_block(
 /// the base from the record's own length is what lets this work for a gradient-filled
 /// polygon, whose tail is edges *then* stops, without the emitter knowing an edge count.
 ///
-/// The offset is 16.16 like every other coordinate; the four channels are whole 0..255
+/// The offset is float32 bits like every other coordinate; the four channels are whole 0..255
 /// bytes, which is how the item block already carries `fill` and `stroke`.
 pub(super) fn emit_gradient_upload(
     builder: &mut CodeBuilder,
@@ -389,7 +327,6 @@ pub(super) fn emit_gradient_upload(
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
     let target = abi::SCRATCH[5];
-    let scale = abi::FP_SCRATCH[0];
 
     // Fewer than two stops is not a gradient, and the header already says so — the
     // count slot is written as 0 in that case, so one compare covers "no gradient",
@@ -498,28 +435,16 @@ pub(super) fn emit_gradient_upload(
     ));
     builder.emit(abi::add_registers(source, abi::SCRATCH[6], abi::SCRATCH[1]));
 
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
     builder.emit(abi::move_immediate(index, "Integer", "0"));
 
     builder.emit(abi::label(&head));
     builder.emit(abi::compare_registers(index, count));
     builder.emit(abi::branch_ge(&done));
-    // The offset, 16.16.
+    // The offset, float32 bits.
     builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 0));
-    builder.emit(abi::float_multiply_d(
-        abi::FP_SCRATCH[1],
-        abi::FP_SCRATCH[1],
-        scale,
-    ));
-    builder.emit(abi::float_round_to_signed_x(
-        abi::SCRATCH[0],
-        abi::FP_SCRATCH[1],
-    ));
+    for instruction in emit_f32_bits(abi::SCRATCH[0], abi::FP_SCRATCH[1]) {
+        builder.emit(instruction);
+    }
     builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
     builder.emit(abi::add_immediate(target, target, 4));
     // The four channels, whole 0..255 — the form the block already uses for fill.

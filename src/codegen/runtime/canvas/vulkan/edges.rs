@@ -3,6 +3,20 @@
 
 use super::*;
 
+/// Append this item's polygon edges to the frame's edge buffer and record where they
+/// landed.
+///
+/// **Why an offset rather than a rebind.** A Vulkan command buffer is recorded now
+/// and executed later, all at once. There is one edge buffer for the frame, so
+/// rewriting it per item — or rebinding the same buffer per item — would give every
+/// polygon whatever the *last* one wrote. Each polygon therefore takes a slice and
+/// carries its start index in its own item block, which is per-item. Metal has the
+/// opposite property and needs none of this: `setFragmentBytes:` copies the bytes
+/// into the command buffer at record time.
+///
+/// The geometry cache stores each edge as `x0, y0, dx, dy, invLenSq` doubles; the
+/// shader wants the two endpoints as float32, and recomputes the rest -- a GPU has the
+/// divide for free, so dropping `invLenSq` from the payload costs nothing.
 pub(super) fn emit_edge_upload(
     builder: &mut CodeBuilder,
     off_state: usize,
@@ -28,9 +42,6 @@ pub(super) fn emit_edge_upload(
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
     let target = abi::SCRATCH[5];
-    let residual_target = abi::SCRATCH[1];
-    let scale = abi::FP_SCRATCH[0];
-    let residual_scale = abi::FP_SCRATCH[3];
 
     // Only a polygon has edges. Every other kind leaves `misc.w` holding whatever
     // `HEADER_AUX0` meant for it — an arc's start angle — which is harmless because
@@ -78,8 +89,8 @@ pub(super) fn emit_edge_upload(
     builder.emit(abi::branch_le(&copy));
     builder.emit(abi::branch(&empty));
     builder.emit(abi::label(&polyline));
-    // Its first and last live segments, as whole numbers over the 16.16 gradient axis
-    // `emit_item_block` wrote: 16.16 holds a segment index only up to 32,767.
+    // Its first and last live segments, as whole numbers over the float32 gradient axis
+    // `emit_item_block` wrote: the shader compares them with segment indices.
     builder.emit(abi::load_u64(
         abi::SCRATCH[1],
         abi::stack_pointer(),
@@ -170,30 +181,6 @@ pub(super) fn emit_edge_upload(
         off_edge_cursor,
     ));
 
-    // bug-687: each word's residual goes to the same edge's slot in the residual region,
-    // a fixed distance past its 16.16 word (`VULKAN_EDGE_RESIDUAL_BASE_WORDS`) — Metal's
-    // `emit_edge_buffer` twin.
-    builder.emit(abi::move_immediate(
-        residual_target,
-        "Integer",
-        &(VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4).to_string(),
-    ));
-    builder.emit(abi::add_registers(residual_target, residual_target, target));
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(
-        residual_scale,
-        abi::SCRATCH[0],
-    ));
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
     builder.emit(abi::load_u64(source, abi::stack_pointer(), off_header));
     builder.emit(abi::add_immediate(source, source, HEADER_SLOTS * 8));
     builder.emit(abi::move_immediate(index, "Integer", "0"));
@@ -216,40 +203,14 @@ pub(super) fn emit_edge_upload(
     ));
     builder.emit(abi::branch_ne(&head));
 
-    // One double of the record as its 16.16 word and its residual, each cursor advanced.
+    // One double of the record as its float32 bits, the cursor advanced.
     let word = |builder: &mut CodeBuilder, slot: usize| {
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[0], abi::FP_SCRATCH[1]) {
+            builder.emit(instruction);
+        }
         builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
         builder.emit(abi::add_immediate(target, target, 4));
-        builder.emit(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[0],
-        ));
-        builder.emit(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
-        builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
-        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
     };
     builder.emit(abi::label(&chords));
     builder.emit(abi::compare_registers(index, count));
@@ -270,24 +231,11 @@ pub(super) fn emit_edge_upload(
     for slot in [2usize, 3] {
         word(builder, slot);
     }
-    // The weight as its fp32 BITS, not a 16.16 word: the shader's arithmetic on it is
-    // single precision either way, and a weight has no 32767 to stay under.
-    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 6 * 8));
-    builder.emit(abi::float_convert_s_from_d(
-        abi::FP_SCRATCH[1],
-        abi::FP_SCRATCH[1],
-    ));
-    builder.emit(abi::float_move_x_from_d(
-        abi::SCRATCH[0],
-        abi::FP_SCRATCH[1],
-    ));
-    builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+    // The weight, float32 bits like the coordinates, then a zero word.
+    word(builder, 6);
     builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
-    builder.emit(abi::store_u32(abi::SCRATCH[0], target, 4));
-    builder.emit(abi::add_immediate(target, target, 8));
-    builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
-    builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 4));
-    builder.emit(abi::add_immediate(residual_target, residual_target, 8));
+    builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+    builder.emit(abi::add_immediate(target, target, 4));
     builder.emit(abi::add_immediate(source, source, CURVE_PIECE_SLOTS * 8));
     builder.emit(abi::add_immediate(index, index, 1));
     builder.emit(abi::branch(&controls));
@@ -295,10 +243,7 @@ pub(super) fn emit_edge_upload(
     builder.emit(abi::label(&head));
     builder.emit(abi::compare_registers(index, count));
     builder.emit(abi::branch_ge(&band));
-    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy), each as its 16.16 word and,
-    // in the residual region, `round((v * 65536 - word) * 2^31)` (bug-687,
-    // `EDGE_RESIDUAL_SCALE`). `v * 65536 - word` is exact: the two are within half a
-    // step of each other.
+    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy), each as float32 bits.
     for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
         if let Some(delta) = delta {
@@ -309,37 +254,11 @@ pub(super) fn emit_edge_upload(
                 abi::FP_SCRATCH[2],
             ));
         }
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[0], abi::FP_SCRATCH[1]) {
+            builder.emit(instruction);
+        }
         builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
         builder.emit(abi::add_immediate(target, target, 4));
-        builder.emit(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[0],
-        ));
-        builder.emit(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
-        builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
-        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
     }
     builder.emit(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     builder.emit(abi::add_immediate(index, index, 1));
@@ -366,19 +285,12 @@ pub(super) fn emit_edge_upload(
     builder.emit(abi::label(&done));
 }
 
-/// plan-163-B: the item's join records (`helper_joins.rs`) into the frame's edge region
-/// after its own edges, two edge slots per record -- each record's four points as eight
-/// 16.16 words, with their residuals at the residual region's same offsets, exactly as an
-/// edge's endpoints travel. `strokeStyle.x` is the first slot and `strokeStyle.y` the
-/// record count; both are 0 for an item with none, and so are the dash words. The
-/// records sit right before the gradient stops, so they are found from the record's end:
-/// `header + (slot1 - stops * 5 - records * 8) * 8`. Metal's `emit_join_buffer` twin.
 /// plan-163-C: the clip's item-block words -- `clipPath` = (first clip edge, clip edge
 /// count, mode | rule << 2, a picture's transparency step T) and `clipBand`'s band count
 /// 0 (the shader walks every clip edge) -- and a path clip's edges, copied from the
 /// record's tail (`slot1 − stops·5 − edges·5`, right before the stops) into the frame's
-/// edge region after the item's own edges and join records, as 16.16 words with their
-/// residuals, exactly as a polygon's edges are (`emit_edge_upload`). The frame-sum edge cap
+/// edge region after the item's own edges and join records, as float32 words, exactly as
+/// a polygon's edges are (`emit_edge_upload`). The frame-sum edge cap
 /// counts them, so the over-cap arm is unreachable; it leaves the edge count 0, which the
 /// shader reads as a clip enclosing nothing -- hidden, never drawn unclipped.
 pub(super) fn emit_clip_upload(
@@ -398,9 +310,6 @@ pub(super) fn emit_clip_upload(
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
     let target = abi::SCRATCH[6];
-    let residual_target = abi::SCRATCH[1];
-    let scale = abi::FP_SCRATCH[0];
-    let residual_scale = abi::FP_SCRATCH[3];
     let clip = off_item + ITEM_OFFSET_CLIP_PATH;
     let band = off_item + ITEM_OFFSET_CLIP_BAND;
 
@@ -507,7 +416,7 @@ pub(super) fn emit_clip_upload(
         abi::stack_pointer(),
         clip + ITEM_CLIP_PATH_COUNT,
     ));
-    // target = mapped + base * 16; the residuals a fixed distance past it.
+    // target = mapped + base * 16.
     builder.emit(abi::shift_left_immediate(
         abi::SCRATCH[7],
         abi::SCRATCH[5],
@@ -520,27 +429,6 @@ pub(super) fn emit_clip_upload(
         target,
     );
     builder.emit(abi::add_registers(target, target, abi::SCRATCH[7]));
-    builder.emit(abi::move_immediate(
-        residual_target,
-        "Integer",
-        &(VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4).to_string(),
-    ));
-    builder.emit(abi::add_registers(residual_target, residual_target, target));
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(
-        residual_scale,
-        abi::SCRATCH[5],
-    ));
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     // source = header + (slot1 - stops * 5 - count * 5) * 8.
     builder.emit(abi::load_u64(header, abi::stack_pointer(), off_header));
     builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, 8));
@@ -578,37 +466,11 @@ pub(super) fn emit_clip_upload(
                 abi::FP_SCRATCH[2],
             ));
         }
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[5], abi::FP_SCRATCH[1]) {
+            builder.emit(instruction);
+        }
         builder.emit(abi::store_u32(abi::SCRATCH[5], target, 0));
         builder.emit(abi::add_immediate(target, target, 4));
-        builder.emit(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[5],
-        ));
-        builder.emit(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
-        builder.emit(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
-        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
     }
     builder.emit(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     builder.emit(abi::add_immediate(index, index, 1));

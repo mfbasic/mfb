@@ -45,24 +45,23 @@ pub(crate) enum ShaderLanguage {
     Glsl,
 }
 
-/// One coordinate of an edge-region slot — word `w` of slot `slot` — as the 16.16 word
-/// plus its residual, and a control slot's weight, which is fp32 bits: the two functions
-/// of the block that are spelled per language, because the two backends lay the region
-/// out differently.
+/// A point of an edge-region slot — words `w` and `w + 1` of slot `slot`, float32 — and a
+/// control slot's weight, which is fp32 bits: the two functions of the block that are
+/// spelled per language, because the two backends lay the region out differently.
 fn curve_coord(language: ShaderLanguage) -> &'static str {
     match language {
         ShaderLanguage::Msl => {
-            "static float2 curveCoord(constant MfbItem &item, constant int *edges, int slot, int w) {\n  \
-             int i = slot * 4 + w;\n  \
-             return edgeCoord(edges, i + METAL_EDGE_BASE, i + METAL_EDGE_RESIDUAL_BASE);\n}\n\
+            "static float2 curvePoint(constant MfbItem &item, constant int *edges, int slot, int w) {\n  \
+             int i = slot * 4 + w + METAL_EDGE_BASE;\n  \
+             return float2(fx(edges[i]), fx(edges[i + 1]));\n}\n\
              static float curveWeight(constant MfbItem &item, constant int *edges, int slot) {\n  \
              return as_type<float>(edges[slot * 4 + 2 + METAL_EDGE_BASE]);\n}\n"
         }
         #[cfg(test)]
         ShaderLanguage::Glsl => {
-            "vec2 curveCoord(int slot, int w) {\n  \
+            "vec2 curvePoint(int slot, int w) {\n  \
              int i = slot * 4 + w;\n  \
-             return edgeCoord(i, i + EDGE_RESIDUAL_BASE);\n}\n\
+             return vec2(fx(edges.values[i]), fx(edges.values[i + 1]));\n}\n\
              float curveWeight(int slot) {\n  \
              return intBitsToFloat(edges.values[slot * 4 + 2]);\n}\n"
         }
@@ -179,8 +178,8 @@ mod tests {
         let frag = include_str!("shaders/mfb_canvas.frag");
         for call in [
             "if ((bk != 4 && bk != 10 && bk != 11 && bk != 12) || nb <= 0)",
-            "curveWalk(band, x, y, kind == 12 ? 0 : (item.strokeStyle.w > 0 ? 3 : 1),",
-            "curveWalk(band, cqx, cqy, dashed ? 3 : 2, dfF(half2), item.arc.w)",
+            "curveWalk(band, p, kind == 12 ? 0 : (item.strokeStyle.w > 0 ? 3 : 1),",
+            "curveWalk(band, cq, dashed ? 3 : 2, halfW, item.arc.w)",
             "item.misc.x == 2 || item.misc.x == 3 || item.misc.x == 11",
         ] {
             assert!(frag.contains(call), "mfb_canvas.frag has lost `{call}`");

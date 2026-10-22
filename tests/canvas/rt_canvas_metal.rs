@@ -510,9 +510,10 @@ fn a_debug_metal_frame_reports_its_own_phases() {
         stat(line, "profGpuUs") <= stat(line, "profWaitUs"),
         "the GPU's own time exceeds the wait around it: {line}"
     );
-    // Every item is one block at least, and the scene's two polygons have edges.
+    // Every item is one block at least, and the scene's two polygons have edges. 304 is
+    // `ITEM_BLOCK_SIZE` (crate-private, so spelled here).
     assert!(
-        stat(line, "profBytes") >= stat(line, "blocks") * 368,
+        stat(line, "profBytes") >= stat(line, "blocks") * 304,
         "fewer bytes than the frame's blocks alone: {line}"
     );
     assert!(stat(line, "profDraws") >= 1, "no draw call counted: {line}");

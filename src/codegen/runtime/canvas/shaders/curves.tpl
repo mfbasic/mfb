@@ -5,18 +5,17 @@
 // whole y-range -- and its control point and weight in slot `arc.z + misc.w + e`, as `x1, y1`, the fp32 BITS
 // of `w1` and a zero. Each function below is the oracle's of the same name
 // (`__canvas_pieceNearest`, `__canvas_pieceCrossX`, `__canvas_pieceCut`, ...), in
-// fp32, on coordinates taken RELATIVE TO THE PIXEL in double-float first: what is left
-// to single precision is no larger than the piece. The two shaders' text is generated
-// from one template (`tools/canvas-curve-shader`), so they are line for line.
+// fp32, on coordinates taken RELATIVE TO THE PIXEL first. The two shaders' text is
+// generated from one template (`tools/canvas-curve-shader`), so they are line for line.
 struct MfbPiece { vec2 p0; vec2 p1; vec2 p2; float w; };
 struct MfbPieceQ { vec2 a; vec2 b; vec2 c; float wb; };
-@S MfbPiece curvePiece(@D int e, vec2 x, vec2 y) {
+@S MfbPiece curvePiece(@D int e, vec2 pt) {
   int s = item.arc.z + e;
   int c = s + item.misc.w;
   MfbPiece k;
-  k.p0 = vec2(dfF(dfSub(curveCoord(@C s, 0), x)), dfF(dfSub(curveCoord(@C s, 1), y)));
-  k.p2 = vec2(dfF(dfSub(curveCoord(@C s, 2), x)), dfF(dfSub(curveCoord(@C s, 3), y)));
-  k.p1 = vec2(dfF(dfSub(curveCoord(@C c, 0), x)), dfF(dfSub(curveCoord(@C c, 1), y)));
+  k.p0 = curvePoint(@C s, 0) - pt;
+  k.p2 = curvePoint(@C s, 2) - pt;
+  k.p1 = curvePoint(@C c, 0) - pt;
   k.w = curveWeight(@C c);
   return k;
 }
@@ -194,7 +193,7 @@ struct MfbPieceQ { vec2 a; vec2 b; vec2 c; float wb; };
 // (`__canvas_curveDistance`); 1 a PolyCurve's stroke (`__canvas_curveScan`); 2 a
 // CurvePolygon's stroke with join records (`__canvas_curveJoined`); 3 either's dashed
 // stroke (`__canvas_dashedCurves`).
-@S float curveWalk(@D ivec2 band, vec2 x, vec2 y, int mode, float halfW, int cap) {
+@S float curveWalk(@D ivec2 band, vec2 pt, int mode, float halfW, int cap) {
   int total = item.misc.w;
   bool joins = item.strokeStyle.y > 0;
   int inner = joins ? 0 : 1;
@@ -209,7 +208,7 @@ struct MfbPieceQ { vec2 a; vec2 b; vec2 c; float wb; };
     phase = dashWord(@C 0);
     // A chain that is a single point is the dot its cap draws (`__canvas_dashDot`).
     if (total == 1 && !(dashWord(@C data + 16) > dashWord(@C data))) {
-      MfbPiece dot0 = curvePiece(@C 0, x, y);
+      MfbPiece dot0 = curvePiece(@C 0, pt);
       if (cap == 0 || item.misc.x != 11 || !dashOnAt(@C phase)) { return 1.0e6; }
       if (cap == 2) { return max(abs(dot0.p0.x), abs(dot0.p0.y)) - halfW; }
       return length(dot0.p0) - halfW;
@@ -217,7 +216,7 @@ struct MfbPieceQ { vec2 a; vec2 b; vec2 c; float wb; };
   }
   for (int j = 0; j < band.y; ++j) {
     int e = band.x < 0 ? j : @E[band.x + j];
-    MfbPiece p = curvePiece(@C e, x, y);
+    MfbPiece p = curvePiece(@C e, pt);
     if (mode == 0) { winding += pieceCrossing(p); }
     int row = data + e * 18;
     float s0 = 0.0;
@@ -267,8 +266,7 @@ struct MfbPieceQ { vec2 a; vec2 b; vec2 c; float wb; };
         drawn = dashOnBefore(@C before + phase) && dashOnAt(@C s0 + phase);
       }
       if (drawn) {
-        vec2 wv = vec2(dfF(dfSub(x, joinCoord(@C e, 0))), dfF(dfSub(y, joinCoord(@C e, 1))));
-        best = min(best, joinPieceAt(@C e, jk, wv));
+        best = min(best, joinPieceAt(@C e, jk, pt - joinPoint(@C e, 0)));
       }
     }
   }

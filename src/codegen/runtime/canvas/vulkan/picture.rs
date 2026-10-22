@@ -76,29 +76,14 @@ pub(super) fn emit_picture_upload(builder: &mut CodeBuilder, at: PictureSlots) {
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], GEO_KIND_TILE));
     builder.emit(abi::branch_ne(&source_done));
-    builder.emit(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    builder.emit(abi::signed_convert_to_float_d(
-        abi::FP_SCRATCH[0],
-        abi::SCRATCH[1],
-    ));
     for (index, slot) in [TILE_SOURCE_X, TILE_SOURCE_Y, TILE_SOURCE_W, TILE_SOURCE_H]
         .into_iter()
         .enumerate()
     {
         builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-        builder.emit(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[0],
-        ));
-        builder.emit(abi::float_round_to_signed_x(
-            abi::SCRATCH[1],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+            builder.emit(instruction);
+        }
         builder.emit(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
