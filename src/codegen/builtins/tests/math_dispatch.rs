@@ -1,10 +1,60 @@
-//! The float observation predicate treats a `TRAP`'d builtin call as its plain twin,
-//! and never observes a `Checked` capture again.
+//! The scalar `math::` lowerings refuse an operand type they have no kernel for, by
+//! name, and the float observation predicate treats a `TRAP`'d call as its plain twin.
+//!
+//! `CodeBuilder::lower_math_call` routes by member and arity, then each scalar
+//! lowering (`math/gen_math/scalar.rs`) dispatches on the operand's type: `Float`
+//! to the shared kernels, `Integer`/`Fixed` to their own paths. The checker admits
+//! nothing else, so the last arm — "math.X does not accept T" — is the lowering's
+//! own guard against a caller that lets a wrong type through. Driven directly here
+//! with a `String` operand: the refusal must name the member and the type, rather
+//! than emit a kernel over a string pointer.
 
 use crate::codegen::builtins::math::gen_math::float_arith_node;
+use crate::codegen::engine::builder::ValueResult;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::tests::test_support::{BuilderHarness, TestPlatform};
 use crate::operators::BinaryOp;
 use crate::target::shared::nir::{NirSourceLoc, NirValue};
 use crate::types::ParameterType;
+
+fn refusal(member: &str, arity: usize, type_: ParameterType) -> String {
+    refusal_of(member, &vec![type_; arity])
+}
+
+/// `lower_math_call(member, ...)` with one operand of each of `types`, which must be
+/// refused.
+fn refusal_of(member: &str, types: &[ParameterType]) -> String {
+    let platform = TestPlatform;
+    let harness = BuilderHarness::default();
+    let mut builder = harness.builder("_mfb_probe", &platform);
+    let args: Vec<ValueResult> = types
+        .iter()
+        .enumerate()
+        .map(|(index, type_)| ValueResult {
+            origin: None,
+            type_: type_.clone(),
+            location: Operand::from(builder.temporary_vreg()),
+            text: format!("operand{index}"),
+        })
+        .collect();
+    match builder.lower_math_call(member, &args) {
+        Ok(value) => panic!("math.{member} lowered operands {types:?}: {}", value.text),
+        Err(err) => err,
+    }
+}
+
+#[test]
+fn a_scalar_math_member_refuses_an_operand_type_it_has_no_kernel_for() {
+    for (member, arity, want) in [
+        ("atan2", 2, "math.atan2 does not accept String"),
+        ("min", 2, "math.min does not accept String"),
+        ("max", 2, "math.max does not accept String"),
+        ("clamp", 3, "math.clamp does not accept String"),
+    ] {
+        let err = refusal(member, arity, ParameterType::String);
+        assert_eq!(err, want, "math.{member}");
+    }
+}
 
 #[test]
 fn a_trapped_builtin_call_is_observed_like_the_plain_call_and_a_checked_value_is_not() {
