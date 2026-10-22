@@ -82,13 +82,11 @@ pub fn run(options: &AuditOptions) -> i32 {
         return 3;
     };
 
-    let Some(project_name) = manifest
+    let project_name = manifest
         .get("name")
         .and_then(|value| value.get::<String>())
         .cloned()
-    else {
-        return 3;
-    };
+        .expect("validate_project_manifest requires a string `name`");
 
     let Ok(ast) = crate::ast::parse_project(&project_name, &options.location, &manifest) else {
         return 3;
@@ -96,9 +94,10 @@ pub fn run(options: &AuditOptions) -> i32 {
     if crate::resolver::resolve_project(&options.location, &manifest, &ast).is_err() {
         return 3;
     }
-    let Ok(augmented) = crate::resolver::augment_project(&ast, false) else {
-        return 3;
-    };
+    // `resolve_project` has just augmented this same AST (`debug: false`) and
+    // succeeded; the augmentation is deterministic.
+    let augmented = crate::resolver::augment_project(&ast, false)
+        .expect("resolve_project already augmented this AST");
     // plan-102-D3: monomorph consumes/produces HIR; audit's downstream passes
     // still consume `crate::ast`, so de-elaborate the concrete HIR back to its
     // byte-identical AST.
