@@ -2,6 +2,8 @@ use crate::manifest::validate_project_manifest;
 use std::fs;
 use tempfile::TempDir;
 
+mod diagnostics;
+
 fn quiet<T>(f: impl FnOnce() -> T) -> T {
     crate::testutil::silence_panics(f)
 }
