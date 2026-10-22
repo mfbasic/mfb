@@ -93,6 +93,8 @@ mod union_tags;
 #[cfg(test)]
 mod value_effect_predicates;
 #[cfg(test)]
+mod value_lowering_edges;
+#[cfg(test)]
 mod write_scans;
 
 // The per-package builtin codegen suites, declared from HERE rather than from
