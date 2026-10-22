@@ -259,20 +259,27 @@ fn safe_source_line(line: &str) -> Cow<'_, str> {
 /// `MAX_RENDERED_DIAGNOSTICS`. Called by the CLI when a command's diagnostic
 /// stream is complete (`cli::dispatch`), so the count is exact.
 pub fn report_suppressed_diagnostics() {
-    let seen = SEEN.load(Ordering::Relaxed);
+    if let Some(notice) = suppressed_notice(SEEN.load(Ordering::Relaxed)) {
+        eprintln!("{notice}");
+    }
+}
+
+/// The withheld-diagnostics notice for a stream of `seen` located
+/// diagnostics, or `None` when none were withheld.
+fn suppressed_notice(seen: usize) -> Option<String> {
     let suppressed = seen.saturating_sub(MAX_RENDERED_DIAGNOSTICS);
     if suppressed == 0 {
-        return;
+        return None;
     }
     let noun = if suppressed == 1 {
         "diagnostic"
     } else {
         "diagnostics"
     };
-    eprintln!(
+    Some(format!(
         "... and {suppressed} more {noun} not shown (only the first \
          {MAX_RENDERED_DIAGNOSTICS} are rendered)"
-    );
+    ))
 }
 
 /// A rejection collected but not yet rendered. The source-path passes
@@ -363,19 +370,46 @@ pub fn show_diagnostic(
         return;
     }
 
+    eprint!(
+        "{}",
+        render_located(rule, detailed_message, filename, line, start_pos, end_pos)
+    );
+}
+
+/// The full text of one located diagnostic: up to three lines of source
+/// context ending at `line` (clamped to the file), a caret underline from
+/// `start_pos` to `end_pos` when the reported line is the one shown, then the
+/// `path:line severity[code name]: message` header and the indented detail.
+/// The context is omitted when the file cannot be read or is empty.
+fn render_located(
+    rule: &Rule,
+    detailed_message: &str,
+    filename: &Path,
+    line: usize,
+    start_pos: usize,
+    end_pos: usize,
+) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
     if let Some(source) = cached_source(filename) {
         let display_line = line.min(source.line_count()).max(1);
         if source.line_count() > 0 {
             let first_context_line = display_line.saturating_sub(2).max(1);
             for context_line in first_context_line..=display_line {
                 if let Some(source_line) = source.line(context_line - 1) {
-                    eprintln!("{:>4} | {}", context_line, safe_source_line(source_line));
+                    let _ = writeln!(
+                        out,
+                        "{:>4} | {}",
+                        context_line,
+                        safe_source_line(source_line)
+                    );
                 }
             }
 
             if start_pos > 0 && display_line == line {
                 let underline_width = end_pos.saturating_sub(start_pos).max(1);
-                eprintln!(
+                let _ = writeln!(
+                    out,
                     "     | {}{}",
                     " ".repeat(start_pos.saturating_sub(1)),
                     "^".repeat(underline_width)
@@ -384,7 +418,8 @@ pub fn show_diagnostic(
         }
     }
 
-    eprintln!(
+    let _ = writeln!(
+        out,
         "{}:{} {}[{} {}]: {}",
         filename.display(),
         line.max(1),
@@ -393,7 +428,8 @@ pub fn show_diagnostic(
         rule.name,
         rule.message
     );
-    eprintln!("               {}", detailed_message);
+    let _ = writeln!(out, "               {}", detailed_message);
+    out
 }
 
 pub fn show_general_diagnostic(rule_name: &str, detailed_message: &str) {
@@ -422,6 +458,14 @@ pub(crate) fn code_and_name(rule_name: &str) -> (&'static str, &'static str) {
     (rule.code, rule.name)
 }
 
+/// What a rule name absent from the table renders as in a release build.
+static UNKNOWN_RULE: Rule = Rule {
+    code: "0-000-0000",
+    name: "UNKNOWN_RULE",
+    severity: Severity::Error,
+    message: "unknown diagnostic rule",
+};
+
 fn rule_for(rule_name: &str) -> &'static Rule {
     match table::rules().find(|rule| rule.name == rule_name) {
         Some(rule) => rule,
@@ -429,17 +473,12 @@ fn rule_for(rule_name: &str) -> &'static Rule {
             // An emit site referenced a rule name absent from the rule table: the emit
             // site and the table have drifted (see bug-40). Fail loudly in debug
             // builds so the mismatch is caught by tests rather than silently
-            // degraded to the `0-000-0000 UNKNOWN_RULE` sentinel at runtime.
+            // degraded to the `UNKNOWN_RULE` sentinel at runtime.
             debug_assert!(
                 false,
                 "diagnostic rule `{rule_name}` is not defined in RULES (src/rules/table/)"
             );
-            &Rule {
-                code: "0-000-0000",
-                name: "UNKNOWN_RULE",
-                severity: Severity::Error,
-                message: "unknown diagnostic rule",
-            }
+            &UNKNOWN_RULE
         }
     }
 }

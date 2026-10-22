@@ -373,3 +373,76 @@ fn diagnostics_past_the_cap_are_counted_not_rendered() {
     assert!(SEEN.load(Ordering::Relaxed) >= before + MAX_RENDERED_DIAGNOSTICS + 1);
     report_suppressed_diagnostics();
 }
+
+/// The exact text of a located diagnostic: two lines of context above the
+/// reported line, the caret run from `start_pos` to `end_pos`, the header, and
+/// the indented detail. `show_diagnostic` writes exactly this to stderr, so
+/// this is what a developer sees (and what every `build.log` golden records).
+#[test]
+fn a_located_diagnostic_renders_context_caret_header_and_detail() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("src.mfb");
+    std::fs::write(&file, "line one\nline two\nline three\n").expect("write source");
+    let rule = rule_for("IMPORT_PACKAGE_INVALID");
+    let header = format!(
+        "{}:3 error[{} IMPORT_PACKAGE_INVALID]: {}\n",
+        file.display(),
+        rule.code,
+        rule.message
+    );
+    assert_eq!(
+        render_located(rule, "detail here", &file, 3, 6, 10),
+        format!(
+            "   1 | line one\n   2 | line two\n   3 | line three\n     |      ^^^^\n{header}               detail here\n"
+        )
+    );
+    // Line 1 has no lines above it, and an empty span still gets one caret.
+    let first = render_located(rule, "d", &file, 1, 2, 2);
+    assert!(first.starts_with("   1 | line one\n     |  ^\n"), "{first}");
+}
+
+/// A reported line past the end of the file shows the file's last lines but
+/// no caret (it would point into a line that was not reported); an empty or
+/// unreadable file shows no context at all, only the header and detail.
+#[test]
+fn a_located_diagnostic_clamps_or_omits_the_source_context() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("src.mfb");
+    std::fs::write(&file, "a\nb\nc\nd\n").expect("write source");
+    let rule = rule_for("IMPORT_PACKAGE_INVALID");
+    let past_end = render_located(rule, "clamped", &file, 99, 1, 4);
+    assert!(
+        past_end.starts_with("   2 | b\n   3 | c\n   4 | d\n"),
+        "{past_end}"
+    );
+    assert!(!past_end.contains('^'), "{past_end}");
+    assert!(past_end.contains(":99 error["), "{past_end}");
+
+    let empty = dir.path().join("empty.mfb");
+    std::fs::write(&empty, "").expect("write empty");
+    let missing = dir.path().join("does-not-exist.mfb");
+    for path in [&empty, &missing] {
+        let text = render_located(rule, "no context", path, 3, 1, 2);
+        assert!(
+            text.starts_with(&format!("{}:3 error[", path.display())),
+            "{text}"
+        );
+        assert_eq!(text.lines().count(), 2, "{text}");
+    }
+}
+
+/// The withheld-diagnostics notice: nothing until the cap is passed, then a
+/// singular or plural count.
+#[test]
+fn the_suppressed_notice_counts_only_what_passed_the_cap() {
+    assert_eq!(suppressed_notice(0), None);
+    assert_eq!(suppressed_notice(MAX_RENDERED_DIAGNOSTICS), None);
+    assert_eq!(
+        suppressed_notice(MAX_RENDERED_DIAGNOSTICS + 1).as_deref(),
+        Some("... and 1 more diagnostic not shown (only the first 100 are rendered)")
+    );
+    assert_eq!(
+        suppressed_notice(MAX_RENDERED_DIAGNOSTICS + 51).as_deref(),
+        Some("... and 51 more diagnostics not shown (only the first 100 are rendered)")
+    );
+}
