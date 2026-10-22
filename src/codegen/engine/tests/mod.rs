@@ -63,9 +63,9 @@ mod type_model_kinds;
 #[cfg(test)]
 mod type_oracle;
 #[cfg(test)]
-mod unicode_tables;
-#[cfg(test)]
 mod unboxed_trap_forms;
+#[cfg(test)]
+mod unicode_tables;
 #[cfg(test)]
 mod union_tags;
 #[cfg(test)]
