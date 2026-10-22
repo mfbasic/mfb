@@ -453,4 +453,39 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("cannot bind external data symbol"), "{err}");
     }
+
+    /// A relocation that binds but cannot be encoded fails with the encoder's
+    /// reason, and an internal/data target the image does not define fails to
+    /// resolve — for every arm that can, rather than writing a wrong word.
+    #[test]
+    fn patch_aarch64_reloc_reports_unreachable_and_unresolved_targets() {
+        let img = image();
+        let mut stubs = HashMap::new();
+        stubs.insert("_far".to_string(), 0x1_0000u64 + (1 << 28));
+        let got = HashMap::new();
+        let c = ctx(&img, &stubs, &got);
+        let mut text = vec![0u8; 64];
+        for (relocation, reason) in [
+            // A branch from offset 2 is misaligned.
+            (
+                reloc(2, "_t", "branch26", "internal"),
+                "exceeds the ±128 MiB reach",
+            ),
+            (
+                reloc(0, "_far", "branch26", "external"),
+                "exceeds the ±128 MiB reach",
+            ),
+            (reloc(0, "_absent", "page21", "data"), "does not resolve"),
+            (reloc(0, "_absent", "pageoff12", "data"), "does not resolve"),
+        ] {
+            let err = patch_aarch64_reloc(&mut text, &relocation, &c).unwrap_err();
+            assert!(
+                err.contains(reason),
+                "{} {}: {err}",
+                relocation.binding,
+                relocation.kind
+            );
+        }
+        assert_eq!(text, vec![0u8; 64], "nothing was written");
+    }
 }
