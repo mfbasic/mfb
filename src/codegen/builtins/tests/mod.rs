@@ -39,6 +39,7 @@ mod builder_emit_forms;
 mod builtin_record_arguments;
 mod byte_list_entry_free;
 mod canvas;
+mod canvas_item_hash_guards;
 mod closure_env_forms;
 mod collection_compare;
 mod collection_element_widths;
