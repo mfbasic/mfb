@@ -17,6 +17,14 @@
 //!   enclosing loops.
 //! - `WHILE FALSE` runs its body zero times: the whole loop is dropped.
 //!
+//! An `IF` arm is also a cleanup scope, and splicing it moves that scope's
+//! exit to the end of the enclosing body. So an arm that declares, at its own
+//! level, a binding with a scope-exit effect — a `RES` binding (the function's
+//! `resource_owners`) or a value whose type can carry a resource (a `List OF
+//! RES`, a record or union, a closure) — is left unfolded: its close must run
+//! where the arm ends, before the statements that follow it (a buffered write
+//! handle flushes on close, and the code after the block can read that file).
+//!
 //! Deliberately *not* folded: `DO … UNTIL TRUE` (splicing the body would
 //! re-target any `EXIT`/`CONTINUE` inside it at the wrong enclosing loop),
 //! `WHILE TRUE` (an intended infinite/`EXIT`-terminated loop), constant
@@ -25,10 +33,12 @@
 //! before tree-UCE/DCE, so a now-terminal spliced arm truncates what follows
 //! and stranded bindings get swept.
 
+use crate::ir::resource_escape::ResOwner;
 #[cfg(test)]
 use crate::operators::BinaryOp;
 use crate::target::shared::nir::{NirModule, NirOp, NirValue};
 use crate::types::ParameterType;
+use std::collections::HashMap;
 
 /// Apply the tree-level branch-simplification row to the whole module.
 /// Self-guarded on its catalog level (2); the fold count feeds
@@ -39,7 +49,7 @@ pub(crate) fn simplify(module: &mut NirModule) {
     }
     let mut folded = 0;
     for function in &mut module.functions {
-        simplify_body(&mut function.body, &mut folded);
+        simplify_body(&mut function.body, &function.resource_owners, &mut folded);
     }
     crate::optimizer::stats::count_branch_simplifications(folded);
 }
@@ -59,7 +69,51 @@ fn constant_condition(condition: &NirValue) -> Option<bool> {
     }
 }
 
-fn simplify_body(ops: &mut Vec<NirOp>, folded: &mut u64) {
+/// Whether a value of `type_` provably holds no resource at any depth, so its
+/// binding has no observable scope-exit effect. Structural on purpose: a
+/// nominal (record, union, resource), a `RES`/`STATE` marker, a thread handle,
+/// a closure or an unresolved type answers `false` — this pass has no type
+/// model, and a record or union can carry a resource field
+/// (`codegen::resource::walk::type_carries_resources`).
+fn provably_resource_free(type_: &ParameterType) -> bool {
+    match type_ {
+        ParameterType::AttributeString
+        | ParameterType::Boolean
+        | ParameterType::Byte
+        | ParameterType::Integer
+        | ParameterType::Fixed
+        | ParameterType::Float
+        | ParameterType::Money
+        | ParameterType::Nothing
+        | ParameterType::String
+        | ParameterType::C(_) => true,
+        ParameterType::ListOf(element)
+        | ParameterType::SetOf(element)
+        | ParameterType::ResultOf(element) => provably_resource_free(element),
+        ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+            provably_resource_free(key) && provably_resource_free(value)
+        }
+        _ => false,
+    }
+}
+
+/// Whether splicing `arm` into its parent would move a scope-exit cleanup:
+/// it declares, at its own level, a `RES` binding or a binding whose type can
+/// carry a resource. Nested bodies keep their own scopes and are not checked.
+fn arm_owns_scope_cleanup(arm: &[NirOp], resource_owners: &HashMap<String, ResOwner>) -> bool {
+    arm.iter().any(|op| match op {
+        NirOp::Bind { name, type_, .. } => {
+            resource_owners.contains_key(name.as_str()) || !provably_resource_free(type_)
+        }
+        _ => false,
+    })
+}
+
+fn simplify_body(
+    ops: &mut Vec<NirOp>,
+    resource_owners: &HashMap<String, ResOwner>,
+    folded: &mut u64,
+) {
     // Splicing a taken arm flattens its scope into this one: its own-level
     // declarations must not collide with this body's, or the fold would
     // declare a name twice (`plans::loops::scope_bind_names`).
@@ -74,19 +128,19 @@ fn simplify_body(ops: &mut Vec<NirOp>, folded: &mut u64) {
                 else_body,
                 ..
             } => {
-                simplify_body(then_body, folded);
-                simplify_body(else_body, folded);
+                simplify_body(then_body, resource_owners, folded);
+                simplify_body(else_body, resource_owners, folded);
             }
             NirOp::Match { cases, .. } => {
                 for case in cases {
-                    simplify_body(&mut case.body, folded);
+                    simplify_body(&mut case.body, resource_owners, folded);
                 }
             }
             NirOp::While { body, .. }
             | NirOp::For { body, .. }
             | NirOp::DoUntil { body, .. }
             | NirOp::ForEach { body, .. }
-            | NirOp::Trap { body, .. } => simplify_body(body, folded),
+            | NirOp::Trap { body, .. } => simplify_body(body, resource_owners, folded),
             _ => {}
         }
         match op {
@@ -97,6 +151,7 @@ fn simplify_body(ops: &mut Vec<NirOp>, folded: &mut u64) {
             } if constant_condition(&condition).is_some_and(|taken| {
                 let arm = if taken { &then_body } else { &else_body };
                 super::plans::loops::scope_bind_names(arm).is_disjoint(&body_scope)
+                    && !arm_owns_scope_cleanup(arm, resource_owners)
             }) =>
             {
                 *folded += 1;
@@ -117,171 +172,4 @@ fn simplify_body(ops: &mut Vec<NirOp>, folded: &mut u64) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::local_rewrites::testutil::*;
-    use super::*;
-    use crate::optimizer::{with_opt_level, OptLevel};
-    use crate::target::shared::nir::NirFunction;
-    use std::collections::HashMap;
-
-    fn boolean(value: bool) -> NirValue {
-        typed_const(ParameterType::Boolean, if value { "true" } else { "false" })
-    }
-
-    fn eval(value: NirValue) -> NirOp {
-        NirOp::Eval { value }
-    }
-
-    fn run(body: Vec<NirOp>, level: u8) -> Vec<NirOp> {
-        let function = NirFunction {
-            name: "f".to_string(),
-            visibility: "private".to_string(),
-            kind: "function".to_string(),
-            isolated: false,
-            params: vec![],
-            returns: ParameterType::Integer,
-            body,
-            file: "main.mfb".to_string(),
-            resource_owners: HashMap::new(),
-        };
-        let mut module = test_module(vec![function]);
-        with_opt_level(OptLevel(level), || simplify(&mut module));
-        module.functions.remove(0).body
-    }
-
-    /// `IF TRUE` splices the then-arm (trap-capable statements included — they
-    /// were reachable and stay); the else-arm vanishes even though *it* holds
-    /// trap-capable code (it is unreachable, no trap gate applies).
-    #[test]
-    fn constant_true_keeps_then_and_drops_else() {
-        let body = run(
-            vec![NirOp::If {
-                condition: boolean(true),
-                then_body: vec![eval(binary(BinaryOp::Add, local("a"), local("b")))],
-                else_body: vec![eval(binary(BinaryOp::Divide, local("x"), int_const("0")))],
-            }],
-            2,
-        );
-        assert_eq!(body.len(), 1);
-        let NirOp::Eval { value } = &body[0] else {
-            panic!("expected the spliced then-arm Eval");
-        };
-        assert!(matches!(value, NirValue::Binary { op, .. } if *op == BinaryOp::Add));
-    }
-
-    /// A constant condition that is not a Boolean literal is left alone.
-    ///
-    /// `constant_condition` reads a `Const` and then asks two questions the
-    /// happy path never fails: is its type `Boolean`, and is its text one of the
-    /// two literals. Both refusals had never run, and both are what stops the
-    /// fold from firing on something it has not actually proved. An `IF` whose
-    /// condition is an Integer constant is not a program the checkers admit --
-    /// but a lowering bug that produced one, folded on the truthiness of `1`,
-    /// would silently delete the else-arm of a program that should not have
-    /// compiled at all. The pass declines instead, and the IF survives to be
-    /// caught by something that reports.
-    #[test]
-    fn a_constant_condition_that_is_not_a_boolean_literal_is_not_folded() {
-        for (what, condition) in [
-            (
-                "an Integer constant",
-                typed_const(ParameterType::Integer, "1"),
-            ),
-            (
-                "a Boolean-typed constant with text neither literal",
-                typed_const(ParameterType::Boolean, "maybe"),
-            ),
-        ] {
-            let body = run(
-                vec![NirOp::If {
-                    condition,
-                    then_body: vec![eval(binary(BinaryOp::Add, local("a"), local("b")))],
-                    else_body: vec![],
-                }],
-                2,
-            );
-            assert!(
-                matches!(body.as_slice(), [NirOp::If { .. }]),
-                "{what} is not a Boolean the pass can fold on; the IF must \
-                 survive, and it became {}",
-                body.len()
-            );
-        }
-    }
-
-    /// `IF FALSE` keeps the else-arm; an empty else-arm means the whole IF
-    /// vanishes.
-    #[test]
-    fn constant_false_keeps_else() {
-        let body = run(
-            vec![
-                NirOp::If {
-                    condition: boolean(false),
-                    then_body: vec![eval(local("dead"))],
-                    else_body: vec![eval(local("live"))],
-                },
-                NirOp::If {
-                    condition: boolean(false),
-                    then_body: vec![eval(local("dead"))],
-                    else_body: vec![],
-                },
-            ],
-            2,
-        );
-        assert_eq!(body.len(), 1, "second IF vanishes entirely");
-    }
-
-    /// `WHILE FALSE` runs zero times and is dropped whole; `WHILE TRUE` and
-    /// non-constant conditions are untouched.
-    #[test]
-    fn while_false_drops_and_while_true_stays() {
-        let loop_with = |condition: NirValue| NirOp::While {
-            kind: crate::ast::LoopKind::While,
-            condition,
-            body: vec![eval(local("x"))],
-        };
-        let body = run(
-            vec![
-                loop_with(boolean(false)),
-                loop_with(boolean(true)),
-                loop_with(local("c")),
-            ],
-            2,
-        );
-        assert_eq!(body.len(), 2, "only WHILE FALSE vanishes");
-    }
-
-    /// Nested constant branches fold bottom-up: an inner `IF TRUE` inside a
-    /// kept arm splices before the outer arm does.
-    #[test]
-    fn nested_constant_branches_fold() {
-        let body = run(
-            vec![NirOp::If {
-                condition: boolean(true),
-                then_body: vec![NirOp::If {
-                    condition: boolean(false),
-                    then_body: vec![eval(local("dead"))],
-                    else_body: vec![eval(local("kept"))],
-                }],
-                else_body: vec![],
-            }],
-            2,
-        );
-        assert_eq!(body.len(), 1);
-        assert!(matches!(&body[0], NirOp::Eval { value: NirValue::Local(name) } if name == "kept"));
-    }
-
-    /// The row is off at `-O1`.
-    #[test]
-    fn level_one_disables_the_row() {
-        let body = run(
-            vec![NirOp::If {
-                condition: boolean(true),
-                then_body: vec![eval(local("x"))],
-                else_body: vec![],
-            }],
-            1,
-        );
-        assert!(matches!(body[0], NirOp::If { .. }));
-    }
-}
+mod tests;
