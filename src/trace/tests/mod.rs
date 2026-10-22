@@ -268,3 +268,25 @@ fn a_repeated_stage_name_accumulates_into_one_row() {
     drop(guard);
     disable_for_test();
 }
+
+/// `enable` turns the flag on before it installs the state, so a recorder on
+/// another thread can see tracing on with no state yet. Every recorder then
+/// records nothing — no panic, no state conjured — and `timed_tally` still
+/// answers its body's value. Pinned by holding the process in that window.
+#[test]
+fn a_recorder_inside_enable_s_window_records_nothing() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    disable_for_test();
+    ENABLED.store(true, Ordering::Relaxed);
+    item("test-window", || "unit".to_string(), Duration::from_secs(1));
+    assert_eq!(
+        timed_tally("test-window", || "key".to_string(), || 41 + 1),
+        42
+    );
+    size_item("test-window", || "unit".to_string(), 5);
+    count_tally("test-window", || "key".to_string(), 5);
+    count("test-window", 5);
+    render();
+    assert!(STATE.lock().expect("trace state").is_none());
+    disable_for_test();
+}
