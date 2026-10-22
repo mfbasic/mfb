@@ -8,6 +8,7 @@ use crate::target::NativeBuildMode;
 
 mod emitter_and_rvv;
 mod encoder;
+mod relax_edges;
 
 /// Encode a single function's instructions and return its text bytes.
 fn encode_text(instructions: Vec<CodeInstruction>) -> Vec<u8> {
