@@ -78,17 +78,6 @@ pub(super) fn add_companion_runtime_symbols(module: &NirModule, runtime_symbols:
     {
         runtime_symbols.push("_mfb_rt_thread_thread_readResource".to_string());
     }
-    // The `connectTcp(Address)` overload routes to a paired helper that shares
-    // `connectTcp`'s libc imports; emit it whenever `connectTcp` is present.
-    if runtime_symbols
-        .iter()
-        .any(|symbol| symbol == "_mfb_rt_net_net_connectTcp")
-        && !runtime_symbols
-            .iter()
-            .any(|symbol| symbol == "_mfb_rt_net_net_connectTcpAddr")
-    {
-        runtime_symbols.push("_mfb_rt_net_net_connectTcpAddr".to_string());
-    }
     // plan-110-A: `ping(Address, …)` routes to `net.pingAddr` the same way — the
     // NIR names only `net.ping`, so without this the call site relocates against a
     // symbol nothing defines. It shares `ping`'s libc imports.
@@ -136,7 +125,7 @@ pub(super) fn add_companion_runtime_symbols(module: &NirModule, runtime_symbols:
     // plan-90-A: the 4-arg `spawn(args, cwd, env, envReplace)` overload routes to
     // `process.spawnEnv`, a synthesized target the NIR never names (it carries only
     // `process.spawn`), so emit its helper body whenever `spawn` is present —
-    // mirroring `connectTcpAddr`. It shares the process libc imports.
+    // mirroring tcp's synthesized forms above. It shares the process libc imports.
     //
     // plan-119-C: this used to be skipped on Windows, on the premise that the
     // synthesized helpers "are stubs there". That premise was wrong for four of
@@ -194,18 +183,6 @@ pub(super) fn add_companion_runtime_symbols(module: &NirModule, runtime_symbols:
         {
             runtime_symbols.push(timed.to_string());
         }
-    }
-    // plan-76-A: the `poll(List OF RES Socket)` overload routes to `net.pollList`,
-    // a synthesized target the NIR never names (it carries only `net.poll`), so
-    // emit its helper body whenever `poll` is present — mirroring `connectTcpAddr`.
-    if runtime_symbols
-        .iter()
-        .any(|symbol| symbol == "_mfb_rt_net_net_poll")
-        && !runtime_symbols
-            .iter()
-            .any(|symbol| symbol == "_mfb_rt_net_net_pollList")
-    {
-        runtime_symbols.push("_mfb_rt_net_net_pollList".to_string());
     }
     // plan-76-C: `tls.pollList` is the synthesized list-multiplex target (the NIR
     // names only `tls.poll`), and its portable driver calls the scalar
