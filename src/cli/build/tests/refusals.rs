@@ -181,3 +181,28 @@ fn a_declared_but_uninstalled_package_stops_every_build_kind() {
         );
     }
 }
+
+/// A native dump whose output path is already taken by a directory is refused
+/// (the write fails, and the directory is left as it was) on a Linux target,
+/// for each of the dumps the Linux backends write themselves.
+#[test]
+fn a_linux_dump_whose_path_is_a_directory_is_refused() {
+    for (flag, extension) in [
+        ("-nir", "nir"),
+        ("-nplan", "nplan"),
+        ("-ncode", "ncode"),
+        ("-mir", "mir"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        let taken = dir.path().join(format!("app.{extension}"));
+        std::fs::create_dir(&taken).unwrap();
+        std::fs::write(taken.join("keep"), b"x").unwrap();
+        assert_eq!(
+            build(dir.path(), &[flag, "-target", "linux-x86_64"]),
+            Err(()),
+            "{flag}"
+        );
+        assert!(taken.join("keep").is_file(), "{flag}");
+    }
+}
