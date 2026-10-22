@@ -345,13 +345,13 @@ impl<'a> FileParser<'a> {
                     Some(TokenKind::Equal)
                 )
             {
-                let field = segments.pop().expect("chain has at least two segments");
-                let base = segments.join(".");
+                let field = segments.last().expect("chain has at least two segments");
+                let update = record_field_update_hint(&segments);
                 let token = self.tokens[cursor].clone();
                 self.report(
                     "MFB_PARSE_RECORD_FIELD_ASSIGNMENT",
                     &format!(
-                        "Cannot assign to record field `{field}` — `=` in statement position is the equality operator, so this is a discarded comparison, not a write. Update the record with `WITH {base} {{ {field} := <value> }}`."
+                        "Cannot assign to record field `{field}` — `=` in statement position is the equality operator, so this is a discarded comparison, not a write. Update the record with `{update}`."
                     ),
                     &token,
                 );
@@ -930,4 +930,20 @@ impl<'a> FileParser<'a> {
             BlockTerminator::Next => self.check_keyword(Keyword::Next),
         })
     }
+}
+
+/// The statement that performs the write `a.b.c = <value>` was reaching for:
+/// `a = WITH a { b := WITH a.b { c := <value> } }`.
+///
+/// `WITH` builds a copy and leaves its operand unchanged (spec §4), so the copy
+/// has to be assigned back to the root binding; a bare `WITH a { … }` statement
+/// compiles and discards the copy, losing the write just as the comparison did.
+/// `path` is the whole member chain, root first and field last (≥ 2 segments).
+fn record_field_update_hint(path: &[String]) -> String {
+    let mut update = "<value>".to_string();
+    for depth in (1..path.len()).rev() {
+        let record = path[..depth].join(".");
+        update = format!("WITH {record} {{ {} := {update} }}", path[depth]);
+    }
+    format!("{} = {update}", path[0])
 }

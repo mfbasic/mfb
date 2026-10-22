@@ -968,3 +968,33 @@ fn a_res_parameter_keyword_is_a_parse_error_and_state_needs_no_keyword() {
     assert!(json.contains("\"name\": \"h\", \"type\": \"File\", \"state\": \"Cur\""));
     assert!(!json.contains("\"resource\": true, \"state\": null"));
 }
+
+/// bug-468's refusal must suggest a statement that performs the write. `WITH`
+/// builds a copy and leaves its operand unchanged (spec §4), so a bare
+/// `WITH o { tag := … }` statement compiles and loses the write exactly as the
+/// refused comparison did; the hint assigns the copy back to the root binding,
+/// nesting one `WITH` per member level.
+#[test]
+fn a_field_write_is_refused_with_an_assign_back_hint() {
+    let src = "FUNC main AS Integer\n  o.tag = 1\n  o.inner.x = 2\n  RETURN 0\nEND FUNC\n";
+    let (parsed, collected) = crate::rules::collecting_diagnostics(|| try_parse(src));
+    assert!(parsed.is_err());
+    let hints: Vec<&str> = collected
+        .iter()
+        .filter(|(rule, _)| rule == "MFB_PARSE_RECORD_FIELD_ASSIGNMENT")
+        .map(|(_, detail)| detail.as_str())
+        .collect();
+    assert_eq!(hints.len(), 2, "{collected:?}");
+    assert!(
+        hints[0].ends_with("Update the record with `o = WITH o { tag := <value> }`."),
+        "{}",
+        hints[0]
+    );
+    assert!(
+        hints[1].ends_with(
+            "Update the record with `o = WITH o { inner := WITH o.inner { x := <value> } }`."
+        ),
+        "{}",
+        hints[1]
+    );
+}
