@@ -3,8 +3,10 @@ use super::*;
 mod appimage;
 mod options;
 mod outputs;
+mod package_gate;
 mod refusals;
 mod signing;
+mod source_deps;
 
 fn s(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| value.to_string()).collect()
