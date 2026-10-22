@@ -286,3 +286,47 @@ fn a_direct_cstring_return_is_refused() {
         "has unknown ABI return ctype 'CString'",
     );
 }
+
+/// A `SUCCESS_ON` gate over the native return value.
+const SUCCESS_GATE: &str = "\
+IMPORT io
+
+LINK \"c\" AS libc
+  FUNC pid() AS Integer
+    SYMBOL \"getpid\"
+    ABI () AS status CInt64
+    SUCCESS_ON status > 0
+    RETURN status
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  io::print(toString(libc::pid()))
+  RETURN 0
+END FUNC
+";
+
+/// The expression emitter (`link_thunk/link_expr.rs`) indexes the frame by slot name
+/// and decodes a comparison from its wire spelling. A name with no slot, or an
+/// operator that is not one of the six comparisons, stops the build loudly -- never a
+/// load from an offset nobody computed, never a silent `=` (bug-403).
+#[test]
+fn a_link_expression_naming_no_slot_or_no_comparison_stops_the_build() {
+    use crate::ir::IrLinkExpr;
+    refused(
+        SUCCESS_GATE,
+        |module| module.link_functions[0].success_on = Some(IrLinkExpr::Var("ghost".to_string())),
+        "LINK expr names slot `ghost`, which verification should have rejected",
+    );
+    refused(
+        SUCCESS_GATE,
+        |module| {
+            let Some(IrLinkExpr::Compare { op, .. }) = &mut module.link_functions[0].success_on
+            else {
+                panic!("SUCCESS_ON status > 0 lowers to a comparison");
+            };
+            *op = "=>".to_string();
+        },
+        "invalid LINK Compare operator \"=>\" reached codegen",
+    );
+}
