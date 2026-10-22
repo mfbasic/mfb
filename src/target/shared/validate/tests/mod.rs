@@ -550,3 +550,36 @@ fn collects_resource_union_bind_at_top_level() {
     let module = module_with_union_bind(vec![union_bind()]);
     validate_nir(&module).expect("resource-union bind at top level must validate");
 }
+
+/// A variant owns a resource through a fallible result of one too
+/// (`Result OF fs.File` in its payload), so a union pairing it with a plain
+/// data variant is still mixed.
+#[test]
+fn a_union_variant_holding_a_result_of_a_resource_is_a_resource_variant() {
+    let mut m = module(vec![RuntimeHelper::Io]);
+    let variant = |name: &str, type_: ParameterType| NirVariant {
+        name: name.to_string(),
+        fields: vec![crate::target::shared::nir::NirField {
+            visibility: None,
+            name: "payload".to_string(),
+            type_,
+        }],
+    };
+    m.types = vec![NirType {
+        kind: "union".to_string(),
+        visibility: "export".to_string(),
+        name: "Mixed".to_string(),
+        fields: Vec::new(),
+        includes: Vec::new(),
+        variants: vec![
+            variant("Plain", ParameterType::Integer),
+            variant(
+                "Pending",
+                ParameterType::ResultOf(Box::new(ParameterType::declared("fs.File"))),
+            ),
+        ],
+        members: Vec::new(),
+    }];
+    let err = validate_nir(&m).expect_err("a mixed union must be refused");
+    assert_eq!(err, "NIR union 'Mixed' mixes data and resource variants");
+}
