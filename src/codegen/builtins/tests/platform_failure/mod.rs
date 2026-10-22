@@ -54,6 +54,7 @@ use crate::os::linux::flavor::LinuxFlavor;
 mod entry_sweep;
 mod forwarding;
 mod module_sweep;
+mod typed_bodies;
 
 /// The message the injected failure carries, distinctive enough that a refusal
 /// from another cause cannot be mistaken for it.
