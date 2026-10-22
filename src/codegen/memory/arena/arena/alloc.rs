@@ -948,38 +948,30 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
         abi::branch("simd_alloc_ret"),
         abi::label("simd_alloc_ok"),
     ];
+    // A `List OF Integer` is a fixed-width (kind 2) list (plan-57-D): its kind byte
+    // is non-zero, so KEY_TYPE takes a zero register of its own, and it has no
+    // lookup array to fill. (The kind-0 layout this once also emitted — one shared
+    // zero register, then an identity-mapped entry loop — is gone with that layout;
+    // the pins below say so if it ever comes back.) The three trailing vregs are
+    // still minted so the numbering of everything after them is unchanged.
+    debug_assert_ne!(list_block_kind(&ParameterType::Integer), 0);
+    debug_assert_eq!(list_entry_stride(&ParameterType::Integer), 0);
     let base = vregs.next();
     let scratch = vregs.next();
-    // For kind 0 the KIND and KEY_TYPE stores share one zeroed register, exactly
-    // as before; for kind 2 the kind byte is non-zero so KEY_TYPE needs its own.
     let kind_zero = vregs.next();
-    let zero_kind_scratch = if list_block_kind(&ParameterType::Integer) == 0 {
-        scratch
-    } else {
-        kind_zero
-    };
     let data_len = vregs.next();
-    let entry = vregs.next();
-    let index = vregs.next();
-    let value_off = vregs.next();
-    if list_block_kind(&ParameterType::Integer) != 0 {
-        // Only kind 2 needs a separate zero register (see `zero_kind_scratch`);
-        // emitting this unconditionally would change the kind-0 instruction
-        // stream, which artifact-gate would — correctly — reject.
-        instructions.push(abi::move_immediate(&kind_zero, "Integer", "0"));
-    }
+    let [_, _, _] = std::array::from_fn(|_| vregs.next());
+    instructions.push(abi::move_immediate(&kind_zero, "Integer", "0"));
     instructions.extend([
         abi::move_register(&base, abi::mfb_return(1)),
-        // Header: kind, keyType=0, valueType=typeCode, flagsVersion=1. The kind-0
-        // build keeps the shared zero register for both stores, so its emitted
-        // sequence is unchanged.
+        // Header: kind, keyType=0, valueType=typeCode, flagsVersion=1.
         abi::move_immediate(
             &scratch,
             "Integer",
             &list_block_kind(&ParameterType::Integer).to_string(),
         ),
         abi::store_u8(&scratch, &base, COLLECTION_OFFSET_KIND),
-        abi::store_u8(&zero_kind_scratch, &base, COLLECTION_OFFSET_KEY_TYPE),
+        abi::store_u8(&kind_zero, &base, COLLECTION_OFFSET_KEY_TYPE),
         abi::store_u8(&type_code, &base, COLLECTION_OFFSET_VALUE_TYPE),
         abi::move_immediate(&scratch, "Integer", "1"),
         abi::store_u8(&scratch, &base, COLLECTION_OFFSET_FLAGS_VERSION),
@@ -990,28 +982,6 @@ pub(crate) fn lower_simd_alloc_list() -> CodeFunction {
         abi::store_u64(&data_len, &base, COLLECTION_OFFSET_DATA_LENGTH),
         abi::store_u64(&data_len, &base, COLLECTION_OFFSET_DATA_CAPACITY),
     ]);
-    // kind 2 has no lookup array to fill.
-    if list_entry_stride(&ParameterType::Integer) != 0 {
-        instructions.extend([
-            // Fill the lookup entries: flags=USED, valueOffset=i*8, valueLength=8.
-            abi::add_immediate(&entry, &base, COLLECTION_HEADER_SIZE),
-            abi::move_immediate(&index, "Integer", "0"),
-            abi::move_immediate(&value_off, "Integer", "0"),
-            abi::label("simd_alloc_entry_loop"),
-            abi::compare_registers(&index, &count),
-            abi::branch_ge("simd_alloc_entry_done"),
-            abi::move_immediate(&scratch, "Integer", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8(&scratch, &entry, COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(&value_off, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate(&scratch, "Integer", "8"),
-            abi::store_u64(&scratch, &entry, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-            abi::add_immediate(&value_off, &value_off, 8),
-            abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE),
-            abi::add_immediate(&index, &index, 1),
-            abi::branch("simd_alloc_entry_loop"),
-            abi::label("simd_alloc_entry_done"),
-        ]);
-    }
     instructions.extend([
         abi::move_register(abi::return_register(), &base),
         abi::move_immediate(abi::mfb_return(1), "Integer", "0"),
