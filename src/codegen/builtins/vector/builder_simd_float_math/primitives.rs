@@ -128,15 +128,13 @@ impl CodeBuilder<'_> {
         if let Some(pinned) = mir::active_backend().register_model().math_pool_base() {
             return pinned;
         }
-        if let Some((symbol, reg)) = &self.math_pool_base_vreg {
-            if *symbol == self.current_symbol {
-                return Reg::from(reg);
-            }
+        if let Some(reg) = &self.math_pool_base_vreg {
+            return Reg::from(reg);
         }
         // `allocate_register` is infallible: it never overflows a pool — the
         // liveness-driven coloring spills under pressure.
         let reg = self.temporary_vreg();
-        self.math_pool_base_vreg = Some((self.current_symbol.clone(), reg));
+        self.math_pool_base_vreg = Some(reg);
         Reg::from(reg)
     }
 

@@ -600,14 +600,13 @@ pub(crate) struct CodeBuilder<'a> {
     /// scratch instead of allocating the result list.
     pub(crate) simd_result_into: Option<()>,
     /// For backends whose `RegisterModel::math_pool_base` is `None` (no free
-    /// physical to pin, e.g. x86), the per-kernel virtual register holding the
-    /// SIMD math constant-pool base, keyed by the function symbol it was minted
-    /// in (vreg indices are per-function). Lets `emit_load_math_pool_base` and
-    /// the `broadcast_*` coefficient loads share one allocator-placed base within
-    /// a kernel while re-minting it for the next kernel. Unused (stays `None`) on
-    /// backends that pin a physical base.
-    pub(crate) math_pool_base_vreg:
-        Option<(String, crate::codegen::engine::operand::VirtualRegister)>,
+    /// physical to pin), the virtual register holding the SIMD math
+    /// constant-pool base. Lets `emit_load_math_pool_base` and the `broadcast_*`
+    /// coefficient loads share one allocator-placed base within the function.
+    /// A builder lowers one function (`current_symbol` is set at construction
+    /// and never reassigned), so the vreg is never reused across functions.
+    /// Unused (stays `None`) on backends that pin a physical base.
+    pub(crate) math_pool_base_vreg: Option<crate::codegen::engine::operand::VirtualRegister>,
     /// plan-01-vector: in-flight register-native small-vector values. A
     /// `Float2/3/4` produced by a construction or an inlined op that has not yet
     /// crossed a storage/escape boundary lives here as its N per-lane scalar
