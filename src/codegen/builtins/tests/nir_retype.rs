@@ -12,7 +12,7 @@
 //! type it does not handle.
 
 use super::nir_fault::walk_ops_mut;
-use crate::target::shared::nir::{NirFunction, NirOp};
+use crate::target::shared::nir::{NirFunction, NirModule, NirOp};
 use crate::target::NativeBuildMode::Console;
 use crate::testutil::{code_for_nir, nir_for_src, CodeTarget};
 use crate::types::ParameterType;
@@ -33,6 +33,36 @@ pub(super) fn lowered_with(
     }
     assert!(found, "the probe program has no function `{func}`");
     code_for_nir(&module, target).map(|_| ())
+}
+
+/// [`lowered_with`] for a mutation of the whole module (a type declaration).
+pub(super) fn lowered_module_with(
+    src: &str,
+    mutate: impl FnOnce(&mut NirModule),
+) -> Result<(), String> {
+    let target = CodeTarget::LinuxX86_64;
+    let mut module = nir_for_src(src, target, Console).expect("the probe program lowers to NIR");
+    mutate(&mut module);
+    code_for_nir(&module, target).map(|_| ())
+}
+
+/// Re-declare field `field` of record `record` as `type_`.
+pub(super) fn retype_field(
+    module: &mut NirModule,
+    record: &str,
+    field: &str,
+    type_: ParameterType,
+) {
+    let declared = module
+        .types
+        .iter_mut()
+        .find(|t| t.name == record)
+        .unwrap_or_else(|| panic!("the probe program declares no `{record}`"))
+        .fields
+        .iter_mut()
+        .find(|f| f.name == field)
+        .unwrap_or_else(|| panic!("`{record}` has no field `{field}`"));
+    declared.type_ = type_;
 }
 
 /// Re-declare the named parameters and bindings of `func` (every `Bind`, at any
