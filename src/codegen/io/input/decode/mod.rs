@@ -242,7 +242,7 @@ const fn k(key: KeyName) -> u64 {
 /// property tables into the binary. Without it `FLAG_CLUSTER` is ignored and
 /// text is one scalar per token — all a program with only `io::readLine`,
 /// `io::readScalar` and `io::readRaw` ever asks for.
-pub(crate) fn lower_input_decode(clusters: bool) -> Result<CodeFunction, String> {
+pub(crate) fn lower_input_decode(clusters: bool) -> CodeFunction {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     let mut v = Vregs::new();
@@ -266,13 +266,13 @@ pub(crate) fn lower_input_decode(clusters: bool) -> Result<CodeFunction, String>
         glen: names[10],
     };
     emit_body(&mut d);
-    Ok(finalize_vreg_helper(
+    finalize_vreg_helper(
         "runtime.input.decode",
         INPUT_DECODE_SYMBOL,
         "Integer",
         instructions,
         relocations,
-    ))
+    )
 }
 
 /// The labels every block finishes through.

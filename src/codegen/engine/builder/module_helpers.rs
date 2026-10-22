@@ -315,7 +315,7 @@ pub(super) fn lower_core_runtime_helpers(
     if input_state_offset.is_some() {
         code_functions.push(crate::codegen::io::input::decode::lower_input_decode(
             crate::codegen::io::input::program_uses_grapheme_clusters(runtime_symbols),
-        )?);
+        ));
     }
     // bug-699: every `--app` window key handler encodes its events through one
     // shared encoder, so the window input pipe carries the kitty-protocol form a
