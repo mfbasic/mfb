@@ -954,3 +954,23 @@ fn a_lo12_with_no_preceding_hi20_keeps_its_diagnostic() {
         "bug-552: the diagnostic must survive the index rewrite, got: {error}"
     );
 }
+
+/// The executable cannot be written where the build directory is a file, or
+/// where a directory already holds the executable's name: each is refused
+/// naming the path, rather than leaving a half-written artifact.
+#[test]
+fn write_executable_reports_an_unwritable_build_directory_or_output() {
+    let image = x86_static_image();
+    let blocked = tempfile::tempdir().unwrap();
+    std::fs::write(blocked.path().join(BUILD_DIR), b"a file").unwrap();
+    let err =
+        write_executable(blocked.path(), "x86s", "x86_64", LinuxFlavor::Glibc, &image).unwrap_err();
+    assert!(err.starts_with("failed to create '"), "{err}");
+
+    let taken = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(taken.path().join(BUILD_DIR).join("x86s-glibc.out")).unwrap();
+    let err =
+        write_executable(taken.path(), "x86s", "x86_64", LinuxFlavor::Glibc, &image).unwrap_err();
+    assert!(err.starts_with("failed to write '"), "{err}");
+    assert!(err.contains("x86s-glibc.out"), "{err}");
+}

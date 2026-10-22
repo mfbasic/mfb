@@ -60,3 +60,24 @@ fn a_directory_where_the_apprun_link_belongs_fails_the_replace() {
     assert!(error.starts_with("failed to replace '"), "{error}");
     assert!(error.contains("AppRun"), "{error}");
 }
+
+#[test]
+fn a_file_where_an_appdir_directory_belongs_names_the_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let appdir = appdir_path(root.path());
+    std::fs::create_dir_all(&appdir).unwrap();
+    std::fs::write(appdir.join("usr"), b"not a directory").unwrap();
+    let error = write_appdir(
+        root.path(),
+        "failing",
+        "x86_64",
+        LinuxFlavor::Glibc,
+        &x86_static_image(),
+        None,
+        "0.1.0",
+    )
+    .err()
+    .expect("a file in place of usr/ fails the build");
+    assert!(error.starts_with("failed to create '"), "{error}");
+    assert!(error.contains("usr"), "{error}");
+}
