@@ -51,7 +51,9 @@ use crate::codegen::engine::util::vreg_frame::Vregs;
 use crate::codegen::registry::{registry, AbiCtx, Body};
 use crate::os::linux::flavor::LinuxFlavor;
 
+mod entry_sweep;
 mod forwarding;
+mod module_sweep;
 
 /// The message the injected failure carries, distinctive enough that a refusal
 /// from another cause cannot be mistaken for it.
