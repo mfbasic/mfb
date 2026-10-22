@@ -733,3 +733,41 @@ fn lockfile_round_trips_byte_identically() {
     assert_eq!(reread.checkpoint_size, 7);
     std::fs::remove_dir_all(&temp).ok();
 }
+
+/// §4.1's outcome rule: every fatal class is reported, one line each, in
+/// declaration-then-lock order.
+#[test]
+fn report_drift_names_every_added_removed_and_renamed_dependency() {
+    let locked = |name: &str, ident: &str| LockedPackage {
+        name: name.to_string(),
+        ident: ident.to_string(),
+        requested: "1.0.0".to_string(),
+        selected: "1.0.0".to_string(),
+        hash: "h".to_string(),
+        ident_key: String::new(),
+        ident_fingerprint: String::new(),
+        state: "available".to_string(),
+    };
+    let text = manifest_with_packages(
+        "{\"name\":\"new\",\"ident\":\"o#new\",\"version\":\"1.0.0\",\"pin\":false},\
+         {\"name\":\"shape2\",\"ident\":\"o#shape\",\"version\":\"1.0.0\",\"pin\":false}",
+    );
+    let manifest = parse_project_json(&text, std::path::Path::new("project.json")).expect("parse");
+    let lock = Lock {
+        project_hash: "p".to_string(),
+        repo_fingerprint: "r".to_string(),
+        checkpoint_size: 0,
+        checkpoint_root: String::new(),
+        packages: vec![locked("shape", "o#shape"), locked("gone", "o#gone")],
+    };
+    assert_eq!(
+        report_drift(&manifest, &lock),
+        Err([
+            "o#new is declared in project.json but absent from mfb.lock. Run `mfb pkg update`.",
+            "o#shape is named shape2 in project.json but shape in mfb.lock. Run `mfb pkg update`.",
+            "o#gone is recorded in mfb.lock but no longer declared in project.json. Run `mfb pkg \
+             update`.",
+        ]
+        .join("\n"))
+    );
+}
