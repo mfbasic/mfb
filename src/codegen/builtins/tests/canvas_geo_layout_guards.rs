@@ -91,7 +91,7 @@ fn a_scalar_field_held_as_a_composite_is_refused() {
         "radius",
         ParameterType::named("canvas.Size"),
     );
-    let err = geo_build(model).err().expect("radius is read as a float");
+    let err = geo_build(model).expect_err("radius is read as a float");
     assert_eq!(
         err,
         "canvas: 'canvas.Circle.radius' is a composite (canvas.Size), not a scalar slot"
@@ -107,9 +107,7 @@ fn a_composite_field_held_as_a_scalar_is_refused() {
         "paint",
         ParameterType::Float,
     );
-    let err = geo_build(model)
-        .err()
-        .expect("paint is read through its block");
+    let err = geo_build(model).expect_err("paint is read through its block");
     assert_eq!(
         err,
         "canvas: 'canvas.Rectangle.paint' is a scalar (Float), not a composite"
@@ -125,9 +123,7 @@ fn a_list_field_held_as_a_record_is_refused() {
         "contours",
         ParameterType::named("canvas.Size"),
     );
-    let err = geo_build(model)
-        .err()
-        .expect("contours is walked as a list");
+    let err = geo_build(model).expect_err("contours is walked as a list");
     assert_eq!(err, "canvas: 'canvas.Size' is not a list");
 }
 
@@ -143,9 +139,7 @@ fn an_enum_member_the_builder_names_must_exist() {
         model.enum_members.len() < before,
         "the model has BindTo.Center"
     );
-    let err = geo_build(model)
-        .err()
-        .expect("a centred rectangle needs BindTo.Center");
+    let err = geo_build(model).expect_err("a centred rectangle needs BindTo.Center");
     assert_eq!(
         err,
         "canvas: the enum 'canvas.BindTo' has no member 'Center'"
