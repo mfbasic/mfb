@@ -15,10 +15,15 @@
 //!
 //! One structural exception: the very last `RETURN` of a function body is kept
 //! even when post-terminal, so a function body always ends in its explicit
-//! return op and downstream planning sees the shape it expects.
+//! return op and downstream planning sees the shape it expects — unless that
+//! `RETURN` reads a local declared in the dropped range, in which case it goes
+//! with them (keeping it would name a local that no longer exists).
 
 #[cfg(test)]
 use crate::operators::BinaryOp;
+use std::collections::HashSet;
+
+use super::plans::loops::{declared_names, value_reads};
 use crate::target::shared::nir::{NirModule, NirOp};
 
 /// Apply the tree-level UCE row to the whole module. Self-guarded on its
@@ -76,14 +81,31 @@ fn truncate_unreachable(ops: &mut Vec<NirOp>, keep_final_return: bool, removed: 
     }
     let suffix: Vec<NirOp> = ops.drain(first_terminal + 1..).collect();
     let last = suffix.len() - 1;
+    // NIR locals are function-unique, so a name declared anywhere in the
+    // dropped range exists nowhere else once it is gone.
+    let dropped_names = declared_names(&suffix);
     for (index, op) in suffix.into_iter().enumerate() {
         let keep = matches!(op, NirOp::Trap { .. })
-            || (keep_final_return && index == last && matches!(op, NirOp::Return { .. }));
+            || (keep_final_return && index == last && final_return_survives(&op, &dropped_names));
         if keep {
             ops.push(op);
         } else {
             *removed += 1;
         }
+    }
+}
+
+/// Whether a post-terminal final `RETURN` can be kept: only when its value
+/// reads no local declared in the dropped range. Keeping `RETURN x` after its
+/// `LET x` died leaves a reference to a local that no longer exists, which NIR
+/// validation rejects. Dropping it is safe — it is unreachable, and the body
+/// already ends in the always-terminal statement the truncation stopped at.
+fn final_return_survives(op: &NirOp, dropped_names: &HashSet<String>) -> bool {
+    match op {
+        NirOp::Return { value } => value
+            .as_ref()
+            .is_none_or(|value| value_reads(value).is_disjoint(dropped_names)),
+        _ => false,
     }
 }
 
@@ -219,6 +241,34 @@ mod tests {
         );
         assert_eq!(body.len(), 2, "If + retained final Return");
         assert!(matches!(body[1], NirOp::Return { .. }));
+    }
+
+    /// The final RETURN is kept only when it reads nothing the truncation
+    /// dropped: a kept `RETURN x` whose `LET x` died names a local that no
+    /// longer exists, and NIR validation rejects the function (`-O2` build of
+    /// every canvas program: `NIR local reference 'x0' does not resolve`).
+    #[test]
+    fn final_return_reading_a_dropped_bind_dies_with_it() {
+        let body = run(
+            vec![
+                ret(local("n")),
+                NirOp::Bind {
+                    mutable: false,
+                    name: "x".to_string(),
+                    type_: ParameterType::Integer,
+                    value: Some(binary(BinaryOp::Multiply, local("n"), int_const("2"))),
+                },
+                ret(local("x")),
+            ],
+            2,
+        );
+        assert_eq!(body.len(), 1, "only the first RETURN survives");
+        assert!(matches!(
+            &body[0],
+            NirOp::Return {
+                value: Some(crate::target::shared::nir::NirValue::Local(name))
+            } if name == "n"
+        ));
     }
 
     /// An IF with an empty (or non-terminal) arm falls through: nothing after
