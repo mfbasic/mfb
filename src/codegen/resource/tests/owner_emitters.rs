@@ -147,3 +147,40 @@ fn a_module_stored_resource_needs_a_binding_that_reaches_it() {
         "the refusal must say why: {err}"
     );
 }
+
+/// A store into a resource-carrying global raises the resources its NAMED operands
+/// hold. A store with no value writes the type's default and raises nothing, and a
+/// captured operand of a type that holds no resource is not walked: in both cases
+/// the store is handled (`false`: nothing left to the caller) without a call to
+/// the module list.
+#[test]
+fn a_store_that_names_no_resource_raises_nothing() {
+    let platform = platform();
+    let mut harness = BuilderHarness::default();
+    harness
+        .globals
+        .insert("g".to_string(), global("List OF fs.File", 0));
+    harness.globals.insert(
+        crate::codegen::resource::module_owner::MODULE_RESOURCES_GLOBAL.to_string(),
+        global("Integer", 8),
+    );
+    let list = ParameterType::declared("List OF fs.File");
+    let mut builder = harness.builder("store", &platform);
+    assert_eq!(builder.emit_module_store_float("g", &list, None), Ok(false));
+    let counter = crate::target::shared::nir::NirValue::Capture {
+        index: 0,
+        type_: ParameterType::Integer,
+        by_ref: false,
+    };
+    assert_eq!(
+        builder.emit_module_store_float("g", &list, Some(&counter)),
+        Ok(false)
+    );
+    assert!(
+        builder
+            .instructions
+            .iter()
+            .all(|i| i.op != CodeOp::BranchLink && i.op != CodeOp::BranchLinkRegister),
+        "nothing was raised, so no list push was called"
+    );
+}
