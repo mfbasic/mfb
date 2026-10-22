@@ -789,6 +789,10 @@ name = "rt_byref_capture_loop_rows"
 path = "tests/runtime/rt_byref_capture_loop_rows.rs"
 
 [[test]]
+name = "rt_uce_unreachable_final_return"
+path = "tests/runtime/rt_uce_unreachable_final_return.rs"
+
+[[test]]
 name = "rt_lambda_capture_not_copied_per_call"
 path = "tests/runtime/rt_lambda_capture_not_copied_per_call.rs"
 
