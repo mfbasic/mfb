@@ -11,10 +11,16 @@
 //! that means different types to the two walkers, an error that loses its
 //! location. These tests hand each region exactly the input its check exists for
 //! and pin the refusal, beside the well-formed input it accepts.
+//!
+//! They live here rather than in a `builder/tests/` child module because a
+//! `#[cfg(test)] mod` line in a production file worsens that file's own report
+//! (planning/tests.md, Corrections C3); the regions are `pub(crate)` for them.
 
-use super::module_finish::{add_relocation_gated_data_objects, lower_relocation_gated_helpers};
-use super::module_helpers::lower_graph_and_closure_helpers;
-use super::{ClosureEnvLayout, ClosureEnvWord, GlobalValue, TypeModel};
+use crate::codegen::engine::builder::module_finish::{
+    add_relocation_gated_data_objects, lower_relocation_gated_helpers,
+};
+use crate::codegen::engine::builder::module_helpers::lower_graph_and_closure_helpers;
+use crate::codegen::engine::builder::{ClosureEnvLayout, ClosureEnvWord, GlobalValue, TypeModel};
 use crate::codegen::engine::types::{
     CodeDataObject, CodeFrame, CodeFunction, CodeRelocation, CodegenPlatform, RelocIntent,
 };
@@ -27,16 +33,14 @@ use crate::testutil::{nir_for_src, CodeTarget};
 use crate::types::ParameterType;
 use std::collections::HashMap;
 
-mod variants;
-
-fn linux_x86_64() -> impl CodegenPlatform {
+pub(super) fn linux_x86_64() -> impl CodegenPlatform {
     crate::target::linux_common::code::Platform::for_test(
         crate::target::linux_x86_64::code::X86_64,
         Glibc,
     )
 }
 
-fn module(source: &str) -> NirModule {
+pub(super) fn module(source: &str) -> NirModule {
     nir_for_src(source, CodeTarget::LinuxX86_64, Console)
         .unwrap_or_else(|err| panic!("the probe lowers to NIR: {err}"))
 }

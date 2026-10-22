@@ -43,7 +43,11 @@ mod link_locator_edges;
 #[cfg(test)]
 mod lower_module_refusals;
 #[cfg(test)]
+mod lower_module_variant_refusals;
+#[cfg(test)]
 mod model_lookup_refusals;
+#[cfg(test)]
+mod module_assembly_refusals;
 #[cfg(test)]
 mod nir_context;
 #[cfg(test)]

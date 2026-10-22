@@ -74,12 +74,12 @@ use crate::codegen::engine::mir::MirPlan;
 mod error_messages;
 mod link_resolution;
 mod lower_module;
-mod module_finish;
-mod module_helpers;
+// `pub(crate)` so `engine/tests/module_assembly_refusals.rs` can drive the
+// regions directly; `lower_module_for_platform` is still their only caller.
+pub(crate) mod module_finish;
+pub(crate) mod module_helpers;
 mod module_layout;
 mod runtime_helpers;
-#[cfg(test)]
-mod tests;
 
 pub(crate) use error_messages::{
     native_link_error_messages, standard_error_message_symbol, standard_error_messages,

@@ -17,7 +17,7 @@ pub(super) struct CoreHelperFlags {
 
 /// `lower_module_for_platform`'s graph and closure helpers: the recursive-copy shims, every closure
 /// environment routine, the graph copy and drop walkers and the closure copy/drop.
-pub(super) fn lower_graph_and_closure_helpers(
+pub(crate) fn lower_graph_and_closure_helpers(
     tables: &ClosureHelperTables<'_>,
     type_model: &TypeModel,
     closure_env_layouts: Vec<ClosureEnvLayout>,

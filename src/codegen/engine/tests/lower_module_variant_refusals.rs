@@ -7,8 +7,10 @@
 //!   second definition of it.
 //! * The type model refuses a type kind it does not know.
 
-use super::*;
+use super::module_assembly_refusals::{linux_x86_64, module};
+use crate::os::linux::flavor::LinuxFlavor::Glibc;
 use crate::target::shared::nir::{NirImport, NirModule};
+use crate::types::ParameterType;
 
 /// `addOne` is handed its argument (an owned variant, `addOne$own1`) and `stepIn`
 /// writes into the element's own field (a destination variant, `stepIn$into0`).

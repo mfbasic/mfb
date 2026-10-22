@@ -218,7 +218,7 @@ pub(super) fn add_companion_runtime_symbols(module: &NirModule, runtime_symbols:
 
 /// `lower_module_for_platform`'s relocation-gated helpers: each shared helper (map hash, drops,
 /// error park, concat, formatters, `construct.T`, `toString`) emitted iff a lowered function calls it.
-pub(super) fn lower_relocation_gated_helpers(
+pub(crate) fn lower_relocation_gated_helpers(
     tables: &ClosureHelperTables<'_>,
     type_model: &TypeModel,
     constructor_types: &[(ParameterType, usize)],
@@ -634,7 +634,7 @@ pub(super) fn lower_canvas_and_link_support(
 /// `lower_module_for_platform`'s relocation-gated data objects: the math constant pool, the empty
 /// string, the Unicode tables, error strings, status prefixes and the powers of ten — each emitted iff
 /// a lowered function relocates against it.
-pub(super) fn add_relocation_gated_data_objects(
+pub(crate) fn add_relocation_gated_data_objects(
     module: &NirModule,
     code_functions: &[CodeFunction],
     data_objects: &mut Vec<CodeDataObject>,
