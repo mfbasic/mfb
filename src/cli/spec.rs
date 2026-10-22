@@ -14,13 +14,26 @@ use crate::docs::{render, spec};
 pub(crate) fn show_spec(args: &[String]) -> Result<(), String> {
     let (request, style) = parse_spec_request(args)?;
     let stdout = std::io::stdout();
-    if let Err(err) = write_spec(&mut stdout.lock(), &request, &style) {
-        if err.kind() != std::io::ErrorKind::BrokenPipe {
-            eprintln!("error: failed writing spec output: {err}");
-            std::process::exit(1);
-        }
+    if let Err(message) = output_spec(&mut stdout.lock(), &request, &style) {
+        eprintln!("error: {message}");
+        std::process::exit(1);
     }
     Ok(())
+}
+
+/// Write `request` to `out`: a broken pipe ends the output quietly, and any
+/// other write failure is the error [`show_spec`] reports.
+fn output_spec(
+    out: &mut impl Write,
+    request: &SpecRequest,
+    style: &render::Style,
+) -> Result<(), String> {
+    match write_spec(out, request, style) {
+        Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => {
+            Err(format!("failed writing spec output: {err}"))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// What one `mfb spec` invocation prints, resolved before any output is written.

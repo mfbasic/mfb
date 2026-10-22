@@ -117,6 +117,56 @@ fn every_rendering_mode_propagates_write_failures() {
     }
 }
 
+/// A closed stdout (`mfb spec ... | head`) ends the output quietly; any other
+/// write failure is the error `show_spec` reports before exiting 1.
+#[test]
+fn a_broken_pipe_ends_the_output_quietly_and_any_other_failure_is_reported() {
+    let (request, style) = parse_spec_request(&s(&[])).unwrap();
+    assert_eq!(
+        output_spec(
+            &mut FailingWriter(std::io::ErrorKind::BrokenPipe),
+            &request,
+            &style
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        output_spec(
+            &mut FailingWriter(std::io::ErrorKind::PermissionDenied),
+            &request,
+            &style
+        ),
+        Err("failed writing spec output: permission denied".to_string())
+    );
+    let mut out = Vec::new();
+    assert_eq!(output_spec(&mut out, &request, &style), Ok(()));
+    assert!(!out.is_empty());
+}
+
+/// A package with no subtopics prints its overview alone: no listing and no
+/// "Run `mfb spec <package> <subtopic>`" pointer to subtopics it lacks.
+#[test]
+fn a_package_without_subtopics_prints_only_its_overview() {
+    let style = render::Style {
+        width: 80,
+        color: false,
+    };
+    let package = spec::SpecPackage {
+        name: "lonely",
+        summary: "A package with nothing under it.".to_string(),
+        overview: "# Lonely\n\nJust this page.\n",
+        topics: Vec::new(),
+    };
+    let mut out = Vec::new();
+    print_spec_package(&mut out, &package, &style).unwrap();
+    let mut expected = Vec::new();
+    writeln!(expected, "{}", render::render(package.overview, &style)).unwrap();
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        String::from_utf8(expected).unwrap()
+    );
+}
+
 #[test]
 fn too_many_positionals_is_error() {
     let err = show_spec(&s(&["a", "b", "c"])).unwrap_err();
