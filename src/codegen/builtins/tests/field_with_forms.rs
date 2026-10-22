@@ -527,3 +527,41 @@ fn a_mixed_with_through_a_by_reference_capture_stores_through_the_parent_slot() 
     let slots = slots_of(&source, lambdas[0]);
     assert!(has(&slots, "mixed_with_scalar"), "{slots:?}");
 }
+
+/// A `WITH` item built in the record-temp region looks each update's field up in
+/// the record; one the record does not have is refused by name instead of stored
+/// at an offset it never computed. The type checker rejects such a field, so the
+/// item's update is renamed in the NIR.
+#[test]
+fn a_record_temp_with_naming_a_field_the_record_lacks_is_refused() {
+    use super::nir_fault::walk_ops_mut;
+    use crate::target::shared::nir::NirValue;
+    use crate::testutil::{code_for_nir, nir_for_src};
+    let source = format!(
+        "{BODIES}\nFUNC main() AS Integer\n  MUT bs AS List OF Box = []\n  MUT b AS Box = Box[lo := Pt[x := 0, y := 0], hi := Pt[x := 1, y := 1], tag := 0]\n  \
+         FOR i = 0 TO 3\n    bs = collections::append(bs, WITH b {{ hi := b.lo, tag := i }})\n  NEXT\n  \
+         io::print(toString(len(bs) + b.tag))\n  RETURN 0\nEND FUNC\n"
+    );
+    assert!(has(&slots_of(&source, "main"), "rec_temp_with_target"));
+    let target = CodeTarget::LinuxX86_64;
+    let mut module = nir_for_src(&source, target, Console).expect("the probe lowers to NIR");
+    let mut renamed = 0usize;
+    for function in &mut module.functions {
+        walk_ops_mut(&mut function.body, &mut |_| {}, &mut |value| {
+            if let NirValue::WithUpdate { updates, .. } = value {
+                if let Some(update) = updates.iter_mut().find(|u| u.field == "tag") {
+                    update.field = "ghost".to_string();
+                    renamed += 1;
+                }
+            }
+        });
+    }
+    assert_eq!(renamed, 1, "the probe has one WITH");
+    let error = code_for_nir(&module, target)
+        .err()
+        .expect("a WITH of an unknown field lowered");
+    assert!(
+        error.contains("native code WITH update references unknown field 'ghost'"),
+        "{error}"
+    );
+}
