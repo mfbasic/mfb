@@ -91,8 +91,14 @@ fn parse(args: &[String]) -> Result<Request, CommandError> {
 
 /// `mfb dbg`. Exits `0` when the session ends with `quit` or end of input.
 pub(crate) fn run_dbg_command(args: &[String]) -> Result<(), CommandError> {
+    run_with(args, host_backend())
+}
+
+/// [`run_dbg_command`] over `backend`, the host's debugger or `None` where
+/// `mfb dbg` is not supported; the session reads the process's own stdin.
+fn run_with(args: &[String], backend: Option<&dyn Backend>) -> Result<(), CommandError> {
     let request = parse(args)?;
-    let Some(backend) = host_backend() else {
+    let Some(backend) = backend else {
         return Err(CommandError::Failed(format!(
             "mfb dbg is not supported on {} {}; it runs on macOS and on Linux on AArch64",
             std::env::consts::OS,

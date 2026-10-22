@@ -436,3 +436,87 @@ fn the_command_refuses_before_reading_input() {
         );
     }
 }
+
+/// The command over any backend, whatever the host: where `mfb dbg` has no
+/// debugger the operand is refused as unsupported; where it has one, a file
+/// that is no MFBASIC executable is refused by the program check before the
+/// backend is touched or a line of input is read.
+#[test]
+fn the_command_over_a_backend_or_none_refuses_before_reading_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = dir.path().join("notes.txt");
+    std::fs::write(&text, "not a program").unwrap();
+    let operand = args(&[text.to_str().unwrap()]);
+    let Err(CommandError::Failed(unsupported)) = super::run_with(&operand, None) else {
+        panic!("no backend refuses");
+    };
+    assert_eq!(
+        unsupported,
+        format!(
+            "mfb dbg is not supported on {} {}; it runs on macOS and on Linux on AArch64",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    );
+    let backend = Recorded::running(&text);
+    assert_eq!(
+        super::run_with(&operand, Some(&backend)).map_err(|err| match err {
+            CommandError::Failed(message) => message,
+            CommandError::Usage(message) => panic!("not a usage error: {message}"),
+        }),
+        Err(check_debuggable(&text).unwrap_err())
+    );
+    assert!(backend.calls.borrow().is_empty(), "no process was touched");
+}
+
+/// Output that accepts `lines` complete lines and refuses every write after,
+/// as a pipe whose reader went away does.
+struct ClosingAfter {
+    lines: usize,
+}
+
+impl std::io::Write for ClosingAfter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.lines == 0 {
+            return Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+        }
+        self.lines -= buf
+            .iter()
+            .filter(|byte| **byte == b'\n')
+            .count()
+            .min(self.lines);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A banner, or the not-a-debug-build note after it, that cannot be written
+/// ends the session with why before the prompt runs.
+#[test]
+fn a_banner_or_note_that_cannot_be_written_is_the_command_s_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = native_probe(dir.path());
+    let mut backend = Recorded::running(&program);
+    backend.symbols = Ok(vec![symbol("_exit", true)]);
+    for lines in [0, 1] {
+        let result = session(
+            Request::Attach { pid: 7 },
+            &backend,
+            &mut "q\n".as_bytes(),
+            &mut ClosingAfter { lines },
+            &mut Vec::new(),
+            false,
+        );
+        let message = match result {
+            Err(CommandError::Failed(message)) => message,
+            Err(CommandError::Usage(message)) => panic!("not a usage error: {message}"),
+            Ok(()) => panic!("after {lines} line(s) the session must fail"),
+        };
+        assert_eq!(
+            message, "cannot write: broken pipe",
+            "after {lines} line(s)"
+        );
+    }
+}
