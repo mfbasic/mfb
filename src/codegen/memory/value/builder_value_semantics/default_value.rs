@@ -237,7 +237,13 @@ impl CodeBuilder<'_> {
                     text: format!("default {type_}"),
                 })
             }
-            _ if self.is_resource_union_type(type_) => {
+            // The guard IS the resource-union test (`is_resource_union_type` is
+            // `resource_union_cleanup(..).is_some()`, and that answers `None` for a
+            // union with no variants), so the tag comes out of the same lookup.
+            _ if let Some(tag) = self
+                .resource_union_cleanup(type_)
+                .and_then(|variants| variants.first().map(|(tag, _)| *tag)) =>
+            {
                 // A resource UNION has no reconstructible default either; the site
                 // that needs one is the error-path binding of a
                 // `RES x = <fallible> TRAP` whose result is a resource union
@@ -261,12 +267,6 @@ impl CodeBuilder<'_> {
                 self.raise_error_bare("ErrOutOfMemory")?;
                 self.emit(abi::label(&alloc_ok));
                 self.emit(abi::move_register(&block, abi::mfb_return(1)));
-                let variants = self.resource_union_cleanup(type_).ok_or_else(|| {
-                    format!("native code cannot resolve resource-union variants for '{type_}'")
-                })?;
-                let (tag, _) = variants.first().ok_or_else(|| {
-                    format!("resource union '{type_}' has no variants for a default value")
-                })?;
                 let tag_register = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &tag_register,
