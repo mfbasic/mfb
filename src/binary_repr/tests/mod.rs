@@ -20,5 +20,6 @@ mod truncation_tests;
 // `util_tests` moved to `wire/src/bytes.rs`'s own test module with the
 // primitives it covers (plan-126-B) — a test for `mfb_wire` code that ran only
 // under the compiler crate would have left the new crate's own gate empty.
+mod writer_refusal_tests;
 mod writer_tests;
 mod writer_walker_tests;
