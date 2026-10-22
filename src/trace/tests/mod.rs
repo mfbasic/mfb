@@ -207,3 +207,48 @@ fn counters_accumulate() {
     drop(guard);
     disable_for_test();
 }
+
+/// A span that outlives its parent records nothing rather than guessing a
+/// path, and the parent's own row is still right.
+#[test]
+fn a_span_outliving_its_parent_records_nothing() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    disable_for_test();
+    enable();
+    let outer = span("test-parent-first");
+    let inner = span("test-orphaned-child");
+    drop(outer);
+    drop(inner);
+    let guard = STATE.lock().expect("trace state");
+    let root = guard.as_ref().expect("enabled").root.as_ref().expect("root");
+    let parent = child(root, "test-parent-first");
+    assert_eq!(parent.count, 1);
+    assert!(parent.children.iter().all(|c| c.name != "test-orphaned-child"));
+    assert!(root.children.iter().all(|c| c.name != "test-orphaned-child"));
+    drop(guard);
+    disable_for_test();
+}
+
+/// A stage name announced twice is interned once and its span accumulates;
+/// with tracing off neither stage call records anything.
+#[test]
+fn a_repeated_stage_name_accumulates_into_one_row() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    disable_for_test();
+    stage("test-stage-off");
+    end_stage();
+    assert!(STATE.lock().expect("trace state").is_none());
+    enable();
+    {
+        let _outer = span("test-stage-parent");
+        stage("test-stage-repeat");
+        stage("test-stage-repeat");
+        end_stage();
+    }
+    let guard = STATE.lock().expect("trace state");
+    let root = guard.as_ref().expect("enabled").root.as_ref().expect("root");
+    let parent = child(root, "test-stage-parent");
+    assert_eq!(child(parent, "test-stage-repeat").count, 2);
+    drop(guard);
+    disable_for_test();
+}
