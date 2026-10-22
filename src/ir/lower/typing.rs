@@ -434,7 +434,12 @@ pub(in crate::ir) fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return generic_builtin_call_type(&canonical_callee, &arg_types, context);
+                return generic_builtin_call_type(
+                    &canonical_callee,
+                    &arg_types,
+                    &normalized,
+                    context,
+                );
             }
             // The remaining builtin packages share one arg-typed dispatch
             // (bug-342 A1 — was 17 byte-identical is_*_call → resolve_call
@@ -491,7 +496,12 @@ pub(in crate::ir) fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return generic_builtin_call_type(&canonical_callee, &arg_types, context);
+                return generic_builtin_call_type(
+                    &canonical_callee,
+                    &arg_types,
+                    &normalized,
+                    context,
+                );
             }
             builtins::call_return_type(&canonical_callee)
                 .or_else(|| context.function_returns.get(callee).cloned())
@@ -680,9 +690,14 @@ pub(super) fn canonical_import_type(
 /// generic matcher, with the declared types as its oracle, so union-variant
 /// subsumption reaches a generic call (bug-988, bug-989): `append(shapes,
 /// Square[2.0])` and `append(shapes, squares)` both type `List OF Shape`.
+///
+/// A literal argument the selection only accepts re-typed to its slot
+/// (`append(bytes, 7)`, see [`literal_retyped_argument_types`]) types the call
+/// under that re-typing, the types its arguments lower as.
 fn generic_builtin_call_type(
     canonical_callee: &str,
     arg_types: &[ParameterType],
+    arguments: &[&HirExpression],
     context: &LowerContext<'_>,
 ) -> Option<ParameterType> {
     builtins::resolve_call_return_type_with_kinds(
@@ -691,6 +706,20 @@ fn generic_builtin_call_type(
         false,
         context.type_index,
     )
+    .or_else(|| {
+        let retyped = literal_retyped_argument_types(
+            canonical_callee,
+            arg_types,
+            arguments,
+            context.type_index,
+        )?;
+        builtins::resolve_call_return_type_with_kinds(
+            canonical_callee,
+            &retyped,
+            false,
+            context.type_index,
+        )
+    })
 }
 
 pub(super) fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {

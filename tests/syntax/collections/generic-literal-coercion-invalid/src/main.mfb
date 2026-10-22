@@ -1,0 +1,15 @@
+IMPORT collections
+
+' A literal re-typed to a pinned generic slot is still held to that slot:
+' out of the Byte range, negated into Byte, and an f-suffixed literal into
+' Money are argument mismatches; an out-of-range list-literal element also
+' reports the Byte overflow a typed list literal reports.
+FUNC main AS Integer
+  MUT xs AS List OF Byte = [1, 2]
+  xs = collections::append(xs, 300)
+  xs = collections::append(xs, -1)
+  xs = collections::append(xs, [4, 256])
+  MUT mo AS List OF Money = [1.50]
+  mo = collections::append(mo, 2.5f)
+  RETURN 0
+END FUNC

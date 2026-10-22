@@ -21,6 +21,7 @@ mod construct;
 mod decls;
 mod expression;
 mod inline_trap;
+mod literal_retype;
 mod statement;
 mod trap_hoist;
 mod typing;
@@ -39,6 +40,7 @@ use typing::*;
 pub(crate) use captures::lambda_captured_names;
 #[cfg(test)]
 pub(super) use decls::default_kind;
+pub(super) use literal_retype::literal_retyped_argument_types;
 pub(super) use statement::{
     collection_iteration_type, make_temp_local_name, match_case_binding, match_expression_type,
 };

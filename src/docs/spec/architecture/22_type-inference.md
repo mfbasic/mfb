@@ -154,6 +154,31 @@ A list **literal** needs no rule of its own: `[Square[2.0], Circle[3.0]]` types
 bottom-up as `List OF Square`, is accepted at `append`'s `List OF T` by the first
 bullet, and is then lowered against `List OF Shape`, element by element.
 
+**Numeric literals at a generic parameter.** Selection sees an unsuffixed
+literal as its intrinsic `Integer` or `Float`, so a pinned variable rejects it:
+`collections::append(bytes, 7)` (`bytes AS List OF Byte`) binds `T = Byte` from
+the list and `7` does not unify. When — and only when — the exact-typed selection
+fails, the call is retried with its literal arguments re-typed toward the slot
+types "Literal Coercion" below admits: an integer literal toward `Byte`, `Fixed`,
+`Money`; an unsuffixed decimal literal toward `Fixed`, `Money`; an `f`-suffixed
+literal toward `Fixed`; a negated literal likewise; a non-empty list literal of
+numeric literals toward a list of a type every element admits. Combinations are
+tried odometer-style (at most six literal positions) and the first that selects
+wins. The shape pass then holds every re-typed literal to
+`expression_compatible` against its slot, so `append(bytes, 7)`,
+`prepend`/`insert`/`set`/`contains`/`getOr` with a Byte literal, `append(fixeds,
+2)` and `append(moneys, 2.25)` are accepted, while `append(bytes, 300)`,
+`append(bytes, -1)` and `append(moneys, 2.5f)` stay `TYPE_CALL_ARGUMENT_MISMATCH`
+(as `toString(1.5, 300)` is for a monomorphic `Byte` parameter). Lowering asks
+rule 3 and the call's result type under the same re-typing, so the literal lowers
+as the slot's constant; an out-of-range list-literal element
+(`append(bytes, [4, 256])`) therefore also reports `TYPE_BYTE_LITERAL_OVERFLOW`, as
+a typed list literal does. A call that already selects is never re-typed, and
+only a literal at a generic position (some overload's parameter there mentions a
+type variable) is: a concrete built-in overload set keeps exact selection, so
+`math::cos(1)` (`Float` | `Fixed`) stays a mismatch.
+[[src/ir/lower/literal_retype.rs:literal_retyped_argument_types]] [[src/ir/shape/expressions.rs:selects_with_retyped_literals]] [[src/codegen/registry/lookup.rs:generic_parameter_position]]
+
 ### Overload resolution
 
 For an ordinary user `FUNC` name with more than one visible signature, the monomorphizer

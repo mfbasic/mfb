@@ -1,0 +1,50 @@
+IMPORT collections
+IMPORT io
+
+' An unsuffixed numeric literal at a generic collections parameter adopts the
+' slot type the collection argument pins (`mfb spec architecture
+' type-inference`): a Byte/Fixed/Money literal item, list-literal item, index
+' value, contains probe and getOr default all store and read back exactly.
+
+FUNC addB(acc AS Integer, b AS Byte) AS Integer
+  RETURN acc + b
+END FUNC
+
+FUNC main AS Integer
+  MUT xs AS List OF Byte = [1, 2]
+  xs = collections::append(xs, 7)
+  xs = collections::append(xs, [8, 255])
+  xs = collections::prepend(xs, 0)
+  xs = collections::insert(xs, 1, 9)
+  xs = collections::set(xs, 0, 3)
+  MUT line AS String = ""
+  FOR EACH b IN xs
+    line = line & toString(b) & ","
+  NEXT
+  io::print(line)
+  io::print(toString(collections::contains(xs, 9)) & " " & toString(collections::contains(xs, 200)))
+  MUT m AS Map OF String TO Byte = Map OF String TO Byte { "a" := 1 }
+  m = collections::set(m, "b", 2)
+  io::print(toString(collections::getOr(m, "b", 5)) & " " & toString(collections::getOr(m, "z", 5)))
+  MUT fx AS List OF Fixed = [1.5]
+  fx = collections::append(fx, 2)
+  fx = collections::append(fx, 2.25)
+  fx = collections::append(fx, -3)
+  fx = collections::append(fx, 0.5f)
+  line = ""
+  FOR EACH f IN fx
+    line = line & toString(f) & ","
+  NEXT
+  io::print(line)
+  MUT mo AS List OF Money = [1.50]
+  mo = collections::append(mo, 2.25)
+  mo = collections::append(mo, 4)
+  line = ""
+  FOR EACH v IN mo
+    line = line & toString(v) & ","
+  NEXT
+  io::print(line)
+  LET total AS Integer = collections::reduce(xs, 0, addB)
+  io::print(toString(total))
+  RETURN 0
+END FUNC

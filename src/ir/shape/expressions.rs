@@ -468,6 +468,7 @@ impl<'a> Walker<'a> {
                 &ShapeKinds(&self.types),
             )
             .is_none()
+                && !self.selects_with_retyped_literals(canonical, &arg_types, normalized)
             {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);
@@ -543,6 +544,7 @@ impl<'a> Walker<'a> {
                 &ShapeKinds(&self.types),
             )
             .is_none()
+                && !self.selects_with_retyped_literals(canonical, &arg_types, normalized)
             {
                 let detail = mismatch(&names, expected_overloads());
                 self.emit_call_typed_unknown(detail, line);
@@ -562,10 +564,40 @@ impl<'a> Walker<'a> {
             &ShapeKinds(&self.types),
         )
         .is_none()
+            && !self.selects_with_retyped_literals(canonical, &arg_types, normalized)
         {
             let detail = mismatch(&names, expected_overloads());
             self.emit_call_typed_unknown(detail, line);
         }
+    }
+
+    /// Whether a generic built-in call whose exact-typed selection failed
+    /// selects once its literal arguments are re-typed to their slots
+    /// ([`lower::literal_retyped_argument_types`]) AND every re-typed literal
+    /// fits its slot by `expression_compatible` — the rule a user `FUNC`
+    /// parameter applies, so `collections::append(bytes, 7)` is accepted and
+    /// `collections::append(bytes, 300)` is the same mismatch `takeB(300)` is.
+    fn selects_with_retyped_literals(
+        &self,
+        canonical: &str,
+        arg_types: &[ParameterType],
+        normalized: &[&HirExpression],
+    ) -> bool {
+        let Some(retyped) = lower::literal_retyped_argument_types(
+            canonical,
+            arg_types,
+            normalized,
+            &ShapeKinds(&self.types),
+        ) else {
+            return false;
+        };
+        retyped
+            .iter()
+            .zip(arg_types)
+            .zip(normalized)
+            .all(|((slot, actual), argument)| {
+                slot == actual || self.expression_compatible(slot, actual, argument)
+            })
     }
 
     /// Lowering's type for an argument the source wrote; `Unknown` when it

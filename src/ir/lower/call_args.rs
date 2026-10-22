@@ -37,6 +37,24 @@ fn resolved_generic_argument_type(
         expected_return,
         context.type_index,
     )
+    .or_else(|| {
+        // A literal argument the selection only accepts re-typed to its slot
+        // (`append(bytes, 7)` binds `T := Byte`): the slot is the expected type,
+        // so the literal lowers as that slot's constant.
+        let retyped = literal_retyped_argument_types(
+            canonical_callee,
+            &arg_types,
+            &normalized,
+            context.type_index,
+        )?;
+        builtins::resolved_argument_type(
+            canonical_callee,
+            index,
+            &retyped,
+            expected_return,
+            context.type_index,
+        )
+    })
 }
 
 pub(super) fn call_argument_expected_type(

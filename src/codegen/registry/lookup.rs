@@ -676,6 +676,26 @@ pub(crate) fn agreed_argument_type(qualified: &str, index: usize) -> Option<Para
     agreed.cloned()
 }
 
+/// Whether argument `index` of `qualified` is a GENERIC position: some overload's
+/// parameter there mentions a type variable (`collections::append`'s item `T`).
+/// Only there does a literal argument's slot type depend on the call, which is
+/// what scopes the literal re-typing retry (`ir::lower::literal_retype`); a
+/// concrete overload set (`math::cos`'s `Float` | `Fixed`) keeps exact selection.
+pub(crate) fn generic_parameter_position(qualified: &str, index: usize) -> bool {
+    registry().resolve_func(qualified).is_some_and(|resolved| {
+        resolved
+            .function
+            .implementations
+            .iter()
+            .any(|implementation| {
+                implementation
+                    .params
+                    .get(index)
+                    .is_some_and(|param| contains_var(&param.ty))
+            })
+    })
+}
+
 /// The expected type of argument `index` for a call to `qualified` whose actual
 /// argument types are `arg_types` — the *generic* case neither
 /// [`argument_types_typed`] nor [`agreed_argument_type`] can answer.

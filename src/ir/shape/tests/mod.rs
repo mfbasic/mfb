@@ -5,6 +5,7 @@ use crate::ir::IrOp;
 mod builtin_callbacks;
 mod comparability;
 mod export_surface;
+mod generic_literal_args;
 mod instantiated_bodies;
 mod instantiation_sites;
 mod literal_lists;

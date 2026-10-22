@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/syntax/collections/generic-literal-coercion-invalid
+   7 | FUNC main AS Integer
+   8 |   MUT xs AS List OF Byte = [1, 2]
+   9 |   xs = collections::append(xs, 300)
+     | ^
+tests/syntax/collections/generic-literal-coercion-invalid/src/main.mfb:9 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.append` has argument type(s) (List OF Byte, Integer), expected List OF T, T or List OF T, List OF T.
+   8 |   MUT xs AS List OF Byte = [1, 2]
+   9 |   xs = collections::append(xs, 300)
+  10 |   xs = collections::append(xs, -1)
+     | ^
+tests/syntax/collections/generic-literal-coercion-invalid/src/main.mfb:10 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.append` has argument type(s) (List OF Byte, Integer), expected List OF T, T or List OF T, List OF T.
+   9 |   xs = collections::append(xs, 300)
+  10 |   xs = collections::append(xs, -1)
+  11 |   xs = collections::append(xs, [4, 256])
+     | ^
+tests/syntax/collections/generic-literal-coercion-invalid/src/main.mfb:11 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.append` has argument type(s) (List OF Byte, List OF Integer), expected List OF T, T or List OF T, List OF T.
+  11 |   xs = collections::append(xs, [4, 256])
+  12 |   MUT mo AS List OF Money = [1.50]
+  13 |   mo = collections::append(mo, 2.5f)
+     | ^
+tests/syntax/collections/generic-literal-coercion-invalid/src/main.mfb:13 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.append` has argument type(s) (List OF Money, Float), expected List OF T, T or List OF T, List OF T.
+   9 |   xs = collections::append(xs, 300)
+  10 |   xs = collections::append(xs, -1)
+  11 |   xs = collections::append(xs, [4, 256])
+     | ^
+tests/syntax/collections/generic-literal-coercion-invalid/src/main.mfb:11 error[2-203-0013 TYPE_BYTE_LITERAL_OVERFLOW]: integer literal is outside the Byte range
+               Integer literal `256` is outside the Byte range 0..255.
+[exit 1]
