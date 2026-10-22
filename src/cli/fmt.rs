@@ -181,17 +181,13 @@ fn replace_contents(path: &Path, contents: &str) -> io::Result<()> {
         .open(&target)?
         .metadata()?
         .permissions();
-    let directory = target.parent().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "source file has no parent directory",
-        )
-    })?;
+    // The temporary is a sibling: `target` names the file just opened, so it has
+    // a file name to replace.
     let name = target
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("source.mfb");
-    let temp = directory.join(format!(".{name}.mfb-fmt-{}.tmp", std::process::id()));
+    let temp = target.with_file_name(format!(".{name}.mfb-fmt-{}.tmp", std::process::id()));
     let written = (|| {
         let mut file = fs::OpenOptions::new()
             .write(true)

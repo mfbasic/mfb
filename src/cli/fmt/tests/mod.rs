@@ -261,3 +261,84 @@ fn parse_indent_refuses_a_width_past_the_cap() {
         Err("mfb fmt --indent must be between 0 and 256 (got `257`)".to_string())
     );
 }
+
+/// Without a location `mfb fmt` formats the current directory. The test
+/// process runs in the crate root, which is not an MFBASIC project, so the
+/// command fails project validation there (and `--check` writes nothing).
+#[test]
+fn run_fmt_without_a_location_formats_the_current_directory() {
+    assert!(
+        !Path::new("project.json").exists(),
+        "the crate root is no project"
+    );
+    assert_eq!(run_fmt_command(&s(&["--check"])), 1);
+}
+
+/// A directory is formatted as a project: one without a valid `project.json`
+/// is refused, and so is a project whose source root selects nothing.
+#[test]
+fn format_path_refuses_a_directory_that_is_not_a_formattable_project() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    assert_eq!(
+        format_path(dir.path(), 2, false),
+        Err("project validation failed".to_string())
+    );
+    std::fs::write(
+        dir.path().join("project.json"),
+        concat!(
+            "{\n",
+            "  \"name\": \"app\",\n",
+            "  \"version\": \"0.1.0\",\n",
+            "  \"mfb\": \"1.0\",\n",
+            "  \"kind\": \"executable\",\n",
+            "  \"entry\": \"main\",\n",
+            "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+            "}\n"
+        ),
+    )
+    .expect("manifest");
+    std::fs::create_dir_all(dir.path().join("src")).expect("src dir");
+    std::fs::write(dir.path().join("src").join("notes.txt"), "not source").expect("file");
+    assert_eq!(
+        format_path(dir.path(), 2, false),
+        Err("failed to enumerate project source files".to_string())
+    );
+}
+
+/// A selected source that is not UTF-8 is reported by path and left as it was.
+#[test]
+fn format_path_reports_an_unreadable_source_untouched() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("main.mfb");
+    let bytes = b"FUNC main() AS Nothing\n\xff\xfe\nEND FUNC\n";
+    std::fs::write(&file, bytes).expect("write");
+    let err = format_path(&file, 2, false).unwrap_err();
+    assert!(
+        err.starts_with(&format!("failed to read '{}': ", file.display())),
+        "{err}"
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), bytes);
+}
+
+/// bug-502: when the replacement cannot be written — here its temporary name is
+/// already taken — the original is left byte-for-byte intact and the write
+/// fails; the temporary's path is cleared rather than left behind.
+#[test]
+fn replace_contents_failing_mid_write_leaves_the_original_intact() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("main.mfb");
+    let original = "FUNC main() AS Nothing\nio::print(\"hi\")\nEND FUNC\n";
+    std::fs::write(&file, original).expect("write");
+    let temp = std::fs::canonicalize(dir.path())
+        .unwrap()
+        .join(format!(".main.mfb.mfb-fmt-{}.tmp", std::process::id()));
+    std::fs::write(&temp, "stale").expect("stale temporary");
+    let err = format_path(&file, 2, false).unwrap_err();
+    assert!(err.starts_with("failed to write"), "{err}");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+    let entries: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(entries, vec![std::ffi::OsString::from("main.mfb")]);
+}
