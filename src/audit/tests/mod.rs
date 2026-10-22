@@ -149,3 +149,5 @@ fn run_on_valid_project_emits_report_and_returns_zero() {
     };
     assert_eq!(run(&json_options), 0);
 }
+
+mod exits;
