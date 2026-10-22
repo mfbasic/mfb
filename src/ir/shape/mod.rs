@@ -99,8 +99,6 @@ enum CalleeParams {
     /// A builtin whose overloads place a name at different positions, listed
     /// one overload at a time.
     BuiltinOverloads(Vec<Vec<&'static str>>),
-    /// A builtin with no parameter-name metadata: names cannot bind at all.
-    BuiltinUnnamed,
     /// A local or global binding of FUNC type: the callable type carries a
     /// parameter count but no names.
     FunctionValue(Vec<ParameterType>),

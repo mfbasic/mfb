@@ -125,17 +125,6 @@ impl<'a> Walker<'a> {
                     }
                 }
             }
-            CalleeParams::BuiltinUnnamed => {
-                // No parameter-name metadata: a name cannot bind at all (bug-173 B);
-                // the arguments stay in source order for the count.
-                for argument in arguments {
-                    if let HirCallArg::Named { name, line, .. } = argument {
-                        self.report_unknown_name(callee, name, *line);
-                    }
-                }
-                let source_order = source_order(arguments);
-                self.check_builtin_call(callee, &canonical, &source_order, line, locals);
-            }
             CalleeParams::BuiltinOverloads(overloads) => {
                 // Whichever way selection ends, the checker's normalized list has
                 // every argument — bound in overload order when an overload is

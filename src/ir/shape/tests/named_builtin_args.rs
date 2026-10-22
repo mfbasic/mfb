@@ -49,3 +49,55 @@ END FUNC
         "the extra counts toward the call's arity"
     );
 }
+
+/// Every argument-checked built-in carries parameter-name metadata — either
+/// one name list or per-overload lists — so a named argument always has
+/// something to bind against. The shape pass relies on it: it has no
+/// "built-in without names" path.
+#[test]
+fn every_argument_checked_builtin_has_parameter_names() {
+    use crate::codegen::builtins;
+    let registry = crate::codegen::registry::registry();
+    let mut checked = 0;
+    let general = [
+        "error",
+        "len",
+        "typeName",
+        "toString",
+        "toInt",
+        "toFloat",
+        "toFixed",
+        "toByte",
+        "toMoney",
+        "toScalar",
+        "isNumeric",
+        "isEven",
+        "isOdd",
+        "isPositive",
+        "isNegative",
+        "isZero",
+        "isEmpty",
+        "isNotEmpty",
+    ];
+    let qualified = registry.packages().iter().flat_map(|package| {
+        package
+            .functions()
+            .iter()
+            .map(move |function| format!("{}.{}", package.import_name(), function.name))
+    });
+    for name in general.iter().map(|name| name.to_string()).chain(qualified) {
+        if !builtins::is_builtin_call(&name) || !builtins::checks_call_arguments(&name) {
+            continue;
+        }
+        checked += 1;
+        assert!(
+            builtins::call_param_name_overloads(&name).is_some()
+                || builtins::call_param_names(&name).is_some(),
+            "{name} has no parameter names"
+        );
+    }
+    assert!(
+        checked > 100,
+        "only {checked} argument-checked built-ins found"
+    );
+}

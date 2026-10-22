@@ -242,10 +242,11 @@ impl<'a> Walker<'a> {
             if let Some(overloads) = builtins::call_param_name_overloads(&canonical) {
                 return Some(CalleeParams::BuiltinOverloads(overloads));
             }
-            return Some(match builtins::call_param_names(&canonical) {
-                Some(names) => CalleeParams::Builtin(names),
-                None => CalleeParams::BuiltinUnnamed,
-            });
+            // Every argument-checked built-in carries names
+            // (`ir::shape::tests::named_builtin_args::every_argument_checked_builtin_has_parameter_names`);
+            // a name that is no member never gets here, because the resolver
+            // refuses it first (SYMBOL_UNKNOWN_IDENTIFIER).
+            return builtins::call_param_names(&canonical).map(CalleeParams::Builtin);
         }
         let declared = self
             .functions
