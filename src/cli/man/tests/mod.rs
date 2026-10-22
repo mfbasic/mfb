@@ -1254,3 +1254,5 @@ fn no_rendered_page_spells_a_dotted_package_type() {
         hits.join("\n")
     );
 }
+
+mod edges;
