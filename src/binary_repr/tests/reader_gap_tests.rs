@@ -451,3 +451,53 @@ fn decode_type_export_refuses_trailing_payload_bytes() {
         Err("exported type `E` has trailing payload bytes".to_string())
     );
 }
+
+#[test]
+fn abi_serializer_names_a_type_kind_it_does_not_define() {
+    // A decoded table can carry a kind this compiler does not define: it is
+    // hashed by name alone (`opaque` + the name), so two such entries differ
+    // exactly when their names do — and a name index past the string table is
+    // refused rather than hashed as garbage.
+    let strings: Vec<String> = vec!["Mystery".to_string()];
+    let entry = |name: u32| TypeEntry {
+        kind: 99,
+        name,
+        owner_package: 0,
+        abi_export_kind: None,
+        payload: Vec::new(),
+    };
+    let constants = ConstPool::new();
+    let mut types = TypeTable::new();
+    types.entries.push(entry(0));
+    let mut serializer = AbiSerializer::new(&strings, &types, &constants);
+    serializer
+        .serialize_type(FIRST_TABLE_TYPE_ID)
+        .expect("an unknown kind serializes by name");
+    let contains = |haystack: &[u8], needle: &str| {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle.as_bytes())
+    };
+    assert!(contains(&serializer.bytes, "opaque"));
+    assert!(contains(&serializer.bytes, "Mystery"));
+
+    let mut dangling = TypeTable::new();
+    dangling.entries.push(entry(5));
+    let mut serializer = AbiSerializer::new(&strings, &dangling, &constants);
+    assert!(serializer.serialize_type(FIRST_TABLE_TYPE_ID).is_err());
+}
+
+#[test]
+fn a_signed_header_whose_signature_runs_past_the_file_is_truncated() {
+    // A well-formed signed header (Ed25519, 64 bytes) whose file ends right
+    // after it: the signature bytes are missing, which is reported as such
+    // rather than read past the end.
+    let mut bytes = wrap_mfp(&[], "p", "p", "1.0.0");
+    let at = bytes.len() - 6;
+    bytes[at..at + 2].copy_from_slice(&1u16.to_le_bytes());
+    bytes[at + 2..at + 6].copy_from_slice(&64u32.to_le_bytes());
+    match mfp_binary_repr_payload(&bytes) {
+        Ok(_) => panic!("a signature past the end of the file was accepted"),
+        Err(message) => assert_eq!(message, "truncated .mfp signature"),
+    }
+}
