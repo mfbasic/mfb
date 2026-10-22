@@ -59,7 +59,9 @@ fn an_unadvertised_output_kind_is_refused_by_name() {
 #[test]
 fn every_registered_backend_advertises_every_output_kind() {
     for target in registered_targets() {
-        let caps = backend_for(&target).expect("registered backend").capabilities();
+        let caps = backend_for(&target)
+            .expect("registered backend")
+            .capabilities();
         assert!(
             caps.executable
                 && caps.native_ir
