@@ -163,3 +163,28 @@ fn detect_terminal_width_honours_columns_override() {
         None => env::remove_var("COLUMNS"),
     }
 }
+
+/// A writer that fails only the write carrying `needle`, accepting the rest.
+struct FailingAt(&'static str);
+
+impl Write for FailingAt {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if String::from_utf8_lossy(buf).contains(self.0) {
+            return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A topic page whose closing hint cannot be written reports that failure
+/// rather than ending as if it were complete.
+#[test]
+fn a_failed_closing_hint_on_a_topic_page_is_reported() {
+    let (package, _) = a_package_with_topic();
+    let (request, style) = parse_spec_request(&s(&[package])).unwrap();
+    let err = write_spec(&mut FailingAt("for details."), &request, &style).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+}
