@@ -98,11 +98,6 @@ impl BuildTarget {
 }
 
 pub(crate) struct BackendCapabilities {
-    pub(crate) executable: bool,
-    pub(crate) native_ir: bool,
-    pub(crate) native_plan: bool,
-    pub(crate) native_object_plan: bool,
-    pub(crate) native_code_plan: bool,
     pub(crate) runtime_calls: &'static [&'static str],
 }
 
@@ -281,16 +276,6 @@ pub fn target_supports_app_mode(target: &BuildTarget) -> bool {
         .unwrap_or(false)
 }
 
-/// Refuse an output kind the target's backend does not advertise. Every
-/// output writer below checks its own capability flag here before touching
-/// the backend.
-fn require_capability(supported: bool, output: &str, target: &BuildTarget) -> Result<(), String> {
-    if supported {
-        return Ok(());
-    }
-    Err(format!("{output} does not support {} yet", target.name()))
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn write_executable(
     project_dir: &Path,
@@ -307,11 +292,6 @@ pub fn write_executable(
     progress: &dyn Fn(&str),
 ) -> Result<Vec<PathBuf>, String> {
     let backend = backend_for(target)?;
-    require_capability(
-        backend.capabilities().executable,
-        "native executable output",
-        target,
-    )?;
     // bug-503: every backend joins `ir.name` into its artifact paths; refuse a
     // traversing / absolute / hidden name before any backend runs (the manifest
     // gate already did, this is the shared last line before a filesystem write).
@@ -365,7 +345,6 @@ pub fn write_nir(
     debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
-    require_capability(backend.capabilities().native_ir, "native IR output", target)?;
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_nir(project_dir, ir, packages, build_mode, debug)
@@ -380,11 +359,6 @@ pub fn write_native_plan(
     debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
-    require_capability(
-        backend.capabilities().native_plan,
-        "native plan output",
-        target,
-    )?;
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_native_plan(project_dir, ir, packages, build_mode, debug)
@@ -399,11 +373,6 @@ pub fn write_native_object_plan(
     debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
-    require_capability(
-        backend.capabilities().native_object_plan,
-        "native object plan output",
-        target,
-    )?;
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_native_object_plan(project_dir, ir, packages, build_mode, debug)
@@ -418,11 +387,6 @@ pub fn write_native_code_plan(
     debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
-    require_capability(
-        backend.capabilities().native_code_plan,
-        "native code plan output",
-        target,
-    )?;
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_native_code_plan(project_dir, ir, packages, build_mode, debug)
@@ -437,13 +401,6 @@ pub fn write_mir(
     debug: crate::codegen::debug::DebugOptions,
 ) -> Result<PathBuf, String> {
     let backend = backend_for(target)?;
-    // The MIR dump runs the same lowering as `-ncode`, so it shares that
-    // capability gate.
-    require_capability(
-        backend.capabilities().native_code_plan,
-        "MIR output",
-        target,
-    )?;
     crate::os::validate_output_name(&ir.name)?;
     backend.validate(ir, packages)?;
     backend.write_mir(project_dir, ir, packages, build_mode, debug)

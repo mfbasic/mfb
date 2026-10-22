@@ -149,14 +149,7 @@ fn rejects_undeclared_runtime_helper() {
 }
 
 fn test_capabilities(runtime_calls: &'static [&'static str]) -> crate::target::BackendCapabilities {
-    crate::target::BackendCapabilities {
-        executable: true,
-        native_ir: true,
-        native_plan: true,
-        native_object_plan: true,
-        native_code_plan: true,
-        runtime_calls,
-    }
+    crate::target::BackendCapabilities { runtime_calls }
 }
 
 // The is-implemented gate: a declared-and-used helper family with no

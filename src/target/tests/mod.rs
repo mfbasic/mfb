@@ -40,40 +40,6 @@ const APP_MODE_MATRIX: &[(&str, bool)] = &[
     ("windows-x86_64", true),
 ];
 
-/// The refusal every output writer gives for a kind its backend does not
-/// advertise: the output kind and the target are both named. (Every
-/// registered backend advertises every kind today, so no `write_*` call can
-/// reach it; the refusal is pinned here so a partial backend gets this text.)
-#[test]
-fn an_unadvertised_output_kind_is_refused_by_name() {
-    let target = BuildTarget::parse("linux-riscv64").expect("linux-riscv64 parses");
-    assert_eq!(require_capability(true, "MIR output", &target), Ok(()));
-    assert_eq!(
-        require_capability(false, "native object plan output", &target),
-        Err("native object plan output does not support linux-riscv64 yet".to_string())
-    );
-}
-
-/// Every registered backend advertises every output kind, so no output
-/// writer refuses a registered target on capability grounds.
-#[test]
-fn every_registered_backend_advertises_every_output_kind() {
-    for target in registered_targets() {
-        let caps = backend_for(&target)
-            .expect("registered backend")
-            .capabilities();
-        assert!(
-            caps.executable
-                && caps.native_ir
-                && caps.native_plan
-                && caps.native_object_plan
-                && caps.native_code_plan,
-            "{} lacks an output kind",
-            target.name()
-        );
-    }
-}
-
 #[test]
 fn native_build_mode_as_str() {
     assert_eq!(NativeBuildMode::Console.as_str(), "console");
@@ -188,9 +154,6 @@ fn windows_x86_64_resolves_and_is_executable() {
     let backend = backend_for(&target).expect("windows-x86_64 resolves (not unknown-target)");
     assert_eq!(backend.target(), target);
     let caps = backend.capabilities();
-    assert!(caps.executable);
-    assert!(caps.native_ir && caps.native_plan);
-    assert!(caps.native_object_plan && caps.native_code_plan);
     // 47-E–J filled the runtime surface: it is no longer the empty stub wall.
     assert!(!caps.runtime_calls.is_empty());
     for family in [

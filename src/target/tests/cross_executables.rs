@@ -371,12 +371,11 @@ fn write_executable_announces_each_stage() {
 /// Which is not much on its own, and is not meant to be: the CONTENT of the NIR
 /// and plan dumps is asserted by `nir_json.rs`, `nir_validation.rs` and
 /// `plan_validation.rs`. What this pins is the plumbing — the extension, the
-/// destination, and that a target advertising a capability can actually deliver
-/// it. A backend whose forwarder wrote to the wrong path, or whose capability
-/// flag disagreed with its implementation, is invisible to every one of those
-/// other suites.
+/// destination, and that every target delivers every dump kind. A backend whose
+/// forwarder wrote to the wrong path is invisible to every one of those other
+/// suites.
 #[test]
-fn every_dump_kind_writes_on_every_target_that_advertises_it() {
+fn every_dump_kind_writes_on_every_target() {
     use crate::target::{
         write_mir, write_native_code_plan, write_native_object_plan, write_native_plan, write_nir,
     };
@@ -390,22 +389,16 @@ fn every_dump_kind_writes_on_every_target_that_advertises_it() {
         crate::codegen::debug::DebugOptions,
     ) -> Result<PathBuf, String>;
 
-    // (extension, writer, the capability that gates it)
-    let kinds: &[(&str, Writer, fn(&BackendCapabilities) -> bool)] = &[
-        ("nir", write_nir, |c| c.native_ir),
-        ("nplan", write_native_plan, |c| c.native_plan),
-        ("nobj", write_native_object_plan, |c| c.native_object_plan),
-        ("ncode", write_native_code_plan, |c| c.native_code_plan),
-        // `-mir` shares the code-plan capability: same lowering, captured
-        // before register allocation and instruction selection.
-        ("mir", write_mir, |c| c.native_code_plan),
+    let kinds: &[(&str, Writer)] = &[
+        ("nir", write_nir),
+        ("nplan", write_native_plan),
+        ("nobj", write_native_object_plan),
+        ("ncode", write_native_code_plan),
+        ("mir", write_mir),
     ];
 
     for target in registered_targets() {
-        let capabilities = backend_for(&target)
-            .unwrap_or_else(|err| panic!("{}: {err}", target.name()))
-            .capabilities();
-        for (extension, write, gated_on) in kinds {
+        for (extension, write) in kinds {
             let scratch = Scratch::new(&format!("dump_{}_{extension}", target.arch));
             let ir = crate::testutil::named_ir_for_src(SRC, "dumpprog");
             let written = write(
@@ -415,21 +408,6 @@ fn every_dump_kind_writes_on_every_target_that_advertises_it() {
                 &[],
                 NativeBuildMode::Console,
                 crate::codegen::debug::DebugOptions::OFF,
-            );
-
-            // Every registered backend advertises every dump capability today,
-            // asserted here rather than assumed: it is what makes the loop
-            // below an assertion about all five rather than about whichever
-            // subset happens to be capable, and it is why the dispatchers'
-            // six "does not support X yet" refusals are unreachable -- the
-            // only lines left uncovered in `src/target.rs`.
-            assert!(
-                gated_on(&capabilities),
-                "{} does not advertise -{extension}. That is allowed, and this \
-                 test then has to grow the other half: the dispatcher must \
-                 REFUSE it (\"does not support\") rather than call a backend \
-                 that cannot deliver.",
-                target.name()
             );
 
             let path =
@@ -482,12 +460,6 @@ fn every_executable_target_writes_an_image_its_os_can_load() {
     ];
 
     for target in registered_targets() {
-        let capabilities = backend_for(&target)
-            .unwrap_or_else(|err| panic!("{}: {err}", target.name()))
-            .capabilities();
-        if !capabilities.executable {
-            continue;
-        }
         let (_, magic) = MAGIC
             .iter()
             .find(|(os, _)| *os == target.os)

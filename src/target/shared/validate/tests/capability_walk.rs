@@ -9,14 +9,7 @@ use super::*;
 use crate::target::BackendCapabilities;
 use crate::testutil::{nir_for_src, CodeTarget};
 
-const NOTHING_IMPLEMENTED: BackendCapabilities = BackendCapabilities {
-    executable: true,
-    native_ir: true,
-    native_plan: true,
-    native_object_plan: true,
-    native_code_plan: true,
-    runtime_calls: &[],
-};
+const NOTHING_IMPLEMENTED: BackendCapabilities = BackendCapabilities { runtime_calls: &[] };
 
 fn refusal_for(statements: &str) -> String {
     let source =

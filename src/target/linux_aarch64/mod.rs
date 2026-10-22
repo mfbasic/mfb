@@ -25,11 +25,6 @@ impl NativeBackend for Backend {
 
     fn capabilities(&self) -> BackendCapabilities {
         BackendCapabilities {
-            executable: true,
-            native_ir: true,
-            native_plan: true,
-            native_object_plan: true,
-            native_code_plan: true,
             runtime_calls: linux_common::RUNTIME_CALLS,
         }
     }
