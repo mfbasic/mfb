@@ -824,3 +824,31 @@ fn signed_debug_build_keeps_mfbsign_and_seals() {
         .windows(crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER.len())
         .any(|w| w == crate::os::content_signature::CONTENT_SIGNATURE_PLACEHOLDER.as_bytes()));
 }
+
+/// A debug symbol table entry for a data symbol past the read-only prefix of
+/// an image with no writable data has no section to name, and is refused
+/// rather than given a wrong section number; a defined-symbol lookup for a
+/// name the image does not define is refused by name.
+#[test]
+fn a_symbol_with_no_home_is_refused() {
+    let mut img = image(vec![0xc3]);
+    img.data = vec![0; 8];
+    img.rodata_size = 8;
+    img.symbols.push(EncodedSymbol {
+        name: "_end".to_string(),
+        section: EncodedSection::Data,
+        offset: 8,
+    });
+    let err = coff_symbol_table(&img, 8, true, false)
+        .err()
+        .expect("no section holds offset 8");
+    assert_eq!(
+        err,
+        "debug symbols: data symbol '_end' at offset 8 lands in no section"
+    );
+    assert_eq!(
+        symbol_rva(&img, "_nowhere", 0x1000, 0x2000),
+        Err("windows linker: undefined symbol '_nowhere'".to_string())
+    );
+    assert_eq!(symbol_rva(&img, "_end", 0x1000, 0x2000), Ok(0x2008));
+}
