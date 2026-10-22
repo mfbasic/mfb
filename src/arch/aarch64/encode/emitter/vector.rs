@@ -33,7 +33,7 @@ impl Encoder {
 
     /// Three-same NEON ops: `op Vd.<T>, Vn.<T>, Vm.<T>`. The arrangement (`.2d`
     /// for numeric lanes, `.16b` for the bitwise ops) is baked into the base word.
-    pub(super) fn emit_v_three_same(
+    pub(in crate::arch::aarch64::encode) fn emit_v_three_same(
         &mut self,
         op: CodeOp,
         vd: u8,
@@ -71,7 +71,12 @@ impl Encoder {
 
     /// Two-register-misc NEON ops: `op Vd.<T>, Vn.<T>` (the compare-zero forms
     /// compare each lane against 0.0/0 implicitly).
-    pub(super) fn emit_v_two_misc(&mut self, op: CodeOp, vd: u8, vn: u8) -> Result<(), String> {
+    pub(in crate::arch::aarch64::encode) fn emit_v_two_misc(
+        &mut self,
+        op: CodeOp,
+        vd: u8,
+        vn: u8,
+    ) -> Result<(), String> {
         let base = match op {
             CodeOp::FAbsV => 0x4ee0_f800,
             CodeOp::FNegV => 0x6ee0_f800,
@@ -110,7 +115,7 @@ impl Encoder {
     /// `.2d` right-shift up to 64, but the shared `shift()` operand parser rejects
     /// any amount >= 64, so 64 never reaches here — the encoder matches that bound
     /// rather than carrying an unreachable case, bug-217.)
-    pub(super) fn emit_v_shift_imm(
+    pub(in crate::arch::aarch64::encode) fn emit_v_shift_imm(
         &mut self,
         op: CodeOp,
         vd: u8,
@@ -156,7 +161,7 @@ impl Encoder {
     ///   `fmsub_d`  → FNMSUB `-Da + Dn*Dm`  = lhs*rhs - addend
     ///   `fnmsub_d` → FMSUB  `Da - Dn*Dm`   = addend - lhs*rhs
     ///   `fnmadd_d` → FNMADD `-Da - Dn*Dm`  = -(lhs*rhs) - addend
-    pub(super) fn emit_fma_d(
+    pub(in crate::arch::aarch64::encode) fn emit_fma_d(
         &mut self,
         op: CodeOp,
         dd: u8,

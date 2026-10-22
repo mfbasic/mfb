@@ -64,3 +64,47 @@ fn relaxation_leaves_a_branch_to_an_unresolved_label_for_the_encoder_to_refuse()
         .expect("the encoder refuses the unresolved label");
     assert!(error.contains("nowhere"), "{error}");
 }
+
+/// Each vector/FP family emitter encodes only its own ops: handed an op of
+/// another family it refuses by name and emits nothing, rather than OR-ing the
+/// registers into some other instruction's base word. (`emit_instruction`
+/// routes each mnemonic to exactly one family, so only a direct call can hand
+/// one the wrong op.)
+#[test]
+fn a_vector_family_emitter_refuses_an_op_of_another_family() {
+    let mut encoder = fresh_encoder();
+    assert_eq!(
+        encoder.emit_v_three_same(CodeOp::FAbsV, 0, 1, 2),
+        Err("fabs_v is not a three-same NEON op".to_string())
+    );
+    assert_eq!(
+        encoder.emit_v_two_misc(CodeOp::FAddV, 0, 1),
+        Err("fadd_v is not a two-reg-misc NEON op".to_string())
+    );
+    assert_eq!(
+        encoder.emit_v_shift_imm(CodeOp::FAddV, 0, 1, 3),
+        Err("fadd_v is not a NEON shift-imm op".to_string())
+    );
+    assert_eq!(
+        encoder.emit_fma_d(CodeOp::FAddV, 0, 1, 2, 3),
+        Err("fadd_v is not a scalar FMA op".to_string())
+    );
+    assert!(encoder.text.is_empty(), "a refusal emits no word");
+}
+
+/// `shl.2d` takes a left shift of 0..=63. The operand parser already refuses an
+/// amount of 64 or more, and the emitter holds the same bound itself; 63 is the
+/// last encodable shift.
+#[test]
+fn a_2d_left_shift_past_63_is_refused_by_the_emitter() {
+    let mut encoder = fresh_encoder();
+    assert_eq!(
+        encoder.emit_v_shift_imm(CodeOp::ShlV, 0, 1, 64),
+        Err("AArch64 shl.2d shift 64 is out of range".to_string())
+    );
+    assert!(encoder.text.is_empty());
+    encoder
+        .emit_v_shift_imm(CodeOp::ShlV, 0, 1, 63)
+        .expect("63 encodes");
+    assert_eq!(encoder.text.len(), 4);
+}
