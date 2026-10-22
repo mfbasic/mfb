@@ -100,3 +100,33 @@ fn a_thread_type_s_resource_plane_is_part_of_the_abi_hash() {
         hash("Thread OF Integer TO Integer")
     );
 }
+
+/// A composite type used twice is one type-table entry: a function type, a
+/// thread and a thread-worker handle, a map entry.
+#[test]
+fn a_composite_type_used_twice_is_one_type_table_entry() {
+    let (_dir, path) = built(
+        "twice",
+        "IMPORT thread\n\nEXPORT FUNC rep(a AS FUNC(Integer) AS Integer, \
+         b AS FUNC(Integer) AS Integer, t AS Thread OF Integer TO Integer, \
+         u AS Thread OF Integer TO Integer, w AS ThreadWorker OF Integer TO Integer, \
+         x AS ThreadWorker OF Integer TO Integer, e AS MapEntry OF String TO Integer, \
+         f AS MapEntry OF String TO Integer) AS Integer\n  RETURN 1\nEND FUNC\n",
+        "",
+    );
+    let package = read_package_binary_repr(&path).expect("decodes");
+    let names = type_entry_names(&package.project.types, &package.project.strings.values)
+        .expect("type names");
+    let mut kinds: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+    for entry in &package.project.types.entries {
+        *kinds.entry(entry.kind).or_default() += 1;
+    }
+    // Each composite named twice in the signature (a FUNC type, a Thread, a
+    // ThreadWorker, a MapEntry) is written once: one entry of each kind.
+    assert_eq!(names.len(), 4, "{names:?}");
+    assert_eq!(kinds.len(), 4, "{kinds:?}");
+    assert!(
+        kinds.values().all(|count| *count == 1),
+        "{kinds:?} {names:?}"
+    );
+}
