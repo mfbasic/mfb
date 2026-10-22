@@ -401,3 +401,38 @@ fn the_dbg_help_lists_every_prompt_command() {
         "mfb dbg --help does not carry the prompt's command list"
     );
 }
+
+/// The command itself: a bad command line is refused before anything else; a
+/// file that is no MFBASIC executable is refused before the prompt reads a
+/// line - by the program check on a host the debugger runs on, and as
+/// unsupported on any other.
+#[test]
+fn the_command_refuses_before_reading_input() {
+    assert!(matches!(
+        super::run_dbg_command(&[]),
+        Err(CommandError::Usage(message)) if message.starts_with("mfb dbg requires a <binary> or a <pid>")
+    ));
+    let dir = tempfile::tempdir().unwrap();
+    let text = dir.path().join("notes.txt");
+    std::fs::write(&text, "not a program").unwrap();
+    let Err(CommandError::Failed(message)) =
+        super::run_dbg_command(&args(&[text.to_str().unwrap()]))
+    else {
+        panic!("a text file is refused");
+    };
+    if crate::debugger::host_backend().is_some() {
+        assert!(
+            message.ends_with("is not an MFBASIC executable"),
+            "{message}"
+        );
+    } else {
+        assert_eq!(
+            message,
+            format!(
+                "mfb dbg is not supported on {} {}; it runs on macOS and on Linux on AArch64",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            )
+        );
+    }
+}
