@@ -67,6 +67,8 @@ mod tests;
 #[cfg(test)]
 mod transfer_temps;
 #[cfg(test)]
+mod trapped_result_forms;
+#[cfg(test)]
 mod type_model_kinds;
 #[cfg(test)]
 mod type_oracle;
