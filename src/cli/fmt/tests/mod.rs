@@ -250,3 +250,14 @@ fn run_fmt_check_reports_unformatted_file() {
     // Unformatted file in --check mode exits 1.
     assert_eq!(run_fmt_command(&s(&["--check", file.to_str().unwrap()])), 1);
 }
+
+/// bug-220: an indent wider than the cap is refused (both ends of the range
+/// are accepted).
+#[test]
+fn parse_indent_refuses_a_width_past_the_cap() {
+    assert_eq!(parse_indent("256"), Ok(MAX_INDENT));
+    assert_eq!(
+        parse_indent("257"),
+        Err("mfb fmt --indent must be between 0 and 256 (got `257`)".to_string())
+    );
+}
