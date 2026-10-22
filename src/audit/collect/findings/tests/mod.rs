@@ -331,3 +331,71 @@ fn sort_findings_orders_by_category_then_code() {
     // lockfile (rank 0) sorts before permission (rank 6).
     assert_eq!(findings[0].category, "lockfile");
 }
+
+/// Every hard-coded `allowSelfSigned := TRUE` call site is a network warning
+/// at its own line.
+#[test]
+fn relaxed_trust_findings_warn_at_each_call_site() {
+    let entries = vec![
+        RelaxedTrustEntry {
+            function: "tls.connect".to_string(),
+            path: "main.mfb".to_string(),
+            line: 4,
+        },
+        RelaxedTrustEntry {
+            function: "tls.connect".to_string(),
+            path: "net.mfb".to_string(),
+            line: 9,
+        },
+    ];
+    let mut findings = Vec::new();
+    relaxed_trust_findings(&entries, &mut findings);
+    let rows: Vec<(&str, &str, Option<&str>, Option<usize>)> = findings
+        .iter()
+        .map(|f| {
+            (
+                f.code.as_str(),
+                f.category.as_str(),
+                f.path.as_deref(),
+                f.line,
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            (
+                "AUDIT-TLS-RELAXED-TRUST",
+                "network",
+                Some("main.mfb"),
+                Some(4)
+            ),
+            (
+                "AUDIT-TLS-RELAXED-TRUST",
+                "network",
+                Some("net.mfb"),
+                Some(9)
+            ),
+        ]
+    );
+    assert!(findings.iter().all(|f| f.severity == Severity::Warning));
+    assert!(findings[0]
+        .message
+        .starts_with("`tls.connect` passes `allowSelfSigned := TRUE`"));
+}
+
+/// A declared package whose `.mfp` is not on disk contributes no package
+/// notes (its absence is the dependency section's finding, not this one's).
+#[test]
+fn package_findings_skip_a_declared_package_with_no_mfp() {
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = "{ \"packages\": [ { \"name\": \"ghost\" } ] }"
+        .parse::<JsonValue>()
+        .unwrap()
+        .get::<HashMap<String, JsonValue>>()
+        .unwrap()
+        .clone();
+    let mut findings = Vec::new();
+    package_findings(dir.path(), &manifest, &[], &mut findings);
+    assert!(findings.is_empty(), "{}", findings.len());
+}
