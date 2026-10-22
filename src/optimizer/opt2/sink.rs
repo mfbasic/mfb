@@ -329,15 +329,10 @@ fn apply(instructions: &mut Vec<CodeInstruction>, blocks: &[Block], moves: Vec<(
             rebuilt.push(instruction);
         }
     }
-    // A destination point at the very end of the stream (no instruction index
-    // equals it) still has to receive its arrivals.
-    if let Some((_, sources)) = pending.iter().find(|(at, _)| *at == carried.len()) {
-        for &source in sources {
-            if let Some(instruction) = carried[source].take() {
-                rebuilt.push(instruction);
-            }
-        }
-    }
+    // No insertion point equals the stream length: that would need a
+    // destination block made of nothing but a trailing label, and such a block
+    // dominates only itself and holds no use, so `sole_successor_covering`
+    // never picks it. Every arrival is placed by the loop above.
     *instructions = rebuilt;
 }
 
