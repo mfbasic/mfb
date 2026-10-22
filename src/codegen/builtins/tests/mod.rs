@@ -87,6 +87,7 @@ mod inplace_fields;
 mod inplace_inline_repack;
 mod inplace_rewrite;
 mod inplace_rewrite_retype;
+mod inplace_sort_retype;
 mod link;
 mod link_float_results;
 mod link_out_widths;
