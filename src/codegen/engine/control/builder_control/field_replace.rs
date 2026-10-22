@@ -143,7 +143,8 @@ impl CodeBuilder<'_> {
     /// inverse of [`Self::emit_field_owner_block`]: a record local's slot (a
     /// by-ref capture's through the parent slot's address) or the global's slot.
     /// A `STATE` payload is never admitted (`replace_field_admitted`).
-    fn emit_field_owner_install(
+    /// `pub(crate)` for `engine/tests/field_owner_refusals.rs`.
+    pub(crate) fn emit_field_owner_install(
         &mut self,
         owner: FieldContainer<'_>,
         slot: usize,
@@ -273,7 +274,8 @@ impl CodeBuilder<'_> {
 
     /// The owner's block pointer, loaded into a register: a record local's slot,
     /// or the `RES` handle's STATE pointer out of its resource record.
-    pub(super) fn emit_field_owner_block(
+    /// `pub(crate)` for `engine/tests/field_owner_refusals.rs`.
+    pub(crate) fn emit_field_owner_block(
         &mut self,
         owner: FieldContainer<'_>,
     ) -> Result<abi::Reg, String> {
