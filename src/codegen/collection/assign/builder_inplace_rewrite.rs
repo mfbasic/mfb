@@ -117,9 +117,11 @@ impl CodeBuilder<'_> {
 
 impl CodeBuilder<'_> {
     /// Make sure the list in `buffer_slot` can take `extra_slot` more bytes at its
-    /// aligned data tail without reallocating, repacking it once if not. A
-    /// fixed-width list never grows its data on a same-length rewrite, so this is
-    /// a no-op for one. Used before a pass of `lower_list_set_in_place` writes so
+    /// aligned data tail without reallocating, repacking it once if not. Only for a
+    /// variable-width element: a fixed-width list never grows its data on a
+    /// same-length rewrite, so both callers (`replace`'s and `transform`'s first
+    /// pass) run only when `list_entry_stride` is nonzero, and the repack is given
+    /// that stride. Used before a pass of `lower_list_set_in_place` writes so
     /// that none of them repacks mid-pass: the only allocation — and so the only
     /// failure (`ErrOutOfMemory`) — happens before the first write. `inline` is
     /// the repack's `InlineGrow` at a field (plan-145-E).
@@ -132,9 +134,6 @@ impl CodeBuilder<'_> {
         inline: Option<crate::codegen::collection::map::map_mutate::InlineGrow>,
     ) -> Result<(), String> {
         let stride = list_entry_stride(element_type);
-        if stride == 0 {
-            return Ok(());
-        }
         let alignment = self.list_element_padding_alignment(element_type);
         let base = self.temporary_vreg();
         let end = self.temporary_vreg();
