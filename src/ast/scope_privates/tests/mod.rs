@@ -509,3 +509,33 @@ fn declarations_with_nothing_to_rewrite_in_an_optional_slot_still_parse_and_pass
     let json = project.to_json();
     assert!(json.contains(&mangled("T")), "{json}");
 }
+
+#[test]
+fn a_link_parameter_default_naming_a_private_func_is_rewritten() {
+    // plan-136-A: a LINK default reads the declaration's scope, so a PRIVATE
+    // function it calls follows the rename like any other reference.
+    let src = "PRIVATE FUNC seed() AS Integer\n  RETURN 41\nEND FUNC\n\n\
+             LINK \"m\" AS lib\n  FUNC nap(ms AS Integer = seed()) AS Integer\n    \
+             SYMBOL \"nap\"\n    ABI (ms CInt32) AS status CInt32\n    RETURN status\n  \
+             END FUNC\nEND LINK\n";
+    let mut project = crate::testutil::project_from_src(src);
+    scope_privates(&mut project);
+    let json = project.to_json();
+    let link = &json[json.find("\"nap\"").expect("the LINK function survives")..];
+    assert!(link.contains(&mangled("seed")), "{link}");
+}
+
+#[test]
+fn a_lambda_assigning_to_its_own_parameter_keeps_the_parameter_name() {
+    // The lambda's parameter shadows the private `counter`, so its assignment
+    // target is the parameter and is not renamed; the global's own reference
+    // outside the lambda is.
+    let src = "PRIVATE MUT counter AS Integer = 0\n\n\
+             FUNC f() AS Integer\n  LET g = LAMBDA(counter AS Integer) -> counter = counter + 1\n  \
+             RETURN counter\nEND FUNC\n";
+    let mut project = crate::testutil::project_from_src(src);
+    scope_privates(&mut project);
+    let json = project.to_json();
+    assert!(json.contains("\"assignTarget\": \"counter\""), "{json}");
+    assert!(json.contains(&mangled("counter")), "{json}");
+}
