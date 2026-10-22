@@ -87,6 +87,7 @@ mod inplace_dest_refusals;
 mod inplace_field_retype;
 mod inplace_fields;
 mod inplace_inline_repack;
+mod inplace_map_ops_retype;
 mod inplace_rewrite;
 mod inplace_rewrite_retype;
 mod inplace_sort_retype;
