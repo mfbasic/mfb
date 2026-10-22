@@ -1,6 +1,8 @@
 use super::*;
 use crate::codegen::engine::mir::lower_to_mir;
 
+mod v128_tail;
+
 fn build(mnemonic: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
     ci(mnemonic, fields)
 }
