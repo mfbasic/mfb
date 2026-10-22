@@ -2,6 +2,7 @@ use super::*;
 
 mod builder_tests;
 mod cross_package_tests;
+mod default_literals;
 // `doc_table_tests` moved to `wire/src/docs.rs`'s test module with the
 // section-17 codec it covers (plan-126-D).
 mod fixtures;
