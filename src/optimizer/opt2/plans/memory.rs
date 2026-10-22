@@ -129,11 +129,12 @@ fn slot(state: &State, offset: i64) -> Option<&Available> {
         .map(|index| &state[index].1)
 }
 
+/// Record `offset`'s new value. Only called right after `kill_overlapping`
+/// dropped `offset` itself (and every slot overlapping it), so the slot is
+/// never already present: this is a sorted insert, not an update.
 fn put(state: &mut State, offset: i64, available: Available) {
-    match state.binary_search_by_key(&offset, |(other, _)| *other) {
-        Ok(index) => state[index].1 = available,
-        Err(index) => state.insert(index, (offset, available)),
-    }
+    let index = state.partition_point(|(other, _)| *other < offset);
+    state.insert(index, (offset, available));
 }
 
 /// Every load whose slot value is already in a register at that point, with
@@ -182,12 +183,17 @@ pub(crate) fn forwardable_loads(
 
     // Single-definition int vregs: the only registers whose value at a later
     // point is provably still the one this analysis recorded.
+    // `def_at` keeps each register's (last) defining instruction: for a
+    // single-def holder that is THE definition, which the partial-load test
+    // needs to know where the holder is live.
     let mut def_count: HashMap<Var, u32> = HashMap::new();
-    for instruction in instructions {
+    let mut def_at: HashMap<Var, usize> = HashMap::new();
+    for (index, instruction) in instructions.iter().enumerate() {
         for model in [&models.0, &models.1] {
             for def in effect(instruction, model).defs {
                 if let RegRef::VReg(id) = def {
                     *def_count.entry((model.is_fp, id)).or_insert(0) += 1;
+                    def_at.insert((model.is_fp, id), index);
                 }
             }
         }
@@ -222,9 +228,10 @@ pub(crate) fn forwardable_loads(
         work.remove(&next);
         let b = order[next];
         queued[b] = false;
-        let Some(mut state) = entry_state(b, &preds[b], &exit_state) else {
-            continue; // no predecessor facts yet
-        };
+        // Every block the RPO walk reaches has a predecessor earlier in that
+        // order (its DFS parent), processed by now, so the entry is always
+        // decided here; "no facts" would be the sound reading regardless.
+        let mut state = entry_state(b, &preds[b], &exit_state, &position).unwrap_or_default();
         for i in blocks[b].start..blocks[b].end {
             transfer(&effects[i], &mut state, &tracked);
         }
@@ -244,9 +251,10 @@ pub(crate) fn forwardable_loads(
     let mut found = Vec::new();
     let mut partial = Vec::new();
     for (b, block) in blocks.iter().enumerate() {
-        let Some(mut state) = entry_state(b, &preds[b], &exit_state) else {
+        if position[b] == usize::MAX {
             continue; // unreachable block: no facts, no rewrites
-        };
+        }
+        let mut state = entry_state(b, &preds[b], &exit_state, &position).unwrap_or_default();
         for i in block.start..block.end {
             if let MemEffect::Load {
                 offset,
@@ -267,8 +275,12 @@ pub(crate) fn forwardable_loads(
                     // in, the block's own instructions may have changed the
                     // slot since entry, and the per-predecessor exit states no
                     // longer describe what is true at this point.
+                    let holders = Holders {
+                        def_count: &def_count,
+                        def_at: &def_at,
+                    };
                     if let Some(candidate) =
-                        partially_available(blocks, &preds[b], &exit_state, &def_count, i, offset)
+                        partially_available(blocks, &preds[b], &exit_state, &holders, i, offset)
                     {
                         partial.push(candidate);
                     }
@@ -280,15 +292,25 @@ pub(crate) fn forwardable_loads(
     (found, partial)
 }
 
+/// Where each register is defined: how many times, and (for a single-def
+/// register) by which instruction.
+struct Holders<'a> {
+    def_count: &'a HashMap<Var, u32>,
+    def_at: &'a HashMap<Var, usize>,
+}
+
 /// The Store PRE / Load PRE test: all but one predecessor leave the slot's
-/// value in the same single-definition register, and the odd one out reaches
+/// value in the same single-definition register, the odd one out reaches
 /// this block unconditionally (so a load placed at its end runs exactly as
-/// often as the edge into this block is taken).
+/// often as the edge into this block is taken), and the holder's definition
+/// cannot reach the odd one out (the placed load REDEFINES the holder, so the
+/// holder must carry no value of its own on that path — otherwise every later
+/// reader of the holder on the gap path would see the reloaded slot instead).
 fn partially_available(
     blocks: &[Block],
     preds: &[usize],
     exit_state: &[Option<State>],
-    def_count: &HashMap<Var, u32>,
+    holders: &Holders,
     inst: usize,
     offset: i64,
 ) -> Option<PartialLoad> {
@@ -319,12 +341,16 @@ fn partially_available(
         }
     }
     let (leader, gap) = (leader?, gap?);
-    if def_count.get(&leader.holder_var) != Some(&1) {
+    if holders.def_count.get(&leader.holder_var) != Some(&1) {
         return None;
     }
     // A predecessor that branches would run the inserted load on executions
     // that never reach this block.
     if blocks[gap].succ.len() != 1 {
+        return None;
+    }
+    let def_block = block_of(blocks, *holders.def_at.get(&leader.holder_var)?);
+    if reaches(blocks, def_block, gap) {
         return None;
     }
     Some(PartialLoad {
@@ -335,16 +361,61 @@ fn partially_available(
     })
 }
 
+/// The block holding instruction `inst` (`blocks` is in stream order).
+fn block_of(blocks: &[Block], inst: usize) -> usize {
+    blocks.partition_point(|block| block.start <= inst) - 1
+}
+
+/// Whether some CFG path leads from block `from` to block `to` (`from`
+/// itself included).
+fn reaches(blocks: &[Block], from: usize, to: usize) -> bool {
+    let mut seen = vec![false; blocks.len()];
+    let mut stack = vec![from];
+    seen[from] = true;
+    while let Some(b) = stack.pop() {
+        if b == to {
+            return true;
+        }
+        for &s in &blocks[b].succ {
+            if !seen[s] {
+                seen[s] = true;
+                stack.push(s);
+            }
+        }
+    }
+    false
+}
+
 /// The block's entry state: empty for the entry block, otherwise the meet of
-/// its predecessors' exits (agreement on the same SSA value). A predecessor
-/// with no facts yet leaves the block undecided.
-fn entry_state(b: usize, preds: &[usize], exit_state: &[Option<State>]) -> Option<State> {
+/// its predecessors' exits (agreement on the same SSA value).
+///
+/// A reachable predecessor with no exit yet is one the RPO worklist has not
+/// processed — on a loop header, the back edge. It is the lattice's top (it
+/// constrains nothing yet) and is skipped: the header proceeds on its
+/// processed predecessors, and when the back edge's exit appears or changes
+/// the worklist re-queues the header, whose state can then only shrink. A
+/// predecessor the CFG walk never reaches (`position` is `usize::MAX`) is
+/// never processed at all, so it would stay top forever; it is reached only
+/// through control flow this CFG does not model, so the block starts with no
+/// facts (the empty state) — and still runs, so its own stores still reach
+/// its successors. `None` means no predecessor is processed yet.
+fn entry_state(
+    b: usize,
+    preds: &[usize],
+    exit_state: &[Option<State>],
+    position: &[usize],
+) -> Option<State> {
     if b == 0 {
         return Some(State::new());
     }
     let mut merged: Option<State> = None;
     for &p in preds {
-        let exit = exit_state[p].as_ref()?;
+        let Some(exit) = exit_state[p].as_ref() else {
+            if position[p] == usize::MAX {
+                return Some(State::new());
+            }
+            continue;
+        };
         merged = Some(match merged {
             None => exit.clone(),
             Some(current) => current
@@ -498,3 +569,6 @@ fn sp_based(instruction: &CodeInstruction) -> bool {
 fn numeric_offset(instruction: &CodeInstruction) -> Option<i64> {
     instruction.get("offset")?.parse().ok()
 }
+
+#[cfg(test)]
+mod tests;
