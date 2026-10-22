@@ -58,6 +58,7 @@ mod debug_report;
 mod declared_errors_all;
 mod declared_errors_sweep;
 mod default_union;
+mod default_value_shapes;
 mod diagnostics;
 mod element_update;
 mod element_update_forms;
