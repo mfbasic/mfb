@@ -292,3 +292,69 @@ fn an_operand_defined_at_the_insertion_point_is_declined() {
     assert_eq!(ops(&off), ops(&stream()));
     assert_eq!(mov_source(&off, "%v5").as_deref(), Some("%v4"));
 }
+
+/// The preheader does work of its own before its branch: the moved
+/// computation goes after that work and just before the branch, not ahead of
+/// it.
+#[test]
+fn the_inserted_computation_follows_the_gap_block_s_own_work() {
+    let mut stream = vec![
+        ci("add", &[("dst", "%v8"), ("lhs", "%v10"), ("rhs", "%v11")]),
+        ci("b", &[("target", "head")]),
+        ci("label", &[("name", "head")]),
+        ci("mul", &[("dst", "%v4"), ("lhs", "%v1"), ("rhs", "%v2")]),
+        ci("mov", &[("dst", "%v5"), ("src", "%v4")]),
+        ci("cmp_imm", &[("lhs", "%v9"), ("rhs", "0")]),
+        ci("b.eq", &[("target", "latch")]),
+        ci("ret", &[]),
+        ci("label", &[("name", "latch")]),
+        ci("mul", &[("dst", "%v3"), ("lhs", "%v1"), ("rhs", "%v2")]),
+        ci("b", &[("target", "head")]),
+    ];
+    run(&mut stream);
+    assert_eq!(
+        ops(&stream),
+        vec![
+            CodeOp::Add,
+            CodeOp::Mul,
+            CodeOp::Branch,
+            CodeOp::Label,
+            CodeOp::Mov,
+            CodeOp::CmpImm,
+            CodeOp::BranchEq,
+            CodeOp::Ret,
+            CodeOp::Label,
+            CodeOp::Mul,
+            CodeOp::Branch,
+        ]
+    );
+    assert_eq!(stream[1].get("dst").as_deref(), Some("%v3"));
+    assert_eq!(mov_source(&stream, "%v5").as_deref(), Some("%v3"));
+}
+
+/// The header itself defines an operand of the recomputation (`%v7`), so the
+/// latch's copy reads the same value but the preheader - the gap - runs before
+/// that value exists: the row declines instead of inserting a read of `%v7`
+/// ahead of its definition.
+#[test]
+fn an_operand_the_join_itself_defines_is_declined() {
+    let stream = || {
+        vec![
+            ci("b", &[("target", "head")]),
+            ci("label", &[("name", "head")]),
+            ci("add", &[("dst", "%v7"), ("lhs", "%v1"), ("rhs", "%v2")]),
+            ci("mul", &[("dst", "%v4"), ("lhs", "%v7"), ("rhs", "%v2")]),
+            ci("mov", &[("dst", "%v5"), ("src", "%v4")]),
+            ci("cmp_imm", &[("lhs", "%v9"), ("rhs", "0")]),
+            ci("b.eq", &[("target", "latch")]),
+            ci("ret", &[]),
+            ci("label", &[("name", "latch")]),
+            ci("mul", &[("dst", "%v3"), ("lhs", "%v7"), ("rhs", "%v2")]),
+            ci("b", &[("target", "head")]),
+        ]
+    };
+    let mut off = stream();
+    run(&mut off);
+    assert_eq!(ops(&off), ops(&stream()));
+    assert_eq!(mov_source(&off, "%v5").as_deref(), Some("%v4"));
+}
