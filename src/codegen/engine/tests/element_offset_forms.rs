@@ -12,6 +12,9 @@ use crate::codegen::engine::tests::test_support::{BuilderHarness, TestPlatform};
 use crate::codegen::engine::types::CodeInstruction;
 use crate::types::ParameterType;
 
+// The borrows are load-bearing: llvm-cov credits a generic's lines from its
+// best-covered instantiation, and production passes `&VirtualRegister`.
+#[allow(clippy::needless_borrows_for_generic_args)]
 fn offset_of(element: &ParameterType) -> Vec<CodeInstruction> {
     let harness = BuilderHarness::default();
     let platform = TestPlatform;
