@@ -39,6 +39,8 @@ mod error_exit_refusals;
 #[cfg(test)]
 mod field_owner_refusals;
 #[cfg(test)]
+mod field_with_declines;
+#[cfg(test)]
 mod for_each_refusals;
 #[cfg(test)]
 mod inline_call_refusals;
