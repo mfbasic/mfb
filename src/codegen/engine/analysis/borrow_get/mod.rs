@@ -317,46 +317,40 @@ pub(crate) fn collect_borrow_gets(
     // The copy's ops, by `op_key`, to the real ones they were cloned from.
     let mut real: HashMap<usize, &NirOp> = HashMap::new();
     pair_ops(ops, &renamed, &mut real);
-    let real_key = |key: usize| real.get(&key).map(|op| op_key(op));
-    let real_binding = |binding: &ElementBinding| -> Option<ElementBinding> {
-        let real_site = |template_key: usize, update: Option<usize>, write_back: Option<usize>| {
-            Some((
-                (*real.get(&template_key)?).clone(),
-                match update {
-                    Some(key) => Some(real_key(key)?),
-                    None => None,
-                },
-                match write_back {
-                    Some(key) => Some(real_key(key)?),
-                    None => None,
-                },
-            ))
-        };
-        let (template, update, write_back) = real_site(
-            binding.write_back.or(binding.update)?,
-            binding.update,
-            binding.write_back,
-        )?;
-        let mut other_sites = Vec::with_capacity(binding.other_sites.len());
-        for site in &binding.other_sites {
-            let (template, update, write_back) = real_site(
-                site.write_back.or(site.update)?,
-                site.update,
-                site.write_back,
-            )?;
-            other_sites.push(ElementSite {
-                template,
-                update,
-                write_back,
-            });
-        }
-        Some(ElementBinding {
+    // `pair_ops` walks every nested body a `NirOp` can hold (IF arms, MATCH cases,
+    // the four loops, TRAP) and the copy is a clone renamed in place, so every op
+    // of the copy has its real twin.
+    let real_op = |key: usize| -> &NirOp {
+        real.get(&key)
+            .copied()
+            .expect("pair_ops pairs every op of the renamed copy")
+    };
+    let real_key = |key: usize| op_key(real_op(key));
+    // A site's template is its write-back statement, or its fused update when it
+    // is its own write-back (`by_name`), so one of the two keys is always set.
+    let real_site = |site_update: Option<usize>, site_write_back: Option<usize>| ElementSite {
+        template: real_op(
+            site_write_back
+                .or(site_update)
+                .expect("an element site has a write-back or a fused update"),
+        )
+        .clone(),
+        update: site_update.map(real_key),
+        write_back: site_write_back.map(real_key),
+    };
+    let real_binding = |binding: &ElementBinding| -> ElementBinding {
+        let first = real_site(binding.update, binding.write_back);
+        ElementBinding {
             type_: binding.type_.clone(),
-            template,
-            update,
-            write_back,
-            other_sites,
-        })
+            template: first.template,
+            update: first.update,
+            write_back: first.write_back,
+            other_sites: binding
+                .other_sites
+                .iter()
+                .map(|site| real_site(site.update, site.write_back))
+                .collect(),
+        }
     };
     let mut out = BorrowGets {
         scratch: by_name.scratch,
@@ -379,17 +373,7 @@ pub(crate) fn collect_borrow_gets(
         if origin.contains_key(name) {
             continue;
         }
-        match real_binding(binding) {
-            Some(binding) => {
-                out.elements.insert(name.clone(), binding);
-            }
-            // Unmappable (cannot happen: the copy has the real ops' shape) —
-            // the binding is then a copy.
-            None => {
-                out.names.remove(name);
-                out.pinned.remove(name);
-            }
-        }
+        out.elements.insert(name.clone(), real_binding(binding));
     }
     // Each binding of a re-bound name, by its real `Bind`.
     let mut roles: Vec<(usize, Rebound)> = Vec::new();
@@ -400,10 +384,8 @@ pub(crate) fn collect_borrow_gets(
         let Some(name) = origin.get(unique) else {
             return;
         };
-        let Some(key) = real_key(op_key(op)) else {
-            return;
-        };
-        let role = match scoped.elements.get(unique).and_then(&real_binding) {
+        let key = real_key(op_key(op));
+        let role = match scoped.elements.get(unique).map(&real_binding) {
             Some(binding) => ReboundRole::Element(Box::new(binding)),
             None if scoped.names.contains(unique) && !scoped.elements.contains_key(unique) => {
                 ReboundRole::Borrow
