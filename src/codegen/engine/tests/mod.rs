@@ -31,6 +31,8 @@ mod error_exit_refusals;
 #[cfg(test)]
 mod inline_call_refusals;
 #[cfg(test)]
+mod inplace_dest_guards;
+#[cfg(test)]
 mod into_dest_sites;
 #[cfg(test)]
 mod link_library_resolution;
