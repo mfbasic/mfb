@@ -720,8 +720,9 @@ impl CodeBuilder<'_> {
     /// Otherwise nothing is written and a fresh block holding the same values is
     /// returned, as the base lowering would. The caller compares the result with
     /// the destination to know which (`element_into_call`). `false` = nothing was
-    /// emitted and the ordinary return stands.
-    fn try_into_return(
+    /// emitted and the ordinary return stands. `pub(crate)` for
+    /// `engine/tests/return_move_declines.rs`.
+    pub(crate) fn try_into_return(
         &mut self,
         value: &NirValue,
         interior_temp_watermark: Option<usize>,

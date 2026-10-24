@@ -75,6 +75,8 @@ mod register_allocation_entry;
 #[cfg(test)]
 mod resource_alias_forms;
 #[cfg(test)]
+mod return_move_declines;
+#[cfg(test)]
 mod small_units;
 #[cfg(test)]
 mod snapshot_forms;
