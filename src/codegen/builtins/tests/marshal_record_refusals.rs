@@ -1,11 +1,14 @@
 //! The helper-tier record builder (`memory/marshal/record.rs`,
-//! `emit_build_inlined_record`) takes one value slot per declared field, in field
-//! order. A call that hands it a different number of slots is refused with the
+//! `emit_build_inlined_record_sized`) takes one value slot (and one known size) per
+//! declared field, in field order. A call that hands it a different number of slots is refused with the
 //! counts, rather than building the record with fields shifted into the wrong slots.
 
 use crate::codegen::engine::builder::TypeModel;
 use crate::codegen::engine::util::Vregs;
-use crate::codegen::memory::marshal::{emit_build_inlined_record, RecordBuildScratch};
+use crate::codegen::memory::marshal::{
+    emit_build_inlined_record_sized, MarshalRegs, RecordBuildScratch,
+};
+use crate::target::shared::abi;
 use crate::testutil::{nir_for_src, CodeTarget};
 use crate::types::ParameterType;
 
@@ -38,17 +41,20 @@ fn build(slots: &[usize]) -> Result<(), String> {
         block_size: 88,
     };
     let mut vregs = Vregs::new();
-    let result = vregs.next();
-    emit_build_inlined_record(
+    // As the socket/udp/big helpers call it: fresh marshal registers, the result in
+    // `mfb_return(1)` (llvm-cov credits a generic's lines from the instantiation
+    // production uses most).
+    emit_build_inlined_record_sized(
         "_mfb_probe",
         "probe",
         &ParameterType::declared("Pair"),
         &model,
         slots,
+        &vec![None; slots.len()],
         &scratch,
-        result,
+        &MarshalRegs::fresh(&mut vregs),
+        abi::mfb_return(1),
         "probe_alloc_fail",
-        &mut vregs,
         &mut Vec::new(),
         &mut Vec::new(),
     )
