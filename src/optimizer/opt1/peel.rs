@@ -101,12 +101,8 @@ fn peel_in_body(
             continue;
         }
         // NIR locals are function-unique: the peeled copy re-declares every
-        // name the body declares, so it is cloned *freshened* (and the peel
-        // is skipped if the verified rename cannot be produced).
-        let Some(then_body) = freshened_clone(body, census, salt) else {
-            continue;
-        };
-        let mut then_body = then_body;
+        // name the body declares, so it is cloned *freshened*.
+        let mut then_body = freshened_clone(body, census, salt);
         let condition = condition.clone();
         let inner = std::mem::replace(
             op,

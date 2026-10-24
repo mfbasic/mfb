@@ -121,7 +121,7 @@ fn a_freshened_clone_renames_every_declaration_and_every_read_of_it() {
     function.push(bind("x$dup1", int_const("0")));
     let census = NameUses::census(&function);
     let mut salt = 0;
-    let copy = freshened_clone(&ops, &census, &mut salt).expect("every kind is renamed");
+    let copy = freshened_clone(&ops, &census, &mut salt);
     let copy_census = NameUses::census(&copy);
     for name in &declared {
         assert_eq!(
@@ -149,12 +149,51 @@ fn a_clone_that_declares_nothing_is_the_original() {
     let ops = vec![assign("y", local("z"))];
     let census = NameUses::census(&ops);
     let mut salt = 0;
-    let copy = freshened_clone(&ops, &census, &mut salt).expect("nothing to rename");
+    let copy = freshened_clone(&ops, &census, &mut salt);
     assert!(
         matches!(&copy[0], NirOp::Assign { name, value: NirValue::Local(read) }
         if name == "y" && read == "z")
     );
     assert_eq!(salt, 0);
+}
+
+/// A `MATCH` pattern is a value position too: a declared name read in a
+/// `CASE` value or one-of list is renamed with every other read, so the clone
+/// is fresh without a verification step to fall back on.
+#[test]
+fn a_freshened_clone_renames_a_declared_name_read_in_a_match_pattern() {
+    use crate::target::shared::nir::NirMatchPattern;
+    let ops = vec![
+        bind("k", int_const("1")),
+        NirOp::Match {
+            value: local("k"),
+            cases: vec![
+                NirMatchCase {
+                    pattern: NirMatchPattern::Value(local("k")),
+                    guard: None,
+                    body: Vec::new(),
+                },
+                NirMatchCase {
+                    pattern: NirMatchPattern::OneOf(vec![int_const("2"), local("k")]),
+                    guard: None,
+                    body: Vec::new(),
+                },
+            ],
+        },
+    ];
+    let census = NameUses::census(&ops);
+    let mut salt = 0;
+    let copy = freshened_clone(&ops, &census, &mut salt);
+    let copy_census = NameUses::census(&copy);
+    assert_eq!(copy_census.count("k"), 0, "every read of `k` is renamed");
+    let NirOp::Bind { name: fresh, .. } = &copy[0] else {
+        panic!("statement order is kept");
+    };
+    assert_eq!(
+        copy_census.count(fresh),
+        4,
+        "the bind, the scrutinee, both patterns"
+    );
 }
 
 /// A global read is never loop-invariant: a call or `StoreGlobal` in the body

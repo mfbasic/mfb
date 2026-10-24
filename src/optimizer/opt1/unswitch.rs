@@ -140,16 +140,13 @@ fn unswitch_in_body(
         };
         let then_loop = specialized_copy(op, position, true);
         // NIR locals are function-unique: the second copy re-declares the
-        // loop variable and every body bind, so it is freshened wholesale
-        // (verified rename; skip the unswitch when it cannot be produced).
-        let Some(mut else_side) = freshened_clone(
+        // loop variable and every body bind, so it is freshened wholesale.
+        let else_loop = freshened_clone(
             std::slice::from_ref(&specialized_copy(op, position, false)),
             census,
             salt,
-        ) else {
-            continue;
-        };
-        let else_loop = else_side.remove(0);
+        )
+        .remove(0);
         *op = NirOp::If {
             condition,
             then_body: vec![then_loop],

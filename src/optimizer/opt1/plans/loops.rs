@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use crate::ast::LoopKind;
 use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
-use crate::target::shared::nir::{NirOp, NirValue};
+use crate::target::shared::nir::{NirMatchPattern, NirOp, NirValue};
 
 use super::super::dce::{pure_non_trapping, scalar_type};
 
@@ -338,22 +338,26 @@ pub(crate) fn declared_names(ops: &[NirOp]) -> HashSet<String> {
 /// the scope-safe clone the duplicating loop rows (peeling, unswitching,
 /// fission's carried binds) need under NIR's function-unique locals rule.
 ///
-/// The rename itself is a hand-rolled mutable walk (the `nir::visit` seam is
-/// read-only), so it is **verified, not trusted**: after renaming, the
-/// canonical read-only census must find zero occurrences of every old name
-/// in the copy — a variant this walk missed shows up there, and the caller
-/// gets `None` (skip the transform) instead of a miscompile. `census` is the
-/// whole-function census and `salt` a per-function counter: fresh spellings
-/// (`{name}$dup{n}`) are checked unused against it.
+/// The rename is a hand-rolled mutable walk (the `nir::visit` seam is
+/// read-only). It is total: `rename_op` and `rename_value` match every
+/// `NirOp`/`NirValue` variant with no wildcard arm (a new variant is a compile
+/// error here), and they rename every position the canonical census
+/// (`reads::NameUses`) counts — binds, assigns, loop variables and targets,
+/// `Local`/`LocalRef`, call targets, match patterns. The one counted position
+/// left alone, a `RuntimeCall`'s target, is a package-qualified runtime symbol
+/// (`io.print`), which no declared local — an identifier or a `$`-temp —
+/// can spell. Debug builds still re-check through the census. `census` is
+/// the whole-function census and `salt` a per-function counter: fresh
+/// spellings (`{name}$dup{n}`) are checked unused against it.
 pub(crate) fn freshened_clone(
     ops: &[NirOp],
     census: &super::reads::NameUses,
     salt: &mut u64,
-) -> Option<Vec<NirOp>> {
+) -> Vec<NirOp> {
     let mut copy = ops.to_vec();
     let declared = declared_names(&copy);
     if declared.is_empty() {
-        return Some(copy);
+        return copy;
     }
     let mut renames: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for name in &declared {
@@ -369,13 +373,14 @@ pub(crate) fn freshened_clone(
     for op in &mut copy {
         rename_op(op, &renames);
     }
-    // Verification through the canonical walk: any surviving old name means
-    // the hand walk missed a variant — refuse the clone.
-    let renamed_census = super::reads::NameUses::census(&copy);
-    if declared.iter().any(|name| renamed_census.count(name) != 0) {
-        return None;
-    }
-    Some(copy)
+    debug_assert!(
+        {
+            let renamed_census = super::reads::NameUses::census(&copy);
+            declared.iter().all(|name| renamed_census.count(name) == 0)
+        },
+        "freshened_clone's rename missed a declared name"
+    );
+    copy
 }
 
 fn rename(name: &mut String, renames: &std::collections::HashMap<String, String>) {
@@ -431,6 +436,15 @@ fn rename_op(op: &mut NirOp, renames: &std::collections::HashMap<String, String>
         NirOp::Match { value, cases } => {
             rename_value(value, renames);
             for case in cases {
+                match &mut case.pattern {
+                    NirMatchPattern::Else => {}
+                    NirMatchPattern::Value(value) => rename_value(value, renames),
+                    NirMatchPattern::OneOf(values) => {
+                        for value in values {
+                            rename_value(value, renames);
+                        }
+                    }
+                }
                 if let Some(guard) = &mut case.guard {
                     rename_value(guard, renames);
                 }
@@ -599,7 +613,7 @@ mod tests {
         )];
         let census = super::super::reads::NameUses::census(&ops);
         let mut salt = 0;
-        let copy = freshened_clone(&ops, &census, &mut salt).expect("clone is freshened");
+        let copy = freshened_clone(&ops, &census, &mut salt);
         let NirOp::For { name, body, .. } = &copy[0] else {
             panic!("the copy keeps its For");
         };

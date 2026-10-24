@@ -68,33 +68,39 @@ fn split_in_body(ops: &mut Vec<NirOp>, census: &NameUses, salt: &mut u64, splits
     }
     let mut index = 0;
     while index < ops.len() {
-        let Some((point, carried)) = split_point(&ops[index]) else {
-            index += 1;
-            continue;
-        };
-        // Build the second loop from clones first: it re-declares the loop
-        // variable and the carried iteration-mirror binds, so the whole node
-        // is freshened (NIR locals are function-unique). Only mutate the
-        // original once the verified rename exists.
-        let mut candidate = ops[index].clone();
-        {
-            let NirOp::For { body: slot, .. } = &mut candidate else {
-                unreachable!("split_point checked the shape");
-            };
-            let mut second_half = slot.split_off(point);
-            second_half.splice(0..0, carried);
-            *slot = second_half;
-        }
-        let Some(mut freshened) = freshened_clone(std::slice::from_ref(&candidate), census, salt)
+        let NirOp::For {
+            name,
+            type_,
+            start,
+            end,
+            step,
+            body,
+            loc,
+        } = &mut ops[index]
         else {
             index += 1;
             continue;
         };
-        let second = freshened.remove(0);
-        let NirOp::For { body, .. } = &mut ops[index] else {
-            unreachable!("split_point checked the shape");
+        let Some((point, carried)) = split_point(name, start, end, step, body) else {
+            index += 1;
+            continue;
         };
-        body.truncate(point);
+        // The first loop keeps the body up to the split; the second re-runs
+        // the iteration over the rest, re-declaring the carried mirror binds.
+        // It re-declares the loop variable and those binds, so the whole node
+        // is freshened (NIR locals are function-unique).
+        let mut second_body = body.split_off(point);
+        second_body.splice(0..0, carried);
+        let second = NirOp::For {
+            name: name.clone(),
+            type_: type_.clone(),
+            start: start.clone(),
+            end: end.clone(),
+            step: step.clone(),
+            body: second_body,
+            loc: *loc,
+        };
+        let second = freshened_clone(std::slice::from_ref(&second), census, salt).remove(0);
         ops.insert(index + 1, second);
         *splits += 1;
         index += 2; // both halves are final: fission once per loop
@@ -106,18 +112,13 @@ fn split_in_body(ops: &mut Vec<NirOp>, census: &NameUses, salt: &mut u64, splits
 /// works. Mirror binds (`LET i = <loop var>`) write the same name in both
 /// prospective halves' worlds but provably the same value, so they are
 /// carried, not counted, in the disjointness tests.
-fn split_point(op: &NirOp) -> Option<(usize, Vec<NirOp>)> {
-    let NirOp::For {
-        name: var,
-        start,
-        end,
-        step,
-        body,
-        ..
-    } = op
-    else {
-        return None;
-    };
+fn split_point(
+    var: &String,
+    start: &NirValue,
+    end: &NirValue,
+    step: &NirValue,
+    body: &[NirOp],
+) -> Option<(usize, Vec<NirOp>)> {
     if !stable_leaf(start) || !stable_leaf(end) || !stable_leaf(step) {
         return None;
     }
