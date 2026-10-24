@@ -25,6 +25,8 @@ mod data_layout;
 #[cfg(test)]
 mod default_res_fields;
 #[cfg(test)]
+mod element_offset_forms;
+#[cfg(test)]
 mod entry_refusals;
 #[cfg(test)]
 mod error_exit_refusals;
