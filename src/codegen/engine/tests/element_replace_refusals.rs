@@ -159,10 +159,10 @@ fn an_element_replace_without_its_premises_is_refused() {
         };
         let value = with("Pt", &[("name", NirValue::Local("s".to_string()))]);
         let pt = ParameterType::declared("Pt");
-        let mut emit = |builder: &mut CodeBuilder<'_>,
-                        owner: FieldContainer<'_>,
-                        type_: &ParameterType,
-                        replace: &FieldReplace| {
+        let emit = |builder: &mut CodeBuilder<'_>,
+                    owner: FieldContainer<'_>,
+                    type_: &ParameterType,
+                    replace: &FieldReplace| {
             refused(
                 builder.emit_element_replace_or_write_back(
                     owner,
