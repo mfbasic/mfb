@@ -80,6 +80,7 @@ mod harness;
 mod helper_import_refusals;
 mod imported_types;
 mod infallible_proof_coverage;
+mod inline_trap_surface;
 mod inline_trap_type_name;
 mod inplace;
 mod inplace_assign_retype;

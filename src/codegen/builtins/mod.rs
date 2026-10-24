@@ -207,10 +207,10 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
 ///
 /// After plan-26 this set is **empty**: every inline builtin is either
 /// raw-supported or infallible, so an inline `TRAP` is legal on all of them
-/// (uniform surface). The predicate survives only as the **codegen backstop**
-/// (`lower_ops` `CallResult`), which fails loudly if a *future* inline builtin is
-/// added to `native_builtin_target` without also giving it a raw or infallible
-/// lowering — catching the mistake instead of miscompiling. The front-end no
+/// (uniform surface). The predicate survives only as the **test backstop**
+/// (`tests/inline_trap_surface.rs` sweeps the registry), which fails if a *future*
+/// inline builtin is added to `native_builtin_target` without also giving it a raw
+/// or infallible lowering — catching the mistake instead of miscompiling. The front-end no
 /// longer rejects anything here (the old `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`
 /// diagnostic was retired in plan-26-C).
 ///
@@ -222,6 +222,9 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
 /// `target` is the canonical, dot-qualified callee (`strings.find`,
 /// `collections.get`, `bits.sl`) or a bare inline general-builtin name (`len`,
 /// `toString`, `typeName`).
+// Test-only: the set is empty (plan-26) and `tests/inline_trap_surface.rs` holds it
+// empty over the registry; codegen has no path that could consult it.
+#[cfg(test)]
 pub(crate) fn inline_trap_unsupported(
     target: &str,
     arg_types: &[ParameterType],

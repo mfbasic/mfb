@@ -373,24 +373,11 @@ impl CodeBuilder<'_> {
         if let Some(helper) = runtime::helper_for_call(target) {
             return self.lower_runtime_helper_call(helper, target, args, true);
         }
-        // Future-proofing backstop: an inline-lowered builtin has no
-        // standalone symbol, so the generic raw path below would emit
-        // `bl <target>` to a non-existent symbol. After plan-26 every inline
-        // builtin is either raw-supported or infallible (both handled above),
-        // so this never fires today; it fails loudly if a *future* inline
-        // builtin is added to `native_builtin_target` without a raw or
-        // infallible lowering, instead of miscompiling.
-        if crate::codegen::builtins::inline_trap_unsupported(
-            target,
-            &inline_arg_types,
-            &crate::codegen::builtins::NoTypeKinds,
-        ) {
-            return Err(format!(
-                "internal: inline TRAP reached inline-lowered builtin '{target}' \
-                         without a raw or infallible lowering; add one to \
-                         lower_inline_builtin_raw / lower_inline_infallible_raw"
-            ));
-        }
+        // An inline-lowered builtin has no standalone symbol, so the generic raw
+        // path below must never see one. After plan-26 every inline builtin is
+        // raw-supported or infallible (both handled above);
+        // `builtins/tests/inline_trap_surface.rs` holds that over the whole
+        // registry, so a builtin added without either lowering fails there.
         let symbol = self
             .function_symbols
             .get(target)
