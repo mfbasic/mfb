@@ -105,6 +105,7 @@ mod lowering_programs;
 mod lowering_shapes;
 mod lowering_shapes_fields;
 mod lowering_targets;
+mod malformed_call_refusals;
 mod marshal_record;
 mod marshal_record_refusals;
 mod math;

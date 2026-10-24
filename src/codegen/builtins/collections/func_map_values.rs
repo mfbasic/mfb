@@ -46,6 +46,11 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let map = self.lower_value(&args[0])?;
         let map_type = map.type_.clone();
+        // The rewrite walks map entries and overwrites their value payloads; any
+        // other collection has no value payload to rewrite.
+        if crate::codegen::engine::types::typed_map_type_parts(&map_type).is_none() {
+            return Err(format!("native mapValues expects a Map, got {map_type}"));
+        }
         let map_slot = self.allocate_stack_object("mapvalues_map", 8);
         self.emit(abi::store_u64(
             &map.location,

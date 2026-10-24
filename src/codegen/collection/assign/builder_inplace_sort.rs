@@ -826,8 +826,15 @@ impl CodeBuilder<'_> {
         let element_type = typed_list_element_type(&list_type)
             .cloned()
             .expect("checked by copying_sort_source_type");
+        // `#collections_sort$T` exists only for an orderable `T`, and the word path
+        // took `String`/`Integer`/`Fixed`/`Money`: a value whose element has no `<`
+        // here is a module whose argument disagrees with its call. Declining would
+        // hand it to the `.mfb` body as an argument of another type than its
+        // parameter, so it is refused.
         if !is_ordered(&element_type) {
-            return Ok(None);
+            return Err(format!(
+                "native sort: {list_type} has no ordered element type"
+            ));
         }
         let slot = self.lower_copying_sort_source(&args[0], &list_type)?;
         self.emit_sort_buffer(slot, &element_type)?;
@@ -861,6 +868,24 @@ impl CodeBuilder<'_> {
         };
         if !is_ordered(&key_type) {
             return Ok(None);
+        }
+        // The key function is called on every element: its one parameter must take
+        // the list's element (itself, or a union the element is a variant of).
+        if let Some(ParameterType::Func(params, _, _)) = self.static_item_type(&args[1]) {
+            if let [param] = params.as_slice() {
+                let param = crate::codegen::engine::types::typed_strip_res_marker(param);
+                let element = crate::codegen::engine::types::typed_strip_res_marker(&element_type);
+                let accepts = param == element
+                    || self
+                        .type_model
+                        .variants_for_union(param)
+                        .any(|variant| variant == element);
+                if !accepts {
+                    return Err(format!(
+                        "native copying sortBy: keyFn takes {param}, but the list holds {element}"
+                    ));
+                }
+            }
         }
         let slot = self.lower_copying_sort_source(&args[0], &list_type)?;
         let action = self.lower_value(&args[1])?;
