@@ -60,7 +60,7 @@ use writer::*;
 // between the two copies in both directions. Re-exported by glob so every
 // existing `SECTION_*` path in this crate resolves unchanged.
 //
-// `SectionKind` in reader.rs remains the typed handle that fetches them.
+// `RequiredSection` / `OptionalSection` in reader/mod.rs are the typed handles that fetch them.
 pub(crate) use mfb_wire::mfpc::*;
 
 // `MFP_MAGIC` moved to `mfb_wire::mfp` (plan-126-B) and is re-exported above,

@@ -410,7 +410,7 @@ fn read_function_table_rejects_flat_code_and_trailing() {
     put_u32(&mut bytes, 0);
     bytes.push(0xAA);
     let empty = std::collections::HashMap::new();
-    assert!(read_function_table(&bytes, &[], &[], &empty).is_err());
+    assert!(read_function_table(&bytes, &[], &empty).is_err());
 }
 
 #[test]

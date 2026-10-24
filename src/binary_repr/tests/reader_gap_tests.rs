@@ -73,6 +73,46 @@ fn read_binary_repr_package_names_each_missing_section() {
     }
 }
 
+/// The global table is optional: a package without one (a producer that wrote
+/// none) decodes, with no globals, rather than being refused.
+#[test]
+fn a_package_without_a_global_table_decodes_with_no_globals() {
+    let package = read_binary_repr_package(&mfpc_missing(SECTION_GLOBAL_TABLE))
+        .expect("an absent global table is not an error");
+    assert!(package.project.globals.is_empty());
+    assert!(
+        !package.project.functions.is_empty(),
+        "the rest still decodes"
+    );
+}
+
+/// The function table's code region is retired: an entry that names any
+/// non-empty one — by offset alone or by length — is refused by name.
+#[test]
+fn a_function_entry_naming_a_flat_code_region_is_refused() {
+    for (code_offset, code_length) in [(8u64, 0u64), (0, 4)] {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, 1); // one function
+        put_u32(&mut bytes, 0); // name
+        put_u16(&mut bytes, 0); // kind
+        put_u16(&mut bytes, 0); // flags
+        put_u32(&mut bytes, 0); // param count
+        put_u32(&mut bytes, TYPE_INTEGER); // return type
+        put_u32(&mut bytes, 0); // register count
+        put_u64(&mut bytes, code_offset);
+        put_u64(&mut bytes, code_length);
+        put_u32(&mut bytes, u32::MAX); // source map
+        put_u32(&mut bytes, 0); // cleanup count
+        put_u64(&mut bytes, 0); // cleanup offset
+        let strings = vec![String::new()];
+        assert_eq!(
+            read_function_table(&bytes, &strings, &std::collections::HashMap::new()).err(),
+            Some("flat function code stream is no longer supported".to_string()),
+            "offset {code_offset}, length {code_length}"
+        );
+    }
+}
+
 #[test]
 fn read_binary_repr_package_without_optional_sections_still_decodes() {
     // The manifest built above encodes fine with no resource/global/doc data;
@@ -355,8 +395,8 @@ fn read_function_table_rejects_nonempty_code_region() {
     put_u64(&mut bytes, 0); // cleanup offset
     let strings: Vec<String> = vec![String::new()];
     let empty = std::collections::HashMap::new();
-    // code buffer is empty, so code_end > code.len() -> truncated code error.
-    assert!(read_function_table(&bytes, &[], &strings, &empty).is_err());
+    // a non-empty code region names the retired flat code stream -> refused.
+    assert!(read_function_table(&bytes, &strings, &empty).is_err());
 }
 
 /// One raw type entry of `kind` over `payload`, as a corrupted `.mfp` hands it

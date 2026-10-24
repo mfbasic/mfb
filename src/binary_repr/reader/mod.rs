@@ -84,71 +84,57 @@ pub(super) fn read_package_meta(bytes: &[u8]) -> Result<String, String> {
 
 // === Container framing + identity/signature validation =====================
 
-/// A typed handle over the frozen wire section ids (declared in mod.rs). It
-/// carries the fetch policy — `require` for a mandatory section, `optional` for
-/// one whose absence is a normal, defaulting case — so the container decoder
-/// reads as one line per section instead of a hand-written `get`/`ok_or_else`
-/// (or `match`) block each (bug-335 B3).
+/// Typed handles over the frozen wire section ids (declared in mod.rs), split by
+/// fetch policy so the policy is in the type (bug-335 B3): a [`RequiredSection`]
+/// can only be `require`d and carries the label its "MFPC is missing the …
+/// section" diagnostic names; an [`OptionalSection`] can only be fetched as
+/// `optional`, its absence a normal, defaulting case — so it has no label for a
+/// diagnostic it can never raise. The container decoder reads as one line per
+/// section instead of a hand-written `get`/`ok_or_else` (or `match`) block each.
 #[derive(Clone, Copy)]
-enum SectionKind {
+enum RequiredSection {
     Manifest,
     StringPool,
     TypeTable,
     ConstPool,
     ImportTable,
     ExportTable,
-    GlobalTable,
     FunctionTable,
-    NativeLibraryTable,
-    ResourceTable,
     AbiIndex,
     BinaryRepr,
-    DocTable,
-    PackageMeta,
 }
 
-impl SectionKind {
+impl RequiredSection {
     fn id(self) -> u16 {
         match self {
-            SectionKind::Manifest => SECTION_MANIFEST,
-            SectionKind::StringPool => SECTION_STRING_POOL,
-            SectionKind::TypeTable => SECTION_TYPE_TABLE,
-            SectionKind::ConstPool => SECTION_CONST_POOL,
-            SectionKind::ImportTable => SECTION_IMPORT_TABLE,
-            SectionKind::ExportTable => SECTION_EXPORT_TABLE,
-            SectionKind::GlobalTable => SECTION_GLOBAL_TABLE,
-            SectionKind::FunctionTable => SECTION_FUNCTION_TABLE,
-            SectionKind::NativeLibraryTable => SECTION_NATIVE_LIBRARY_TABLE,
-            SectionKind::ResourceTable => SECTION_RESOURCE_TABLE,
-            SectionKind::AbiIndex => SECTION_ABI_INDEX,
-            SectionKind::BinaryRepr => SECTION_BINARY_REPR,
-            SectionKind::DocTable => SECTION_DOC_TABLE,
-            SectionKind::PackageMeta => SECTION_PACKAGE_META,
+            RequiredSection::Manifest => SECTION_MANIFEST,
+            RequiredSection::StringPool => SECTION_STRING_POOL,
+            RequiredSection::TypeTable => SECTION_TYPE_TABLE,
+            RequiredSection::ConstPool => SECTION_CONST_POOL,
+            RequiredSection::ImportTable => SECTION_IMPORT_TABLE,
+            RequiredSection::ExportTable => SECTION_EXPORT_TABLE,
+            RequiredSection::FunctionTable => SECTION_FUNCTION_TABLE,
+            RequiredSection::AbiIndex => SECTION_ABI_INDEX,
+            RequiredSection::BinaryRepr => SECTION_BINARY_REPR,
         }
     }
 
-    /// The phrase spliced into the "MFPC is missing the … section" diagnostic a
-    /// required section raises when absent.
+    /// The phrase spliced into the "MFPC is missing the … section" diagnostic.
     fn label(self) -> &'static str {
         match self {
-            SectionKind::Manifest => "manifest",
-            SectionKind::StringPool => "string pool",
-            SectionKind::TypeTable => "type table",
-            SectionKind::ConstPool => "const pool",
-            SectionKind::ImportTable => "import table",
-            SectionKind::ExportTable => "export table",
-            SectionKind::GlobalTable => "global table",
-            SectionKind::FunctionTable => "function table",
-            SectionKind::NativeLibraryTable => "native library table",
-            SectionKind::ResourceTable => "resource table",
-            SectionKind::AbiIndex => "ABI_INDEX",
-            SectionKind::BinaryRepr => "Binary Representation",
-            SectionKind::DocTable => "doc",
-            SectionKind::PackageMeta => "package metadata",
+            RequiredSection::Manifest => "manifest",
+            RequiredSection::StringPool => "string pool",
+            RequiredSection::TypeTable => "type table",
+            RequiredSection::ConstPool => "const pool",
+            RequiredSection::ImportTable => "import table",
+            RequiredSection::ExportTable => "export table",
+            RequiredSection::FunctionTable => "function table",
+            RequiredSection::AbiIndex => "ABI_INDEX",
+            RequiredSection::BinaryRepr => "Binary Representation",
         }
     }
 
-    /// Fetch a mandatory section, erroring with the section's label when absent.
+    /// Fetch the section, erroring with its label when absent.
     ///
     /// plan-126-C: the map is a `BTreeMap` since the section-table decode moved
     /// to `mfb_wire::mfpc` — chosen so section iteration order is deterministic.
@@ -158,8 +144,29 @@ impl SectionKind {
             .copied()
             .ok_or_else(|| format!("MFPC is missing the {} section", self.label()))
     }
+}
 
-    /// Fetch an optional section; `None` when the package does not carry it.
+#[derive(Clone, Copy)]
+enum OptionalSection {
+    GlobalTable,
+    NativeLibraryTable,
+    ResourceTable,
+    DocTable,
+    PackageMeta,
+}
+
+impl OptionalSection {
+    fn id(self) -> u16 {
+        match self {
+            OptionalSection::GlobalTable => SECTION_GLOBAL_TABLE,
+            OptionalSection::NativeLibraryTable => SECTION_NATIVE_LIBRARY_TABLE,
+            OptionalSection::ResourceTable => SECTION_RESOURCE_TABLE,
+            OptionalSection::DocTable => SECTION_DOC_TABLE,
+            OptionalSection::PackageMeta => SECTION_PACKAGE_META,
+        }
+    }
+
+    /// Fetch the section; `None` when the package does not carry it.
     fn optional<'a>(self, sections: &BTreeMap<u16, &'a [u8]>) -> Option<&'a [u8]> {
         sections.get(&self.id()).copied()
     }
@@ -201,6 +208,19 @@ pub(super) fn read_package_binary_repr(path: &Path) -> Result<PackageBinaryRepr,
     Ok(package)
 }
 
+// Every supported target has at least a 32-bit `usize`, so widening a wire
+// `u32` to `usize` is lossless; asserted once here instead of a runtime guard
+// at each use.
+const _: () = assert!(
+    usize::BITS >= 32,
+    "the .mfp reader needs a usize of at least 32 bits"
+);
+
+/// A wire `u32` as `usize` — lossless (see the assertion above).
+fn widen_u32(value: u32) -> usize {
+    value as usize
+}
+
 pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
     // The third `.mfp` fixed-prefix decoder (see the table in
     // `mfb_wire::mfp`'s module doc). Its policy is the laxest of the three: no
@@ -235,36 +255,33 @@ pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, 
     skip_length_prefixed(bytes, &mut offset, "proofSig")?;
     skip_length_prefixed(bytes, &mut offset, "attestation")?;
     skip_length_prefixed(bytes, &mut offset, "attestationSig")?;
+    // From here every step adds a small fixed width to `offset`, which never
+    // exceeds `bytes.len()` (each read above bounds-checks it) — and a slice is
+    // at most `isize::MAX` bytes — so none of these additions can overflow.
+    //
     // packageBinaryHash: 32 raw bytes, no length prefix.
-    offset = offset
-        .checked_add(32)
-        .ok_or_else(|| "truncated .mfp packageBinaryHash".to_string())?;
+    offset += 32;
     if offset > bytes.len() {
         return Err("truncated .mfp packageBinaryHash".to_string());
     }
-    let binary_repr_length = checked_usize(
-        checked_u64_at(bytes, offset)?,
-        ".mfp binary representation length",
-    )?;
-    offset = offset
-        .checked_add(8)
-        .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
+    let binary_repr_length = checked_u64_at(bytes, offset)?;
+    offset += 8;
     let signature_type = checked_u16_at(bytes, offset)?;
-    let signature_length = checked_u32_at(bytes, offset + 2)? as usize;
+    let signature_length = widen_u32(checked_u32_at(bytes, offset + 2)?);
+    // Validated to 0 or 64 bytes.
     validate_mfp_signature_header(signature_type, signature_length)?;
-    offset = offset
-        .checked_add(6)
-        .and_then(|offset| offset.checked_add(signature_length))
-        .ok_or_else(|| "invalid .mfp signature length".to_string())?;
+    offset += 6 + signature_length;
     if offset > bytes.len() {
         return Err("truncated .mfp signature".to_string());
     }
-    let end = offset
-        .checked_add(binary_repr_length)
-        .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
-    if end != bytes.len() {
+    // The payload is exactly the rest of the file. The declared length is
+    // compared in `u64`, its wire width: a length no in-memory file can match
+    // (including one past a 32-bit address space) is simply unequal, with no
+    // fallible `usize` conversion of an untrusted value.
+    if binary_repr_length != (bytes.len() - offset) as u64 {
         return Err("invalid .mfp binary representation length".to_string());
     }
+    let end = bytes.len();
     Ok(MfpContainer {
         identity: MfpIdentity {
             name,
@@ -329,49 +346,49 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
     let sections = mfb_wire::mfpc::read_section_table(bytes)?;
 
     let strings = StringPool {
-        values: read_string_pool(SectionKind::StringPool.require(&sections)?)?,
+        values: read_string_pool(RequiredSection::StringPool.require(&sections)?)?,
     };
-    let types = read_type_entries(SectionKind::TypeTable.require(&sections)?, &strings.values)?;
+    let types = read_type_entries(
+        RequiredSection::TypeTable.require(&sections)?,
+        &strings.values,
+    )?;
     let type_names = type_entry_names(&types, &strings.values)?;
-    let constants = read_const_pool(SectionKind::ConstPool.require(&sections)?)?;
+    let constants = read_const_pool(RequiredSection::ConstPool.require(&sections)?)?;
     let functions = read_function_table(
-        SectionKind::FunctionTable.require(&sections)?,
-        // Function bodies are carried by SECTION_BINARY_REPR (structured Binary Representation), not a
-        // flat code section; the function table records zero-length code regions.
-        &[],
+        RequiredSection::FunctionTable.require(&sections)?,
         &strings.values,
         &type_names,
     )?;
     validate_default_functions(&functions, &strings.values)?;
-    let binary_repr = SectionKind::BinaryRepr.require(&sections)?.to_vec();
-    let exports = read_export_table(SectionKind::ExportTable.require(&sections)?)?;
-    let resources = match SectionKind::ResourceTable.optional(&sections) {
+    let binary_repr = RequiredSection::BinaryRepr.require(&sections)?.to_vec();
+    let exports = read_export_table(RequiredSection::ExportTable.require(&sections)?)?;
+    let resources = match OptionalSection::ResourceTable.optional(&sections) {
         Some(section) => read_resource_table(section)?,
         None => ResourceTable::new(),
     };
-    let globals = match SectionKind::GlobalTable.optional(&sections) {
+    let globals = match OptionalSection::GlobalTable.optional(&sections) {
         Some(section) => read_global_table(section)?,
         None => Vec::new(),
     };
-    let docs = match SectionKind::DocTable.optional(&sections) {
+    let docs = match OptionalSection::DocTable.optional(&sections) {
         Some(section) => read_doc_table(section)?,
         None => PackageDocs::default(),
     };
     // Section 18 is optional; its absence is the normal case and decodes to an
     // empty description, following the DOC absence idiom directly above.
-    let description = match SectionKind::PackageMeta.optional(&sections) {
+    let description = match OptionalSection::PackageMeta.optional(&sections) {
         Some(section) => read_package_meta(section)?,
         None => String::new(),
     };
     // Section 10 is present only for a binding package (plan-46-B); its absence is
     // the normal case and decodes to an empty table.
-    let native_libraries = match SectionKind::NativeLibraryTable.optional(&sections) {
+    let native_libraries = match OptionalSection::NativeLibraryTable.optional(&sections) {
         Some(section) => read_native_library_table(section, &strings.values)?,
         None => NativeLibraryTable::default(),
     };
-    let manifest = read_manifest(SectionKind::Manifest.require(&sections)?)?;
-    let imports = read_import_table(SectionKind::ImportTable.require(&sections)?)?;
-    let abi = read_abi_index(SectionKind::AbiIndex.require(&sections)?)?;
+    let manifest = read_manifest(RequiredSection::Manifest.require(&sections)?)?;
+    let imports = read_import_table(RequiredSection::ImportTable.require(&sections)?)?;
+    let abi = read_abi_index(RequiredSection::AbiIndex.require(&sections)?)?;
     validate_manifest_counts(&manifest, &imports, &exports)?;
     validate_abi_index(
         &abi,
@@ -409,7 +426,6 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
 
 pub(super) fn read_function_table(
     bytes: &[u8],
-    code: &[u8],
     strings: &[String],
     _types: &HashMap<u32, String>,
 ) -> Result<Vec<Function>, String> {
@@ -428,8 +444,8 @@ pub(super) fn read_function_table(
         let param_count = cursor_u32(bytes, &mut offset)? as usize;
         let return_type = cursor_u32(bytes, &mut offset)?;
         let register_count = cursor_u32(bytes, &mut offset)? as usize;
-        let code_offset = checked_usize(cursor_u64(bytes, &mut offset)?, "function code offset")?;
-        let code_length = checked_usize(cursor_u64(bytes, &mut offset)?, "function code length")?;
+        let code_offset = cursor_u64(bytes, &mut offset)?;
+        let code_length = cursor_u64(bytes, &mut offset)?;
         let _source_map = cursor_u32(bytes, &mut offset)?;
         let cleanup_count = cursor_u32(bytes, &mut offset)? as usize;
         let _cleanup_offset = cursor_u64(bytes, &mut offset)?;
@@ -470,15 +486,10 @@ pub(super) fn read_function_table(
             });
         }
 
-        let code_end = code_offset
-            .checked_add(code_length)
-            .ok_or_else(|| "invalid function code length".to_string())?;
-        if code_end > code.len() {
-            return Err("truncated function code".to_string());
-        }
-        // Function bodies live in SECTION_BINARY_REPR (structured Binary Representation), so the flat
-        // code region is always empty here.
-        if code_length != 0 {
+        // Function bodies live in SECTION_BINARY_REPR (structured Binary
+        // Representation); there is no flat code region, so an entry must name
+        // the empty one.
+        if code_offset != 0 || code_length != 0 {
             return Err("flat function code stream is no longer supported".to_string());
         }
         functions.push(Function {
