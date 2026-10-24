@@ -13,6 +13,7 @@ mod named_builtin_args;
 mod packages_links_testing_and_fields;
 mod value_position_rules;
 mod walker_and_call_arguments;
+mod with_update_typing;
 
 /// Parse `src` as `main.mfb`, augment it with the builtin package sources
 /// (the same chain the build path runs before lowering), and return the
