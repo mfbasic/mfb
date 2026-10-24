@@ -1,0 +1,47 @@
+IMPORT io
+IMPORT collections
+IMPORT enum_pkg_tiny
+
+' An enum list whose type is INFERRED binds a generic's `T` exactly as a declared
+' `List OF Color` does. The monomorphizer used to type `Color.Blue` as nothing, so
+' `[Color.Blue, …]` instantiated `T = Unknown`: `distinct` over a literal or over an
+' inferred LET was refused inside the template body, and a user generic over one
+' could not type its RETURN.
+
+ENUM Color
+  Red, Green, Blue
+END ENUM
+
+FUNC firstOf OF T(xs AS List OF T) AS T
+  RETURN collections::get(xs, 0)
+END FUNC
+
+FUNC isBlue(c AS Color) AS Boolean
+  RETURN c = Color.Blue
+END FUNC
+
+FUNC show(xs AS List OF Color) AS String
+  MUT out AS String = ""
+  FOR EACH c IN xs
+    out = out & toString(c) & " "
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Nothing
+  io::print("distinct: " & show(collections::distinct([Color.Blue, Color.Red, Color.Blue, Color.Green, Color.Red])))
+  LET ys = [Color.Green, Color.Blue, Color.Green]
+  io::print("distinct let: " & show(collections::distinct(ys)))
+  io::print("contains: " & toString(collections::contains([Color.Red, Color.Green], Color.Green)))
+  io::print("find: " & toString(collections::find([Color.Red, Color.Blue], Color.Blue)))
+  io::print("filter: " & show(collections::filter([Color.Red, Color.Blue, Color.Blue], isBlue)))
+  io::print("append: " & show(collections::append([Color.Red], Color.Green)))
+  io::print("insert: " & show(collections::insert([Color.Red, Color.Blue], 1, Color.Green)))
+  io::print("take: " & show(collections::take([Color.Red, Color.Blue, Color.Green], 2)))
+  io::print("set len: " & toString(len(collections::toSet([Color.Red, Color.Red, Color.Blue]))))
+  io::print("user generic: " & toString(firstOf([Color.Green, Color.Red])))
+  LET suits AS List OF enum_pkg_tiny::Suit = collections::distinct([enum_pkg_tiny::Suit.Clubs, enum_pkg_tiny::Suit.Spades, enum_pkg_tiny::Suit.Clubs])
+  FOR EACH s IN suits
+    io::print("imported: " & toString(s))
+  NEXT
+END FUNC

@@ -137,6 +137,29 @@ impl<'a> Monomorphizer<'a> {
     /// plan-106-E: structural, like its twin. The user-generic arm stays a LOOKUP
     /// in `type_instantiations` — a mangled name is a plain nominal, so it can only
     /// be recognized that way, never by parsing.
+    /// The enum type `target.member` names when `target` is a declared enum and
+    /// `member` one of its members (`Color.Blue`), else `None`.
+    fn enum_member_type(&self, target: &HirExpression, member: &str) -> Option<ParameterType> {
+        let HirExpression::Identifier(type_name) = target else {
+            return None;
+        };
+        let enum_type = ParameterType::declared(type_name);
+        match self.concrete_types.get(&enum_type) {
+            Some(decl) => (matches!(decl.kind, TypeDeclKind::Enum)
+                && decl
+                    .members
+                    .iter()
+                    .any(|candidate| candidate.name == member))
+            .then_some(enum_type),
+            // An imported package's enum (`pkg::Suit.Clubs`): the package's IR
+            // carries its members, and the IR lowering checks the member; here it
+            // is enough that the type is one of the imported enums.
+            None => {
+                crate::codegen::builtins::TypeKinds::is_enum(self, &enum_type).then_some(enum_type)
+            }
+        }
+    }
+
     pub(super) fn template_view(&self, type_: &ParameterType) -> ParameterType {
         match type_ {
             ParameterType::ListOf(element) => ParameterType::list_of(self.template_view(element)),
@@ -425,6 +448,13 @@ impl<'a> Monomorphizer<'a> {
                 Box::new(value_type.clone()),
             )),
             HirExpression::MemberAccess { target, member } => {
+                // `Color.Blue`: a member of a declared enum is a value of that enum,
+                // mirroring the IR's `expression_type`. Without this arm the member
+                // had no type, so an inferred `[Color.Blue, …]` bound a template's
+                // `T` to `Unknown`.
+                if let Some(enum_type) = self.enum_member_type(target, member) {
+                    return Some(enum_type);
+                }
                 let target_type = self.expression_type(target, context)?;
                 // bug-671: `h.state` is the `RES` handle's payload record,
                 // mirroring the IR's `expression_type`.

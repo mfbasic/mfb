@@ -6,6 +6,7 @@ use crate::types::ParameterType;
 // `super::strip_qualifier_prefixes`, which live in `lower`.
 use super::{mangle_name, strip_qualifier_prefixes};
 
+mod enum_member_arguments;
 mod instantiation_overloads_and_inference;
 mod references_and_template_overloads;
 mod structural_helpers;

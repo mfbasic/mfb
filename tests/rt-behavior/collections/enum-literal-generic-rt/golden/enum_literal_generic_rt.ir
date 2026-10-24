@@ -1,0 +1,305 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "enum_literal_generic_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 11,
+    "visibility": "public",
+    "name": "Color",
+    "members": [
+    { "name": "Red" },
+    { "name": "Green" },
+    { "name": "Blue" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "isBlue",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "c", "line": 19, "type": "Color", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 20, "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "c" }, "right": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } } }
+    ]
+  },
+  {
+    "name": "show",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "xs", "line": 23, "type": "List OF Color", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 24, "mutable": true, "name": "out", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 25,
+      "name": "c",
+      "type": "Color",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "line": 26, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "c" }] } }, "right": { "kind": "const", "type": "String", "value": " " } } }
+      ]
+    },
+    { "op": "return", "line": 28, "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 31,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "distinct: " }, "right": { "kind": "call", "type": "String", "target": "show", "args": [{ "kind": "call", "type": "List OF Color", "target": "#collections_distinct$Color", "args": [{ "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }] }] }] } }] } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "ys", "type": "List OF Color", "value": { "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "distinct let: " }, "right": { "kind": "call", "type": "String", "target": "show", "args": [{ "kind": "call", "type": "List OF Color", "target": "#collections_distinct$Color", "args": [{ "kind": "local", "name": "ys" }] }] } }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "contains: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" }] }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" }] }] } }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "find: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.find", "args": [{ "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }] } }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "filter: " }, "right": { "kind": "call", "type": "String", "target": "show", "args": [{ "kind": "call", "type": "List OF Color", "target": "collections.filter", "args": [{ "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }, { "kind": "functionRef", "name": "isBlue", "type": "FUNC(Color) AS Boolean" }] }] } }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "append: " }, "right": { "kind": "call", "type": "String", "target": "show", "args": [{ "kind": "call", "type": "List OF Color", "target": "collections.append", "args": [{ "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }] }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" }] }] } }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "insert: " }, "right": { "kind": "call", "type": "String", "target": "show", "args": [{ "kind": "call", "type": "List OF Color", "target": "collections.insert", "args": [{ "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" }] }] } }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "take: " }, "right": { "kind": "call", "type": "String", "target": "show", "args": [{ "kind": "call", "type": "List OF Color", "target": "#collections_take$Color", "args": [{ "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" }] }, { "kind": "const", "type": "Integer", "value": "2" }] }] } }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "set len: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "Set OF Color", "target": "#collections_toSet$Color", "args": [{ "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }] }] }] } }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "user generic: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Color", "target": "firstOf$Color", "args": [{ "kind": "list", "type": "List OF Color", "values": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" }, { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" }] }] }] } }] } },
+    { "op": "bind", "line": 43, "mutable": false, "name": "suits", "type": "List OF enum_pkg_tiny.Suit", "value": { "kind": "call", "type": "List OF enum_pkg_tiny.Suit", "target": "#collections_distinct$enum_pkg_tiny$Suit", "args": [{ "kind": "list", "type": "List OF enum_pkg_tiny.Suit", "values": [{ "kind": "memberAccess", "type": "enum_pkg_tiny.Suit", "target": { "kind": "local", "name": "enum_pkg_tiny.Suit" }, "member": "Clubs" }, { "kind": "memberAccess", "type": "enum_pkg_tiny.Suit", "target": { "kind": "local", "name": "enum_pkg_tiny.Suit" }, "member": "Spades" }, { "kind": "memberAccess", "type": "enum_pkg_tiny.Suit", "target": { "kind": "local", "name": "enum_pkg_tiny.Suit" }, "member": "Clubs" }] }] } },
+    {
+      "op": "forEach",
+      "line": 44,
+      "name": "s",
+      "type": "enum_pkg_tiny.Suit",
+      "iterable": { "kind": "local", "name": "suits" },
+      "body": [
+      { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "imported: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "s" }] } }] } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "#collections_distinct$Color",
+    "line": 292,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 292, "type": "List OF Color", "default": null }
+    ],
+    "returns": "List OF Color",
+    "body": [
+    { "op": "bind", "line": 293, "mutable": true, "name": "result", "type": "List OF Color", "value": { "kind": "list", "type": "List OF Color", "values": [] } },
+    { "op": "bind", "line": 294, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 295,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      { "op": "bind", "line": 296, "mutable": false, "name": "item", "type": "Color", "value": { "kind": "call", "type": "Color", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] } },
+      {
+        "op": "if",
+        "line": 297,
+        "condition": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "item" }] } },
+        "then": [
+        { "op": "assign", "line": 298, "name": "result", "value": { "kind": "call", "type": "List OF Color", "target": "collections.append", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "item" }] } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 300, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 302, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_distinct$enum_pkg_tiny$Suit",
+    "line": 292,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 292, "type": "List OF enum_pkg_tiny.Suit", "default": null }
+    ],
+    "returns": "List OF enum_pkg_tiny.Suit",
+    "body": [
+    { "op": "bind", "line": 293, "mutable": true, "name": "result", "type": "List OF enum_pkg_tiny.Suit", "value": { "kind": "list", "type": "List OF enum_pkg_tiny.Suit", "values": [] } },
+    { "op": "bind", "line": 294, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 295,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      { "op": "bind", "line": 296, "mutable": false, "name": "item", "type": "enum_pkg_tiny.Suit", "value": { "kind": "call", "type": "enum_pkg_tiny.Suit", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] } },
+      {
+        "op": "if",
+        "line": 297,
+        "condition": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "item" }] } },
+        "then": [
+        { "op": "assign", "line": 298, "name": "result", "value": { "kind": "call", "type": "List OF enum_pkg_tiny.Suit", "target": "collections.append", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "item" }] } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 300, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 302, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_slice$Color",
+    "line": 7,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 7, "type": "List OF Color", "default": null },
+    { "name": "start", "line": 7, "type": "Integer", "default": null },
+    { "name": "stop", "line": 7, "type": "Integer", "default": null }
+    ],
+    "returns": "List OF Color",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": true, "name": "result", "type": "List OF Color", "value": { "kind": "list", "type": "List OF Color", "values": [] } },
+    { "op": "bind", "line": 9, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "start" } },
+    {
+      "op": "while",
+      "line": 10,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "stop" } },
+      "body": [
+      { "op": "assign", "line": 11, "name": "result", "value": { "kind": "call", "type": "List OF Color", "target": "collections.append", "args": [{ "kind": "local", "name": "result" }, { "kind": "call", "type": "Color", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } },
+      { "op": "assign", "line": 12, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 14, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "#collections_take$Color",
+    "line": 138,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 138, "type": "List OF Color", "default": null },
+    { "name": "count", "line": 138, "type": "Integer", "default": null }
+    ],
+    "returns": "List OF Color",
+    "body": [
+    { "op": "return", "line": 139, "value": { "kind": "call", "type": "List OF Color", "target": "#collections_slice$Color", "args": [{ "kind": "local", "name": "value" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "count" }] } }
+    ]
+  },
+  {
+    "name": "#collections_toSet$Color",
+    "line": 340,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 340, "type": "List OF Color", "default": null }
+    ],
+    "returns": "Set OF Color",
+    "body": [
+    { "op": "bind", "line": 341, "mutable": true, "name": "result", "type": "Set OF Color", "value": { "kind": "set", "type": "Set OF Color", "values": [] } },
+    {
+      "op": "forEach",
+      "line": 342,
+      "name": "x",
+      "type": "Color",
+      "iterable": { "kind": "local", "name": "value" },
+      "body": [
+      { "op": "assign", "line": 343, "name": "result", "value": { "kind": "call", "type": "Set OF Color", "target": "collections.add", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "x" }] } }
+      ]
+    },
+    { "op": "return", "line": 345, "value": { "kind": "local", "name": "result" } }
+    ]
+  },
+  {
+    "name": "firstOf$Color",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "xs", "line": 15, "type": "List OF Color", "default": null }
+    ],
+    "returns": "Color",
+    "body": [
+    { "op": "return", "line": 16, "value": { "kind": "call", "type": "Color", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    ]
+  }
+  ]
+}

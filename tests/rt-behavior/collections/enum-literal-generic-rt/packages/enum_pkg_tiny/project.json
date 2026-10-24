@@ -1,0 +1,9 @@
+{
+  "name": "enum_pkg_tiny",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "plan-140-C: the source-directory dependency consumed by `../../` -- an exported ENUM, and an export that calls `toString` on it inside the package.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}

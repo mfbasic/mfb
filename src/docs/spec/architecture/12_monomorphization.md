@@ -264,7 +264,7 @@ when a type cannot be determined locally.
 | constructor | `Error`, or a known record name (a user `Ok` is an ordinary record, bug-945) |
 | list literal | `List OF <first element>` else `List OF Unknown` |
 | map literal | `Map OF <key> TO <value>` |
-| member access | the record field's declared type |
+| member access | an enum member (`Color.Blue`, or an imported package's `pkg::Suit.Clubs`) is its enum type; otherwise the record field's declared type |
 | call | the concrete callee's declared return type |
 | lambda | `FUNC(params) AS <body type>`; assignment-bodied → `AS Nothing` |
 | binary | `Boolean` for comparisons/logicals, `String` for `&`, else numeric promotion |

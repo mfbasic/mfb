@@ -1,0 +1,19 @@
+{
+  "name": "enum_literal_generic_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "An enum list whose type is INFERRED (a literal of enum members, or a LET bound from one) binds a generic's T: built-in collections members, a user generic, and an imported package's enum.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "enum_pkg_tiny",
+      "version": "=0.1.0",
+      "source": "file:packages/enum_pkg_tiny",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -1,0 +1,25 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/enum-literal-generic-rt
+Wrote package to tests/rt-behavior/collections/enum-literal-generic-rt/build/packages/enum_pkg_tiny.mfp
+uses enum_pkg_tiny - [Unsigned]
+Wrote AST to tests/rt-behavior/collections/enum-literal-generic-rt/enum_literal_generic_rt.ast
+Wrote IR to tests/rt-behavior/collections/enum-literal-generic-rt/enum_literal_generic_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/enum-literal-generic-rt
+Wrote package to tests/rt-behavior/collections/enum-literal-generic-rt/build/packages/enum_pkg_tiny.mfp
+uses enum_pkg_tiny - [Unsigned]
+Wrote executable to tests/rt-behavior/collections/enum-literal-generic-rt/build/enum_literal_generic_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/enum-literal-generic-rt/build/enum_literal_generic_rt.out
+distinct: Blue Red Green 
+distinct let: Green Blue 
+contains: TRUE
+find: 1
+filter: Blue Blue 
+append: Red Green 
+insert: Red Green Blue 
+take: Red Blue 
+set len: 2
+user generic: Green
+imported: Clubs
+imported: Spades
+[exit 0]
