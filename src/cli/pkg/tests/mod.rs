@@ -1,5 +1,6 @@
 use super::*;
 
+mod closure_chain;
 mod removal;
 
 const UNSIGNED_FIXTURE: &str =

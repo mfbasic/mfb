@@ -2,11 +2,7 @@
 //! `install`, `resolve`, `select_node`) lives in `cli/resolve/mod.rs`.
 
 use super::*;
-
-/// How many times [`apply_manifest_change`] re-closes the dependency set after
-/// an install. Installing a registry package makes its import table readable,
-/// which can name dependencies of its own; each round declares one more layer.
-const MAX_CLOSURE_ROUNDS: usize = 32;
+use std::collections::BTreeSet;
 
 /// What closing the dependency set changed beyond the caller's own edit.
 #[derive(Debug, Default)]
@@ -48,6 +44,11 @@ pub(crate) struct ClosureChanges {
 /// first round keeps the resolve-first guarantee; a later round that fails leaves
 /// a consistent, installed manifest that is merely missing that layer, which the
 /// build reports and `mfb pkg update` retries.
+///
+/// There is no round budget: each round installs one more layer, so a long but
+/// legitimate chain takes as many rounds as it has layers. A round that would
+/// change the manifest again without having installed any release new to this
+/// change is a genuine cycle, and is an error naming the releases it installed.
 pub(crate) fn apply_manifest_change(
     project_dir: &Path,
     new_contents: &str,
@@ -62,10 +63,35 @@ pub(crate) fn apply_manifest_change(
 
     let mut changes = ClosureChanges::default();
     let mut contents = close_dependency_set(project_dir, new_contents, &mut changes)?;
-    for _ in 0..MAX_CLOSURE_ROUNDS {
+    // Termination: `close_dependency_set` returns a manifest closed against what
+    // is on disk, and is a function of that manifest and `packages/`; closing a
+    // closed manifest over an unchanged disk returns it unchanged. A round
+    // changes `packages/` only through `install()`, so the close after it can
+    // declare something new only when that install wrote a release (`ident`,
+    // `selected`) this change had not installed before. A round loops only if
+    // it adds such a release to `installed`; the registry's releases are finite
+    // and none is added twice, so the loop ends after at most (releases the
+    // closure names + 1) rounds — no fixed budget, which a long but legitimate
+    // chain would exceed. A round that installed nothing new yet re-closed to a
+    // different manifest is not progress (a resolution alternating between
+    // versions would do that forever), so it is an error, not another round.
+    let mut installed: BTreeSet<(String, String)> = BTreeSet::new();
+    loop {
         // The committed text can differ from `contents` by the pins resolution
         // moved (plan-168-C); the next round starts from what was written.
         contents = apply_closed_manifest(project_dir, &contents)?;
+        let locked: Vec<(String, String)> = read_lock(project_dir)?
+            .map(|lock| {
+                lock.packages
+                    .into_iter()
+                    .map(|package| (package.ident, package.selected))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut installed_new = false;
+        for release in &locked {
+            installed_new |= installed.insert(release.clone());
+        }
         let closed = close_dependency_set(project_dir, &contents, &mut changes)?;
         if closed == contents {
             for (name, requirer) in &changes.added {
@@ -78,12 +104,24 @@ pub(crate) fn apply_manifest_change(
             }
             return Ok(changes);
         }
+        if !installed_new {
+            let releases: Vec<String> = locked
+                .iter()
+                .map(|(ident, version)| format!("`{ident}`@{version}"))
+                .collect();
+            return Err(format!(
+                "the dependency closure of '{}' does not converge: after installing {} it \
+                 changed again without any release new to this change",
+                project_path.display(),
+                if releases.is_empty() {
+                    "no registry package".to_string()
+                } else {
+                    releases.join(", ")
+                }
+            ));
+        }
         contents = closed;
     }
-    Err(format!(
-        "the dependency closure of '{}' did not converge after {MAX_CLOSURE_ROUNDS} installs",
-        project_path.display()
-    ))
 }
 
 /// Close `contents` (bug-628): reconcile against the import tables readable now,
@@ -98,20 +136,47 @@ fn close_dependency_set(
 ) -> Result<String, String> {
     let project_path = project_dir.join("project.json");
     let mut contents = contents.to_string();
-    for _ in 0..MAX_CLOSURE_ROUNDS {
+    // Termination: `reconcile` is a function of the manifest and the files on
+    // disk, and returns a manifest closed against them. The passes run in
+    // epochs separated by copies into `packages/`, the only change to disk here.
+    //
+    // - Each name is copied at most once per closure (`copied`). A later request
+    //   for a name already copied names a file `reconcile` has already read (a
+    //   declared package's installed `.mfp` is what it reads first), so it is
+    //   not copied again and is not progress. The names are those of `.mfp`
+    //   files on disk, a finite set, so there are finitely many epochs.
+    // - Within an epoch the disk is fixed. Its first pass ends closed, so no
+    //   entry is orphaned; a later pass of the epoch only adds entries (the
+    //   registry packages declared below, each needed by a declared package),
+    //   which only adds requirements, so nothing is ever dropped and a declared
+    //   registry ident is never undeclared again. So each registry-declaring
+    //   pass of an epoch declares idents new to the epoch (`requested`), and the
+    //   idents the import tables on disk name are finite.
+    //
+    // So the loop ends — no fixed budget, which a long but legitimate chain
+    // would exceed. An ident needed again within one epoch contradicts the
+    // second point and is an error naming it, rather than another pass.
+    let mut copied: BTreeSet<String> = BTreeSet::new();
+    let mut requested: BTreeSet<String> = BTreeSet::new();
+    loop {
         let result = crate::manifest::closure::reconcile(project_dir, &contents)?;
         contents = result.contents;
         changes.added.extend(result.added);
         changes.removed.extend(result.removed);
+        let mut copied_new = false;
         for (name, file) in &result.installs {
-            super::pkg::install_local_package(project_dir, name, file)?;
+            if copied.insert(name.clone()) {
+                super::pkg::install_local_package(project_dir, name, file)?;
+                copied_new = true;
+            }
+        }
+        if copied_new {
+            // The copies make their import tables readable: a new epoch.
+            requested.clear();
+            continue;
         }
         if result.unresolved.is_empty() {
-            if result.installs.is_empty() {
-                return Ok(contents);
-            }
-            // The copies make their import tables readable: reconcile again.
-            continue;
+            return Ok(contents);
         }
         let (registry, local): (Vec<_>, Vec<_>) = result
             .unresolved
@@ -130,6 +195,19 @@ fn close_dependency_set(
                 .collect();
             return Err(lines.join("\n"));
         }
+        let again: Vec<String> = registry
+            .iter()
+            .filter(|(_, need)| !requested.insert(need.ident.clone()))
+            .map(|(_, need)| format!("`{}`", need.ident))
+            .collect();
+        if !again.is_empty() {
+            return Err(format!(
+                "the dependency closure of '{}' does not converge: {} declared again without \
+                 any new package installed",
+                project_path.display(),
+                again.join(", ")
+            ));
+        }
         for (requirer, need) in registry {
             let manifest = parse_project_json(&contents, &project_path)?;
             let dependency = registry_dependency_for(&need)?;
@@ -141,10 +219,6 @@ fn close_dependency_set(
             changes.added.push((need.name.clone(), requirer));
         }
     }
-    Err(format!(
-        "the dependency closure of '{}' did not converge after {MAX_CLOSURE_ROUNDS} passes",
-        project_path.display()
-    ))
 }
 
 /// The `packages[]` entry for a registry package another declared package

@@ -355,9 +355,18 @@ requirement's `source` is rebased onto the importing project, a compiled
 dependency the requirer already has installed is copied into `packages/`, and a
 registry ident is declared from the registry `/index` under the requirer's
 version and pin; a needed package that is none of these is an error naming it
-and telling the user to `mfb pkg add` it. After each install the closure is checked again — a registry
-package's import table is only readable once installed — bounded by
-`MAX_CLOSURE_ROUNDS`.[[src/cli/resolve/closure.rs:close_dependency_set]] Each declared/dropped entry
+and telling the user to `mfb pkg add` it. After each install the closure is checked again — a
+package's import table is only readable once it is installed, so each pass
+learns one more layer of the dependency chain. There is no pass or round limit:
+the closure stops when a pass learns nothing new, so a chain of any depth
+closes. Each local compiled dependency is copied into `packages/` at most once
+per closure, and the install rounds continue only while an install writes a
+registry release (ident and selected version) new to this command. A round
+that installs nothing new yet changes the declared packages again (a resolution
+alternating between versions), or a registry ident that must be declared again
+without a new install in between, is an error naming the packages
+(`the dependency closure of '<project.json>' does not converge: …`).
+[[src/cli/resolve/closure.rs:close_dependency_set]] [[src/cli/resolve/closure.rs:apply_manifest_change]] Each declared/dropped entry
 prints `Declared package <name> (required by <requirer>)` or `Removed package
 <name> (no declared package requires it)`.
 

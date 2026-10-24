@@ -37,7 +37,7 @@ fn function(name: &str, calls: Option<&str>) -> IrFunction {
 
 /// Compile `<owner>#<name>` into `dir/<name>.mfp`, importing `imports`
 /// (each `(name, ident, compiled file)`) and calling each one's `helper`.
-fn package(dir: &Path, ident: &str, imports: &[(&str, &str, &Path)]) -> PathBuf {
+pub(super) fn package(dir: &Path, ident: &str, imports: &[(&str, &str, &Path)]) -> PathBuf {
     let name = ident.split('#').nth(1).unwrap();
     std::fs::create_dir_all(dir).unwrap();
     let mut functions = vec![function("helper", None)];
@@ -89,7 +89,7 @@ fn entry(name: &str, ident: &str, required_by: &str) -> String {
     )
 }
 
-fn project(dir: &Path, entries: &[String]) {
+pub(super) fn project(dir: &Path, entries: &[String]) {
     std::fs::write(
         dir.join("project.json"),
         format!(
