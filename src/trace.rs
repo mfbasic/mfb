@@ -341,6 +341,12 @@ pub(crate) fn item(bucket: &'static str, label: impl FnOnce() -> String, elapsed
     if !enabled() {
         return;
     }
+    record_item(bucket, Box::new(label), elapsed);
+}
+
+/// [`item`]'s recording half, kept non-generic: one copy for every call site's
+/// label closure, reached only with tracing on.
+fn record_item(bucket: &'static str, label: Box<dyn FnOnce() -> String + '_>, elapsed: Duration) {
     let mut guard = STATE.lock().expect("trace state");
     let Some(state) = guard.as_mut() else {
         return;
@@ -390,10 +396,15 @@ pub(crate) fn timed_tally<T>(
     }
     let start = Instant::now();
     let value = body();
-    let elapsed = start.elapsed();
+    record_tally(bucket, Box::new(key), start.elapsed());
+    value
+}
+
+/// [`timed_tally`]'s recording half, kept non-generic (see [`record_item`]).
+fn record_tally(bucket: &'static str, key: Box<dyn FnOnce() -> String + '_>, elapsed: Duration) {
     let mut guard = STATE.lock().expect("trace state");
     let Some(state) = guard.as_mut() else {
-        return value;
+        return;
     };
     let index = match state.tallies.iter().position(|entry| entry.name == bucket) {
         Some(index) => index,
@@ -408,7 +419,6 @@ pub(crate) fn timed_tally<T>(
     let row = state.tallies[index].rows.entry(key()).or_default();
     row.0 += elapsed;
     row.1 += 1;
-    value
 }
 
 /// Record one individually-named work unit into the `bucket` *size*
@@ -421,6 +431,11 @@ pub(crate) fn size_item(bucket: &'static str, label: impl FnOnce() -> String, am
     if !enabled() {
         return;
     }
+    record_size_item(bucket, Box::new(label), amount);
+}
+
+/// [`size_item`]'s recording half, kept non-generic (see [`record_item`]).
+fn record_size_item(bucket: &'static str, label: Box<dyn FnOnce() -> String + '_>, amount: u64) {
     let mut guard = STATE.lock().expect("trace state");
     let Some(state) = guard.as_mut() else {
         return;
@@ -468,6 +483,11 @@ pub(crate) fn count_tally(bucket: &'static str, key: impl FnOnce() -> String, am
     if !enabled() {
         return;
     }
+    record_count_tally(bucket, Box::new(key), amount);
+}
+
+/// [`count_tally`]'s recording half, kept non-generic (see [`record_item`]).
+fn record_count_tally(bucket: &'static str, key: Box<dyn FnOnce() -> String + '_>, amount: u64) {
     let mut guard = STATE.lock().expect("trace state");
     let Some(state) = guard.as_mut() else {
         return;
