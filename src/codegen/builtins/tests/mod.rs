@@ -167,6 +167,7 @@ mod sort_declines;
 mod static_name_prepass;
 mod static_type_oracles;
 mod stems;
+mod string_grow_retype;
 mod strings_fold;
 mod tcp_read_helper;
 mod term_measure_text;
