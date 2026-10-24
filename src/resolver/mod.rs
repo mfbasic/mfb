@@ -344,6 +344,11 @@ struct Resolver<'a> {
     /// `top_levels` is its mangled `#<hash>$name` — to the `top_levels` keys that
     /// carry that bare name. A local binding checks it (`check_new_local`).
     top_level_bindings: HashMap<String, Vec<String>>,
+    /// Every `ENUM` of a user (non-internal) file, keyed by its bare display name
+    /// to the `top_levels` keys that carry it. A local of that name would make
+    /// `Name.Member` ambiguous between the enum member and a field read, so a
+    /// local checks it (`check_new_local`, `SYMBOL_SHADOWS_ENUM`).
+    top_level_enums: HashMap<String, Vec<String>>,
     had_error: bool,
 }
 
@@ -420,6 +425,7 @@ impl<'a> Resolver<'a> {
             resolving_internal_origin: false,
             default_scope: None,
             top_level_bindings: HashMap::new(),
+            top_level_enums: HashMap::new(),
             had_error: false,
         };
         resolver.collect_top_level_symbols(hir);
@@ -488,6 +494,15 @@ impl<'a> Resolver<'a> {
                         ) {
                             self.types
                                 .insert(crate::types::ParameterType::declared(&type_decl.name));
+                            if type_decl.kind == TypeDeclKind::Enum && !file.internal {
+                                self.top_level_enums
+                                    .entry(
+                                        crate::internal_name::display_name(&type_decl.name)
+                                            .into_owned(),
+                                    )
+                                    .or_default()
+                                    .push(type_decl.name.clone());
+                            }
                         }
                     }
                     // A native resource declaration introduces an opaque type at

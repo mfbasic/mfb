@@ -1,0 +1,9 @@
+' A PUBLIC enum is visible from src/main.mfb, so main's local `Shade` may not reuse
+' its name; a PRIVATE one is not, so main's local `Hidden` may.
+ENUM Shade
+  Dark, Light
+END ENUM
+
+PRIVATE ENUM Hidden
+  On, Off
+END ENUM

@@ -525,6 +525,26 @@ impl Resolver<'_> {
         if file.internal || self.resolving_internal_origin {
             return;
         }
+        let shadowed_enum = self.top_level_enums.get(name).and_then(|keys| {
+            keys.iter()
+                .filter_map(|key| self.top_levels.get(key))
+                .find(|symbol| self.visible_from(file, symbol.visibility, &symbol.file_path))
+                .cloned()
+        });
+        if let Some(symbol) = shadowed_enum {
+            self.report(
+                "SYMBOL_SHADOWS_ENUM",
+                &format!(
+                    "`{}` is already an enum (declared at {}:{}); a local cannot reuse its name.",
+                    crate::internal_name::display_name(name),
+                    symbol.file_path,
+                    symbol.line
+                ),
+                file,
+                line,
+            );
+            return;
+        }
         let Some(keys) = self.top_level_bindings.get(name) else {
             return;
         };

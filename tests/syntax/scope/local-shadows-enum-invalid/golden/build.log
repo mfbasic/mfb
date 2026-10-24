@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/scope/local-shadows-enum-invalid
+  29 | 
+  30 | ' Function parameter.
+  31 | FUNC byParameter(Size AS Integer) AS Integer
+     | ^
+tests/syntax/scope/local-shadows-enum-invalid/src/main.mfb:31 error[2-201-0023 SYMBOL_SHADOWS_ENUM]: local binding reuses the name of a visible enum
+               `Size` is already an enum (declared at src/main.mfb:13); a local cannot reuse its name.
+  35 | FUNC main() AS Integer
+  36 |   ' LET: the record binding would turn `Color.Blue` into a field read.
+  37 |   LET Color AS P = P[7]
+     | ^
+tests/syntax/scope/local-shadows-enum-invalid/src/main.mfb:37 error[2-201-0023 SYMBOL_SHADOWS_ENUM]: local binding reuses the name of a visible enum
+               `Color` is already an enum (declared at src/main.mfb:10); a local cannot reuse its name.
+  38 |   LET xs = collections::distinct([Color.Blue, Color.Blue])
+  39 |   ' FOR EACH variable.
+  40 |   FOR EACH Mood IN [1, 2]
+     | ^
+tests/syntax/scope/local-shadows-enum-invalid/src/main.mfb:40 error[2-201-0023 SYMBOL_SHADOWS_ENUM]: local binding reuses the name of a visible enum
+               `Mood` is already an enum (declared at src/main.mfb:16); a local cannot reuse its name.
+  42 |   NEXT
+  43 |   ' Lambda parameter.
+  44 |   LET twice = LAMBDA(Phase AS Integer) -> Phase * 2
+     | ^
+tests/syntax/scope/local-shadows-enum-invalid/src/main.mfb:44 error[2-201-0023 SYMBOL_SHADOWS_ENUM]: local binding reuses the name of a visible enum
+               `Phase` is already an enum (declared at src/main.mfb:19); a local cannot reuse its name.
+  44 |   LET twice = LAMBDA(Phase AS Integer) -> Phase * 2
+  45 |   ' Inline-TRAP binding.
+  46 |   LET parsed AS Integer = toInt("7") TRAP(Tone)
+     | ^
+tests/syntax/scope/local-shadows-enum-invalid/src/main.mfb:46 error[2-201-0023 SYMBOL_SHADOWS_ENUM]: local binding reuses the name of a visible enum
+               `Tone` is already an enum (declared at src/main.mfb:22); a local cannot reuse its name.
+  48 |   END TRAP
+  49 |   ' A LET against a PUBLIC enum declared in another file.
+  50 |   LET Shade AS Integer = 1
+     | ^
+tests/syntax/scope/local-shadows-enum-invalid/src/main.mfb:50 error[2-201-0023 SYMBOL_SHADOWS_ENUM]: local binding reuses the name of a visible enum
+               `Shade` is already an enum (declared at src/other.mfb:3); a local cannot reuse its name.
+[exit 1]

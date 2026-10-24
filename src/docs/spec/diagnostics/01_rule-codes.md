@@ -357,6 +357,7 @@ itself; it is not a dataflow analysis, and the ambiguous cases warn.
 | `2-201-0020` | `SYMBOL_DEFAULT_NAMES_PARAMETER` | error | parameter default value uses a parameter of its own function |
 | `2-201-0021` | `SYMBOL_LAMBDA_PARAMETER_DEFAULT` | error | lambda parameter declares a default value |
 | `2-201-0022` | `SYMBOL_SHADOWS_TOP_LEVEL_BINDING` | error | local binding reuses the name of a visible top-level binding |
+| `2-201-0023` | `SYMBOL_SHADOWS_ENUM` | error | local binding reuses the name of a visible enum |
 
 ### `2-203` — Type checking, ownership, and native ABI
 

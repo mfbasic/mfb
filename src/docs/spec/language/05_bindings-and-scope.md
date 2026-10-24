@@ -54,8 +54,9 @@ Rules:
 - **Lexical, hierarchical scope.** Inner blocks may read and use bindings from
   enclosing scopes, but may **not** re-declare (shadow) a name already in scope —
   that is a `SYMBOL_DUPLICATE_LOCAL` error — and no local may reuse the name of a
-  top-level `LET`/`MUT` visible from its file — `SYMBOL_SHADOWS_TOP_LEVEL_BINDING`
-  (see the resolver scope model below).
+  top-level `LET`/`MUT` visible from its file — `SYMBOL_SHADOWS_TOP_LEVEL_BINDING` —
+  or of an `ENUM` visible from its file — `SYMBOL_SHADOWS_ENUM` (see the resolver
+  scope model below).
 - **Outer `MUT` reassignment.** An inner block may reassign an enclosing `MUT` (same live scope, same cell).
 - **Collection representation follows the binding.** A collection bound with `LET` is an immutable, fixed snapshot. A collection bound with `MUT` is a locally mutable, growable buffer while it remains in that live binding. Binding a `MUT` collection to `LET`, such as `LET snap = pts`, creates an immutable snapshot; if `pts` is used afterward the snapshot is an independent copy, and if `pts` is not used afterward the compiler may freeze and move the buffer.
 - **Bindings die at `END`/scope exit.**
@@ -135,6 +136,28 @@ guarded or not.
 LET limit = 5
 FUNC f(limit AS Integer) AS Integer   ' ERROR: SYMBOL_SHADOWS_TOP_LEVEL_BINDING
   RETURN limit
+END FUNC
+```
+[[src/resolver/resolution/body.rs:check_new_local]]
+
+### No local reuses a visible enum's name
+
+A local introduced at any of those sites whose name equals an `ENUM` **visible
+from its file** (same visibility test as above) is `SYMBOL_SHADOWS_ENUM`, reported
+at the local's line and naming the enum's declaration. `Name.Member` reads an enum
+member when `Name` is an enum and a field when `Name` is a value, so a local of an
+enum's name would make every `Name.Member` in its scope ambiguous. An imported
+package's enum (reachable only as `pkg::Name`), another file's `PRIVATE` enum and a
+built-in package's enum (`app::Mode`) are not covered. A top-level `LET`/`MUT` of
+an enum's name is already `SYMBOL_DUPLICATE_TOP_LEVEL`.
+
+```basic
+ENUM Color
+  Red, Blue
+END ENUM
+FUNC f() AS Integer
+  LET Color = 3                       ' ERROR: SYMBOL_SHADOWS_ENUM
+  RETURN Color
 END FUNC
 ```
 [[src/resolver/resolution/body.rs:check_new_local]]

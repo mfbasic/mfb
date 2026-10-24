@@ -325,4 +325,10 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "local binding reuses the name of a visible top-level binding",
     },
+    Rule {
+        code: "2-201-0023",
+        name: "SYMBOL_SHADOWS_ENUM",
+        severity: Severity::Error,
+        message: "local binding reuses the name of a visible enum",
+    },
 ];

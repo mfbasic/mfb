@@ -1,0 +1,54 @@
+' A local binding may not share a name with a VISIBLE enum: `Name.Member` reads an
+' enum member when `Name` is an enum and a field when it is a value, so the local
+' would make it ambiguous. One offending binding of each kind against a same-file
+' enum, a LET against a PUBLIC enum declared in src/other.mfb, and a LET reusing
+' the name of src/other.mfb's PRIVATE enum, which is not visible here and is
+' accepted.
+IMPORT io
+IMPORT collections
+
+ENUM Color
+  Red, Blue
+END ENUM
+ENUM Size
+  Small, Large
+END ENUM
+ENUM Mood
+  Calm, Busy
+END ENUM
+ENUM Phase
+  Early, Late
+END ENUM
+ENUM Tone
+  Low, High
+END ENUM
+
+TYPE P
+  Blue AS Integer
+END TYPE
+
+' Function parameter.
+FUNC byParameter(Size AS Integer) AS Integer
+  RETURN Size
+END FUNC
+
+FUNC main() AS Integer
+  ' LET: the record binding would turn `Color.Blue` into a field read.
+  LET Color AS P = P[7]
+  LET xs = collections::distinct([Color.Blue, Color.Blue])
+  ' FOR EACH variable.
+  FOR EACH Mood IN [1, 2]
+    io::print(toString(Mood))
+  NEXT
+  ' Lambda parameter.
+  LET twice = LAMBDA(Phase AS Integer) -> Phase * 2
+  ' Inline-TRAP binding.
+  LET parsed AS Integer = toInt("7") TRAP(Tone)
+    RECOVER 0
+  END TRAP
+  ' A LET against a PUBLIC enum declared in another file.
+  LET Shade AS Integer = 1
+  ' Another file's PRIVATE enum is not visible: no error.
+  LET Hidden AS Integer = 2
+  RETURN len(xs) + twice(1) + parsed + byParameter(1) + Shade + Hidden
+END FUNC
