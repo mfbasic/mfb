@@ -24,7 +24,7 @@ pub(crate) fn show_spec(args: &[String]) -> Result<(), String> {
 /// Write `request` to `out`: a broken pipe ends the output quietly, and any
 /// other write failure is the error [`show_spec`] reports.
 fn output_spec(
-    out: &mut impl Write,
+    out: &mut dyn Write,
     request: &SpecRequest,
     style: &render::Style,
 ) -> Result<(), String> {
@@ -113,7 +113,7 @@ fn parse_spec_request(args: &[String]) -> Result<(SpecRequest, render::Style), S
 
 /// Write one resolved request, stopping at the first failed write.
 fn write_spec(
-    out: &mut impl Write,
+    out: &mut dyn Write,
     request: &SpecRequest,
     style: &render::Style,
 ) -> std::io::Result<()> {
@@ -190,7 +190,7 @@ fn terminal_width_from_ioctl() -> Option<usize> {
     None
 }
 
-fn print_spec_index(out: &mut impl Write, style: &render::Style) -> std::io::Result<()> {
+fn print_spec_index(out: &mut dyn Write, style: &render::Style) -> std::io::Result<()> {
     writeln!(out, "Usage: mfb spec [topic] [subtopic] [--all]")?;
     writeln!(out)?;
     writeln!(out, "Show the MFBASIC language specification.")?;
@@ -211,7 +211,7 @@ fn print_spec_index(out: &mut impl Write, style: &render::Style) -> std::io::Res
 }
 
 fn print_spec_package(
-    out: &mut impl Write,
+    out: &mut dyn Write,
     package: &spec::SpecPackage,
     style: &render::Style,
 ) -> std::io::Result<()> {
@@ -237,7 +237,7 @@ fn print_spec_package(
 /// `mfb spec <topic> --all`: print the overview followed by every subtopic page,
 /// each separated by a full-width rule, as one continuous document.
 fn print_spec_all(
-    out: &mut impl Write,
+    out: &mut dyn Write,
     package: &spec::SpecPackage,
     style: &render::Style,
 ) -> std::io::Result<()> {
@@ -254,7 +254,7 @@ fn print_spec_all(
 /// Render a `(name, summary)` listing as a width-aware table through the spec
 /// renderer, so the summary column wraps instead of running off the terminal.
 fn print_spec_listing(
-    out: &mut impl Write,
+    out: &mut dyn Write,
     heading: &str,
     entries: &[(&str, &str)],
     style: &render::Style,
