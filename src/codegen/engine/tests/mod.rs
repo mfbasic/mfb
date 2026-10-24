@@ -107,6 +107,8 @@ mod type_oracle;
 #[cfg(test)]
 mod unboxed_trap_forms;
 #[cfg(test)]
+mod unboxed_trap_refusals;
+#[cfg(test)]
 mod unicode_tables;
 #[cfg(test)]
 mod union_tags;
