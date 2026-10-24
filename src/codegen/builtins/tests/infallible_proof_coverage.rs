@@ -9,13 +9,14 @@
 //! list; these tests hold the census to it and the list to the guards.
 
 use crate::codegen::builtins::totality_proof::{
-    builtin_is_raise_checked, raise_check_skipped_members, RAISE_CHECKED_GENERAL_TOTAL,
-    RAISE_CHECKED_PACKAGES, RAISE_CHECK_SKIPPED_MEMBERS,
+    builtin_is_raise_checked, RAISE_CHECKED_GENERAL_TOTAL, RAISE_CHECKED_PACKAGES,
+    RAISE_CHECK_SKIPPED_MEMBERS,
 };
 use crate::codegen::builtins::{inline_builtin_is_infallible, NoTypeKinds, TypeKinds};
 use crate::codegen::registry::registry;
 use crate::types::ParameterType;
 
+use super::declared_errors_all::raise_check_skipped;
 use super::general_declared_errors::OVERLOADS;
 
 /// The census target for a registry member: `general` members are called by
@@ -131,7 +132,7 @@ fn every_inline_builtin_raise_checked_package_has_its_sweep() {
             );
         }
     }
-    for (package, members) in RAISE_CHECK_SKIPPED_MEMBERS {
+    for (package, member) in RAISE_CHECK_SKIPPED_MEMBERS {
         assert!(
             RAISE_CHECKED_PACKAGES.contains(package),
             "`{package}` has skipped members but is not a swept package"
@@ -139,14 +140,12 @@ fn every_inline_builtin_raise_checked_package_has_its_sweep() {
         let registered = registry()
             .resolve_package(package)
             .unwrap_or_else(|| panic!("{package}: not a registry package"));
-        for member in *members {
-            assert!(
-                registered.function(member).is_some(),
-                "{package}::{member} is skipped but is not a member"
-            );
-        }
+        assert!(
+            registered.function(member).is_some(),
+            "{package}::{member} is skipped but is not a member"
+        );
     }
-    assert_eq!(raise_check_skipped_members("strings"), &[] as &[&str]);
+    assert_eq!(raise_check_skipped("strings"), &[] as &[&str]);
 }
 
 /// A fixture member named `name` with the given implementations, built from

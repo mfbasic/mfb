@@ -15,32 +15,15 @@ use super::declared_errors_sweep::{
 
 /// plan-165-B: a sweep's skip list is the census's — a skipped member has no
 /// raise-checking proof, so `totality_proof` must know it (see
-/// `infallible_proof_coverage`). `const` so the lists stay named per package.
-const fn raise_check_skipped(package: &str) -> &'static [&'static str] {
-    let lists = crate::codegen::builtins::totality_proof::RAISE_CHECK_SKIPPED_MEMBERS;
-    let mut index = 0;
-    while index < lists.len() {
-        if const_str_eq(lists[index].0, package) {
-            return lists[index].1;
-        }
-        index += 1;
-    }
-    &[]
-}
-
-const fn const_str_eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut index = 0;
-    while index < a.len() {
-        if a[index] != b[index] {
-            return false;
-        }
-        index += 1;
-    }
-    true
+/// `infallible_proof_coverage`). The members `RAISE_CHECK_SKIPPED_MEMBERS` pairs
+/// with `package`. It lives here, not in `totality_proof`, because only the sweeps
+/// and their coverage check ask per package; the census asks per pair.
+pub(super) fn raise_check_skipped(package: &str) -> Vec<&'static str> {
+    crate::codegen::builtins::totality_proof::RAISE_CHECK_SKIPPED_MEMBERS
+        .iter()
+        .filter(|(name, _)| *name == package)
+        .map(|(_, member)| *member)
+        .collect()
 }
 
 const NONE_P: &[(&str, Propagating)] = &[];
@@ -296,7 +279,9 @@ fn every_collections_member_declares_exactly_the_errors_its_lowering_raises() {
 /// plan-165-B: no astrings member is skipped any more —
 /// `declared_errors_sweep::PROGRAM_FIXTURES` gives `fromString`/`writeSpans` a
 /// real `AttributedString` layout.
-const ASTRINGS_SKIP_MEMBERS: &[&str] = raise_check_skipped("astrings");
+fn astrings_skip_members() -> Vec<&'static str> {
+    raise_check_skipped("astrings")
+}
 
 const ASTRINGS_RAISES_NOTHING: &[(&str, &str)] = &[
     (
@@ -575,7 +560,7 @@ fn every_astrings_member_declares_exactly_the_errors_its_lowering_raises() {
         NONE_U,
         &[],
         &[],
-        ASTRINGS_SKIP_MEMBERS,
+        &astrings_skip_members(),
         1,
     );
 }
@@ -669,7 +654,9 @@ fn every_thread_member_declares_exactly_the_errors_its_lowering_raises() {
 /// plan-165-B: no canvas member is skipped any more — the sweep lowers the
 /// injected-only plumbing (`geoFind`, `sceneSnapshot`, …) against the type model
 /// and globals of a real canvas program (`declared_errors_sweep::PROGRAM_FIXTURES`).
-const CANVAS_SKIP_MEMBERS: &[&str] = raise_check_skipped("canvas");
+fn canvas_skip_members() -> Vec<&'static str> {
+    raise_check_skipped("canvas")
+}
 
 /// `_mfb_make_error_result`/`_mfb_rt_park_error` are the same shared helpers
 /// `fs_declared_errors.rs` classifies (package an already-loaded error code /
@@ -737,14 +724,16 @@ fn every_canvas_member_declares_exactly_the_errors_its_lowering_raises() {
         NONE_U,
         &[],
         &["linux-riscv64"],
-        CANVAS_SKIP_MEMBERS,
+        &canvas_skip_members(),
         1,
     );
 }
 
 /// plan-165-B: `crypto::generate` lowers against a real `KeyPair` layout
 /// (`declared_errors_sweep::PROGRAM_FIXTURES`), so nothing is skipped.
-const CRYPTO_SKIP_MEMBERS: &[&str] = raise_check_skipped("crypto");
+fn crypto_skip_members() -> Vec<&'static str> {
+    raise_check_skipped("crypto")
+}
 
 /// `hash`/`seal`/`open`/`sign`/`verify` each dispatch at runtime to a fixed
 /// `_mfb_ifn_crypto_*` symbol — a companion MFBASIC helper (`add_helper`, not
@@ -880,7 +869,7 @@ fn every_crypto_member_declares_exactly_the_errors_its_lowering_raises() {
         NONE_U,
         &[],
         &[],
-        CRYPTO_SKIP_MEMBERS,
+        &crypto_skip_members(),
         1,
     );
 }

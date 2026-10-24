@@ -58,8 +58,9 @@ pub(crate) const RAISE_CHECKED_PACKAGES: &[&str] = &[
 
 /// Members of a [`RAISE_CHECKED_PACKAGES`] package that its sweep does not lower
 /// (a harness fixture gap, documented at the sweep), so their declarations are
-/// unproved. The sweeps read their skip lists from here.
-pub(crate) const RAISE_CHECK_SKIPPED_MEMBERS: &[(&str, &[&str])] = &[];
+/// unproved: `(package, member)` pairs. The sweeps read their skip lists from here
+/// (`tests/declared_errors_all.rs`, `raise_check_skipped`).
+pub(crate) const RAISE_CHECK_SKIPPED_MEMBERS: &[(&str, &str)] = &[];
 
 /// `general` intrinsics whose every overload has a `general_declared_errors`
 /// row raising nothing. Other `general` members with an empty `errors` list
@@ -67,15 +68,6 @@ pub(crate) const RAISE_CHECK_SKIPPED_MEMBERS: &[(&str, &[&str])] = &[];
 /// outside plan-165-B. `toInt` is total only over a single enum argument, which
 /// the census grants per overload (bug-679), not by name.
 pub(crate) const RAISE_CHECKED_GENERAL_TOTAL: &[&str] = &["len", "typeName"];
-
-/// The members [`RAISE_CHECK_SKIPPED_MEMBERS`] lists for `package` (empty when it
-/// lists none).
-pub(crate) fn raise_check_skipped_members(package: &str) -> &'static [&'static str] {
-    RAISE_CHECK_SKIPPED_MEMBERS
-        .iter()
-        .find(|(name, _)| *name == package)
-        .map_or(&[], |(_, members)| members)
-}
 
 /// Whether `function` (a member of `package`) is proven unable to fail: it has an
 /// inline call-site lowering (`Body::AbiInline` — the only members the census
@@ -113,7 +105,7 @@ pub(crate) fn builtin_is_raise_checked(target: &str) -> bool {
     match target.split_once('.') {
         Some((package, member)) => {
             RAISE_CHECKED_PACKAGES.contains(&package)
-                && !raise_check_skipped_members(package).contains(&member)
+                && !RAISE_CHECK_SKIPPED_MEMBERS.contains(&(package, member))
         }
         None => RAISE_CHECKED_GENERAL_TOTAL.contains(&target),
     }
