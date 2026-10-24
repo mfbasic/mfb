@@ -192,3 +192,41 @@ fn unreadable_or_undeclared_packages_contribute_nothing() {
     assert!(imported_global_defs(dir.path(), &missing).is_empty());
     assert!(imported_type_names(dir.path(), &missing).is_empty());
 }
+
+/// A package that decodes but whose resource table cannot be interpreted (an
+/// entry typed by an id its type table lacks) has that one section skipped,
+/// never the whole read aborted: it contributes no resource closers, and its
+/// types are still read for the importer's names and definitions.
+#[test]
+fn a_package_whose_resource_table_cannot_be_read_still_contributes_its_types() {
+    let dir = tempfile::tempdir().unwrap();
+    let packages = dir.path().join("packages");
+    fs::create_dir_all(&packages).unwrap();
+    let broken = packages.join("broken.mfp");
+    fs::write(
+        &broken,
+        crate::binary_repr::tests::fixtures::mfp_with_an_unresolvable_resource("broken"),
+    )
+    .unwrap();
+    let files = [broken.clone()];
+    assert!(crate::binary_repr::BinaryReprPackageDecode::read(&broken)
+        .unwrap()
+        .resources()
+        .is_err());
+
+    assert!(resource_closers_from_files(&files).is_empty());
+    let defs = imported_type_defs_from_files(&files);
+    assert!(!defs.is_empty(), "the types still read");
+    let declared = parse_project_json(
+        "{\"name\": \"app\", \"version\": \"0.1.0\", \"mfb\": \"1.0\", \"packages\": \
+         [{\"name\": \"broken\", \"version\": \"1.0.0\"}]}",
+        &dir.path().join("project.json"),
+    )
+    .unwrap();
+    let names = imported_type_names(dir.path(), &declared);
+    let broken_names = &names["broken"];
+    for def in &defs {
+        let bare = def.name.rsplit('.').next().unwrap();
+        assert!(broken_names.contains(bare), "{bare} in {broken_names:?}");
+    }
+}

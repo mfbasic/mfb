@@ -123,9 +123,11 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     let attestation = read_mfp_string(&bytes, &mut offset, "attestation", 4096, false)?;
     let _attestation_sig = read_mfp_bytes(&bytes, &mut offset, "attestationSig", 64)?;
 
-    let hash_end = offset
-        .checked_add(32)
-        .ok_or_else(|| "truncated .mfp packageBinaryHash".to_string())?;
+    // From here every step adds a small fixed width to `offset`, which never
+    // exceeds `bytes.len()` (each field read above bounds-checks it) — and a
+    // `Vec` holds at most `isize::MAX` bytes — so none of these additions can
+    // overflow, on any target.
+    let hash_end = offset + 32;
     if hash_end > bytes.len() {
         return Err("truncated .mfp packageBinaryHash".to_string());
     }
@@ -133,27 +135,22 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     package_binary_hash.copy_from_slice(&bytes[offset..hash_end]);
     offset = hash_end;
 
-    // `as usize` would truncate a hostile 64-bit length on a 32-bit target, and
-    // the structural `offset != bytes.len()` check below would then validate the
-    // truncated value instead of the declared one.
-    let binary_repr_length = usize::try_from(read_u64(&bytes, offset)?)
-        .map_err(|_| "invalid .mfp binary representation length".to_string())?;
-    offset = offset
-        .checked_add(8)
-        .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
+    let binary_repr_length = read_u64(&bytes, offset)?;
+    offset += 8;
 
     let signature_type = read_u16(&bytes, offset)?;
     let signature_length = read_u32(&bytes, offset + 2)? as usize;
     // The signature-type/length rule is the wire format's, owned by `mfb_wire`
     // (bug-340 B8, plan-126-B); this reader shares it rather than re-inlining the
-    // same match.
+    // same match. It admits a length of 0 or 64 only.
     validate_signature_header(signature_type, signature_length)?;
-    offset = offset
-        .checked_add(6)
-        .and_then(|offset| offset.checked_add(signature_length))
-        .and_then(|offset| offset.checked_add(binary_repr_length))
-        .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
-    if offset != bytes.len() {
+    offset += 6 + signature_length;
+    // The payload is exactly the rest of the file. The declared length is
+    // compared in `u64`, its wire width, so a hostile 64-bit value is never
+    // narrowed to `usize` (which would truncate it on a 32-bit target and let
+    // the truncated value pass): a length no in-memory file can match is
+    // simply unequal.
+    if offset > bytes.len() || binary_repr_length != (bytes.len() - offset) as u64 {
         return Err("invalid .mfp binary representation length".to_string());
     }
 
@@ -175,7 +172,8 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
         flags,
         signature_type,
         signature_length,
-        binary_repr_length,
+        // Equal to the declared length, checked above.
+        binary_repr_length: bytes.len() - offset,
     })
 }
 

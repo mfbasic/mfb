@@ -287,6 +287,21 @@ pub(crate) fn mfp_with_secondary_close_cleanup(name: &str) -> Vec<u8> {
     wrap_mfp(&lowered.encode(), name, name, "1.0.0")
 }
 
+/// A `.mfp` for package `name` that decodes and names itself, but whose
+/// resource table holds an entry typed by an id the type table does not have:
+/// every section reads, and the resource *interpretation* (`resources()`) is
+/// what fails — the shape of a package from a broken or hostile producer.
+pub(crate) fn mfp_with_an_unresolvable_resource(name: &str) -> Vec<u8> {
+    let metadata = BinaryReprMetadata::new(name.to_string(), "1.0.0".to_string());
+    let mut lowered = lower_project(&rich_project(), &metadata).expect("lower");
+    lowered.resources.entries.push(ResourceEntry {
+        type_id: 0x7fff_fff0,
+        close_function_id: 0,
+        flags: 0,
+    });
+    wrap_mfp(&lowered.encode(), name, name, "1.0.0")
+}
+
 /// Write a `.mfp` byte blob to a temp file and return its path.
 pub(super) fn temp_mfp(bytes: &[u8]) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
