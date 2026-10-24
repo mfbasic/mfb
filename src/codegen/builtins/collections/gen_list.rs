@@ -99,12 +99,9 @@ impl CodeBuilder<'_> {
             match size {
                 1 => self.emit(abi::load_u8(&result, &entry, COLLECTION_HEADER_SIZE)),
                 4 => self.emit(abi::load_u32(&result, &entry, COLLECTION_HEADER_SIZE)),
-                8 => self.emit(abi::load_u64(&result, &entry, COLLECTION_HEADER_SIZE)),
-                other => {
-                    return Err(format!(
-                        "native list get has no {other}-byte fixed-width element load"
-                    ))
-                }
+                // `kind2_payload_size` is `list_element_is_fixed_width`, which answers
+                // 1, 4 or 8 and nothing else, so this is the 8-byte element.
+                _ => self.emit(abi::load_u64(&result, &entry, COLLECTION_HEADER_SIZE)),
             }
             return self.finish_list_get(
                 result,
