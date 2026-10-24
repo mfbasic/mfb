@@ -423,6 +423,7 @@ mod captured_store;
 mod cleanup_registry;
 mod closure_carry;
 mod closure_carry_emitters;
+mod owned_list_drain;
 mod owned_list_pushes;
 mod owner_emitters;
 mod resource_fixtures;
