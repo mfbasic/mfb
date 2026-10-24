@@ -120,8 +120,8 @@ fn a_fallible_call_under_every_wrapper_node_is_lifted_through_it() {
 
 /// Both walks stop at the same depth cap, so a call nested past it is neither
 /// recorded nor rewritten — they still agree, and the shallow fallible call is
-/// lifted as usual. (Such a tree never reaches codegen: the package format's
-/// 256-level nesting limit refuses it, `PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE`.)
+/// lifted as usual. (Such a tree never reaches codegen: the verifier's 256-level
+/// IR nesting cap refuses it, `TYPE_EXPRESSION_TOO_DEEP` from source.)
 #[test]
 fn a_call_past_the_walk_depth_cap_is_left_in_place_by_both_walks() {
     let mut deep = inner_n();
