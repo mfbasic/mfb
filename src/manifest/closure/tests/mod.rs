@@ -1,6 +1,7 @@
 use super::*;
 
 mod compiled;
+mod source_dirs;
 use std::fs;
 
 fn write(path: &Path, contents: &str) {

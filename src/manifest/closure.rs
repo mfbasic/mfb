@@ -38,10 +38,6 @@ use crate::manifest::package::{
 };
 use crate::manifest::parse_project_json;
 
-/// Upper bound on [`reconcile`]'s structural passes. Each pass adds or removes one
-/// entry, so a real closure converges in (entries added + entries removed) passes.
-const MAX_RECONCILE_PASSES: usize = 512;
-
 /// One dependency a declared package needs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Requirement {
@@ -686,7 +682,17 @@ pub(crate) fn reconcile(project_dir: &Path, contents: &str) -> Result<Reconciled
         contents: contents.to_string(),
         ..Reconciled::default()
     };
-    for _ in 0..MAX_RECONCILE_PASSES {
+    // Termination: the passes run in two phases. While anything locatable is
+    // undeclared, a pass declares exactly one new ident (a name clash is an
+    // error, and a declared ident is never declared again), and the idents a
+    // project can reach are finite. Once nothing is left to declare, a pass
+    // removes one orphaned indirect entry; removing an entry only removes
+    // requirements, so nothing becomes undeclared and the first phase never
+    // resumes, and the declared set is finite. So the loop ends after at most
+    // (reachable idents + declared entries) passes — no fixed budget, which a
+    // long but legitimate chain would exceed.
+    let mut removing = false;
+    loop {
         let manifest = parse_project_json(&result.contents, &project_path)?;
         let graph = Graph::read(project_dir, &declared_dependencies(&manifest))?;
 
@@ -721,6 +727,7 @@ pub(crate) fn reconcile(project_dir: &Path, contents: &str) -> Result<Reconciled
             if let Some(file) = &need.install_from {
                 result.installs.push((need.name.clone(), file.clone()));
             }
+            debug_assert!(!removing, "a declaration after orphan removal began");
             result.added.push((need.name, requirer));
             declared_one = true;
             break;
@@ -736,6 +743,7 @@ pub(crate) fn reconcile(project_dir: &Path, contents: &str) -> Result<Reconciled
             result.contents =
                 project_json_without_packages(&result.contents, &[orphan.ident.as_str()])?;
             result.removed.push(orphan.name.clone());
+            removing = true;
             continue;
         }
 
@@ -757,10 +765,6 @@ pub(crate) fn reconcile(project_dir: &Path, contents: &str) -> Result<Reconciled
         result.unresolved = unresolved;
         return Ok(result);
     }
-    Err(format!(
-        "the dependency closure of '{}' did not converge after {MAX_RECONCILE_PASSES} passes",
-        project_path.display()
-    ))
 }
 
 #[cfg(test)]
