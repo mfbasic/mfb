@@ -231,6 +231,17 @@ fn offsets(functions: &[FunctionSymbol], name: &str, offset: u64) -> Result<Vec<
         .collect()
 }
 
+/// Refuse a breakpoint address that is not an instruction start for `arch`.
+fn instruction_boundary(arch: &Arch, address: u64) -> Result<(), String> {
+    if address % arch.alignment == 0 {
+        return Ok(());
+    }
+    Err(format!(
+        "0x{address:016x} is not the start of an instruction: they start every {} bytes",
+        arch.alignment
+    ))
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Breakpoints {
     list: Vec<Breakpoint>,
@@ -451,6 +462,11 @@ impl Breakpoints {
                 .map(|address| describe(&functions, address))
                 .collect(),
         };
+        for breakpoint in &wanted {
+            if let Some(address) = breakpoint.address {
+                instruction_boundary(inferior.arch(), address)?;
+            }
+        }
         let mut lines = Vec::new();
         for mut breakpoint in wanted {
             breakpoint.commands = commands.to_vec();
@@ -764,6 +780,24 @@ impl Breakpoints {
             return table(&["Address", "Count", "Size", "Value", "Commands"], rows);
         }
         table(&["Address", "Count", "Size", "Value"], rows)
+    }
+}
+
+#[cfg(test)]
+mod instruction_alignment_tests {
+    use super::instruction_boundary;
+    use crate::debugger::arm64::AARCH64;
+
+    #[test]
+    fn breakpoint_addresses_must_start_on_instruction_boundaries() {
+        assert_eq!(instruction_boundary(&AARCH64, 0x1100), Ok(()));
+        assert_eq!(
+            instruction_boundary(&AARCH64, 0x1101),
+            Err(
+                "0x0000000000001101 is not the start of an instruction: they start every 4 bytes"
+                    .to_string()
+            )
+        );
     }
 }
 

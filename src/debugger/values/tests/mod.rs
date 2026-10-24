@@ -511,6 +511,7 @@ fn views_parse_their_types_indexes_and_ranges() {
         })
     );
     assert_eq!(Span::parse("5..5"), None);
+    assert_eq!(Span::parse("18446744073709551615"), None);
     assert_eq!(
         parse_view("list", &["resource", "0..2"], ""),
         Ok(View::List {
