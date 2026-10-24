@@ -4,6 +4,8 @@ use crate::codegen::memory::data::data_objects::collect_function_ref_names;
 use crate::target::shared::nir::NirModule;
 use crate::testutil::{nir_for_src, CodeTarget};
 
+mod edges;
+
 fn lower(source: &str) -> NirModule {
     nir_for_src(
         source,
