@@ -24,10 +24,25 @@ impl TypeEnv {
         depth: usize,
     ) {
         if depth > MAX_DEPTH {
-            self.emit(
-                VERIFY_TYPE,
-                format!("expression nesting exceeds the {MAX_DEPTH} level limit"),
-            );
+            // A source program reaches the cap through levels lowering adds
+            // (each union-wrapped argument is a call plus a `UnionWrap`), past
+            // what the parser's own source-level cap counts: report it at the
+            // source line as a source rule. The package path keeps the
+            // structural refusal for crafted IR.
+            if self.source_path.get() {
+                self.emit(
+                    "TYPE_EXPRESSION_TOO_DEEP",
+                    format!(
+                        "Expression nesting is too deep: it lowers to more than {MAX_DEPTH} \
+                         nested levels."
+                    ),
+                );
+            } else {
+                self.emit(
+                    VERIFY_TYPE,
+                    format!("expression nesting exceeds the {MAX_DEPTH} level limit"),
+                );
+            }
             return;
         }
         // bug-517: consumed here, by EVERY node, so the flag reaches only the one

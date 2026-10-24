@@ -1,6 +1,7 @@
 use super::*;
 use crate::types::ParameterType;
 
+mod expression_depth;
 mod inline_trap_hoist_shapes;
 mod inline_trap_short_circuit;
 
