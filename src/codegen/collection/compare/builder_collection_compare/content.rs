@@ -169,6 +169,23 @@ impl CodeBuilder<'_> {
                 "native content comparison has no block routine for type '{type_}'"
             ));
         }
+        self.enter_content_routine(walk, type_, shape, left, right);
+        Ok(())
+    }
+
+    /// Branch into the routine for `type_` (creating it on first use) and come back.
+    /// The callers inside the walk pass a shape they have already seen is a block —
+    /// a list element whose bytes do not decide, an inlined record field, a union
+    /// variant's record. A word-shaped routine would still be refused, by
+    /// [`Self::emit_content_routine`], when its body is emitted.
+    fn enter_content_routine(
+        &mut self,
+        walk: &mut ContentWalk,
+        type_: &ParameterType,
+        shape: ContentShape,
+        left: abi::Reg,
+        right: abi::Reg,
+    ) {
         let number = match walk.by_type.get(type_) {
             Some(number) => *number,
             None => {
@@ -203,7 +220,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(place, abi::stack_pointer(), return_slot));
         self.emit(abi::branch(&entry));
         self.emit(abi::label(&back));
-        Ok(())
     }
 
     fn emit_content_routine(
@@ -272,12 +288,10 @@ impl CodeBuilder<'_> {
         }
         // An entry-free list is its elements end to end, in index order, with nothing
         // between them: one range.
+        // Every fixed-width element (`list_element_is_fixed_width`: Nothing, Boolean,
+        // Byte, Scalar, Integer, Float, Fixed, Money) is a `Word` in `content_shape`,
+        // and `Nothing`'s `Unit` returned above, so the range compare is always right.
         if let Some(width) = list_element_is_fixed_width(element) {
-            if !matches!(shape, ContentShape::Word) {
-                return Err(format!(
-                    "native content comparison: fixed-width element '{element}' is not a word"
-                ));
-            }
             if width != 1 {
                 let scale = self.temporary_vreg();
                 self.emit(abi::move_immediate(scale, "Integer", &width.to_string()));
@@ -399,13 +413,13 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 right_element_slot,
             ));
-            self.emit_content_call_shaped(
+            self.enter_content_routine(
                 walk,
                 element,
                 shape,
                 (&left_element).into(),
                 (&right_element).into(),
-            )?;
+            );
         }
         self.emit(abi::label(&next));
         let bumped = self.temporary_vreg();
@@ -513,13 +527,13 @@ impl CodeBuilder<'_> {
                     }
                 }
                 None => {
-                    self.emit_content_call_shaped(
+                    self.enter_content_routine(
                         walk,
                         field,
                         shape,
                         (&left_block).into(),
                         (&right_block).into(),
-                    )?;
+                    );
                     bases_held = false;
                 }
             }
@@ -631,13 +645,13 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::add_immediate(left_record, left_record, 16));
             self.emit(abi::add_immediate(right_record, right_record, 16));
-            self.emit_content_call_shaped(
+            self.enter_content_routine(
                 walk,
                 &variant,
                 ContentShape::Record(fields),
                 (&left_record).into(),
                 (&right_record).into(),
-            )?;
+            );
             self.emit(abi::branch(exit));
         }
         Ok(())
