@@ -105,3 +105,39 @@ fn a_destination_return_declines_anything_but_a_with_over_its_parameter() {
         declined(builder, &with_over("q"));
     });
 }
+
+/// `plan_returned_move` takes the binding's cleanup only for an owning local:
+/// bug-536 B-2, a constant-folded `String` (its reads are the rodata literal, so
+/// there is no block to hand over), and a by-reference local are declined, with the
+/// cleanup stack left as it was.
+#[test]
+fn a_returned_move_declines_a_folded_string_and_a_reference() {
+    with_builder(|builder| {
+        let local = |name: &str| NirValue::Local(name.to_string());
+        let folded = builder.allocate_stack_object("s", 8);
+        builder.locals.insert(
+            "s".to_string(),
+            LocalValue {
+                type_: ParameterType::String,
+                stack_offset: folded,
+                constant: Some(NirValue::Const {
+                    type_: ParameterType::String,
+                    value: "hello".to_string(),
+                }),
+                by_ref: false,
+            },
+        );
+        owned(builder, folded);
+        let cleanups = builder.active_cleanups.len();
+        assert!(builder.plan_returned_move(Some(&local("s"))).is_none());
+        let slot = bind(builder, "r", true);
+        owned(builder, slot);
+        assert!(builder.plan_returned_move(Some(&local("r"))).is_none());
+        assert_eq!(builder.active_cleanups.len(), cleanups + 1, "nothing taken");
+        builder.locals.get_mut("r").expect("bound").by_ref = false;
+        assert!(
+            builder.plan_returned_move(Some(&local("r"))).is_some(),
+            "an owning local's block moves"
+        );
+    });
+}
