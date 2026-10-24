@@ -184,3 +184,16 @@ fn installed_files_that_cannot_be_deleted_are_left_with_a_warning() {
     // A package with nothing installed has nothing to delete.
     remove_installed_package_files(dir.path(), "never-installed");
 }
+
+/// A project with no `project.json` is refused before anything is read or
+/// removed, naming the manifest path.
+#[test]
+fn removing_from_a_directory_without_a_manifest_names_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = dir.path().join("project.json");
+    let err = run_remove(dir.path(), "ada#solo", true).unwrap_err();
+    assert!(
+        err.starts_with(&format!("failed to read '{}': ", manifest.display())),
+        "{err}"
+    );
+}
