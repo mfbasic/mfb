@@ -68,32 +68,9 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     }
     // A resource-union bind drops by dispatching to each variant's close op
     // (codegen-emitted on scope exit), so pull in every variant's close helper.
-    let bind_types = resource_union_names_in_use(module);
-    // bug-851: a `RESOURCE`-declared variant counts toward an all-resource union;
-    // its own close is a LINK thunk the module already emits, so only the
-    // built-in variants' close helpers are added below.
-    let declared_resources =
-        crate::codegen::engine::validation::validation::module_resource_names(module);
-    for type_ in &module.types {
-        if type_.kind != "union"
-            || !bind_types.contains(&type_.name)
-            || type_.variants.is_empty()
-            || !type_.variants.iter().all(|variant| {
-                let variant = crate::types::ParameterType::declared(&variant.name);
-                crate::codegen::builtins::is_resource_type(&variant)
-                    || declared_resources.contains(&variant)
-            })
-        {
-            continue;
-        }
-        for variant in &type_.variants {
-            if let Some(close) = crate::codegen::builtins::resource_close_function(
-                &crate::types::ParameterType::declared(&variant.name),
-            ) {
-                if let Some(helper) = runtime::helper_for_call(close) {
-                    push_unique(&mut symbols, runtime::symbol_for_call(helper, close));
-                }
-            }
+    for close in resource_union_variant_closes(module) {
+        if let Some(helper) = runtime::helper_for_call(close) {
+            push_unique(&mut symbols, runtime::symbol_for_call(helper, close));
         }
     }
     // The term:: auto-restore-on-exit (plan-01-term.md §6.5) emits `term::off`
@@ -267,32 +244,9 @@ pub(super) fn platform_imports(
     // without this a scope-dropped resource union whose variant close needs a
     // unique import (e.g. audio's `_munmap`) fails the emitter's
     // `platform_imports.get("_X")` lookup on valid source (bug-209).
-    let bind_types = resource_union_names_in_use(module);
-    // bug-851: a `RESOURCE`-declared variant counts toward an all-resource union;
-    // its own close is a LINK thunk the module already emits, so only the
-    // built-in variants' close helpers are added below.
-    let declared_resources =
-        crate::codegen::engine::validation::validation::module_resource_names(module);
-    for type_ in &module.types {
-        if type_.kind != "union"
-            || !bind_types.contains(&type_.name)
-            || type_.variants.is_empty()
-            || !type_.variants.iter().all(|variant| {
-                let variant = crate::types::ParameterType::declared(&variant.name);
-                crate::codegen::builtins::is_resource_type(&variant)
-                    || declared_resources.contains(&variant)
-            })
-        {
-            continue;
-        }
-        for variant in &type_.variants {
-            if let Some(close) = crate::codegen::builtins::resource_close_function(
-                &crate::types::ParameterType::declared(&variant.name),
-            ) {
-                for import in platform_imports_for_runtime_call(platform, close) {
-                    push_platform_import(&mut imports, import);
-                }
-            }
+    for close in resource_union_variant_closes(module) {
+        for import in platform_imports_for_runtime_call(platform, close) {
+            push_platform_import(&mut imports, import);
         }
     }
     // The term:: auto-restore-on-exit (plan-01-term.md §6.5) emits `term::off`
@@ -465,6 +419,43 @@ fn os_env_lock_helper_symbols(module: &NirModule) -> Vec<String> {
         })
         .filter(|helper| symbols.iter().any(|symbol| symbol == helper))
         .collect()
+}
+
+/// The built-in close op of each variant of every all-resource union `module`
+/// binds. A resource-union bind drops by dispatching to its active variant's close
+/// (codegen-emitted on scope exit), so each of those closes must be defined and
+/// its platform imports present. bug-851: a `RESOURCE`-declared variant counts
+/// toward an all-resource union, but its own close is a LINK thunk the module
+/// already emits, so it adds nothing here.
+fn resource_union_variant_closes(module: &NirModule) -> Vec<&'static str> {
+    let bind_types = resource_union_names_in_use(module);
+    let declared_resources =
+        crate::codegen::engine::validation::validation::module_resource_names(module);
+    let mut closes = Vec::new();
+    for type_ in &module.types {
+        if type_.kind != "union" || !bind_types.contains(&type_.name) || type_.variants.is_empty() {
+            continue;
+        }
+        let variants: Vec<ParameterType> = type_
+            .variants
+            .iter()
+            .map(|variant| ParameterType::declared(&variant.name))
+            .collect();
+        if !variants.iter().all(|variant| {
+            crate::codegen::builtins::is_resource_type(variant)
+                || declared_resources.contains(variant)
+        }) {
+            continue;
+        }
+        for variant in &variants {
+            if let Some(close) = crate::codegen::builtins::resource_close_function(variant) {
+                if !closes.contains(&close) {
+                    closes.push(close);
+                }
+            }
+        }
+    }
+    closes
 }
 
 /// bug-842: the builtin close op of every resource a call in `module` can hand back

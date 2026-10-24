@@ -1045,7 +1045,14 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // the export's own spelling, so the two `declared` calls that keyed them
     // bare are gone (`resolver::packages::install_package_type_names`).
     ("declared_sites", "resolver", 6),
-    ("declared_sites", "target", 8),
+    // 8 -> 6: the object plan's two all-resource-union blocks (runtime symbols
+    // and platform imports) each converted every variant name twice; they now
+    // share `resource_union_variant_closes`, which converts each once (-3).
+    // `produced_resource_closes` walks a returned union's variants to their
+    // resource leaves, and a variant may itself be a built-in resource
+    // (`UNION Handle fs::File tcp::Socket`), so its name crosses into the type
+    // domain there too (+1).
+    ("declared_sites", "target", 6),
     ("str_type_params", "codegen", 3),
 ];
 

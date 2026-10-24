@@ -534,9 +534,12 @@ impl<'a> Monomorphizer<'a> {
                         concrete_type = Some(self.instantiate_type(expected_name.resolve(), &args));
                     }
                 }
+                // The written nominal: the record whose fields a non-generic
+                // constructor fills, and the key of a generic one's template.
+                let template_key = ParameterType::declared(&type_name);
                 let field_types = concrete_type
                     .clone()
-                    .or_else(|| Some(ParameterType::declared(&type_name)))
+                    .or_else(|| Some(template_key.clone()))
                     .and_then(|type_| self.record_fields(&type_).cloned());
                 let lowered_args = arguments
                     .iter()
@@ -553,7 +556,6 @@ impl<'a> Monomorphizer<'a> {
                         )
                     })
                     .collect::<Vec<_>>();
-                let template_key = ParameterType::declared(&type_name);
                 if concrete_type.is_none() && self.type_templates.contains_key(&template_key) {
                     let Some(template) = self.type_templates.get(&template_key).cloned() else {
                         unreachable!();
