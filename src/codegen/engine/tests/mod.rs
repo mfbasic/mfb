@@ -21,6 +21,8 @@ mod closure_creation_refusals;
 #[cfg(test)]
 mod closure_value_forms;
 #[cfg(test)]
+mod cold_block_placement;
+#[cfg(test)]
 mod concat_spine;
 #[cfg(test)]
 mod conversion_refusals;
