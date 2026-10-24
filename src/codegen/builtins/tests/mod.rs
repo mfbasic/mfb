@@ -105,6 +105,7 @@ mod lowering_shapes;
 mod lowering_shapes_fields;
 mod lowering_targets;
 mod marshal_record;
+mod marshal_record_refusals;
 mod math;
 mod math_dispatch;
 mod mfb_body_declared_errors;
