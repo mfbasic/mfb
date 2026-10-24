@@ -83,6 +83,8 @@ mod return_move_declines;
 #[cfg(test)]
 mod small_units;
 #[cfg(test)]
+mod snapshot_capture_operand;
+#[cfg(test)]
 mod snapshot_forms;
 #[cfg(test)]
 mod statement_temp_edges;
