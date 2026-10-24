@@ -51,6 +51,7 @@ mod collection_misuse;
 mod collection_native_refusals;
 mod collections;
 mod content_equal;
+mod content_equal_refusals;
 mod control_forms;
 mod corpus;
 mod corpus_rest;
