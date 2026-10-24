@@ -36,6 +36,14 @@ impl CodeBuilder<'_> {
         let start = self.instructions.len();
         self.emit(abi::label(label));
         body(self)?;
+        self.place_cold_block(start);
+        Ok(())
+    }
+
+    /// The placement half of [`Self::emit_cold_block`], over the block emitted from
+    /// `start`. It does not depend on the body's closure type, so it is one function
+    /// rather than a copy per call site.
+    fn place_cold_block(&mut self, start: usize) {
         // The block may leave by `ret`, or by a branch to an error-return pad:
         // the pads are appended after the cold code, so that branch stays
         // forward. A branch to anything else (a `TRAP` handler, a raw-result
@@ -62,7 +70,6 @@ impl CodeBuilder<'_> {
             self.instructions.insert(start, abi::branch(&join));
             self.emit(abi::label(&join));
         }
-        Ok(())
     }
 
     pub(crate) fn emit_symbol_call(&mut self, symbol: &str) {
