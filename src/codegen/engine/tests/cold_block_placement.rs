@@ -48,7 +48,7 @@ fn a_block_that_rejoins_stays_inline_behind_a_skip() {
         let register = builder.allocate_register();
         builder
             .emit_cold_block("rejoins", |builder| {
-                builder.emit(abi::move_immediate(&register, "Integer", "1"));
+                builder.emit(abi::move_immediate(register, "Integer", "1"));
                 Ok(())
             })
             .expect("the block emits");

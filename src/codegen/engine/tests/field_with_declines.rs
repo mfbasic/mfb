@@ -66,7 +66,7 @@ fn with_p(updates: Vec<NirRecordUpdate>) -> NirValue {
 fn an_in_place_with_declines_what_does_not_rebuild_its_owner() {
     with_builder(|builder| {
         let owner = FieldContainer::Record { local: "p" };
-        let mut handled = |builder: &mut CodeBuilder<'_>, value: &NirValue| {
+        let handled = |builder: &mut CodeBuilder<'_>, value: &NirValue| {
             builder
                 .try_inplace_scalar_fields(owner, value)
                 .expect("a decline is not an error")
