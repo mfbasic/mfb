@@ -142,3 +142,55 @@ fn a_type_kind_the_model_does_not_know_is_refused() {
         "native code plan does not know type kind 'bogus'"
     );
 }
+
+/// bug-781: one environment routine serves every site that creates a `LAMBDA`, so
+/// two functions creating it must record the same environment layout. Here a
+/// second function creates `main`'s lambda over an `Integer` where `main` captures
+/// a `String` (an owned word against a plain one): the module is refused when the
+/// routines are emitted, naming the environment, instead of copying and dropping
+/// one function's environment with the other's layout.
+#[test]
+fn a_lambda_created_with_two_layouts_across_functions_is_refused() {
+    use crate::target::shared::nir::{NirOp, NirValue};
+    let source = "IMPORT collections\nIMPORT io\n\nFUNC helper() AS Integer\n  RETURN 1\n\
+                  END FUNC\n\nFUNC main() AS Integer\n  LET s AS String = io::readLine()\n  \
+                  collections::forEach([1], LAMBDA(v AS Integer) -> io::print(s))\n  \
+                  RETURN helper()\nEND FUNC\n";
+    lower(&module(source)).expect("the program as written lowers");
+    let plan = crate::target::linux_x86_64::plan::lower_module(&module(source), Glibc)
+        .expect("the probe plans");
+    let mut twice = module(source);
+    let creates_lambda = twice
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main")
+        .body
+        .iter()
+        .find(|op| matches!(op, NirOp::Eval { .. }))
+        .expect("main's forEach creates the lambda")
+        .clone();
+    let helper = twice
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "helper")
+        .expect("helper");
+    helper.body.insert(
+        0,
+        NirOp::Bind {
+            mutable: false,
+            name: "s".to_string(),
+            type_: ParameterType::Integer,
+            value: Some(NirValue::Const {
+                type_: ParameterType::Integer,
+                value: "1".to_string(),
+            }),
+        },
+    );
+    helper.body.insert(1, creates_lambda);
+    let err = lower_with(&twice, &plan).expect_err("two layouts for one environment");
+    assert!(
+        err.starts_with("closure environment `") && err.contains("is created with two layouts"),
+        "{err}"
+    );
+}
