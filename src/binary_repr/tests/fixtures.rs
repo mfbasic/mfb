@@ -302,6 +302,31 @@ pub(crate) fn mfp_with_an_unresolvable_resource(name: &str) -> Vec<u8> {
     wrap_mfp(&lowered.encode(), name, name, "1.0.0")
 }
 
+/// The `.mfp` at `path` re-encoded with every import (and its matching ABI
+/// dependency edge) recording `ident` as the imported package's ident. The
+/// writer always records an ident (the name when none was given), so an empty
+/// or self-naming ident only arrives from another producer; this fixture is
+/// how a reader of the import table is tested against one.
+pub(crate) fn mfp_with_import_ident(path: &std::path::Path, ident: &str) -> Vec<u8> {
+    let bytes = std::fs::read(path).expect("read the .mfp");
+    let container = mfp_binary_repr_payload(&bytes).expect("a valid container");
+    let identity = &container.identity;
+    let mut package = read_binary_repr_package(container.binary_repr).expect("decode");
+    let id = package.project.strings.intern(ident);
+    for entry in &mut package.project.imports.entries {
+        entry.package_ident = id;
+    }
+    for edge in &mut package.project.abi.dep_edges {
+        edge.package_ident = id;
+    }
+    wrap_mfp(
+        &package.project.encode(),
+        &identity.name,
+        &identity.ident,
+        &identity.version,
+    )
+}
+
 /// Write a `.mfp` byte blob to a temp file and return its path.
 pub(super) fn temp_mfp(bytes: &[u8]) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};

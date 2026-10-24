@@ -569,3 +569,65 @@ fn an_entry_whose_ident_is_not_a_string_is_edited_by_its_name() {
         (Some(true), Some(vec![]))
     );
 }
+
+/// Rewrite the installed (and sibling) `user.mfp` so its import records
+/// `ident` for `base`.
+fn record_import_ident(paths: &[PathBuf], ident: &str) {
+    for path in paths {
+        let bytes = crate::binary_repr::tests::fixtures::mfp_with_import_ident(path, ident);
+        fs::write(path, bytes).unwrap();
+    }
+}
+
+/// An import table that records no ident for an import (a producer older than
+/// idents) names the package by its name: the closure declares `base` with
+/// ident `base`, required by `user`, exactly as for an ident-recording one.
+#[test]
+fn an_import_recorded_without_an_ident_is_named_by_its_package_name() {
+    let fixture = Fixture::new("ada#base");
+    let app = fixture.app();
+    record_import_ident(
+        &[
+            app.join("packages/user.mfp"),
+            fixture.libs().join("user.mfp"),
+        ],
+        "",
+    );
+    let contents = manifest(&entry("user", "file:../libs/user.mfp"));
+    let result = reconcile(&app, &contents).unwrap();
+    assert_eq!(result.added, vec![("base".to_string(), "user".to_string())]);
+    let declared = declared_dependencies(&parsed(&app, &result.contents));
+    let base = declared.iter().find(|d| d.name == "base").unwrap();
+    assert_eq!(base.ident, "base");
+    assert_eq!(base.required_by, Some(vec!["user".to_string()]));
+}
+
+/// The installed-package conflict check reads the same import tables: an
+/// import recorded without an ident is matched to the declared package by
+/// name (so a broken pin is still reported), and an import that names the
+/// importing package itself is never checked against itself.
+#[test]
+fn conflicts_match_an_identless_import_by_name_and_skip_a_self_import() {
+    let root = tempfile::tempdir().unwrap();
+    let base2 = package(
+        &root.path().join("base2"),
+        "base",
+        "2.0.0",
+        vec![function("helper", "Integer", None)],
+        &[],
+    );
+    let (app, _) = installed_pair(root.path(), base2, true);
+    let user = app.join("packages/user.mfp");
+
+    record_import_ident(std::slice::from_ref(&user), "");
+    let found = conflicts(&app, &parsed(&app, &both_declared()));
+    assert!(
+        found
+            .iter()
+            .any(|c| c.name == "base" && matches!(c.kind, ConflictKind::Pin { .. })),
+        "the identless import is still checked against `base`"
+    );
+
+    record_import_ident(std::slice::from_ref(&user), "user");
+    assert!(conflicts(&app, &parsed(&app, &both_declared())).is_empty());
+}
