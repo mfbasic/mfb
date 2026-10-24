@@ -131,12 +131,6 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
-    /// The inverse of [`concrete_type`](Self::concrete_type): rewrite a mangled
-    /// concrete type back to its template spelling, for diagnostics.
-    ///
-    /// plan-106-E: structural, like its twin. The user-generic arm stays a LOOKUP
-    /// in `type_instantiations` — a mangled name is a plain nominal, so it can only
-    /// be recognized that way, never by parsing.
     /// The enum type `target.member` names when `target` is a declared enum and
     /// `member` one of its members (`Color.Blue`), else `None`.
     fn enum_member_type(&self, target: &HirExpression, member: &str) -> Option<ParameterType> {
@@ -160,6 +154,12 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
+    /// The inverse of [`concrete_type`](Self::concrete_type): rewrite a mangled
+    /// concrete type back to its template spelling, for diagnostics.
+    ///
+    /// plan-106-E: structural, like its twin. The user-generic arm stays a LOOKUP
+    /// in `type_instantiations` — a mangled name is a plain nominal, so it can only
+    /// be recognized that way, never by parsing.
     pub(super) fn template_view(&self, type_: &ParameterType) -> ParameterType {
         match type_ {
             ParameterType::ListOf(element) => ParameterType::list_of(self.template_view(element)),

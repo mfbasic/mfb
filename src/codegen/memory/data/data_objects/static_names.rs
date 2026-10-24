@@ -140,9 +140,12 @@ pub(crate) fn static_type_name_for_fold_with_types(
         // it to the enum's spelling; this pre-pass must intern that same string,
         // or `"x" & typeName(Colour.Red)` folds to a literal with no data object.
         NirValue::MemberAccess { target, member } => match target.as_ref() {
-            NirValue::Local(type_name) if !types.contains_key(type_name) => {
-                fields.enum_declaring(type_name, member).cloned()
-            }
+            NirValue::Local(type_name) if !types.contains_key(type_name) => fields
+                .enums()
+                .find(|(enum_type, members)| {
+                    enum_type.name() == *type_name && members.contains(member)
+                })
+                .map(|(enum_type, _)| enum_type.clone()),
             // The builder's fold also names a stateful resource's `.state` and a
             // field read off it (`typeName(h.state.pos)`): the same arms here, or
             // `"x" & typeName(h.state.pos)` folds to an uninterned literal.

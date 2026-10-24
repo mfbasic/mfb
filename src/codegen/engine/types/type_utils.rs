@@ -80,15 +80,11 @@ impl FieldTypes {
         self.function_returns.get(name)
     }
 
-    /// The enum type named `type_name` that declares `member`, if any: what
-    /// `Colour.Red` is the member of when `Colour` is a type, not a binding.
-    pub(crate) fn enum_declaring(&self, type_name: &str, member: &str) -> Option<&ParameterType> {
+    /// Every enum this table knows, with its member names in declaration order.
+    pub(crate) fn enums(&self) -> impl Iterator<Item = (&ParameterType, &[String])> {
         self.enums
             .iter()
-            .find(|(enum_type, members)| {
-                enum_type.name() == type_name && members.iter().any(|name| name == member)
-            })
-            .map(|(enum_type, _)| enum_type)
+            .map(|(enum_type, members)| (enum_type, members.as_slice()))
     }
 
     /// Every enum `model` knows — the module's own, the imported packages', and
