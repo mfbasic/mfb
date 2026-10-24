@@ -365,26 +365,14 @@ fn lower_module_functions(
     // an empty set until Phase 2 wires the caller side up, so codegen here is
     // byte-identical.
     {
-        let mut emitted: HashSet<(String, u64)> = HashSet::new();
-        let mut pending: Vec<(String, u64)> = variant_demand(
+        let demand = variant_demand(
             module,
             functions,
             type_model,
             &callback_referenced_functions,
-        )
-        .into_iter()
-        .collect();
-        pending.sort();
-        while let Some((name, mask)) = pending.pop() {
-            if !emitted.insert((name.clone(), mask)) {
-                continue;
-            }
-            let Some(function) = functions.get(name.as_str()) else {
-                return Err(format!(
-                    "plan-147-D: an owned variant was demanded for `{name}`, which is \
-                     not a function of this module"
-                ));
-            };
+        );
+        // Highest `(name, mask)` first: the order the variants are emitted in.
+        for &(function, mask) in demand.iter().rev() {
             let base = nir::function_symbol(&function.name);
             let symbol =
                 crate::codegen::engine::function::function_lowering::OwnedVariant::symbol_for(
@@ -426,32 +414,31 @@ fn lower_module_functions(
                 &mut closure_env_layouts,
             )?);
         }
-        crate::trace::count("owned variants", emitted.len() as u64);
+        crate::trace::count("owned variants", demand.len() as u64);
     }
     // bug-784: the destination variants (`analysis::into_dest`). The sites are a
     // function of each function's NIR alone, which every lowering of it — base,
     // owned or destination variant — shares, so this one pass covers them all.
     {
-        let mut demand: Vec<(String, usize)> =
+        // `collect_into_sites` records a callee only after finding it in this same
+        // `functions` map (into_dest.rs), so every demanded name resolves here.
+        // In `(name, param)` order: the order the variants are emitted in.
+        let demand: Vec<(&NirFunction, usize)> =
             crate::codegen::engine::analysis::into_dest::demanded_into_variants(
                 &module.functions,
                 type_model,
                 functions,
             )
             .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .filter_map(|(name, param)| functions.get(name.as_str()).map(|f| (*f, param)))
             .collect();
-        demand.sort();
-        for (name, param) in &demand {
-            let Some(function) = functions.get(name.as_str()) else {
-                return Err(format!(
-                    "bug-784: a destination variant was demanded for `{name}`, which is \
-                     not a function of this module"
-                ));
-            };
+        for &(function, param) in &demand {
             let base = nir::function_symbol(&function.name);
             let symbol =
                 crate::codegen::engine::function::function_lowering::OwnedVariant::into_symbol_for(
-                    &base, *param,
+                    &base, param,
                 );
             if function_symbols
                 .values()
@@ -464,7 +451,7 @@ fn lower_module_functions(
             }
             let variant = crate::codegen::engine::function::function_lowering::OwnedVariant {
                 mask: 0,
-                into: Some(*param),
+                into: Some(param),
                 symbol,
             };
             code_functions.push(lower_function(
@@ -532,40 +519,51 @@ pub(crate) fn lower_module_mir_for_platform(
 /// deriving the demand some other way — is what guarantees that every variant symbol
 /// a caller emits is a variant this loop actually lowers; a mismatch would be an
 /// undefined symbol at link time.
-fn variant_demand(
+fn variant_demand<'f>(
     module: &NirModule,
-    functions: &HashMap<String, &NirFunction>,
+    functions: &HashMap<String, &'f NirFunction>,
     type_model: &TypeModel,
     callback_referenced: &HashSet<String>,
-) -> HashSet<(String, u64)> {
+) -> Vec<(&'f NirFunction, u64)> {
     // A FIXPOINT over `(function, mask)`: a variant's body owns parameters the base
     // does not, so it can approve hand-overs the base cannot and ask for further
     // variants. `fill(collections::append(xs, n), n - 1)` is the shape that needs it —
     // only inside `fill$own1` is `xs` owned, and only there is the recursive call's
     // argument handed on. The set is finite (one function has at most `2^params`
     // masks, and only masks a real site names are requested), so this terminates.
+    //
+    // `collect_handover_args` names a callee only after resolving it through this
+    // same `functions` map (handover.rs, H5: `callees.get(target)`), so each demanded
+    // name resolves; the pairs are kept resolved from here on.
     let empty = crate::codegen::engine::analysis::handover::ParamSet::new();
-    let mut demand: HashSet<(String, u64)> = HashSet::new();
-    let mut pending: Vec<(String, u64)> = Vec::new();
-    for function in &module.functions {
+    let mut demand: std::collections::BTreeSet<(String, u64)> = Default::default();
+    let mut found: Vec<(&'f NirFunction, u64)> = Vec::new();
+    let mut ask = |function: &NirFunction,
+                   owned: &crate::codegen::engine::analysis::handover::ParamSet,
+                   found: &mut Vec<(&'f NirFunction, u64)>| {
         for (name, mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
             function,
             type_model,
             functions,
-            &empty,
+            owned,
             callback_referenced,
         )
         .demanded_variants()
         {
-            if demand.insert((name.clone(), mask)) {
-                pending.push((name, mask));
+            if let Some(callee) = functions
+                .get(name.as_str())
+                .filter(|_| demand.insert((name.clone(), mask)))
+            {
+                found.push((*callee, mask));
             }
         }
+    };
+    for function in &module.functions {
+        ask(function, &empty, &mut found);
     }
-    while let Some((name, mask)) = pending.pop() {
-        let Some(function) = functions.get(name.as_str()) else {
-            continue;
-        };
+    let mut next = 0;
+    while let Some(&(function, mask)) = found.get(next) {
+        next += 1;
         let owned: crate::codegen::engine::analysis::handover::ParamSet = function
             .params
             .iter()
@@ -573,19 +571,11 @@ fn variant_demand(
             .filter(|(index, _)| *index < 64 && mask & (1u64 << index) != 0)
             .map(|(_, param)| param.name.clone())
             .collect();
-        for (next, next_mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
-            function,
-            type_model,
-            functions,
-            &owned,
-            callback_referenced,
-        )
-        .demanded_variants()
-        {
-            if demand.insert((next.clone(), next_mask)) {
-                pending.push((next, next_mask));
-            }
-        }
+        ask(function, &owned, &mut found);
     }
+    // In `(name, mask)` order, each resolved as `ask` did.
     demand
+        .into_iter()
+        .filter_map(|(name, mask)| functions.get(name.as_str()).map(|f| (*f, mask)))
+        .collect()
 }
