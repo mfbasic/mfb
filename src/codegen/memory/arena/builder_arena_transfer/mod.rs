@@ -52,52 +52,15 @@ enum BlockLength {
     CString,
 }
 
-/// bug-565: what a raw result tag says about who owns the `Error` behind it, at
-/// the moment an inline `TRAP` assembles its `Result`.
-///
-/// The trapped-error assembly ADOPTS on one tag and REBUILDS on the others, and
-/// then frees what it ended up holding. Getting that partition wrong in the
-/// adopt direction is a double free, so it is written once, here, as a total
-/// function over the tag vocabulary — `tests::the_result_tag_partition_is_total`
-/// pins it against the `RESULT_*_TAG` constants actually declared in
-/// `error_constants.rs`, so adding a fifth tag reds a test instead of silently
-/// falling into `LooseRegisters`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TrappedErrorTagClass {
-    /// `RESULT_OK_TAG` — not an error at all; the wrap-error branch is not taken.
-    NotAnError,
-    /// `RESULT_ERR_BLOCK_TAG` — the raiser built ONE owned flat `Error` block and
-    /// PARKED it in the per-thread current-error slot for the catcher to adopt
-    /// (design "b"). Rebuilding here orphans it, which is half of bug-565.
-    ParkedBlock,
-    /// `RESULT_ERR_TAG` (a legacy/OOM-degraded loose error) and
-    /// `RESULT_PROGRAM_EXIT_TAG`. No block is parked; the flat `Error` must be
-    /// rebuilt from the registers. A program exit never actually reaches the
-    /// assembly: every inline-`TRAP` lowering re-propagates it first
-    /// (`emit_inline_trap_program_exit_passthrough`, bug-841) — its message
-    /// register is zero, so a rebuild would dereference null.
-    LooseRegisters,
-}
-
-/// The class of `tag`, which must be one of the `RESULT_*_TAG` constants.
-pub(crate) fn trapped_error_tag_class(tag: &str) -> TrappedErrorTagClass {
-    match tag {
-        RESULT_OK_TAG => TrappedErrorTagClass::NotAnError,
-        RESULT_ERR_BLOCK_TAG => TrappedErrorTagClass::ParkedBlock,
-        RESULT_ERR_TAG | RESULT_PROGRAM_EXIT_TAG => TrappedErrorTagClass::LooseRegisters,
-        // Unreachable for the declared vocabulary (the test above proves the
-        // vocabulary is exactly those four). An unknown tag is treated as a loose
-        // error: it REBUILDS, which leaks at worst, rather than adopting a slot
-        // nobody parked and freeing a block someone else owns.
-        _ => TrappedErrorTagClass::LooseRegisters,
-    }
-}
-
-/// The one tag whose error arrives as a parked, adoptable block — the emitter's
-/// compare. [`trapped_error_tag_class`] classifies exactly this tag as
-/// `ParkedBlock`, and `tests::exactly_one_tag_is_adoptable_and_the_emitter_uses_it`
-/// pins that against the declared `RESULT_*_TAG` vocabulary, so the compare the
-/// generated code performs cannot drift from the classification without a red test.
+/// bug-565: the one `Result` tag whose error arrives as a parked, adoptable flat
+/// `Error` block — the emitter's compare. The trapped-error assembly ADOPTS on this
+/// tag and REBUILDS on every other; getting that wrong in the adopt direction is a
+/// double free. The partition of the whole tag vocabulary lives beside its pins in
+/// `tests/mod.rs` (`TrappedErrorTagClass`): `the_result_tag_partition_is_total` reads
+/// the `RESULT_*_TAG` constants actually declared in `error_constants.rs`, and
+/// `exactly_one_tag_is_adoptable_and_the_emitter_uses_it` asserts this is the one
+/// `ParkedBlock` tag — so a fifth tag, or a second adoptable one, reds a test
+/// instead of drifting from this compare.
 fn adoptable_error_tag() -> &'static str {
     RESULT_ERR_BLOCK_TAG
 }
