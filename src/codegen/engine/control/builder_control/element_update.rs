@@ -39,7 +39,7 @@ impl CodeBuilder<'_> {
     /// aliases the unchanged element there (no store has run), exactly as in
     /// `lower_element_update`'s own fallback.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn emit_element_replace_or_write_back(
+    pub(crate) fn emit_element_replace_or_write_back(
         &mut self,
         owner: FieldContainer<'_>,
         value: &NirValue,
@@ -302,7 +302,7 @@ impl CodeBuilder<'_> {
     /// slot it was spilled to (`spilled`, in update order) — a nested scalar
     /// `WITH` keeps its target and has each of its own values replaced. The
     /// hidden locals' names are pushed to `hidden` for the caller to unbind.
-    fn element_write_back_item(
+    pub(crate) fn element_write_back_item(
         &mut self,
         value: &NirValue,
         depth: usize,
@@ -368,7 +368,7 @@ impl CodeBuilder<'_> {
     /// bug-784: a [`FieldStoreKind::Nested`] update's `WITH r.inner { … }` with
     /// each of its values replaced by a hidden local bound to its slot (`slots`,
     /// in the inner `WITH`'s order); its target is kept.
-    fn element_nested_write_back_value(
+    pub(crate) fn element_nested_write_back_value(
         &mut self,
         value: &NirValue,
         slots: &[usize],
@@ -569,7 +569,7 @@ impl CodeBuilder<'_> {
     /// bound — its one read is the write-back) or the fused
     /// `xs = set(xs, i, WITH p { … })`, whose `WITH` is the update and which is
     /// its own write-back.
-    pub(super) fn lower_element_update(
+    pub(crate) fn lower_element_update(
         &mut self,
         name: &str,
         site: Option<usize>,

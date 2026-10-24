@@ -31,6 +31,8 @@ mod default_res_fields;
 #[cfg(test)]
 mod element_offset_forms;
 #[cfg(test)]
+mod element_replace_refusals;
+#[cfg(test)]
 mod entry_refusals;
 #[cfg(test)]
 mod error_exit_refusals;

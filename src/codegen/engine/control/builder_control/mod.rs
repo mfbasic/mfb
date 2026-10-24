@@ -103,8 +103,9 @@ enum FieldStoreKind {
 }
 
 /// bug-784: where one update's new value was spilled, for an element's
-/// size-change branch to read back.
-enum SpilledValue {
+/// size-change branch to read back. (`pub(crate)`, like [`FieldNested`] and
+/// [`FieldReplace`], for `engine/tests/element_replace_refusals.rs`.)
+pub(crate) enum SpilledValue {
     /// The field's value, in one slot.
     One(usize),
     /// A [`FieldStoreKind::Nested`] update's scalars, one slot each in the inner
@@ -113,7 +114,7 @@ enum SpilledValue {
 }
 
 /// bug-784: a [`FieldStoreKind::Nested`] update's spilled values.
-struct FieldNested {
+pub(crate) struct FieldNested {
     /// The inlined record field's index in the owner record.
     index: usize,
     /// `(sub-field index, value slot)`, in source order.
@@ -121,13 +122,13 @@ struct FieldNested {
 }
 
 /// bug-766 D: the replaced last sub-block's new value, spilled before any store.
-struct FieldReplace {
+pub(crate) struct FieldReplace {
     /// The field's index in the owner record.
-    index: usize,
+    pub(crate) index: usize,
     /// The new value's block pointer (a `String` block or a flat record).
-    slot: usize,
+    pub(crate) slot: usize,
     /// The new value's byte size (`len + 9`, or the record's walked size).
-    size_slot: usize,
+    pub(crate) size_slot: usize,
 }
 
 /// plan-145-F: a fixed-size inlined field's new value, spilled before any store.
