@@ -403,3 +403,34 @@ fn foreign_type_abi_check_rejects_traversing_owner() {
         "unexpected: {err}"
     );
 }
+
+/// The function metadata of an imported package is read from its decoded
+/// tables, so a package whose tables disagree is refused by name rather than
+/// numbered: an export naming a function the package does not have, an export
+/// the ABI index does not list, and a function count that would overflow the
+/// merged id space.
+#[test]
+fn external_function_metadata_refuses_inconsistent_decoded_tables() {
+    let dep_path = write_dep_mfp();
+    let decoded = || read_package_binary_repr(&dep_path).expect("decode dep");
+
+    let mut missing = decoded();
+    missing.exports[0].function_id = 999;
+    assert_eq!(
+        external_function_metadata(5, std::slice::from_ref(&missing)).err(),
+        Some("export references missing function 999".to_string())
+    );
+
+    let mut unlisted = decoded();
+    unlisted.project.abi.exports.clear();
+    assert_eq!(
+        external_function_metadata(5, std::slice::from_ref(&unlisted)).err(),
+        Some("ABI_INDEX is missing EXPORT_TABLE entry `helper`".to_string())
+    );
+
+    assert_eq!(
+        external_function_metadata(u32::MAX, std::slice::from_ref(&decoded())).err(),
+        Some("merged binary representation has too many functions".to_string())
+    );
+    let _ = std::fs::remove_file(&dep_path);
+}
