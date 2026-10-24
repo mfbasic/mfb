@@ -42,3 +42,30 @@ fn every_helper_is_named_for_its_package() {
         assert_eq!(helper.name(), name);
     }
 }
+
+/// The package -> family table (`RuntimeHelper::from_package_name`) is total
+/// over the runtime calls the catalog derives without an `abi_function` body:
+/// the registry resources' close ops. Every such call's package has a family,
+/// and it is the family `helper_for_call` routes the call to, so the catalog's
+/// lookup for them can never miss.
+#[test]
+fn a_registry_resource_close_op_s_package_has_a_family() {
+    let close_ops: Vec<&str> = crate::codegen::registry::runtime_specs()
+        .iter()
+        .map(|call| call.name)
+        .filter(|name| !crate::codegen::registry::is_abi_function_call(name))
+        .collect();
+    assert!(
+        !close_ops.is_empty(),
+        "the registry declares resource close ops"
+    );
+    for name in close_ops {
+        let package = name.split_once('.').expect("package-qualified").0;
+        let family = RuntimeHelper::from_package_name(package);
+        assert!(
+            family.is_some(),
+            "{name}: package `{package}` has no RuntimeHelper"
+        );
+        assert_eq!(family, helper_for_call(name), "{name}");
+    }
+}

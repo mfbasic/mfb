@@ -87,8 +87,11 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
                 let helper = if crate::codegen::registry::is_abi_function_call(call.name) {
                     super::abi_function_family(call.name)
                 } else {
+                    // The rest are registry resources' close ops; every package
+                    // that declares one has a family
+                    // (`a_registry_resource_close_op_s_package_has_a_family`).
                     RuntimeHelper::from_package_name(pkg)
-                        .unwrap_or_else(|| panic!("no RuntimeHelper for package `{pkg}`"))
+                        .expect("a registry resource close op's package has a RuntimeHelper")
                 };
                 specs.push(RuntimeHelperSpec {
                     helper,
