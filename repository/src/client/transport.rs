@@ -47,14 +47,7 @@ pub(super) const MAX_BLOB_BYTES: u64 = 96 * 1024 * 1024;
 pub(super) fn http_client() -> Result<&'static Client, String> {
     static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
     CLIENT
-        .get_or_init(|| {
-            Client::builder()
-                .connect_timeout(CONNECT_TIMEOUT)
-                .timeout(CONTROL_TIMEOUT)
-                .redirect(redirect_policy())
-                .build()
-                .map_err(|err| format!("failed to build the repository HTTP client: {err}"))
-        })
+        .get_or_init(|| build_client(redirect_policy(), "HTTP client"))
         .as_ref()
         .map_err(|err| err.clone())
 }
@@ -85,17 +78,27 @@ pub(super) fn no_redirect_client() -> Result<&'static Client, String> {
     static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
-            Client::builder()
-                .connect_timeout(CONNECT_TIMEOUT)
-                .timeout(CONTROL_TIMEOUT)
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .map_err(|err| {
-                    format!("failed to build the repository control-plane HTTP client: {err}")
-                })
+            build_client(
+                reqwest::redirect::Policy::none(),
+                "control-plane HTTP client",
+            )
         })
         .as_ref()
         .map_err(|err| err.clone())
+}
+
+/// The one place both shared clients are configured: the same connect and
+/// request deadlines, differing only in redirect policy. With this crate's
+/// reqwest features (`rustls-tls`, compiled-in webpki roots, no custom
+/// certificate, identity or proxy configured) `build` has no input that can
+/// make it fail; the error is still surfaced rather than unwrapped.
+fn build_client(redirect: reqwest::redirect::Policy, what: &str) -> Result<Client, String> {
+    Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(CONTROL_TIMEOUT)
+        .redirect(redirect)
+        .build()
+        .map_err(|err| format!("failed to build the repository {what}: {err}"))
 }
 
 pub fn repo_url_from_env() -> String {
@@ -158,21 +161,25 @@ const MAX_REDIRECTS: usize = 10;
 /// the transport-level SSRF/leak by vetting every hop.
 fn redirect_policy() -> reqwest::redirect::Policy {
     reqwest::redirect::Policy::custom(|attempt| {
-        if attempt.previous().len() >= MAX_REDIRECTS {
-            return attempt.error(format!(
-                "repository redirected more than {MAX_REDIRECTS} times"
-            ));
-        }
-        let target = attempt.url();
-        // Two stages, deliberately separate: the static URL check, then the
-        // resolution check that closes the hostname hole (bug-585).
-        let vetted = ensure_redirect_target(target)
-            .and_then(|()| ensure_redirect_host_resolves_public(target, resolve_redirect_host));
-        match vetted {
+        match vet_redirect(attempt.previous().len(), attempt.url()) {
             Ok(()) => attempt.follow(),
             Err(message) => attempt.error(message),
         }
     })
+}
+
+/// The whole redirect decision, as a function of what reqwest hands the
+/// policy: how many hops were already followed, and where this one goes.
+/// Three stages, in order: the hop cap, the static URL check, then the
+/// resolution check that closes the hostname hole (bug-585).
+pub(super) fn vet_redirect(previous_hops: usize, target: &reqwest::Url) -> Result<(), String> {
+    if previous_hops >= MAX_REDIRECTS {
+        return Err(format!(
+            "repository redirected more than {MAX_REDIRECTS} times"
+        ));
+    }
+    ensure_redirect_target(target)?;
+    ensure_redirect_host_resolves_public(target, resolve_redirect_host)
 }
 
 /// Vet a single redirect target's URL TEXT: https only (no plaintext
@@ -182,7 +189,7 @@ fn redirect_policy() -> reqwest::redirect::Policy {
 /// This is half the guard. It decides everything that can be read off the URL
 /// without touching the network, so it stays pure and cheap. A target written
 /// as a HOSTNAME is decided by [`ensure_redirect_host_resolves_public`]
-/// (bug-585); [`redirect_policy`] is the one place both run.
+/// (bug-585); [`vet_redirect`] is the one place both run.
 pub(super) fn ensure_redirect_target(url: &reqwest::Url) -> Result<(), String> {
     if url.scheme() != "https" {
         return Err(format!(
@@ -190,17 +197,20 @@ pub(super) fn ensure_redirect_target(url: &reqwest::Url) -> Result<(), String> {
              must not downgrade the pinned https transport"
         ));
     }
-    if let Some(host) = url.host_str() {
-        // `host_str` brackets an IPv6 literal (`[::1]`); strip them so it parses.
-        let bare = host.trim_start_matches('[').trim_end_matches(']');
-        if let Ok(ip) = bare.parse::<std::net::IpAddr>() {
-            if is_blocked_redirect_ip(ip) {
-                return Err(format!(
-                    "refusing to follow a repository redirect to internal address '{host}': a \
-                     redirect to a private, loopback, or link-local host is a possible SSRF"
-                ));
-            }
-        }
+    // The URL parser has already classified the host, so an IP literal is
+    // matched as one rather than re-parsed from `host_str` text. A domain is
+    // decided by `ensure_redirect_host_resolves_public`.
+    let ip = match url.host() {
+        Some(url::Host::Ipv4(ip)) => std::net::IpAddr::V4(ip),
+        Some(url::Host::Ipv6(ip)) => std::net::IpAddr::V6(ip),
+        _ => return Ok(()),
+    };
+    if is_blocked_redirect_ip(ip) {
+        let host = url.host_str().unwrap_or_default();
+        return Err(format!(
+            "refusing to follow a repository redirect to internal address '{host}': a \
+             redirect to a private, loopback, or link-local host is a possible SSRF"
+        ));
     }
     Ok(())
 }
