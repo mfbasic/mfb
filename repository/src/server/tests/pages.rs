@@ -758,7 +758,7 @@ async fn the_audit_tab_renders_proofs_and_links_the_raw_json() {
     assert!(!body.contains("<script"));
 }
 
-fn toolbox_doc_section() -> Vec<u8> {
+pub(super) fn toolbox_doc_section() -> Vec<u8> {
     mfb_wire::docs::encode_doc_table(&mfb_wire::docs::PackageDocs {
         package: Some(mfb_wire::docs::PackageDocEntry {
             name: "toolbox".to_string(),

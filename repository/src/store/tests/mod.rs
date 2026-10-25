@@ -218,6 +218,16 @@ fn registration_payload(owner: &str) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
     (auth_public, auth_proof, ident_public, ident_proof)
 }
 
+/// Run raw SQL against a live store's connection, with foreign keys off: the
+/// way a test puts the database into a state no store method writes (a row
+/// another release of the registry, an operator, or a damaged file left).
+pub(crate) fn tamper(store: &Store, sql: &str) {
+    let conn = store.conn();
+    conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    conn.execute_batch(sql).unwrap();
+    conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+}
+
 pub(crate) fn drop_tables(store: &Store, tables: &[&str]) {
     let conn = store.conn();
     conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
