@@ -70,6 +70,10 @@ impl plan::NativePlanPlatform for Platform {
         self.common().peak_rss_imports(required_by)
     }
 
+    fn debug_env_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![self.common().libc_import("getenv", required_by)]
+    }
+
     fn app_mode_imports(&self, _uses_mouse: bool, _uses_canvas: bool) -> Vec<PlatformImport> {
         // bug-117.1: app mode was never ported to rv64, and plan-51-A §3.3
         // records why it is now permanently out — AppImage/type2-runtime

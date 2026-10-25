@@ -1418,6 +1418,29 @@ pub(crate) fn store_release_u64(src: impl Into<Reg>, base: impl Into<Reg>) -> Co
         .field("base", reg(base))
 }
 
+/// plan-183-A: `mrs dst, DCZID_EL0` — the AArch64 data-cache zero ID register. AArch64
+/// only.
+#[track_caller]
+pub(crate) fn read_dczid(dst: impl Into<Reg>) -> CodeInstruction {
+    CodeInstruction::new("mrs_dczid").field("dst", reg(dst))
+}
+
+/// plan-183-A: `dc zva, base` — zero the `DCZID_EL0` block at the block-aligned
+/// `base`. AArch64 only.
+#[track_caller]
+pub(crate) fn dc_zva(base: impl Into<Reg>) -> CodeInstruction {
+    CodeInstruction::new("dc_zva").field("base", reg(base))
+}
+
+/// plan-183-A: zero `count` bytes at `base` with `rep stosb`; changes no register.
+/// x86-64 only.
+#[track_caller]
+pub(crate) fn rep_stosb_zero(base: impl Into<Reg>, count: impl Into<Reg>) -> CodeInstruction {
+    CodeInstruction::new("rep_stosb_zero")
+        .field("base", reg(base))
+        .field("src", reg(count))
+}
+
 /// Load-acquire: `ldar Xt, [Xn]` (bug-564). AArch64 only, base register only.
 /// A load-acquire executes before every load that follows it in program order,
 /// so a reader that loads a gate with it and the payload afterwards cannot have

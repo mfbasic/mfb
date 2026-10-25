@@ -19,7 +19,7 @@ pub(crate) fn lower_arena_alloc(
     // Vreg-allocated (plan-00-G Phase 2): the body names virtual registers and the
     // shared allocator places them per-ISA; `finalize_vreg_helper` runs the
     // allocator + `finalize_frame` (which builds the frame, saves the link
-    // register because the grow path calls `arena_fill_zero`, and saves any
+    // register because the flush and remnant paths make calls, and saves any
     // callee-saved registers the allocator used).
     //
     // Register contract (allocator-06): the standard runtime-helper one the
@@ -71,12 +71,11 @@ pub(crate) fn lower_arena_alloc(
     let lg_k = vregs.next();
     let lg_shift = vregs.next();
     let lg_sub = vregs.next();
-    let mut relocations = vec![internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FILL_ZERO_SYMBOL)];
     // plan-64 A1: the flush-before-grow path calls arena_flush_coalesce.
-    relocations.push(internal_branch(
+    let mut relocations = vec![internal_branch(
         ARENA_ALLOC_SYMBOL,
         ARENA_FLUSH_COALESCE_SYMBOL,
-    ));
+    )];
     // plan-133-C: a `--debug` grow records a memory-series sample.
     if debug_arena {
         relocations.push(internal_branch(
@@ -824,30 +823,13 @@ pub(crate) fn lower_arena_alloc(
         abi::store_u64(&usable, abi::return_register(), 16),
         abi::store_u64(abi::ZERO, abi::return_register(), 24),
         abi::store_u64(abi::return_register(), ARENA_STATE_REGISTER, 0),
-        // Zero-fill the new block's usable region before first use.
-        // `ubase`/`usable` are live across the fill call, so the allocator spills
-        // them (the call's clobber mask is every integer register).
+        // plan-183-A: the block's usable region is used as mapped. The OS hands out
+        // anonymous memory zeroed on every target (`mmap(MAP_ANONYMOUS)` on Linux and
+        // macOS, `VirtualAlloc(MEM_COMMIT)` on Windows), so it is never filled by hand
+        // and `fill_grow_calls`/`fill_grow_bytes` stay 0.
         abi::add_immediate(&ubase, abi::return_register(), ARENA_BLOCK_HEADER_SIZE), // ubase
     ]);
-    // plan-133-B: count the grow-path fill — one call over the block's `usable` bytes.
     if let Some(slot) = &dbg_slot {
-        emit_debug_arena_bump(
-            ARENA_ALLOC_SYMBOL,
-            slot,
-            COUNTER_FILL_GROW_CALLS,
-            "fill_grow_calls",
-            &mut instructions,
-            &mut vregs,
-        );
-        emit_debug_arena_add(
-            ARENA_ALLOC_SYMBOL,
-            slot,
-            COUNTER_FILL_GROW_BYTES,
-            &usable,
-            "fill_grow_bytes",
-            &mut instructions,
-            &mut vregs,
-        );
         // plan-133-C: sample the arena's memory series. The helper reads the clock and
         // the process's peak RSS itself and returns at once for an unregistered arena
         // (slot 0); `ubase`, `usable`, `size` and `eff_align` are vregs the allocator
@@ -858,9 +840,6 @@ pub(crate) fn lower_arena_alloc(
         ]);
     }
     instructions.extend([
-        abi::move_register(abi::c_arg(0), &ubase),
-        abi::move_register(abi::c_arg(1), &usable),
-        abi::branch_link(ARENA_FILL_ZERO_SYMBOL),
         // Serve the request directly from the fresh chunk (allocator-05): the
         // block was sized so `usable >= size + eff_align`, so instead of
         // linking the whole chunk and re-walking the entire list to rediscover
@@ -917,6 +896,11 @@ pub(crate) fn lower_arena_alloc(
         abi::move_immediate(abi::mfb_return(1), "Integer", "0"),
         abi::label("arena_alloc_ret"),
     ]);
+    // plan-183-A: the `MFB_ARENA_CHECK_ZERO` test switch of a `--debug` build — every
+    // chunk handed out must read zero past its first `ARENA_ZERO_CHECK_SKIP` bytes.
+    if let Some(slot) = &dbg_slot {
+        emit_debug_zero_check(slot, &size, &mut instructions, &mut relocations, &mut vregs);
+    }
     // plan-67-F: close the `mfb_alloc` span at the single exit. The result (tag in
     // the return register, pointer in RET[1]) is live and the perf `bl` clobbers
     // both, so save them into vregs across the call and restore before returning.
@@ -943,6 +927,80 @@ pub(crate) fn lower_arena_alloc(
         instructions,
         relocations,
     ))
+}
+
+/// plan-183-A: in a `--debug` build started with `MFB_ARENA_CHECK_ZERO` set, count the
+/// successful allocation in `zero_checks` and, when any word of the chunk past its first
+/// [`ARENA_ZERO_CHECK_SKIP`] bytes is non-zero, in `zero_violations`. The result (tag
+/// and pointer) is copied into vregs first and put back last, so the scan cannot be
+/// handed a result register. Call-free; reads only the chunk and the switch word.
+fn emit_debug_zero_check(
+    slot: &VirtualRegister,
+    size: &VirtualRegister,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) {
+    let tag = vregs.next();
+    let ptr = vregs.next();
+    let flag = vregs.next();
+    let cursor = vregs.next();
+    let end = vregs.next();
+    let word = vregs.next();
+    instructions.extend([
+        abi::move_register(&tag, abi::return_register()),
+        abi::move_register(&ptr, abi::mfb_return(1)),
+        abi::compare_immediate(&tag, RESULT_OK_TAG),
+        abi::branch_ne("arena_alloc_zero_check_done"),
+        abi::compare_immediate(slot, "0"),
+        abi::branch_eq("arena_alloc_zero_check_done"),
+    ]);
+    push_symbol_address(
+        ARENA_ALLOC_SYMBOL,
+        crate::codegen::debug::arena::ARENA_CHECK_ZERO_SYMBOL,
+        &flag,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::load_u64(&flag, &flag, 0),
+        abi::compare_immediate(&flag, "0"),
+        abi::branch_eq("arena_alloc_zero_check_done"),
+    ]);
+    emit_debug_arena_bump(
+        ARENA_ALLOC_SYMBOL,
+        slot,
+        COUNTER_ZERO_CHECKS,
+        "zero_checks",
+        instructions,
+        vregs,
+    );
+    instructions.extend([
+        abi::add_immediate(&cursor, &ptr, ARENA_ZERO_CHECK_SKIP),
+        abi::add_registers(&end, &ptr, size),
+        abi::label("arena_alloc_zero_check_loop"),
+        abi::compare_registers(&cursor, &end),
+        abi::branch_lo("arena_alloc_zero_check_word"),
+        abi::branch("arena_alloc_zero_check_done"),
+        abi::label("arena_alloc_zero_check_word"),
+        abi::load_u64(&word, &cursor, 0),
+        abi::add_immediate(&cursor, &cursor, 8),
+        abi::compare_immediate(&word, "0"),
+        abi::branch_eq("arena_alloc_zero_check_loop"),
+    ]);
+    emit_debug_arena_bump(
+        ARENA_ALLOC_SYMBOL,
+        slot,
+        COUNTER_ZERO_VIOLATIONS,
+        "zero_violations",
+        instructions,
+        vregs,
+    );
+    instructions.extend([
+        abi::label("arena_alloc_zero_check_done"),
+        abi::move_register(abi::return_register(), &tag),
+        abi::move_register(abi::mfb_return(1), &ptr),
+    ]);
 }
 
 /// `_mfb_simd_alloc_list(x0 = count, x1 = valueTypeCode) -> x0 = base` —

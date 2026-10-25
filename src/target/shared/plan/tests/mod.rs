@@ -42,6 +42,14 @@ impl NativePlanPlatform for TestPlatform {
         }]
     }
 
+    fn debug_env_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![PlatformImport {
+            library: "testRuntime".to_string(),
+            symbol: "test_getenv".to_string(),
+            required_by: required_by.to_string(),
+        }]
+    }
+
     fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport> {
         vec![PlatformImport {
             library: "testRuntime".to_string(),

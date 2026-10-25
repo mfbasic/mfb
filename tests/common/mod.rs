@@ -4,6 +4,7 @@ pub mod canvas_image;
 pub mod debug_report;
 pub mod ncode_emu;
 mod process;
+pub mod remote;
 #[allow(unused_imports)] // each includer uses a subset of these helpers
 pub use process::*;
 

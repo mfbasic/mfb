@@ -234,6 +234,41 @@ pub(crate) fn lower_program_entry(
             ENTRY_GLOBALS_OFFSET + index * 8,
         ));
     }
+    // plan-183-A: the AArch64 arena zero fill's `dc zva` block size, probed once
+    // before the first allocation. `DCZID_EL0` bit 4 (DZP) set means `dc zva` is
+    // prohibited; otherwise bits 3:0 are log2 of the block size in words. A block
+    // outside 16..=2048 bytes is treated as prohibited too, so the fill's head/tail
+    // word stores and its two-block minimum always hold. Every thread reads the word;
+    // it is written here, before any thread exists. ARG[0]/ARG[1] (argc/argv) stay
+    // untouched.
+    if platform.arch() == "aarch64" {
+        instructions.extend([
+            abi::read_dczid(abi::SCRATCH[0]),
+            abi::move_immediate(abi::SCRATCH[2], "Integer", "16"),
+            abi::and_registers(abi::SCRATCH[1], abi::SCRATCH[0], abi::SCRATCH[2]),
+            abi::compare_immediate(abi::SCRATCH[1], "0"),
+            abi::branch_ne("entry_dczva_off"),
+            abi::move_immediate(abi::SCRATCH[2], "Integer", "15"),
+            abi::and_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[2]),
+            abi::move_immediate(abi::SCRATCH[1], "Integer", "4"),
+            abi::shift_left_variable(abi::SCRATCH[1], abi::SCRATCH[1], abi::SCRATCH[0]),
+            abi::compare_immediate(abi::SCRATCH[1], "16"),
+            abi::branch_lo("entry_dczva_off"),
+            abi::compare_immediate(abi::SCRATCH[1], "2048"),
+            abi::branch_ls("entry_dczva_store"),
+            abi::label("entry_dczva_off"),
+            abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),
+            abi::label("entry_dczva_store"),
+        ]);
+        push_symbol_address(
+            entry_symbol,
+            DCZVA_BYTES_SYMBOL,
+            abi::SCRATCH[0],
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::store_u64(abi::SCRATCH[1], abi::SCRATCH[0], 0));
+    }
     let error_label = "entry_error";
     let exit_label = "entry_exit";
     // Publish this thread's arena-state address to the writable global so the

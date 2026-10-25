@@ -3,11 +3,11 @@ use crate::codegen::collection::layout::*;
 use crate::codegen::debug::arena::{
     emit_debug_arena_add, emit_debug_arena_bump, emit_debug_arena_live_add,
     emit_debug_arena_live_sub, emit_debug_arena_slot, COUNTER_ALLOC_BYTES, COUNTER_ALLOC_CALLS,
-    COUNTER_DOUBLE_FREE_SKIPS, COUNTER_FILL_FREE_BYTES, COUNTER_FILL_FREE_CALLS,
-    COUNTER_FILL_GROW_BYTES, COUNTER_FILL_GROW_CALLS, COUNTER_FLUSHES, COUNTER_FREE_BYTES,
-    COUNTER_FREE_CALLS, COUNTER_GROW, COUNTER_HIT_CARVE, COUNTER_HIT_LARGE_BIN,
+    COUNTER_DOUBLE_FREE_SKIPS, COUNTER_FILL_FREE_BYTES, COUNTER_FILL_FREE_CALLS, COUNTER_FLUSHES,
+    COUNTER_FREE_BYTES, COUNTER_FREE_CALLS, COUNTER_GROW, COUNTER_HIT_CARVE, COUNTER_HIT_LARGE_BIN,
     COUNTER_HIT_QUICK_BIN, COUNTER_HIT_WALK, COUNTER_INSERT_FREE_CALLS, COUNTER_MAPPED_BYTES,
-    COUNTER_MAPS, COUNTER_UNMAPPED_BYTES, COUNTER_UNMAPS, DEBUG_ARENA_SAMPLE_SYMBOL,
+    COUNTER_MAPS, COUNTER_UNMAPPED_BYTES, COUNTER_UNMAPS, COUNTER_ZERO_CHECKS,
+    COUNTER_ZERO_VIOLATIONS, DEBUG_ARENA_SAMPLE_SYMBOL,
 };
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::VirtualRegister;
@@ -180,57 +180,116 @@ fn emit_debug_alloc_hit(
     }
 }
 
-/// `arena_fill_zero(x0 = ptr, x1 = len)` — overwrite `len` bytes at `ptr` with zero,
-/// `len` rounded up to a whole word. Every chunk handed to it is a multiple of 16 bytes,
-/// so the rounding is exact and never writes past the chunk. Four words a loop, then one
-/// at a time. Leaf (makes no call); vreg-allocated, so it clobbers caller-saved
-/// registers only.
+/// `arena_fill_zero(x0 = ptr, x1 = len)` — overwrite `len` bytes at `ptr` with zero.
+/// `ptr` is 8-aligned and `len` a multiple of 8 (every caller hands it a 16-byte-aligned
+/// chunk whose size is a multiple of 16). Leaf (makes no call); vreg-allocated, so it
+/// clobbers caller-saved registers only.
 ///
-/// It scrubs a freed chunk and fills a freshly mapped block. One overwrite destroys the
-/// old value in RAM, whatever the new value is, and zero is the cheapest to write. It
-/// replaced a PCG64 fill (bug-769's unrolled stream) that cost a 128-bit multiply a word
-/// and bought no more confidentiality.
-pub(crate) fn lower_arena_fill_zero() -> CodeFunction {
+/// It scrubs a freed chunk. One overwrite destroys the old value in RAM, whatever the
+/// new value is, and zero is the cheapest to write. Freshly mapped memory is never
+/// handed to it: the OS returns it zeroed (plan-183-A). The body is per target:
+///
+/// * **AArch64**: when the startup probe left a block size in `_mfb_rt_dczva_bytes`
+///   (`DCZID_EL0` permits `dc zva`), plain stores up to block alignment, one `dc zva`
+///   per block, then the generic loop for the tail. A range shorter than two blocks,
+///   or a zero word, goes straight to the generic loop.
+/// * **x86-64**: one `rep stosb`.
+/// * **riscv64** (and AArch64 without `dc zva`): the generic loop — eight 8-byte zero
+///   stores, 64 bytes an iteration, then one word at a time.
+pub(crate) fn lower_arena_fill_zero(arch: &str) -> CodeFunction {
     let mut vregs = Vregs::new();
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    if arch == "x86_64" {
+        let ptr = vregs.next();
+        let len = vregs.next();
+        instructions.extend([
+            abi::move_register(&ptr, abi::c_arg(0)),
+            abi::move_register(&len, abi::c_arg(1)),
+            abi::rep_stosb_zero(&ptr, &len),
+            abi::return_(),
+        ]);
+        return finalize_vreg_helper(
+            "runtime.arena_fill_zero",
+            ARENA_FILL_ZERO_SYMBOL,
+            "Nothing",
+            instructions,
+            relocations,
+        );
+    }
     let ptr = vregs.next();
-    let count = vregs.next();
-    let instructions = vec![
-        abi::label("entry"),
+    let end = vregs.next();
+    let remaining = vregs.next();
+    instructions.extend([
         abi::move_register(&ptr, abi::c_arg(0)),
-        abi::move_register(&count, abi::c_arg(1)),
-        // word count = (len + 7) >> 3
-        abi::add_immediate(&count, &count, 7),
-        abi::shift_right_immediate(&count, &count, 3),
-        abi::compare_immediate(&count, "0"),
-        abi::branch_eq("arena_fill_done"),
-        abi::compare_immediate(&count, "4"),
-        abi::branch_lt("arena_fill_tail"),
-        abi::label("arena_fill_block"),
-        abi::store_u64(abi::ZERO, &ptr, 0),
-        abi::store_u64(abi::ZERO, &ptr, 8),
-        abi::store_u64(abi::ZERO, &ptr, 16),
-        abi::store_u64(abi::ZERO, &ptr, 24),
-        abi::add_immediate(&ptr, &ptr, 32),
-        abi::subtract_immediate(&count, &count, 4),
-        abi::compare_immediate(&count, "4"),
-        abi::branch_ge("arena_fill_block"),
-        abi::compare_immediate(&count, "0"),
-        abi::branch_eq("arena_fill_done"),
+        abi::add_registers(&end, abi::c_arg(0), abi::c_arg(1)),
+    ]);
+    if arch == "aarch64" {
+        let block = vregs.next();
+        let mask = vregs.next();
+        let scratch = vregs.next();
+        push_symbol_address(
+            ARENA_FILL_ZERO_SYMBOL,
+            DCZVA_BYTES_SYMBOL,
+            &scratch,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.extend([
+            abi::load_u64(&block, &scratch, 0),
+            abi::compare_immediate(&block, "0"),
+            abi::branch_eq("arena_fill_generic"),
+            // At least two blocks, so the aligned run holds one whole block.
+            abi::subtract_registers(&remaining, &end, &ptr),
+            abi::shift_left_immediate(&scratch, &block, 1),
+            abi::compare_registers(&remaining, &scratch),
+            abi::branch_lo("arena_fill_generic"),
+            abi::subtract_immediate(&mask, &block, 1),
+            abi::label("arena_fill_zva_head"),
+            abi::and_registers(&scratch, &ptr, &mask),
+            abi::compare_immediate(&scratch, "0"),
+            abi::branch_eq("arena_fill_zva_aligned"),
+            abi::store_u64(abi::ZERO, &ptr, 0),
+            abi::add_immediate(&ptr, &ptr, 8),
+            abi::branch("arena_fill_zva_head"),
+            abi::label("arena_fill_zva_aligned"),
+            // The block run stops at the last block boundary at or below `end`.
+            abi::bitwise_not(&scratch, &mask),
+            abi::and_registers(&scratch, &end, &scratch),
+            abi::label("arena_fill_zva_loop"),
+            abi::dc_zva(&ptr),
+            abi::add_registers(&ptr, &ptr, &block),
+            abi::compare_registers(&ptr, &scratch),
+            abi::branch_lo("arena_fill_zva_loop"),
+        ]);
+    }
+    instructions.extend([
+        abi::label("arena_fill_generic"),
+        abi::subtract_registers(&remaining, &end, &ptr),
+        abi::compare_immediate(&remaining, "64"),
+        abi::branch_lo("arena_fill_tail"),
+    ]);
+    for offset in (0..64).step_by(8) {
+        instructions.push(abi::store_u64(abi::ZERO, &ptr, offset));
+    }
+    instructions.extend([
+        abi::add_immediate(&ptr, &ptr, 64),
+        abi::branch("arena_fill_generic"),
         abi::label("arena_fill_tail"),
+        abi::compare_registers(&ptr, &end),
+        abi::branch_lo("arena_fill_word"),
+        abi::return_(),
+        abi::label("arena_fill_word"),
         abi::store_u64(abi::ZERO, &ptr, 0),
         abi::add_immediate(&ptr, &ptr, 8),
-        abi::subtract_immediate(&count, &count, 1),
-        abi::compare_immediate(&count, "0"),
-        abi::branch_ne("arena_fill_tail"),
-        abi::label("arena_fill_done"),
-        abi::return_(),
-    ];
+        abi::branch("arena_fill_tail"),
+    ]);
     finalize_vreg_helper(
         "runtime.arena_fill_zero",
         ARENA_FILL_ZERO_SYMBOL,
         "Nothing",
         instructions,
-        Vec::new(),
+        relocations,
     )
 }
 
@@ -352,57 +411,97 @@ pub(crate) fn lower_arena_destroy(
 #[cfg(test)]
 mod zero_fill_tests {
     use super::*;
+    use crate::arch::ops::CodeOp;
 
-    fn select_backend() {
+    /// The fill writes zero and nothing else: every store's source is the zero
+    /// register, it reads no arena state (offsets 16/24 are reserved), and it neither
+    /// multiplies nor calls. plan-183-A: its one load is the AArch64 `dc zva` block size,
+    /// its one data reference that word's address; riscv64 loads and references nothing.
+    #[test]
+    fn the_arena_fill_stores_only_zero_words() {
+        for (arch, backend) in [
+            (
+                "aarch64",
+                &crate::arch::aarch64::backend::AARCH64_BACKEND
+                    as &dyn crate::codegen::engine::mir::Backend,
+            ),
+            ("riscv64", &crate::arch::riscv64::backend::RISCV64_BACKEND),
+        ] {
+            crate::codegen::engine::mir::mir::set_backend(backend);
+            let fill = lower_arena_fill_zero(arch);
+            let zero = abi::store_u64(abi::ZERO, abi::SCRATCH[0], 0)
+                .get("src")
+                .expect("a store names its source");
+            let stores: Vec<_> = fill
+                .instructions
+                .iter()
+                .filter(|i| i.op == CodeOp::StrU64)
+                .collect();
+            assert!(
+                stores.len() >= 9,
+                "{arch}: the eight-word loop and the one-word tail"
+            );
+            for store in &stores {
+                assert_eq!(
+                    store.get("src").as_deref(),
+                    Some(zero.as_str()),
+                    "{arch}: the fill stores something other than zero"
+                );
+            }
+            let loads = fill
+                .instructions
+                .iter()
+                .filter(|i| i.get("dst").is_some() && i.get("base").is_some())
+                .count();
+            let (want_loads, want_refs): (usize, &[&str]) = if arch == "aarch64" {
+                (1, &[DCZVA_BYTES_SYMBOL])
+            } else {
+                (0, &[])
+            };
+            assert_eq!(
+                loads, want_loads,
+                "{arch}: the fill reads only the dc zva word"
+            );
+            assert!(
+                fill.relocations
+                    .iter()
+                    .all(|r| want_refs.contains(&r.to.as_str())),
+                "{arch}: the fill is a leaf: no call, no data but the dc zva word"
+            );
+            assert_eq!(
+                fill.instructions.iter().any(|i| i.op == CodeOp::DcZva),
+                arch == "aarch64",
+                "{arch}: dc zva is the AArch64 body's block zero"
+            );
+        }
+    }
+
+    /// plan-183-A: x86-64 zeroes the whole range with one `rep stosb` and nothing else.
+    #[test]
+    fn the_x86_fill_is_one_rep_stosb() {
+        crate::codegen::engine::mir::mir::set_backend(
+            &crate::arch::x86_64::backend::X86_64_BACKEND,
+        );
+        let fill = lower_arena_fill_zero("x86_64");
+        assert_eq!(
+            fill.instructions
+                .iter()
+                .filter(|i| i.op == CodeOp::RepStosbZero)
+                .count(),
+            1
+        );
+        assert!(fill.instructions.iter().all(|i| i.op != CodeOp::StrU64));
+        assert!(fill.relocations.is_empty(), "a leaf with no data reference");
+    }
+
+    /// Freed chunks are scrubbed by the fill, and nothing else: plan-183-A's grow path
+    /// hands out freshly mapped memory as the OS zeroed it, with no fill and no
+    /// random-stream helper left anywhere in the allocator.
+    #[test]
+    fn freed_chunks_are_zero_filled_and_fresh_blocks_are_not() {
         crate::codegen::engine::mir::mir::set_backend(
             &crate::arch::aarch64::backend::AARCH64_BACKEND,
         );
-    }
-
-    /// The fill writes zero and nothing else: every store's source is the zero
-    /// register, it loads nothing (so it reads no arena state — offsets 16/24 are
-    /// reserved), and it neither multiplies nor calls.
-    #[test]
-    fn the_arena_fill_stores_only_zero_words() {
-        select_backend();
-        let fill = lower_arena_fill_zero();
-        let zero = abi::store_u64(abi::ZERO, abi::SCRATCH[0], 0)
-            .get("src")
-            .expect("a store names its source");
-        let stores: Vec<_> = fill
-            .instructions
-            .iter()
-            .filter(|i| i.get("src").is_some() && i.get("base").is_some())
-            .collect();
-        assert!(
-            stores.len() >= 5,
-            "the four-word loop and the one-word tail"
-        );
-        for store in &stores {
-            assert_eq!(
-                store.get("src").as_deref(),
-                Some(zero.as_str()),
-                "the fill stores something other than zero"
-            );
-        }
-        assert!(
-            fill.instructions
-                .iter()
-                .all(|i| !(i.get("dst").is_some() && i.get("base").is_some())),
-            "the fill loads: it must read nothing, the arena state least of all"
-        );
-        assert!(
-            fill.relocations.is_empty(),
-            "the fill is a leaf: no call, no data reference"
-        );
-    }
-
-    /// Both users of the fill call it, and nothing else: a freed chunk is scrubbed and a
-    /// freshly mapped block is zeroed before first use, with no random-stream helper
-    /// left anywhere in the allocator.
-    #[test]
-    fn fresh_blocks_and_freed_chunks_are_zero_filled() {
-        select_backend();
         let alloc = lower_arena_alloc(
             &crate::target::macos_aarch64::code::Platform,
             false,
@@ -412,14 +511,20 @@ mod zero_fill_tests {
         )
         .expect("arena_alloc");
         let free = lower_arena_free(false, false);
+        assert!(
+            free.relocations
+                .iter()
+                .any(|r| r.to == ARENA_FILL_ZERO_SYMBOL),
+            "arena_free does not zero-fill"
+        );
+        assert!(
+            alloc
+                .relocations
+                .iter()
+                .all(|r| r.to != ARENA_FILL_ZERO_SYMBOL),
+            "arena_alloc fills fresh memory, which the OS already zeroed"
+        );
         for (name, function) in [("arena_alloc", &alloc), ("arena_free", &free)] {
-            assert!(
-                function
-                    .relocations
-                    .iter()
-                    .any(|r| r.to == ARENA_FILL_ZERO_SYMBOL),
-                "{name} does not zero-fill"
-            );
             assert!(
                 function
                     .relocations
@@ -430,18 +535,5 @@ mod zero_fill_tests {
                 "{name} still references a random-fill helper"
             );
         }
-        // `arena_alloc` fills on its grow path only: a fresh block, before first use.
-        let calls: Vec<usize> = alloc
-            .instructions
-            .iter()
-            .enumerate()
-            .filter(|(_, i)| i.get("target").as_deref() == Some(ARENA_FILL_ZERO_SYMBOL))
-            .map(|(at, _)| at)
-            .collect();
-        assert_eq!(
-            calls.len(),
-            1,
-            "arena_alloc zero-fills on exactly one path, the grow"
-        );
     }
 }

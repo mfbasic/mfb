@@ -196,6 +196,10 @@ pub(crate) trait NativePlanPlatform {
     /// The imports a `--debug` report's `process` section calls to read the peak
     /// resident set size (plan-130-D), attributed to `required_by`.
     fn peak_rss_imports(&self, required_by: &str) -> Vec<PlatformImport>;
+    /// The import a `--debug` build's arena registration calls to read the
+    /// `MFB_ARENA_CHECK_ZERO` test switch (plan-183-A), attributed to `required_by`:
+    /// `getenv` on macOS and Linux, `GetEnvironmentVariableA` on Windows.
+    fn debug_env_imports(&self, required_by: &str) -> Vec<PlatformImport>;
     /// The imports a `--debug` build's arena memory series calls for its monotonic
     /// clock (plan-133-C), attributed to `required_by`. Empty by default: the macOS
     /// and Linux program entries already import `clock_gettime` for the arena-fill

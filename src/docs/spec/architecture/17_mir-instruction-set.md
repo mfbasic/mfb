@@ -183,6 +183,9 @@ carry the same fields as the shape they rename.
 | `call_indirect` | `register` | call via a register |
 | `ldr_u64` `ldr_u32` `ldr_u16` `ldr_u8` `ldr_d` | `dst`, `base`, `offset` | load (width in the mnemonic) |
 | `str_u64` `str_u32` `str_u16` `str_u8` `str_d` | `src`, `base`, `offset` | store |
+| `mrs_dczid` | `dst` | AArch64 only: read `DCZID_EL0` (plan-183-A) |
+| `dc_zva` | `base` | AArch64 only: zero the `dc zva` block at `base` |
+| `rep_stosb_zero` | `base`, `src` | x86-64 only: zero `src` bytes at `base`; changes no register |
 | `fadd_d` `fsub_d` `fmul_d` `fdiv_d` `fminnm_d` `fmaxnm_d` | `dst`, `lhs`, `rhs` | binary f64 op (`fminnm_d`/`fmaxnm_d` = IEEE-number min/max: a finite operand wins over a NaN) |
 | `fmov_d_from_d` `fneg_d` `fabs_d` `fsqrt_d` `fcvt_s_from_d` `fcvt_d_from_s` `i2f` `f2i_trunc` `f2i_floor` `f2i_ceil` `f2i_nearest` `fmov_i2f` `fmov_f2i` | `dst`, `src` | unary f64 / convert / reinterpret |
 | `fmadd_d` `fmsub_d` `fnmsub_d` `fnmadd_d` | `dst`, `addend`, `lhs`, `rhs` | scalar fused multiply-add (one round): `fmadd_d = addend + lhs*rhs`, `fmsub_d = lhs*rhs - addend`, `fnmsub_d = addend - lhs*rhs`, `fnmadd_d = -(lhs*rhs) - addend` |

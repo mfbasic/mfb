@@ -93,6 +93,46 @@ pub(in crate::arch::x86_64::encode) fn encode_instruction(
                 modrm(0b11, dst, src),
             ]))
         }
+        // plan-183-A: the arena zero fill. `rep stosb` stores `al` to `[rdi]`, `rcx`
+        // times, so it needs rdi = base, rcx = count and al = 0 — three registers the
+        // allocator knows nothing about. They are saved first and restored last, so the
+        // op reads `base`/`src` and changes no register (rdi is callee-saved on Win64).
+        // `base`/`src` are copied through the stack, which is correct whichever of
+        // rdi/rcx/rax they are. DF is clear at every call boundary in both ABIs, so the
+        // string op runs upward.
+        "rep_stosb_zero" => {
+            let base = reg(field(instruction, "base")?)?;
+            let count = reg(field(instruction, "src")?)?;
+            if is_zero_token(base) || is_zero_token(count) {
+                return Err("x86 rep_stosb_zero takes two real registers".to_string());
+            }
+            let push = |b: &mut Vec<u8>, r: u8| {
+                if r >= 8 {
+                    b.push(0x41);
+                }
+                b.push(0x50 + (r & 7));
+            };
+            let pop = |b: &mut Vec<u8>, r: u8| {
+                if r >= 8 {
+                    b.push(0x41);
+                }
+                b.push(0x58 + (r & 7));
+            };
+            let mut b = Vec::new();
+            push(&mut b, 0); // rax
+            push(&mut b, 1); // rcx
+            push(&mut b, 7); // rdi
+            push(&mut b, base);
+            push(&mut b, count);
+            pop(&mut b, 1); // rcx = count
+            pop(&mut b, 7); // rdi = base
+            b.extend([0x31, 0xC0]); // xor eax, eax
+            b.extend([0xF3, 0xAA]); // rep stosb
+            pop(&mut b, 7);
+            pop(&mut b, 1);
+            pop(&mut b, 0);
+            Ok(Encoded::plain(b))
+        }
         // sxtw: sign-extend low 32 bits into 64. `movsxd r64, r/m32`
         // (REX.W 0x63 /r). AArch64 emits this to narrow a C `int` return before a
         // signed compare (bug-04); on x86 the same abstract op keeps the seam

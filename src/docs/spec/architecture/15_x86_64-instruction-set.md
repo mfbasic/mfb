@@ -187,6 +187,12 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_common/
   `div`/`idiv` (rax/rdx + `cqo` / `xor rdx,rdx`). Explicit-carry `add_carry`/
   `sub_borrow` set CF from the carry-in (`add carry_in,-1`), then `adc`/`sbb`, then
   `setc`+`movzx` for the carry-out. [[src/arch/x86_64/encode/emitter/integer.rs:enc_add_carry]]
+- **`rep_stosb_zero base, src`** (plan-183-A, the arena zero fill): `rep stosb` needs
+  rdi, rcx and al, which the allocator does not model. The encoder pushes rax, rcx and
+  rdi, moves `base`/`src` into rdi/rcx through the stack (correct whichever registers
+  they are), clears eax, runs `rep stosb` and pops the three back, so the op reads its
+  two operands and changes no register. DF is clear at every call boundary in both
+  ABIs. [[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]]
 
 ## Floating point and SIMD → xmm
 

@@ -19,7 +19,7 @@ use common::debug_report::{arena_lines, build_debug, build_debug_project, counte
 use std::process::Command;
 
 /// Every counter each registered arena reports, in report order.
-const COUNTERS: [&str; 22] = [
+const COUNTERS: [&str; 24] = [
     "maps",
     "mapped_bytes",
     "unmaps",
@@ -42,6 +42,8 @@ const COUNTERS: [&str; 22] = [
     "fill_grow_bytes",
     "fill_free_calls",
     "fill_free_bytes",
+    "zero_checks",
+    "zero_violations",
 ];
 
 /// The registration shape: totals and each arena's kind, with every counter of every
@@ -324,10 +326,10 @@ fn record_churn_source(n: usize) -> String {
 }
 
 /// plan-133-B: the fill counters count exactly the bytes the zero fill is handed.
-/// A fresh block is filled over its usable region (`mapped − 32` per block), so over a
-/// run `fill_grow_bytes == mapped_bytes − 32 × grow` with one fill per grow. A freed
-/// chunk is scrubbed past its 16-byte node, so each extra 64 B record adds one fill of
-/// 48 B.
+/// plan-183-A: a fresh block is used as the OS zeroed it, so the grow path fills
+/// nothing — `fill_grow_calls` and `fill_grow_bytes` stay 0 however often it grows. A
+/// freed chunk is scrubbed past its 16-byte node, so each extra 64 B record adds one
+/// fill of 48 B.
 #[test]
 fn fill_counters_match_known_allocations() {
     // Grow path: a 1 MiB read maps at least one block beyond the first.
@@ -351,13 +353,13 @@ fn fill_counters_match_known_allocations() {
     assert!(grow >= 1, "a 1 MiB read must grow the arena:\n{stderr}");
     assert_eq!(
         counter(name, &lines, 0, "fill_grow_calls"),
-        grow,
-        "one grow-path fill per grow:\n{stderr}"
+        0,
+        "the grow path never fills fresh OS memory:\n{stderr}"
     );
     assert_eq!(
         counter(name, &lines, 0, "fill_grow_bytes"),
-        counter(name, &lines, 0, "mapped_bytes") - 32 * grow,
-        "the grow-path fill covers each block's usable bytes (mapped − 32-byte header):\n{stderr}"
+        0,
+        "the grow path never fills fresh OS memory:\n{stderr}"
     );
 
     // Free path: 1000 more 64 B records add exactly 1000 scrubs of 48 B.

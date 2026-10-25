@@ -253,8 +253,9 @@ pub(super) fn lower_core_runtime_helpers(
     code_functions.push(lower_arena_insert_free(debug_arena));
     code_functions.push(lower_arena_flush_coalesce(debug_arena));
     code_functions.push(lower_arena_free(perf_arena, debug_arena));
-    // The arena's zero fill is always on: it scrubs freed chunks and fills fresh blocks.
-    code_functions.push(lower_arena_fill_zero());
+    // The arena's zero fill is always on: it scrubs freed chunks (plan-183-A: fresh
+    // OS memory is already zero and is never filled).
+    code_functions.push(lower_arena_fill_zero(platform.arch()));
     code_functions.push(lower_arena_destroy(
         platform,
         debug_arena,

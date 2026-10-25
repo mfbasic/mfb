@@ -952,6 +952,10 @@ impl NativePlanPlatform for Platform {
         ]
     }
 
+    fn debug_env_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![import("GetEnvironmentVariableA", KERNEL32, required_by)]
+    }
+
     fn debug_clock_imports(&self, required_by: &str) -> Vec<PlatformImport> {
         vec![
             import("QueryPerformanceCounter", KERNEL32, required_by),

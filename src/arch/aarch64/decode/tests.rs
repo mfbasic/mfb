@@ -120,6 +120,13 @@ fn table() -> Vec<Case> {
         ("rev_w", two("x0", "x1"), vec!["rev    w0, w1"]),
         ("rev_x", two("x0", "x1"), vec!["rev    x0, x1"]),
         ("sxtw", two("x0", "x1"), vec!["sxtw   x0, w1"]),
+        // plan-183-A: the arena zero fill's block-size probe and block zero.
+        (
+            "mrs_dczid",
+            vec![("dst", "x3")],
+            vec!["mrs    x3, DCZID_EL0"],
+        ),
+        ("dc_zva", vec![("base", "x5")], vec!["dc     zva, x5"]),
         ("sdiv", three("x0", "x1", "x2"), vec!["sdiv   x0, x1, x2"]),
         ("udiv", three("x0", "x1", "x2"), vec!["udiv   x0, x1, x2"]),
         (

@@ -1381,6 +1381,10 @@ name = "rt_arena_large_block_reuse"
 path = "tests/runtime/rt_arena_large_block_reuse.rs"
 
 [[test]]
+name = "rt_arena_zeroing"
+path = "tests/runtime/rt_arena_zeroing.rs"
+
+[[test]]
 name = "rt_arena_memory_cap"
 path = "tests/runtime/rt_arena_memory_cap.rs"
 

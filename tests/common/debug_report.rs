@@ -15,6 +15,7 @@ pub fn build_debug_project_with(name: &str, project: &Path, extra: &[&str]) -> P
     let output = Command::new(super::mfb_exe())
         .arg("build")
         .arg("--debug")
+        .args(super::remote::build_args())
         .args(extra)
         .arg(project)
         .output()
@@ -29,14 +30,10 @@ pub fn build_debug_project_with(name: &str, project: &Path, extra: &[&str]) -> P
         .lines()
         .filter_map(|line| line.strip_prefix("Wrote executable to "))
         .collect();
-    // A Linux build writes `-glibc.out` and `-musl.out`; only the host's one runs.
-    let flavored = format!("-{}.out", super::host_libc_flavor());
-    let chosen = written
-        .iter()
-        .find(|path| path.ends_with(&flavored))
-        .or_else(|| written.first())
-        .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{stdout}"));
-    PathBuf::from(chosen)
+    // A Linux build writes `-glibc.out` and `-musl.out`; only the one for the
+    // machine it runs on (this host, or `MFB_TEST_REMOTE`'s box) is taken.
+    super::remote::pick_executable(&written)
+        .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{stdout}"))
 }
 
 /// Build `source` as a one-file project with `--debug`.
@@ -47,7 +44,7 @@ pub fn build_debug(name: &str, source: &str) -> PathBuf {
 
 /// Run `exe`, require success, and return `(stdout, stderr)`.
 pub fn run_ok(name: &str, exe: &Path) -> (String, String) {
-    let output = Command::new(exe).output().expect("run the program");
+    let output = super::remote::output(exe, &[], &[]);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     assert!(

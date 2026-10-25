@@ -18,6 +18,10 @@ mod vector;
 // there is SP. Pinned against clang's assembler in `encodes_load_acquire_store_release`.
 const STLR_X: u32 = 0xc89f_fc00;
 const LDAR_X: u32 = 0xc8df_fc00;
+/// plan-183-A: `mrs Xt, DCZID_EL0` (op0 3, op1 3, CRn 0, CRm 0, op2 7).
+const MRS_DCZID_EL0: u32 = 0xd53b_00e0;
+/// plan-183-A: `dc zva, Xt` = `sys #3, C7, C4, #1, Xt`.
+const DC_ZVA: u32 = 0xd50b_7420;
 const LDAR_W: u32 = 0x88df_fc00;
 
 pub(super) struct Encoder {
@@ -278,6 +282,11 @@ impl Encoder {
                     | (u32::from(reg(field(instruction, "base")?)?) << 5)
                     | u32::from(reg(field(instruction, "src")?)?),
             ),
+            // plan-183-A: the arena zero fill's block-size probe and block zero.
+            "mrs_dczid" => {
+                self.emit_word(MRS_DCZID_EL0 | u32::from(reg(field(instruction, "dst")?)?))
+            }
+            "dc_zva" => self.emit_word(DC_ZVA | (u32::from(reg(field(instruction, "base")?)?))),
             "ldar_u64" => self.emit_word(
                 LDAR_X
                     | (u32::from(reg(field(instruction, "base")?)?) << 5)

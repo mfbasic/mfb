@@ -98,8 +98,9 @@ order the pools were created.
 | `arena.<n>.hit_quick_bin`, `.hit_carve`, `.hit_large_bin`, `.hit_walk`, `.grow` | how each request was served, fastest first: a ready slot of the right small size, a cut from the current block, a ready slot from the large sizes, a search of the returned slots, or a new block from the operating system. The five add up to `alloc_calls`. |
 | `arena.<n>.flushes`, `.insert_free_calls` | passes that merged neighboring returned slots, and slots put back for merging |
 | `arena.<n>.double_free_skips` | returns of memory that was already returned, skipped; normally `0` |
-| `arena.<n>.fill_grow_calls`, `.fill_grow_bytes` | new blocks filled with random bytes before use, and the bytes filled |
-| `arena.<n>.fill_free_calls`, `.fill_free_bytes` | returned slots overwritten with random bytes, and the bytes overwritten |
+| `arena.<n>.fill_grow_calls`, `.fill_grow_bytes` | new blocks filled before use, and the bytes filled; always `0`, because new blocks arrive from the operating system already zeroed |
+| `arena.<n>.fill_free_calls`, `.fill_free_bytes` | returned slots overwritten with zeros, and the bytes overwritten |
+| `arena.<n>.zero_checks`, `.zero_violations` | with `MFB_ARENA_CHECK_ZERO` set to any non-empty value when the program starts: requests checked (every one), and those handed memory with a non-zero byte past its first 16 bytes; normally `0` and `0` |
 | `arena.<n>.series.count` | how many memory-over-time samples follow (at most 256) |
 | `arena.<n>.series.<i>.t_ns` | when sample `i` was taken, in nanoseconds since the first pool was created |
 | `arena.<n>.series.<i>.mapped_bytes`, `.live_bytes` | the pool's block total and its held bytes at that moment |
@@ -219,10 +220,12 @@ arena.0.grow 2
 arena.0.flushes 0
 arena.0.insert_free_calls 0
 arena.0.double_free_skips 0
-arena.0.fill_grow_calls 2
-arena.0.fill_grow_bytes 12224
+arena.0.fill_grow_calls 0
+arena.0.fill_grow_bytes 0
 arena.0.fill_free_calls 42
 arena.0.fill_free_bytes 10624
+arena.0.zero_checks 0
+arena.0.zero_violations 0
 arena.0.series.count 2
 arena.0.series.0.t_ns 27000
 arena.0.series.0.mapped_bytes 4096

@@ -116,6 +116,17 @@ pub(crate) enum CodeOp {
     StlrU64,
     LdarU64,
     LdarU32,
+    /// plan-183-A: `mrs Xd, DCZID_EL0` — read the AArch64 data-cache zero ID register
+    /// (whether `dc zva` is permitted, and its block size). Emitted only by the
+    /// AArch64 program entry. Never emitted for x86-64 or riscv64.
+    MrsDczid,
+    /// plan-183-A: `dc zva, Xn` — zero one `DCZID_EL0`-sized block of memory at the
+    /// block-aligned address in `base`. Emitted only by the AArch64 arena zero fill.
+    DcZva,
+    /// plan-183-A: x86-64 `rep stosb` zero fill of `src` bytes at `base`. The encoder
+    /// saves and restores the implicit `rdi`/`rcx`/`rax` around it, so the op has no
+    /// register effect beyond its two reads. Emitted only by the x86-64 arena zero fill.
+    RepStosbZero,
     /// 64-bit FP scalar load/store (`ldr d`/`str d`), used to spill and reload an
     /// FP-class virtual register (plan-03 Stage C).
     LdrD,
@@ -333,6 +344,9 @@ impl CodeOp {
             CodeOp::StlrU64 => "stlr_u64",
             CodeOp::LdarU64 => "ldar_u64",
             CodeOp::LdarU32 => "ldar_u32",
+            CodeOp::MrsDczid => "mrs_dczid",
+            CodeOp::DcZva => "dc_zva",
+            CodeOp::RepStosbZero => "rep_stosb_zero",
             CodeOp::LdrD => "ldr_d",
             CodeOp::StrD => "str_d",
             CodeOp::Adrp => "adrp",
@@ -497,6 +511,9 @@ impl CodeOp {
             "stlr_u64" => Ok(CodeOp::StlrU64),
             "ldar_u64" => Ok(CodeOp::LdarU64),
             "ldar_u32" => Ok(CodeOp::LdarU32),
+            "mrs_dczid" => Ok(CodeOp::MrsDczid),
+            "dc_zva" => Ok(CodeOp::DcZva),
+            "rep_stosb_zero" => Ok(CodeOp::RepStosbZero),
             "ldr_d" => Ok(CodeOp::LdrD),
             "str_d" => Ok(CodeOp::StrD),
             "adrp" => Ok(CodeOp::Adrp),
@@ -674,6 +691,9 @@ mod tests {
             CodeOp::StlrU64,
             CodeOp::LdarU64,
             CodeOp::LdarU32,
+            CodeOp::MrsDczid,
+            CodeOp::DcZva,
+            CodeOp::RepStosbZero,
             CodeOp::LdrD,
             CodeOp::StrD,
             CodeOp::Adrp,

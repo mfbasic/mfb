@@ -164,9 +164,10 @@ failure. Its register contract is the standard runtime-helper one: **all
 caller-saved integer registers (x0–x17) are clobbered**; callee-saved registers
 (x19–x28) are preserved by its PCS frame. Callers must not hold a live value in
 any caller-saved register across the call — spill to a stack slot instead. The
-fast (first-fit) path makes no call, but the rare block-grow path calls
-`arena_fill_zero` to zero the freshly mapped block, so `arena_alloc` is **not**
-a leaf — it carries a frame and saves the link register.
+fast (first-fit) path makes no call, but the flush-before-grow path calls
+`arena_flush_coalesce` and a retired large carve chunk goes through
+`arena_insert_free`, so `arena_alloc` is **not** a leaf — it carries a frame and
+saves the link register.
 
 The algorithm:
 
@@ -256,7 +257,10 @@ The algorithm:
    request's own chunk when that is freed, so a climb maps a geometric series
    instead of the sum of its steps. Every sum in the sizing is overflow-checked
    (including the 32-byte header add and the slack); a wrapped sum reports
-   `ErrOutOfMemory` rather than mapping an undersized block.
+   `ErrOutOfMemory` rather than mapping an undersized block. The block is used as
+   mapped: the OS returns anonymous memory zeroed on every target (`mmap` with
+   `MAP_ANONYMOUS` on Linux and macOS, `VirtualAlloc` with `MEM_COMMIT` on
+   Windows), so it is never filled by hand (see *Zero Fill*).
 
 A failed mapping (the platform `mmap`/`VirtualAlloc` hook) reports
 `ErrOutOfMemory`.
@@ -359,20 +363,34 @@ allocation and does not provide general double-free detection.
 
 ## Zero Fill
 
-Freed chunks and freshly mapped blocks are overwritten with zero — always on, in
-debug and release. The point is confidentiality: a freed value does not linger in
-the arena as plaintext for a later bug, dump or reader to find. One overwrite is
-enough, because RAM keeps no trace of the value it replaced, and zero is the
-cheapest value to write. A fresh block is zeroed for the same reason, so no byte the
-OS handed over or a previous run of the arena left can be read through it.
+Freed chunks are overwritten with zero — always on, in debug and release. The point
+is confidentiality: a freed value does not linger in the arena as plaintext for a
+later bug, dump or reader to find. One overwrite is enough, because RAM keeps no
+trace of the value it replaced, and zero is the cheapest value to write. A freshly
+mapped block is never filled: the OS hands out anonymous memory already zeroed on
+every target (step 5 of `arena_alloc`), so no byte another process or a previous
+mapping left can be read through it.
 
-`arena_fill_zero(ptr, len)` stores zero words, four to a loop, then one at a time;
-`len` is rounded up to a word, which is exact for every chunk handed to it.
+`arena_fill_zero(ptr, len)` takes an 8-aligned `ptr` and a `len` that is a multiple
+of 8 (every chunk handed to it is 16-aligned and a multiple of 16). Its body is per
+target: [[src/codegen/memory/arena/arena/mod.rs:lower_arena_fill_zero]]
+
+- **AArch64** (macOS, Linux): the program entry reads `DCZID_EL0` once into the
+  process-global word `_mfb_rt_dczva_bytes`: `4 << (DCZID_EL0 & 15)` bytes, or 0 when
+  bit 4 (DZP) prohibits `dc zva` or the block size is outside 16–2048 bytes.
+  [[src/codegen/error/constants/error_constants.rs:DCZVA_BYTES_SYMBOL]]
+  [[src/codegen/engine/function/entry/mod.rs:lower_program_entry]] With a non-zero
+  word and at least two blocks to clear, the fill stores zero words up to block
+  alignment, issues one `dc zva` per whole block, and finishes the tail with the
+  generic loop. Otherwise it runs the generic loop alone. Every AArch64 module carries
+  the word; a module without an entry leaves it 0.
+- **x86-64** (Linux, Windows): one `rep stosb`.
+- **riscv64**: the generic loop — eight zero-word stores, 64 bytes an iteration,
+  then one word at a time.
+
 `arena_free` calls it after parking the chunk on its bin, over the freed payload past
 the FreeNode words (see `arena_free` above); the node's own `{next, size}` overwrite
-the first 16 bytes, so every freed byte is overwritten. `arena_alloc` calls it on a
-freshly mapped block's usable region before first use.
-[[src/codegen/memory/arena/arena/mod.rs:lower_arena_fill_zero]]
+the first 16 bytes, so every freed byte is overwritten.
 
 **Arena memory is not guaranteed zero.** A chunk handed out again begins with its
 free-list node's two words, and a chunk split from a larger free one carries that
@@ -383,10 +401,13 @@ zeros, which can look like a valid value.
 The fill draws no randomness: it never reads or advances the language RNG
 (`math::rand`, offsets 88/96).
 
-A `--debug` build counts both kinds of fill for each arena in the debug report:
-`arena.<n>.fill_grow_calls`/`.fill_grow_bytes` for fresh blocks and
-`arena.<n>.fill_free_calls`/`.fill_free_bytes` for freed chunks (see
-`tooling/09_debug-report.md`).
+A `--debug` build counts the fills for each arena in the debug report:
+`arena.<n>.fill_free_calls`/`.fill_free_bytes` for freed chunks, and
+`arena.<n>.fill_grow_calls`/`.fill_grow_bytes`, which stay 0 because fresh blocks are
+not filled. Run with `MFB_ARENA_CHECK_ZERO` set, it also checks every chunk
+`arena_alloc` hands out past its first 16 bytes and counts the chunks that hold a
+non-zero byte in `arena.<n>.zero_violations` (see `./mfb spec tooling
+debug-report`).
 
 ## Cleanup and Reclamation
 

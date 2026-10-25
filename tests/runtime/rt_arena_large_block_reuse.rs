@@ -35,10 +35,8 @@ const MAX_MAPPED_PER_PEAK_LIVE: u64 = 4;
 
 /// `arena.<index>.<counter>` of `exe args…`'s `--debug` report.
 fn report(name: &str, exe: &std::path::Path, args: &[&str]) -> (String, Vec<String>) {
-    let output = Command::new(exe)
-        .args(args)
-        .output()
-        .unwrap_or_else(|e| panic!("run {}: {e}", exe.display()));
+    // Here, or on `MFB_TEST_REMOTE`'s box (plan-183).
+    let output = common::remote::output(exe, args, &[]);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     assert!(
@@ -51,15 +49,17 @@ fn report(name: &str, exe: &std::path::Path, args: &[&str]) -> (String, Vec<Stri
 }
 
 /// The bug report's console reproduction: an exact-length copy of a list, dropped at
-/// once, 20,000 times. Its length cycles through 1,000 values — or, with any
-/// argument, is always 2,500. Live data is the same either way.
+/// once, 20,000 times. Its length cycles through 1,000 values — or, with the argument
+/// `fixed`, is always 2,500. Live data is the same either way. Both runs pass one
+/// five-letter argument (`drift` or `fixed`): Windows builds `os::args` in the arena
+/// (`emit_build_argv_utf8`), so a run with one argument more would hold one chunk more.
 const VARYING_OR_FIXED: &str = "\
 IMPORT collections
 IMPORT io
 IMPORT os
 
 FUNC main AS Integer
-  LET fixed AS Boolean = len(os::args()) > 0
+  LET fixed AS Boolean = collections::get(os::args(), 0) = \"fixed\"
   MUT big AS List OF Integer = []
   FOR k = 1 TO 4000
     big = collections::append(big, k)
@@ -80,7 +80,7 @@ END FUNC
 #[test]
 fn varying_large_sizes_map_no_more_than_a_fixed_size() {
     let exe = common::debug_report::build_debug("arena_large_varying", VARYING_OR_FIXED);
-    let (out, varying) = report("arena_large_varying", &exe, &[]);
+    let (out, varying) = report("arena_large_varying", &exe, &["drift"]);
     assert_eq!(out.trim(), "49990000", "the varying copies' total length");
     let (out, fixed) = report("arena_large_varying", &exe, &["fixed"]);
     assert_eq!(out.trim(), "50000000", "the fixed copies' total length");

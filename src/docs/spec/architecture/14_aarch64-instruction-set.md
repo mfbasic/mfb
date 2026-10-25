@@ -109,6 +109,8 @@ encoder. [[src/arch/aarch64/encode/emitter/mod.rs:emit_instruction]]
 | `StrU32` | `str_u32` | `src`,`base`,`offset` | `0xB9000000` | scale 4 |
 | `StrU16` | `str_u16` | `src`,`base`,`offset` | `0x79000000` | scale 2; `src=Rt` |
 | `StrU8` | `str_u8` | `src`,`base`,`offset` | `0x39000000` | scale 1 |
+| `MrsDczid` | `mrs_dczid` | `dst` | `0xD53B00E0` | `mrs Xt, DCZID_EL0`; the program entry's `dc zva` block-size probe (plan-183-A) |
+| `DcZva` | `dc_zva` | `base` | `0xD50B7420` | `dc zva, Xt` (`sys #3,C7,C4,#1`); the arena zero fill's block zero |
 | `Adrp` | `adrp` | `dst`,`symbol` | `0x90000000` | emits a `page21` relocation |
 | `AddPageOff` | `add_pageoff` | `dst`,`symbol` | `0x91000000`+`(Rd<<5)\|Rd` | emits a `pageoff12` relocation |
 | `FMovXFromD` | `fmov_x_from_d` | `dst`,`src` | `0x9E660000` | `Xd ← Dn` bits |

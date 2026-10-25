@@ -168,6 +168,9 @@ mir_ops!(
         // AArch64 load-acquire / store-release (bug-564): emitted only by the
         // macOS Network.framework trampolines and `tls::write`'s gate loads.
         StlrU64, LdarU64, LdarU32,
+        // plan-183-A: the per-target arena zero fill — AArch64 `mrs DCZID_EL0` and
+        // `dc zva`, x86-64 `rep stosb`. Each is emitted only for its own target.
+        MrsDczid, DcZva, RepStosbZero,
         FMovDFromD, FAddD, FSubD, FMulD, FDivD, FMinnmD, FMaxnmD, FNegD, FAbsD, FSqrtD, FCvtSFromD, FCvtDFromS, FCmpD,
         FCmpZeroD, FMaddD, FMsubD, FNmsubD, FNmaddD,
     }

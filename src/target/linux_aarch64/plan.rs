@@ -71,6 +71,10 @@ impl plan::NativePlanPlatform for Platform {
         self.common().peak_rss_imports(required_by)
     }
 
+    fn debug_env_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![self.common().libc_import("getenv", required_by)]
+    }
+
     fn app_window_imports(&self) -> Vec<PlatformImport> {
         let common = self.common();
         crate::target::linux_gtk::app_window_imports(crate::target::linux_gtk::AppLibcNames {

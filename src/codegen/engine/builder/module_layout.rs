@@ -64,6 +64,19 @@ pub(super) fn module_data_objects(
             data_objects.push(crate::codegen::engine::function::entry::dev_null_path_data_object());
         }
     }
+    // plan-183-A: the AArch64 `dc zva` block size the entry probes and every
+    // `arena_fill_zero` reads. Every AArch64 module links the fill, so every one
+    // carries the word; a module without an entry leaves it 0 (the generic loop).
+    if platform.arch() == "aarch64" {
+        data_objects.push(CodeDataObject {
+            symbol: DCZVA_BYTES_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.dczva_bytes.v1 { u64 blockBytes }".to_string(),
+            align: 8,
+            size: 8,
+            value: "0000000000000000".to_string(),
+        });
+    }
     // plan-130-A: the `--debug` report's data (once-guard, key and line strings)
     // and each registered section's. Empty unless the report is on, so every
     // normal build keeps its exact data-object set.

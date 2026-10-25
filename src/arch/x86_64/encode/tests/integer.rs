@@ -968,3 +968,26 @@ fn str_u8_extended_register() {
         [0x44, 0x88, 0x83, 0, 0, 0, 0]
     );
 }
+
+/// plan-183-A: the arena zero fill's `rep stosb`. rax/rcx/rdi are saved first and
+/// restored last, and the operands travel through the stack, so the op is correct when
+/// `base`/`src` are themselves rcx or rdi (the swapped case below) or r8–r15.
+#[test]
+fn encodes_rep_stosb_zero_around_its_implicit_registers() {
+    let tail = [0x31, 0xC0, 0xF3, 0xAA, 0x5F, 0x59, 0x58];
+    for (base, count, operands) in [
+        ("rsi", "rdx", vec![0x56, 0x52]),
+        ("rcx", "rdi", vec![0x51, 0x57]),
+        ("r9", "r12", vec![0x41, 0x51, 0x41, 0x54]),
+    ] {
+        let mut want = vec![0x50, 0x51, 0x57];
+        want.extend(operands);
+        want.extend([0x59, 0x5F]);
+        want.extend(tail);
+        assert_eq!(
+            enc("rep_stosb_zero", &[("base", base), ("src", count)]),
+            want,
+            "rep_stosb_zero base={base} src={count}"
+        );
+    }
+}

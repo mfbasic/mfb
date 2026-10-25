@@ -1218,6 +1218,15 @@ pub(crate) const RNG_SEED_SYMBOL: &str = "_mfb_rng_seed_at";
 /// is the cheapest value to write. A leaf, vreg-allocated: it clobbers caller-saved
 /// registers only.
 pub(crate) const ARENA_FILL_ZERO_SYMBOL: &str = "_mfb_arena_fill_zero";
+/// plan-183-A: the AArch64 `dc zva` block size in bytes, read from `DCZID_EL0` once at
+/// program entry, or 0 when `dc zva` is prohibited (DZP set) or the block size is
+/// outside 16..=2048. Process-global (u64); `arena_fill_zero` reads it on every call.
+/// Emitted for AArch64 modules only.
+pub(crate) const DCZVA_BYTES_SYMBOL: &str = "_mfb_rt_dczva_bytes";
+/// plan-183-A: the bytes at the start of a chunk the `MFB_ARENA_CHECK_ZERO` check skips.
+/// A freed chunk's first 16 bytes hold its free-list node, which the allocator does
+/// not clear when it hands the chunk out again.
+pub(crate) const ARENA_ZERO_CHECK_SKIP: usize = 16;
 
 // ===========================================================================
 // SIMD

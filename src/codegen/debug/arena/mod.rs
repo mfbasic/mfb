@@ -70,6 +70,13 @@ pub(crate) const ARENA_KIND_THREAD_BLOCK: &str = "3";
 
 const ARENA_REPORT_SYMBOL: &str = "_mfb_debug_report_arena";
 pub(crate) const ARENA_BASE_SYMBOL: &str = "_mfb_rt_debug_arena_base";
+/// plan-183-A: non-zero when the program was started with `MFB_ARENA_CHECK_ZERO` set to
+/// a non-empty value. Read once, at the first arena registration (program entry,
+/// before any thread exists); `arena_alloc` then checks every chunk it hands out.
+pub(crate) const ARENA_CHECK_ZERO_SYMBOL: &str = "_mfb_rt_debug_arena_check_zero";
+const ARENA_CHECK_ZERO_ENV_SYMBOL: &str = "_mfb_rt_debug_arena_check_zero_env";
+/// The `MFB_ARENA_CHECK_ZERO` test switch's variable name.
+pub(crate) const ARENA_CHECK_ZERO_ENV: &str = "MFB_ARENA_CHECK_ZERO";
 const ARENA_LOCK_SYMBOL: &str = "_mfb_rt_debug_arena_lock";
 const ARENA_COUNT_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_count";
 const ARENA_OVERFLOW_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_overflow";
@@ -118,9 +125,13 @@ pub(crate) const COUNTER_FILL_GROW_CALLS: usize = 160;
 pub(crate) const COUNTER_FILL_GROW_BYTES: usize = 168;
 pub(crate) const COUNTER_FILL_FREE_CALLS: usize = 176;
 pub(crate) const COUNTER_FILL_FREE_BYTES: usize = 184;
+/// plan-183-A: with `MFB_ARENA_CHECK_ZERO` set, the chunks `arena_alloc` checked before
+/// handing them out, and those with a non-zero byte in the checked range.
+pub(crate) const COUNTER_ZERO_CHECKS: usize = 192;
+pub(crate) const COUNTER_ZERO_VIOLATIONS: usize = 200;
 
 /// Every counter, in slot and report order: `(report name, slot offset)`.
-const ARENA_COUNTERS: [(&str, usize); 22] = [
+const ARENA_COUNTERS: [(&str, usize); 24] = [
     ("maps", COUNTER_MAPS),
     ("mapped_bytes", COUNTER_MAPPED_BYTES),
     ("unmaps", COUNTER_UNMAPS),
@@ -143,16 +154,18 @@ const ARENA_COUNTERS: [(&str, usize); 22] = [
     ("fill_grow_bytes", COUNTER_FILL_GROW_BYTES),
     ("fill_free_calls", COUNTER_FILL_FREE_CALLS),
     ("fill_free_bytes", COUNTER_FILL_FREE_BYTES),
+    ("zero_checks", COUNTER_ZERO_CHECKS),
+    ("zero_violations", COUNTER_ZERO_VIOLATIONS),
 ];
 
 /// plan-133-C: the memory series after the counters — how many samples are kept, the
 /// grow-count stride between kept samples, the grow count that keeps the next one,
 /// whether the entry after the kept ones holds an unkept latest grow, then the entries.
-const SERIES_COUNT_OFFSET: usize = 192;
-const SERIES_STRIDE_OFFSET: usize = 200;
-const SERIES_UNTIL_OFFSET: usize = 208;
-const SERIES_PENDING_OFFSET: usize = 216;
-const SERIES_SAMPLES_OFFSET: usize = 224;
+const SERIES_COUNT_OFFSET: usize = 208;
+const SERIES_STRIDE_OFFSET: usize = 216;
+const SERIES_UNTIL_OFFSET: usize = 224;
+const SERIES_PENDING_OFFSET: usize = 232;
+const SERIES_SAMPLES_OFFSET: usize = 240;
 /// Kept samples before the series halves; one more entry holds the latest unkept grow.
 const SERIES_CAPACITY: usize = 256;
 const SERIES_SAMPLE_SIZE: usize = 32;
@@ -173,8 +186,8 @@ const REGION_SIZE: usize = REGION_HEADER_SIZE + ARENA_DEBUG_SLOTS * SLOT_SIZE;
 // series fills the rest of the slot.
 const _: () = assert!(
     16 + ARENA_COUNTERS.len() * 8 == SERIES_COUNT_OFFSET
-        && COUNTER_FILL_FREE_BYTES + 8 == SERIES_COUNT_OFFSET
-        && SLOT_SIZE == 8448
+        && COUNTER_ZERO_VIOLATIONS + 8 == SERIES_COUNT_OFFSET
+        && SLOT_SIZE == 8464
 );
 
 /// The key-suffix data object of a series sample's field (`.t_ns ` …).
@@ -495,8 +508,17 @@ fn lower_register(
         &mut relocations,
         &mut vregs,
     )?;
+    instructions.push(abi::store_u64(&t0, &base, REGION_T0_OFFSET));
+    // plan-183-A: the `MFB_ARENA_CHECK_ZERO` test switch, read with the same one-time
+    // work. The frame's clock buffer is free again and serves the Windows call.
+    emit_read_check_zero(
+        platform,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+        &mut vregs,
+    )?;
     instructions.extend([
-        abi::store_u64(&t0, &base, REGION_T0_OFFSET),
         abi::label(have_region),
         abi::load_u64(&count, &base, REGION_COUNT_OFFSET),
         abi::compare_immediate(&count, &ARENA_DEBUG_SLOTS.to_string()),
@@ -541,6 +563,84 @@ fn lower_register(
     })
 }
 
+/// `_mfb_rt_debug_arena_check_zero = (MFB_ARENA_CHECK_ZERO is set and non-empty)`.
+/// POSIX: `getenv`, then the value's first byte. Windows: `GetEnvironmentVariableA`
+/// into the frame's 16-byte clock buffer, which returns the value's length (0 when
+/// unset or empty) or, for a longer value, the buffer size it needs — non-zero either
+/// way.
+fn emit_read_check_zero(
+    platform: &dyn CodegenPlatform,
+    platform_imports: &HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let symbol = DEBUG_ARENA_REGISTER_SYMBOL;
+    let flag = vregs.next();
+    let addr = vregs.next();
+    let off = "debug_arena_check_zero_off";
+    let store = "debug_arena_check_zero_store";
+    push_symbol_address(
+        symbol,
+        ARENA_CHECK_ZERO_ENV_SYMBOL,
+        abi::c_arg(0),
+        instructions,
+        relocations,
+    );
+    if platform.family() == PlatformFamily::Windows {
+        instructions.extend([
+            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 0),
+            abi::move_immediate(abi::c_arg(2), "Integer", &CLOCK_BUFFER_SIZE.to_string()),
+        ]);
+        platform.emit_external_call(
+            "GetEnvironmentVariableA",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::move_register(&flag, abi::c_return(0)),
+            abi::compare_immediate(&flag, "0"),
+            abi::branch_eq(off),
+            abi::move_immediate(&flag, "Integer", "1"),
+            abi::branch(store),
+        ]);
+    } else {
+        platform.emit_external_call(
+            "getenv",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.extend([
+            abi::move_register(&flag, abi::c_return(0)),
+            abi::compare_immediate(&flag, "0"),
+            abi::branch_eq(off),
+            abi::load_u8(&flag, &flag, 0),
+            abi::compare_immediate(&flag, "0"),
+            abi::branch_eq(off),
+            abi::move_immediate(&flag, "Integer", "1"),
+            abi::branch(store),
+        ]);
+    }
+    instructions.extend([
+        abi::label(off),
+        abi::move_immediate(&flag, "Integer", "0"),
+        abi::label(store),
+    ]);
+    push_symbol_address(
+        symbol,
+        ARENA_CHECK_ZERO_SYMBOL,
+        &addr,
+        instructions,
+        relocations,
+    );
+    instructions.push(abi::store_u64(&flag, &addr, 0));
+    Ok(())
+}
+
 impl DebugFeature for ArenaFeature {
     fn name(&self) -> &'static str {
         ARENA_SECTION
@@ -570,6 +670,27 @@ impl DebugFeature for ArenaFeature {
                 align: 8,
                 size: crate::codegen::builtins::os::OS_ENV_LOCK_SIZE,
                 value: crate::codegen::builtins::os::os_env_lock_init_hex(family_of(module)),
+            },
+            CodeDataObject {
+                symbol: ARENA_CHECK_ZERO_SYMBOL.to_string(),
+                kind: "raw".to_string(),
+                layout: "mfb.runtime.debug_arena_check_zero.v1 { u64 enabled }".to_string(),
+                align: 8,
+                size: 8,
+                value: "0000000000000000".to_string(),
+            },
+            // The variable's name, NUL-terminated for `getenv`/`GetEnvironmentVariableA`.
+            CodeDataObject {
+                symbol: ARENA_CHECK_ZERO_ENV_SYMBOL.to_string(),
+                kind: "raw".to_string(),
+                layout: "NUL-terminated C string (environment variable name)".to_string(),
+                align: 1,
+                size: ARENA_CHECK_ZERO_ENV.len() + 1,
+                value: ARENA_CHECK_ZERO_ENV
+                    .bytes()
+                    .chain([0])
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
             },
             key_object(ARENA_COUNT_KEY_SYMBOL, "arena.count"),
             key_object(ARENA_OVERFLOW_KEY_SYMBOL, "arena.registry_overflow"),
@@ -621,8 +742,11 @@ impl DebugFeature for ArenaFeature {
         required_by: &str,
     ) -> Vec<crate::target::shared::plan::PlatformImport> {
         // plan-133-C: the series' clock (`t0` at registration, `t_ns` per sample). Its
-        // peak-RSS read uses the imports `process` already requests.
-        platform.debug_clock_imports(required_by)
+        // peak-RSS read uses the imports `process` already requests. plan-183-A: the
+        // `MFB_ARENA_CHECK_ZERO` read.
+        let mut imports = platform.debug_clock_imports(required_by);
+        imports.extend(platform.debug_env_imports(required_by));
+        imports
     }
 
     fn lock_helpers(&self) -> &'static [&'static str] {

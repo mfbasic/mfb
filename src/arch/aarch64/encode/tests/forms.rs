@@ -771,3 +771,34 @@ fn float_precision_conversions_encode() {
         [0x1E22_C020]
     );
 }
+
+/// plan-183-A: the arena zero fill's `mrs Xt, DCZID_EL0` and `dc zva, Xt`. Oracle
+/// words: Apple clang 17 `clang -c -arch arm64` of these exact lines, then `otool -t`.
+#[test]
+fn encodes_mrs_dczid_and_dc_zva() {
+    for (instruction, word, spelling) in [
+        (
+            CodeInstruction::new("mrs_dczid").physical_field("dst", "x3"),
+            0xd53b_00e3_u32,
+            "mrs x3, dczid_el0",
+        ),
+        (
+            CodeInstruction::new("mrs_dczid").physical_field("dst", "x21"),
+            0xd53b_00f5,
+            "mrs x21, dczid_el0",
+        ),
+        (
+            CodeInstruction::new("dc_zva").physical_field("base", "x5"),
+            0xd50b_7425,
+            "dc zva, x5",
+        ),
+        (
+            CodeInstruction::new("dc_zva").physical_field("base", "x28"),
+            0xd50b_743c,
+            "dc zva, x28",
+        ),
+    ] {
+        assert_eq!(encode_one(&instruction), word, "{spelling}");
+        assert_eq!(instruction_size(&instruction).unwrap(), 4, "{spelling}");
+    }
+}

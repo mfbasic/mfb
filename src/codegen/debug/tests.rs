@@ -32,6 +32,8 @@ fn imports() -> HashMap<String, String> {
         "_pthread_mutex_unlock",
         "_getrusage",
         "_clock_gettime",
+        // plan-183-A: the `MFB_ARENA_CHECK_ZERO` read at the first arena registration.
+        "_getenv",
     ]
     .into_iter()
     .map(|symbol| (symbol.to_string(), "libSystem".to_string()))
