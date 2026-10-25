@@ -56,6 +56,24 @@ per binding; it runs before user code to materialize global initializers.
 [[src/target/shared/nir/lower.rs:lower_global_initializer]]
 [[src/target/shared/nir/symbols.rs:global_initializer_name]]
 
+The module the backend consumes (and the `-nir` dump) is the one the Opt1 seam
+returns, so at `-O1` and above it holds only the functions some root reaches:
+call-graph DCE drops the rest, mutually recursive orphans included. The roots
+are the entry, the global initializer above, every function a global's
+initializer value names, the natively-called builtin helpers
+(`natively_called_helpers`), entered by symbol rather than by a NIR call, and
+every function of the `canvas` package the program carries — the graphics
+thread enters its render loop by symbol, and the app backends consume the rest
+by symbol and gate their own data objects and imports on its calls. From there a direct call, a function
+value (`FunctionRef`/`Closure`) and a parameter default keep their callee. At
+`-O0` every lowered function is kept. A by-symbol caller missing from the root
+list fails the build (`internal relocation target … is not defined`) rather
+than producing a binary.
+[[src/optimizer/opt1/callgraph.rs:eliminate]]
+[[src/optimizer/opt1/plans/globals.rs:reachable_from]]
+[[src/codegen/registry/lookup.rs:natively_called_helpers]]
+[[src/codegen/runtime/canvas/entry.rs:render_loop_symbol]]
+
 ## Op set
 
 `NirOp` is the statement vocabulary inside a function body. Lowering from `IrOp`

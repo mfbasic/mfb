@@ -255,6 +255,17 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::DEAD_CODE_ELIMINATION_NIR,
         },
         Row {
+            name: "Interprocedural / global DCE (call-graph)",
+            level: 1,
+            stage: "NIR",
+            summary: "Removes every function the program can never call: \
+                      nothing reachable from the entry point, the module-level \
+                      initializers or a function value names it. Mutually \
+                      recursive functions nothing else calls go too. Unused \
+                      built-in package helpers are the bulk of what it removes.",
+            counter: &stats::FUNCTIONS_ELIMINATED,
+        },
+        Row {
             name: "Dead-code elimination (DCE, MIR)",
             level: 2,
             stage: "MIR",

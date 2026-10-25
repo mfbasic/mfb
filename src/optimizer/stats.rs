@@ -95,6 +95,9 @@ pub(super) static VALUES_NARROWED: AtomicU64 = AtomicU64::new(0);
 /// "Sign/zero extension elimination" (Opt2): extensions dropped because the
 /// high bits are provably already clear.
 pub(super) static EXTENSIONS_REMOVED: AtomicU64 = AtomicU64::new(0);
+/// "Interprocedural / global DCE (call-graph)" (Opt1): functions no root
+/// reaches, removed.
+pub(super) static FUNCTIONS_ELIMINATED: AtomicU64 = AtomicU64::new(0);
 /// "Dead global elimination" (Opt1): private globals nothing mentions,
 /// removed.
 pub(super) static GLOBALS_ELIMINATED: AtomicU64 = AtomicU64::new(0);
@@ -314,6 +317,10 @@ pub(crate) fn count_values_narrowed(fired: u64) {
 
 pub(crate) fn count_extensions_removed(fired: u64) {
     add(&EXTENSIONS_REMOVED, fired);
+}
+
+pub(crate) fn count_functions_eliminated(fired: u64) {
+    add(&FUNCTIONS_ELIMINATED, fired);
 }
 
 pub(crate) fn count_globals_eliminated(fired: u64) {

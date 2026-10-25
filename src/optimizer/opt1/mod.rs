@@ -7,7 +7,9 @@
 //! three composed into one scope-tracked walk by [`local_rewrites`]), and
 //! [`placefwd`]'s place copy forwarding (Level 1, right after them);
 //! tree-level [`branches`] simplification, [`uce`], and [`dce`] (Level 1, the
-//! last consuming the [`plans`] name-usage census);
+//! last consuming the [`plans`] name-usage census); [`callgraph`]'s
+//! call-graph DCE (Level 1, last in the seam, on the [`plans::globals`]
+//! reachability walk);
 //! and the six structured-loop rows (Level 3): [`licm`], [`unswitch`],
 //! [`fuse`], [`fission`], [`peel`], and [`rotate`], consuming the
 //! [`plans::loops`] fact base (invariance, loop-control capture, the pure
@@ -16,6 +18,7 @@
 pub(crate) mod aggcopy;
 pub(crate) mod algebraic;
 pub(crate) mod branches;
+pub(crate) mod callgraph;
 pub(crate) mod constant_folding;
 pub(crate) mod dce;
 pub(crate) mod fission;
@@ -117,5 +120,11 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
     timed("recovery regions", || recovery::simplify(&mut module));
     timed("UCE (NIR)", || uce::eliminate(&mut module));
     timed("DCE (NIR)", || dce::eliminate(&mut module));
+    // Call-graph DCE (Level 1) runs last: every row above can strand a callee —
+    // leaf inlining removes each call to the helper it inlines, branch
+    // simplification and UCE drop the arms and tails that held calls, DCE drops
+    // an unused binding whose value was a function — and a function is dead only
+    // once nothing left mentions it.
+    timed("call-graph DCE", || callgraph::eliminate(&mut module));
     module
 }
