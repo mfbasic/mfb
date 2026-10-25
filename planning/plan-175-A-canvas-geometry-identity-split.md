@@ -701,18 +701,45 @@ Commit: f7c605784
 
 ### Phase 3 — Refresh for gradients, pictures and text (only where measured)
 
-- [ ] A bench row per case (`dots` with a two-stop gradient whose colours alternate; a
-      tilemap of `Picture`s whose tint alternates -- a `Tile` has no tint, so a tilemap of
-      tiles has no paint-only change to measure; a page of text whose colour alternates), first, to
-      show the rebuild-in-place cost of Phase 2 for each.
-- [ ] Refresh for each case whose row shows the rebuild above 10% of its frame: the
-      gradient header words and stops tail (same count), a picture's tint and
-      transparency, a text run's colour.
+- [x] A bench row per case: `tools/canvas-bench/bench.sh <mfb> dots N --kind
+      gradient|picture|text`, each with a `--control` row (one paint, a moving marker:
+      every record the last frame's). Rebuild in place (Phase 2), 10,000 items, this Mac
+      (load 21), `phaseOffsetsMs` paint / control, and the frame (offsets + draws +
+      render) of the paint row:
+      | case | paint | control | rebuild | of the frame |
+      |---|---:|---:|---:|---:|
+      | two-stop ramp's colours | 94.28 | 0.89 | 93.4 | 82% of 113.7 |
+      | picture tint | 41.04 | 8.62 | 32.4 | 66% of 48.9 |
+      | text colour | 124.00 | 0.46 | 123.5 | 85% of 145.4 |
+- [x] Refresh for each case whose row shows the rebuild above 10% of its frame — all
+      three are:
+      - **the ramp and the text: implemented.** `__canvas_geoRepaint` builds only the
+        kind's header (`__canvas_circleItem`, `__canvas_ellipseHeader`,
+        `__canvas_rectItem`; for a `Text` the builder's own `__canvas_paintHeader` call
+        and `__canvas_autoTextBox`) and the ramp's stops (`__canvas_gradientTail`), and
+        the native `canvas::geoRepaint` copies the header's appearance slots (8–15, 26,
+        42–46, 55–66) and the stops over the record — no edges, dashes or glyph run.
+        `__canvas_geometryOf` tries it before rebuilding; other kinds rebuild whole.
+        After (load 13): ramp 31.84 against control 0.37; text 34.49 against 0.34 —
+        3.0 and 3.6 times less than the rebuild. Under the verifier, 1,000 items each
+        (`dots.sh` with `KIND=...`, `MFB_CANVAS_GEO_VERIFY=1`): gradient 97,000
+        refreshes, text 94,000, `geoVerifyMismatches=0` both.
+      - **the picture tint: not implemented, cost recorded.** 42.42 against a control
+        of 10.05 after (41.04 / 8.62 before): a picture's record is a header with no
+        tail (`__canvas_picturePlain`, `__canvas_pictureStamp`), so its rebuild in place
+        already is header-only, and what a refresh would save is the MFBASIC picture
+        walk around it (`__canvas_pictureAppend`, two cache probes a picture), which is
+        Phase 6's subject. Verifier clean (111,000 refreshes, 1,000 pictures).
 
 Acceptance: each implemented case builds nothing on a paint-only change and verifies
 clean; a case not implemented is recorded here with its measured cost.
   Check: the new bench rows; `cargo test --release --test rt_canvas_font --test
   rt_canvas_picture --test rt_canvas_golden`.
+
+**MET 2026-10-25**: `builds/frame=0` on every paint row above; the verifier runs above;
+`rt_canvas_font` 61, `rt_canvas_golden` 28, `rt_canvas_picture` 16 passed;
+`rt_canvas_geo_native` 8 passed (its repaint scene's ramped circle, ellipse and turned
+rectangle take the new path).
 Commit: —
 
 ### Phase 4 — The worker's hit cache keyed by `G`

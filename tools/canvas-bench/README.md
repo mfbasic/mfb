@@ -405,6 +405,14 @@ It builds the scene twice and prints one row:
 The row FAILS, and the command exits 1, unless the release run holds 30.0 pps
 and 30.0 fps and every frame of the debug run is a GPU frame.
 
+plan-175-A adds two options and a column. `--kind circle|gradient|picture|text`
+picks what each dot is and so which paint alternates (a fill colour, a two-stop
+ramp's colours, a picture's tint, a text's colour). `--control` gives both
+scenes one paint and moves a small marker instead, so every frame draws and every
+item's record is the last frame's: `phaseOffsetsMs` of a paint row less its
+control row's is what refreshing the changed paint costs. `refreshes/frame` is the
+records rewritten in place a frame (`refreshes=` on the stats line).
+
 `--window` runs in a real window on this Mac instead of headless: the direct
 present path, which is what a program's user gets. Headless runs (the default,
 and the only mode on a remote box) take the readback path. `--move` also moves

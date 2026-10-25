@@ -63,7 +63,7 @@ use snapshot::{
 };
 use table::{
     emit_add_slot, emit_find, emit_refreshed, emit_stamp, finish, lower_geo_begin_frame,
-    lower_geo_find, lower_geo_forget, lower_geo_insert, lower_geo_refresh,
+    lower_geo_find, lower_geo_forget, lower_geo_insert, lower_geo_refresh, lower_geo_repaint,
 };
 
 /// Words per slot in `__CANVAS_GEO_SLOTS`.
@@ -392,6 +392,18 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         ParameterType::Integer,
         vec!["ErrOutOfMemory"],
         lower_geo_refresh,
+    ));
+    pkg.add_function(function(
+        "geoRepaint",
+        vec![
+            param("slot", ParameterType::Integer),
+            param("draw", ParameterType::Integer),
+            param("header", float_list()),
+            param("stops", float_list()),
+        ],
+        ParameterType::Integer,
+        vec![],
+        lower_geo_repaint,
     ));
     pkg.add_function(function(
         "geoForget",

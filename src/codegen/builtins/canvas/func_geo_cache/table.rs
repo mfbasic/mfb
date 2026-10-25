@@ -494,6 +494,90 @@ pub(super) fn lower_geo_refresh(
     Ok(finish(builder, Some(&offset), "canvas.geoRefresh"))
 }
 
+/// The header slots `__canvas_paintHeader` writes from appearance fields
+/// (`func_item_lanes.rs`): both colours (8–15), the blend mode (26), the gradient's kind
+/// and points — or a text record's layout box, which its builder writes in their place
+/// (42–46) — and the ramp's spread, apply, inverse and focal words (55–66).
+const APPEARANCE_SLOTS: [std::ops::Range<usize>; 4] = [8..16, 26..27, 42..47, 55..67];
+
+/// `canvas::geoRepaint(slot, draw, header, stops) AS Integer` (plan-175-A Phase 3): a
+/// cheaper refresh of a record the MFBASIC builders made. `header` is that kind's header
+/// built afresh from the item (its header builder alone, none of its tail), and
+/// `stops` the gradient's stop floats as the builder appends them (empty when it has
+/// none). The record takes the header's [`APPEARANCE_SLOTS`] and, when there are stops,
+/// those `5 * count` floats at the end of its tail, where they always are
+/// (`__canvas_gradientStopBase`); everything else it holds is geometry. Answers the
+/// record's offset, or -1 — nothing written — when `stops` is not the record's stop
+/// count (the caller then rebuilds it whole).
+pub(super) fn lower_geo_repaint(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let g = Globals::of(builder)?;
+    let slot = builder.temporary_vreg();
+    let draw = builder.temporary_vreg();
+    let header = builder.temporary_vreg();
+    let stops = builder.temporary_vreg();
+    builder.emit(abi::move_register(&slot, &args[0].location));
+    builder.emit(abi::move_register(&draw, &args[1].location));
+    builder.emit(abi::move_register(&header, &args[2].location));
+    builder.emit(abi::move_register(&stops, &args[3].location));
+    let result = imm(builder, -1);
+    let done = builder.label("canvas_geo_repaint_done");
+    let slots = gload(builder, g.slots);
+    let base = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(&base, &slot, 2));
+    let offset = load_word(builder, &slots, &base, 1);
+    let data = gload(builder, g.data);
+    let record = word_addr(builder, &data, &offset);
+    // The stops: as many as the record holds, or nothing is written.
+    let floats = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&floats, &stops, COLLECTION_OFFSET_COUNT));
+    let count_f = builder.temporary_fp_vreg();
+    builder.emit(abi::load_double(
+        &count_f,
+        &record,
+        8 * 41, // __CANVAS_GEO_GRADIENT_COUNT
+    ));
+    let count = builder.temporary_vreg();
+    builder.emit(abi::float_convert_to_signed_x(&count, &count_f));
+    let want = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&want, "Integer", "5"));
+    builder.emit(abi::multiply_registers(&want, &want, &count));
+    builder.emit(abi::compare_registers(&want, &floats));
+    builder.emit(abi::branch_ne(&done));
+    // The header's appearance slots over the record's.
+    let src = builder.temporary_vreg();
+    builder.emit(abi::add_immediate(&src, &header, COLLECTION_HEADER_SIZE));
+    let v = builder.temporary_vreg();
+    for range in APPEARANCE_SLOTS {
+        for s in range {
+            builder.emit(abi::load_u64(&v, &src, 8 * s));
+            builder.emit(abi::store_u64(&v, &record, 8 * s));
+        }
+    }
+    // The stops, at the end of the record: `length - 5 * count`.
+    let length_f = builder.temporary_fp_vreg();
+    builder.emit(abi::load_double(&length_f, &record, 8));
+    let length = builder.temporary_vreg();
+    builder.emit(abi::float_convert_to_signed_x(&length, &length_f));
+    builder.emit(abi::subtract_registers(&length, &length, &want));
+    builder.emit(abi::shift_left_immediate(&length, &length, 3));
+    let dst = builder.temporary_vreg();
+    builder.emit(abi::add_registers(&dst, &record, &length));
+    let from = builder.temporary_vreg();
+    builder.emit(abi::add_immediate(&from, &stops, COLLECTION_HEADER_SIZE));
+    let bytes = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(&bytes, &floats, 3));
+    let scratch = builder.temporary_vreg();
+    builder.emit_block_copy_advance(&dst, &from, &bytes, &scratch, "canvas_geo_repaint_stops");
+    emit_refreshed(builder, &g, &slot, &draw);
+    builder.emit(abi::move_register(&result, &offset));
+    builder.emit(abi::label(&done));
+    Ok(finish(builder, Some(&result), "canvas.geoRepaint"))
+}
+
 /// A record just rewritten in place: `slot` holds `draw`, is stamped as used, and one
 /// more refresh is counted.
 pub(super) fn emit_refreshed(

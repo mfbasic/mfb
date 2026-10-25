@@ -192,6 +192,41 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   RETURN __canvas_geometryOf(item, hash, hash)
 END FUNC
 
+' plan-175-A Phase 3: refresh the record of `slot` for `item`, whose paint alone changed,
+' without its tail: the kind's own header builder, alone, gives every appearance slot
+' afresh, and `canvas::geoRepaint` copies those and the ramp's stops into the record.
+' Answers the record's offset, or -1 for a kind this does not refresh (the caller then
+' rebuilds the whole record in place). The kinds are the ones whose rebuild is costly
+' and whose header builder is the record's first step: a shape whose gradient or
+' transform the native builder declines, and a `Text`, whose glyph run is the costly
+' part and is geometry.
+FUNC __canvas_geoRepaint(item AS DrawItem, slot AS Integer, draw AS Integer) AS Integer
+  LET none AS List OF Float = []
+  MATCH item
+    CASE Circle(c)
+      RETURN canvas::geoRepaint(slot, draw, __canvas_circleItem(c), __canvas_gradientTail(c.paint))
+    CASE Ellipse(e)
+      RETURN canvas::geoRepaint(slot, draw, __canvas_ellipseHeader(e), __canvas_gradientTail(e.paint))
+    CASE Rectangle(r)
+      ' A rectangle whose corners are not one radius is built as a polygon ring.
+      LET radius AS Float = __canvas_rectRadius(r)
+      IF radius >= 0.0 THEN
+        RETURN canvas::geoRepaint(slot, draw, __canvas_rectItem(r, radius), __canvas_gradientTail(r.paint))
+      END IF
+    CASE Text(t)
+      ' A ramp on text is a stroked run's polygon business; that is rebuilt.
+      IF len(t.paint.gradient.stops) < 2 THEN
+        LET offset AS Integer = collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 1, 0)
+        MUT h AS List OF Float = __canvas_blankHeader()
+        h = collections::set(h, 0, __canvas_geoAt(offset, 0))
+        h = __canvas_autoTextBox(__canvas_paintHeader(h, t.paint, __canvas_textTransform(t), __canvas_textX(t), __canvas_textY(t)), t)
+        RETURN canvas::geoRepaint(slot, draw, h, none)
+      END IF
+    CASE ELSE
+  END MATCH
+  RETURN 0 - 1
+END FUNC
+
 ' plan-172-L: a `Picture` is not built here. Its records are made, cached and -- the
 ' one kind a hash cannot vouch for, since `setBytes` swaps an image's pixels without
 ' changing the item -- confirmed in `helper_picture.rs`, which the walks hand a picture
@@ -205,6 +240,12 @@ FUNC __canvas_geometryOf(item AS DrawItem, geo AS Integer, draw AS Integer) AS I
   LET found AS Integer = __canvas_geoLookup(geo, draw)
   IF found >= 0 THEN
     RETURN found
+  END IF
+  IF __CANVAS_GEO_PLAN_SLOT >= 0 THEN
+    LET repainted AS Integer = __canvas_geoRepaint(item, __CANVAS_GEO_PLAN_SLOT, draw)
+    IF repainted >= 0 THEN
+      RETURN repainted
+    END IF
   END IF
 
   ' Not a hit: build the record, then store it as the lookup decided.
