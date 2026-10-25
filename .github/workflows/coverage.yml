@@ -12,7 +12,7 @@ jobs:
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: rustfmt
@@ -33,14 +33,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # gen_unicode_gencat_table.py derives the general-category table from the Python
       # runtime's bundled `unicodedata`, whose Unicode version is tied to the
       # Python minor version (3.14.x → Unicode 16.0.0). The checked-in artifact
       # is pinned to 16.0.0, so check-generated only reproduces it under a Python
       # that ships the same Unicode. ubuntu-latest's system python3 lags (Unicode
       # 15.0.0), which drifts the regex table — pin the interpreter to match.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - name: Generated-artifact integrity
@@ -48,9 +48,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.96.0
       - name: Compile mfb
         run: cargo build --release --bin mfb
-      # v4 artifacts are zipped and DROP the executable bit; the consumers chmod
+      # Artifacts are zipped by default and DROP the executable bit; the consumers chmod
       # +x after download.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mfb-bin
           path: target/release/mfb
@@ -122,7 +122,7 @@ jobs:
             runner: ubuntu-24.04-riscv
             rust_target: native
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install native Rust toolchain
         if: matrix.rust_target == 'native'
         uses: dtolnay/rust-toolchain@1.96.0
@@ -204,8 +204,8 @@ jobs:
     # only buys flaky cancellations on a slow shared runner.
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: mfb-bin
           path: target/release
@@ -254,8 +254,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: mfb-bin
           path: target/release
@@ -273,8 +273,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: mfb-bin
           path: target/release
@@ -295,8 +295,8 @@ jobs:
     # RUN_TIMEOUT, and the whole corpus measured well inside this.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: mfb-bin
           path: target/release
@@ -327,7 +327,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: llvm-tools-preview
@@ -349,7 +349,7 @@ jobs:
           cargo llvm-cov report $PKG_FLAGS \
             --ignore-filename-regex "$IGNORE" \
             --fail-under-lines 98
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: target/coverage
@@ -362,11 +362,11 @@ jobs:
     needs: [test, acceptance, artifact, coverage]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.96.0
       - name: Build examples for all targets
         run: bash scripts/build-examples.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: examples
           path: target/examples.zip
