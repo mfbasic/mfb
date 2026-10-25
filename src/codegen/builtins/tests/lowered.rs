@@ -7,7 +7,7 @@
 use crate::arch::ops::CodeOp;
 use crate::codegen::engine::tests::test_support::Stream;
 use crate::target::NativeBuildMode::Console;
-use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+use crate::testutil::{code_for_src_cached, code_for_src_lowered, code_function, CodeTarget};
 
 /// The targets of the calls function `name` of `source` makes on `target`, in order.
 pub(super) fn calls_on(source: &str, name: &str, target: CodeTarget) -> Vec<String> {
@@ -36,9 +36,10 @@ pub(super) fn slots_on(source: &str, name: &str, target: CodeTarget) -> Vec<Stri
 }
 
 /// The label stems (serial dropped) of function `name` of `source` on `target`,
-/// sorted and deduplicated.
+/// sorted and deduplicated — read at `-O0`, where every route's labels are as
+/// lowering named them (see [`code_for_src_lowered`]).
 pub(super) fn labels_on(source: &str, name: &str, target: CodeTarget) -> Vec<String> {
-    let plan = code_for_src_cached(source, target, Console);
+    let plan = code_for_src_lowered(source, target, Console);
     let mut stems: Vec<String> = Stream::of(code_function(plan, name))
         .labels()
         .into_iter()

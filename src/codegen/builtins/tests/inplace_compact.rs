@@ -15,10 +15,10 @@ use std::collections::BTreeSet;
 
 use crate::codegen::engine::tests::test_support::Stream;
 use crate::target::NativeBuildMode::Console;
-use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+use crate::testutil::{code_for_src_lowered, code_function, CodeTarget};
 
 fn label_stems(source: &str) -> BTreeSet<String> {
-    let plan = code_for_src_cached(source, CodeTarget::LinuxX86_64, Console);
+    let plan = code_for_src_lowered(source, CodeTarget::LinuxX86_64, Console);
     Stream::of(code_function(plan, "main"))
         .labels()
         .into_iter()

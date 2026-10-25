@@ -876,15 +876,48 @@ pub fn code_for_src_cached(
     target: CodeTarget,
     build_mode: crate::target::NativeBuildMode,
 ) -> &'static crate::codegen::engine::types::NativeCodePlan {
+    code_for_src_cached_level(source, target, build_mode, None)
+}
+
+/// [`code_for_src_cached`] at `-O0`: the stream exactly as lowering emitted it,
+/// before any dial pass.
+///
+/// For a suite that asserts WHICH lowering route a program took by the label
+/// names the route defines. Those names are lowering's audit trail, and the
+/// Level-1 control-flow tidying rewrites them without touching the code they
+/// mark: CFG simplification folds a label onto the label right before it, and
+/// block merging drops a label nothing branches to. The route's instructions
+/// are still there at `-O1`; its name is not.
+pub fn code_for_src_lowered(
+    source: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+) -> &'static crate::codegen::engine::types::NativeCodePlan {
+    code_for_src_cached_level(source, target, build_mode, Some(0))
+}
+
+/// The memo behind [`code_for_src_cached`] (`level: None`, the dial's default)
+/// and [`code_for_src_lowered`] (`Some(0)`).
+fn code_for_src_cached_level(
+    source: &str,
+    target: CodeTarget,
+    build_mode: crate::target::NativeBuildMode,
+    level: Option<u8>,
+) -> &'static crate::codegen::engine::types::NativeCodePlan {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
 
-    type Key = (String, &'static str, &'static str);
+    type Key = (String, &'static str, &'static str, Option<u8>);
     static CACHE: OnceLock<
         Mutex<HashMap<Key, &'static crate::codegen::engine::types::NativeCodePlan>>,
     > = OnceLock::new();
 
-    let key: Key = (source.to_string(), target.name(), build_mode.as_str());
+    let key: Key = (
+        source.to_string(),
+        target.name(),
+        build_mode.as_str(),
+        level,
+    );
     // Compiled OUTSIDE the lock: two cases wanting different programs must not
     // serialize behind each other, and a 15s compile under a global mutex would
     // turn a parallel suite back into a sequential one. A duplicate compile of
@@ -897,7 +930,12 @@ pub fn code_for_src_cached(
     {
         return hit;
     }
-    let built: &'static _ = Box::leak(Box::new(code_for_src_mode(source, target, build_mode)));
+    let plan = match level {
+        None => code_for_src_mode(source, target, build_mode),
+        Some(level) => code_for_src_at(source, target, build_mode, level)
+            .unwrap_or_else(|message| panic!("{}", explain_lowering_failure(source, &message))),
+    };
+    let built: &'static _ = Box::leak(Box::new(plan));
     *CACHE
         .get_or_init(Default::default)
         .lock()

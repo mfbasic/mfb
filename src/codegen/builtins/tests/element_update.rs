@@ -9,7 +9,7 @@
 
 use crate::codegen::engine::tests::test_support::Stream;
 use crate::target::NativeBuildMode::Console;
-use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+use crate::testutil::{code_for_src_lowered, code_function, CodeTarget};
 
 const PRELUDE: &str = "\
 IMPORT io
@@ -276,7 +276,7 @@ END FUNC
 }
 
 fn stems(source: &str) -> Vec<String> {
-    let plan = code_for_src_cached(source, CodeTarget::LinuxX86_64, Console);
+    let plan = code_for_src_lowered(source, CodeTarget::LinuxX86_64, Console);
     let main = code_function(plan, "main");
     let mut stems: Vec<String> = Stream::of(main)
         .labels()
