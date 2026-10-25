@@ -387,7 +387,10 @@ It builds the scene twice and prints one row:
 
 - **release** gives the rates the bug is about, `pps` and `fps` from
   `canvas::getFrameStats` at the end of the run, and the renderer of the last
-  frame (a release build has no stats line).
+  frame (a release build has no stats line). `workerPresentUs` is the mean time
+  inside one `canvas::present` call, in microseconds: the worker's compare, copy,
+  carried hashes, hashing and publish (plan-175-D). `--same` is the case where the
+  compare finds nothing new.
 - **`--debug`** gives what the rates cannot say: `frames` and `gpuFrames` (equal
   when no frame was drawn by the software renderer), `directFrames` (frames
   presented straight to a window), `builds/frame` (geometry records built per

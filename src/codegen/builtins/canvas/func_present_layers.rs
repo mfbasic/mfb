@@ -80,9 +80,13 @@ r#"FUNC __canvas_presentLayers(layers AS List OF DrawLayer) AS Nothing
   FOR EACH layer IN layers
     ' A layer boundary, so two layerings of the same groups do not read alike.
     sig = collections::append(sig, 0 - 2)
-    FOR EACH part IN __canvas_groupSignature(layer.items, 0)
-      sig = collections::append(sig, part)
-    NEXT
+    ' plan-175-D: a layer with no `Group` or `ParticleSystem` at its top level adds
+    ' nothing, so it is not walked item by item to find that out.
+    IF canvas::sceneNamesGroups(layer.items) THEN
+      FOR EACH part IN __canvas_groupSignature(layer.items, 0)
+        sig = collections::append(sig, part)
+      NEXT
+    END IF
   NEXT
   LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
   __CANVAS_LAST_GROUP_SIG = sig

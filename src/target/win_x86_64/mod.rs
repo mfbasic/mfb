@@ -192,6 +192,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.didResize",
     "canvas.frameNanos",
     "canvas.carriedHashes",
+    "canvas.sceneUnchanged",
+    "canvas.sceneNamesGroups",
     "canvas.geoBuild",
     "canvas.geoSame",
     "canvas.itemHash",

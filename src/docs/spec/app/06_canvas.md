@@ -164,6 +164,15 @@ The copy's cost is charged to the calling program's frame budget, by design.
 Animated content calls `present` every frame and pays for it there; the renderer's
 own per-frame cost stays constant.
 
+The copy is made only for a scene that will be published. `present` first compares
+the caller's list with the installed scene by content — the frame skip's compare,
+which reads neither copy's headroom — and an unchanged scene is neither copied nor
+published. Nor does an unchanged present carry the installed hashes, or walk the
+scene item by item for its group signature: that walk acts only on `Group` nodes and
+`ParticleSystem`s, and a native scan of the top-level tags skips it for a scene with
+neither. [[src/codegen/builtins/canvas/gen_present.rs:emit_publish]]
+[[src/codegen/builtins/canvas/func_present.rs:BODY]]
+
 ## Paint is a value, not ambient state
 
 Every drawn item carries a `Paint`. There is no "current colour" to set, no state
@@ -1651,7 +1660,7 @@ is not a `canvas::DrawItem`, and cannot be. A `DrawItem` variant holding a `Draw
 is a type cycle, and a type that reaches a cycle is not laid out as one flat block
 [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:flatness_walk]] — for
 every value of the type, in every program. A scene is one flat block by construction:
-`present` copies it with one block copy, compares it to the installed scene by content,
+`present` compares it to the installed scene by content, copies it with one block copy,
 and the native walks step through it by offset (*A published scene points at nothing
 caller-owned*). So a `Picture`, a `Group` or another `ParticleSystem` as a template is
 refused by the type checker, and a test holds that no canvas type reaches itself.

@@ -225,13 +225,13 @@ MUT __CANVAS_SCENE_IDS AS Integer = 0
 FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   ' Two independent reasons to redraw, and both must be consulted.
   '
-  ' `publishScene` compares the raw bytes of the item list, which catches a scene whose
+  ' `sceneUnchanged` compares the item list's content, which catches a scene whose
   ' ITEMS changed. It cannot catch a scene whose items are identical while a group's
   ' contents were replaced -- a `Group` node is two floats and a string pointer, all
   ' three unchanged by `setGroup` under the same name.
   '
-  ' The signature is that second reason. Note the ordering: `publishScene` is called
-  ' FIRST and unconditionally, because it is what installs the scene; the signature is
+  ' The signature is that second reason. Note the ordering: the scene is compared and,
+  ' if changed, published FIRST, because that is what installs it; the signature is
   ' then compared, and either one being new makes this a frame. The published items do
   ' not need re-publishing when only the signature moved -- a group's contents live in
   ' the group table and the renderer reads them from there -- so this asks for a
@@ -258,25 +258,51 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
     canvas::groupReclaim(due)
     due = canvas::nextReclaimableGroup()
   END WHILE
-  ' bug-686: the hashes of the items that did not change, carried from the scene
-  ' installed NOW -- so this must come before `publishScene` replaces it.
-  LET carried AS List OF Integer = canvas::carriedHashes(items)
-  LET installed AS Boolean = canvas::publishScene(items)
-  LET sig AS List OF Integer = __canvas_groupSignature(items, 0)
-  LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
-  __CANVAS_LAST_GROUP_SIG = sig
+  ' plan-175-D: compare first, against the scene installed NOW, with nothing copied. An
+  ' unchanged scene of no group then costs this present the compare and nothing else:
+  ' no copy, no free, no carried hashes, and no list built at all.
+  LET unchanged AS Boolean = canvas::sceneUnchanged(items)
+  ' plan-175-D: the signature walk reads `Group` nodes and `ParticleSystem`s and nothing
+  ' else, so a scene with neither at its top level has the empty signature -- without
+  ' an MFBASIC pass over every item to find that out.
+  MUT moved AS Boolean = FALSE
+  IF canvas::sceneNamesGroups(items) THEN
+    LET sig AS List OF Integer = __canvas_groupSignature(items, 0)
+    moved = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
+    __CANVAS_LAST_GROUP_SIG = sig
+  ELSE
+    IF len(__CANVAS_LAST_GROUP_SIG) > 0 THEN
+      moved = TRUE
+      __CANVAS_LAST_GROUP_SIG = []
+    END IF
+  END IF
   ' plan-155-B: every present is counted, identical ones included, so the thread (and
   ' with it the mutex the count is kept under) starts on the first present of any
   ' scene. `ensureGraphics` is idempotent -- one Boolean test after the first call.
   __canvas_ensureGraphics()
   canvas::notePresent(canvas::frameNanos())
-  IF installed OR moved THEN
+  IF NOT unchanged OR moved THEN
+    __canvas_presentInstall(items, NOT unchanged)
     __CANVAS_SCENE_REV = __CANVAS_SCENE_REV + 1
     __CANVAS_SCENE_IDS = canvas::sceneIdBits(items)
-    canvas::publishHashes(__canvas_hashScene(items, carried))
     canvas::signalRedraw(FALSE)
     canvas::syncFrame()
   END IF
+END FUNC
+
+' Install a present's scene (when `changed`) and its hashes.
+'
+' bug-686: the hashes of the items that did not change, carried from the scene installed
+' NOW -- so the carry comes before `publishScene` replaces it. A present whose only news
+' is a group (`changed` FALSE) carries against the scene still installed, which has this
+' scene's content, and publishes hashes alone. `publishScene` is told not to compare:
+' `sceneUnchanged` already did, and found a change.
+FUNC __canvas_presentInstall(items AS List OF DrawItem, changed AS Boolean) AS Nothing
+  LET carried AS List OF Integer = canvas::carriedHashes(items)
+  IF changed THEN
+    LET published AS Boolean = canvas::publishScene(items, FALSE)
+  END IF
+  canvas::publishHashes(__canvas_hashScene(items, carried))
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

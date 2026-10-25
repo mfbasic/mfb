@@ -296,7 +296,110 @@ pub(crate) fn lower_carried_hashes(
     })
 }
 
+/// `canvas::sceneNamesGroups(items) AS Boolean` (plan-175-D): TRUE when the list's top
+/// level holds a `Group` node or a `ParticleSystem` — the only two variants
+/// `__canvas_groupSignature`'s `MATCH` acts on. For any other list that walk answers `[]`
+/// and raises nothing, so `__canvas_present` skips it: an MFBASIC `FOR EACH` over every
+/// item of the scene, every present, for nothing.
+///
+/// One tag load an item, no allocation, stops at the first hit.
+pub(crate) fn lower_scene_names_groups(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let incoming = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the scene list argument"))?
+        .location
+        .clone();
+    let group_tag = variant_tag(builder, "Group")?;
+    let particles_tag = variant_tag(builder, "ParticleSystem")?;
+    let stride = list_entry_stride(&ParameterType::named("DrawItem"));
+
+    let items = builder.temporary_vreg();
+    let n = builder.temporary_vreg();
+    let entries = builder.temporary_vreg();
+    let data = builder.temporary_vreg();
+    let scratch = builder.temporary_vreg();
+    let stride_v = builder.temporary_vreg();
+    let i = builder.temporary_vreg();
+    let entry = builder.temporary_vreg();
+    let word = builder.temporary_vreg();
+    let result = builder.temporary_vreg();
+    let head = builder.label("canvas_names_groups_head");
+    let found = builder.label("canvas_names_groups_found");
+    let done = builder.label("canvas_names_groups_done");
+    builder.emit(abi::move_register(&items, &incoming));
+    builder.emit(abi::load_u64(&n, &items, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::move_immediate(&stride_v, "Integer", &stride.to_string()));
+    // A variable-width list's data region starts past `capacity` entries, not `count`:
+    // the caller's list may carry headroom (`.ai/collections.md`).
+    builder.emit(abi::add_immediate(&entries, &items, COLLECTION_HEADER_SIZE));
+    builder.emit(abi::load_u64(&scratch, &items, COLLECTION_OFFSET_CAPACITY));
+    builder.emit(abi::multiply_registers(&scratch, &scratch, &stride_v));
+    builder.emit(abi::add_registers(&data, &entries, &scratch));
+    builder.emit(abi::move_immediate(&result, "Integer", "0"));
+    builder.emit(abi::move_immediate(&i, "Integer", "0"));
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(&i, &n));
+    builder.emit(abi::branch_ge(&done));
+    builder.emit(abi::multiply_registers(&scratch, &i, &stride_v));
+    builder.emit(abi::add_registers(&entry, &entries, &scratch));
+    builder.emit(abi::load_u64(
+        &scratch,
+        &entry,
+        COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+    ));
+    builder.emit(abi::add_registers(&scratch, &data, &scratch));
+    // A data union's tag is its first word.
+    builder.emit(abi::load_u64(&word, &scratch, 0));
+    builder.emit(abi::compare_immediate(&word, &group_tag.to_string()));
+    builder.emit(abi::branch_eq(&found));
+    builder.emit(abi::compare_immediate(&word, &particles_tag.to_string()));
+    builder.emit(abi::branch_eq(&found));
+    builder.emit(abi::add_immediate(&i, &i, 1));
+    builder.emit(abi::branch(&head));
+    builder.emit(abi::label(&found));
+    builder.emit(abi::move_immediate(&result, "Integer", "1"));
+    builder.emit(abi::label(&done));
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &result));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: "canvas.sceneNamesGroups".to_string(),
+    })
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "sceneNamesGroups",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "items",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::list_of(ParameterType::named("DrawItem")),
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Boolean,
+            errors: vec![],
+            body: Body::abi_function(lower_scene_names_groups),
+        }],
+    });
     pkg.add_function(RegistryFunction {
         name: "carriedHashes",
         intro: "",

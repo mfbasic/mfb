@@ -96,12 +96,16 @@ frame, and the first publish after a frame completes drains it to empty.
 
 **Worker, in `canvas::present`:**
 
-1. Deep-copy the caller's scene into a fresh block.
-2. Compare against the published block; if the content is identical, **free the fresh
-   copy** and stop — the frame skip (§3.1). The free is step 2's own, and it is the
-   only one ahead of the drain gate: the block was allocated in this call and never
-   published, so no renderer can have seen it. Omitting it leaked one whole scene per
-   no-op re-present (bug-683), which is the case `mfb man canvas` calls free.
+1. Compare the CALLER's scene against the published block
+   (`canvas::sceneUnchanged`); if the content is identical, stop — the frame skip
+   (§3.1). Nothing has been allocated, so nothing is freed (plan-175-D). It used to
+   deep-copy first and compare the copy, which made every no-op re-present copy the
+   whole scene and free it again (and before bug-683, leak it). The compare is by
+   type, so the caller's headroom does not matter. The carried hashes (§14) are taken
+   only past this point: they are wanted only when hashes will be published.
+2. Deep-copy the caller's scene into a fresh block (`canvas::publishScene(items,
+   FALSE)`: FALSE because step 1 already compared). `publishLayers` still compares
+   inside the publisher, now also before its copy.
 3. **Reclaim**: if the retirement list is non-empty and `frames > head.frame`, free
    every node on it. Testing the head alone suffices because the head carries the
    largest stamp, so that one comparison proves a frame has completed since every node

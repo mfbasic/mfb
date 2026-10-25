@@ -105,6 +105,12 @@ impl SceneShape {
 ///
 /// The copy lands in the **arena**, not the caller's frame: the arena is a growing
 /// region owned by the execution context, so the block outlives this call.
+///
+/// **The compare comes before the copy** (plan-175-D), and compares the CALLER's list
+/// with the installed one, so an unchanged scene allocates and frees nothing. The flat
+/// publisher, `publishScene`, takes a second argument, `compare`: FALSE when the caller
+/// has compared already (`canvas::sceneUnchanged`) and found a change, so a changed
+/// scene is compared once per present rather than twice.
 pub(crate) fn emit_publish(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -118,6 +124,20 @@ pub(crate) fn emit_publish(
         .ok_or_else(|| format!("'{symbol}' expects the scene list argument"))?
         .location
         .clone();
+    // The flat publisher's `compare` argument; the layered one always compares.
+    let compare_flag = match shape {
+        SceneShape::Flat => {
+            let location = args
+                .get(1)
+                .ok_or_else(|| format!("'{symbol}' expects the compare argument"))?
+                .location
+                .clone();
+            let flag = builder.temporary_vreg();
+            builder.emit(abi::move_register(&flag, &location));
+            Some(flag)
+        }
+        SceneShape::Layered => None,
+    };
 
     let list_type = shape.list_type();
     let ((ptr_offset, count_offset), (other_ptr, other_count)) = shape.slots();
@@ -127,40 +147,36 @@ pub(crate) fn emit_publish(
     // allocates, and an argument register does not survive a call.
     let source_slot = builder.allocate_stack_object("canvas_publish_source", 8);
     builder.emit(abi::store_u64(&incoming, abi::stack_pointer(), source_slot));
-
-    let copy = builder.copy_flat_block(&list_type, &incoming)?;
     let copy_slot = builder.allocate_stack_object("canvas_publish_copy", 8);
-    builder.emit(abi::store_u64(&copy, abi::stack_pointer(), copy_slot));
-
-    // count = source.count. Read from the SOURCE rather than the copy only because
-    // the source pointer is already parked; both carry the same count (the copy is
-    // shrink-to-fit, which drops capacity, never entries).
-    let count = builder.temporary_vreg();
-    let source = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&source, abi::stack_pointer(), source_slot));
-    builder.emit(abi::load_u64(&count, &source, COLLECTION_OFFSET_COUNT));
 
     // ---- Frame skip: an identical re-present publishes nothing ----------------
     //
     // The two scenes are compared by what they SAY: the counts, then each element,
     // through the entries and by the scene's type
-    // (`emit_values_content_equal_branch`). Their bytes cannot stand in for that. Both
-    // sides are shrink-to-fit copies, but only at the top: a list embedded in an item
-    // (a polygon's contours, a layer's items) keeps the capacity it was built with,
-    // and its spare entries, the seven reserved bytes after each entry's `flags` and
-    // any unused data bytes hold whatever the arena handed out. A whole-block compare
-    // never reported "same", and a compare of the data region reported "changed" for
-    // every scene holding a list built another way (bug-968).
+    // (`emit_values_content_equal_branch`). Their bytes cannot stand in for that. The
+    // installed copy is shrink-to-fit only at the top, and the caller's list need not
+    // be even that: a list embedded in an item (a polygon's contours, a layer's items)
+    // keeps the capacity it was built with, and its spare entries, the seven reserved
+    // bytes after each entry's `flags` and any unused data bytes hold whatever the
+    // arena handed out. A whole-block compare never reported "same", and a compare of
+    // the data region reported "changed" for every scene holding a list built another
+    // way (bug-968).
     //
     // No hash, so no collisions.
     //
-    // The copy still happens on a skipped frame. That is the design (plan-98-A
-    // invariant 2 charges the deep copy to the caller's frame budget); what the skip
-    // buys is not re-publishing, which is what would make the renderer redraw.
+    // plan-175-D: compared BEFORE the copy, against the caller's own list. It used to
+    // copy first and compare the copy, so every re-present of an unchanged scene copied
+    // the whole scene only to free it again (and a free scrubs every byte it returns).
     let skip = builder.label(&format!("{tag}_skip"));
     let publish = builder.label(&format!("{tag}_publish"));
     let installed_slot = builder.allocate_stack_object("canvas_publish_prev", 8);
 
+    if let Some(flag) = &compare_flag {
+        // `compare` FALSE: the caller compared already (`canvas::sceneUnchanged`) and
+        // found a change.
+        builder.emit(abi::compare_immediate(flag, "0"));
+        builder.emit(abi::branch_eq(&publish));
+    }
     let installed = builder.temporary_vreg();
     builder.emit(abi::load_u64(&installed, &scene, ptr_offset));
     builder.emit(abi::store_u64(
@@ -175,7 +191,7 @@ pub(crate) fn emit_publish(
 
     let fresh = builder.temporary_vreg();
     let previous = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&fresh, abi::stack_pointer(), copy_slot));
+    builder.emit(abi::load_u64(&fresh, abi::stack_pointer(), source_slot));
     builder.emit(abi::load_u64(
         &previous,
         abi::stack_pointer(),
@@ -185,18 +201,10 @@ pub(crate) fn emit_publish(
     builder.emit_values_content_equal_branch(&content_type, &fresh, &previous, &skip, &publish)?;
 
     // Skipped: report FALSE so the caller does not re-render. That is what makes the
-    // skip worth anything — the publish itself is cheap, the render is not.
+    // skip worth anything — the publish itself is cheap, the render is not. Nothing
+    // was allocated on the way here, so nothing is given back. (bug-683's leak was a
+    // copy made ahead of this exit and never freed; plan-175-D makes no copy at all.)
     builder.emit(abi::label(&skip));
-    // ...and give the comparison's copy back (bug-683). The copy is made before the
-    // comparison because the comparison needs something to compare, and this exit used
-    // to return without freeing it — so every re-present of an UNCHANGED scene leaked a
-    // whole scene copy, the case `mfb man canvas` calls a no-op. Measured at 16,048
-    // bytes per present for a 40-rectangle scene, linear in the frame count.
-    //
-    // Unambiguously safe, and the only free on this side of the retirement gate: the
-    // block was allocated in this call and control reaches here only when it was never
-    // stored into the scene region, so no renderer can have seen it.
-    emit_free_block(builder, &list_type, copy_slot, &symbol)?;
     builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -205,6 +213,19 @@ pub(crate) fn emit_publish(
     ));
     builder.emit(abi::return_());
     builder.emit(abi::label(&publish));
+
+    // The copy, only now that it will be published.
+    let source = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&source, abi::stack_pointer(), source_slot));
+    let copy = builder.copy_flat_block(&list_type, &source)?;
+    builder.emit(abi::store_u64(&copy, abi::stack_pointer(), copy_slot));
+
+    // count = source.count. Read from the SOURCE rather than the copy only because
+    // the source pointer is already parked; both carry the same count (the copy is
+    // shrink-to-fit, which drops capacity, never entries).
+    let count = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&source, abi::stack_pointer(), source_slot));
+    builder.emit(abi::load_u64(&count, &source, COLLECTION_OFFSET_COUNT));
 
     // ---- Reclaim, then retire (plan-98-D Phase 3) -----------------------------
     //
@@ -290,6 +311,67 @@ pub(crate) fn emit_publish(
         ModeRequirement::Canvas,
     );
 
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: symbol,
+    })
+}
+
+/// `canvas::sceneUnchanged(items) AS Boolean` (plan-175-D): TRUE when `items` has the
+/// content of the installed flat scene — `publishScene`'s frame-skip compare, alone,
+/// with nothing allocated and nothing published.
+///
+/// It exists so `__canvas_present` can learn whether it will publish BEFORE anything
+/// replaces the installed scene: the carried hashes are taken against that scene, and
+/// are wanted only when hashes will be published. The `Mode.Canvas` gate is spliced in
+/// first, as on the publishers, because it is now the first native call of a present.
+pub(crate) fn emit_scene_unchanged(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let scene = scene_base(builder);
+    let incoming = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the scene list argument"))?
+        .location
+        .clone();
+    let shape = SceneShape::Flat;
+    let ((ptr_offset, _), _) = shape.slots();
+    let same = builder.label("canvas_scene_unchanged_same");
+    let differs = builder.label("canvas_scene_unchanged_differs");
+    let done = builder.label("canvas_scene_unchanged_done");
+    let fresh = builder.temporary_vreg();
+    let installed = builder.temporary_vreg();
+    builder.emit(abi::move_register(&fresh, &incoming));
+    builder.emit(abi::load_u64(&installed, &scene, ptr_offset));
+    // Nothing installed in this shape: a present publishes.
+    builder.emit(abi::compare_immediate(&installed, "0"));
+    builder.emit(abi::branch_eq(&differs));
+    let content_type = shape.content_type(builder)?;
+    builder.emit_values_content_equal_branch(&content_type, &fresh, &installed, &same, &differs)?;
+    builder.emit(abi::label(&same));
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"));
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&differs));
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+    builder.emit(abi::label(&done));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    prepend_wrong_mode_gate(
+        &mut builder.instructions,
+        &mut builder.relocations,
+        &symbol,
+        ctx.presentation_mode_offset,
+        ModeRequirement::Canvas,
+    );
     Ok(ValueResult {
         origin: None,
         type_: ParameterType::Nothing,
