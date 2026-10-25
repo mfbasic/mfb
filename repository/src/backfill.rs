@@ -75,6 +75,7 @@ pub async fn run(store: &Store, blob_store: &BlobStore) -> Result<BackfillReport
             // ceremony depend on the blob store's public URL being reachable
             // from wherever the sweep runs, so it is reported rather than
             // guessed at.
+            #[cfg(feature = "s3")]
             Some(BlobFetch::Redirect(_)) => {
                 report.missing += 1;
                 report

@@ -32,6 +32,9 @@ pub enum BlobFetch {
     Bytes(Vec<u8>),
     /// Redirect the client to this presigned URL (S3 backend). The client
     /// re-hashes the downloaded bytes, so the server need not proxy them.
+    /// Only the S3 backend produces it, so it exists only where that backend is
+    /// compiled in, like `BlobStore::S3` and `StagedBlob::S3`.
+    #[cfg(feature = "s3")]
     Redirect(String),
 }
 

@@ -138,6 +138,7 @@ async fn local_stage_promote_get_roundtrip() {
     assert!(store.exists(&hash, BlobKind::Package).await.unwrap());
     match store.get(&hash, BlobKind::Package).await.unwrap() {
         Some(BlobFetch::Bytes(bytes)) => assert_eq!(bytes, b"payload"),
+        #[cfg(feature = "s3")]
         Some(BlobFetch::Redirect(_)) => panic!("local backend must serve inline bytes"),
         None => panic!("promoted blob should be servable"),
     }

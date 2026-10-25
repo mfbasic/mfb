@@ -85,6 +85,7 @@ pub(super) async fn package_blob(
                 .body(axum::body::Body::from(bytes))
                 .map_err(|err| internal(format!("failed to build blob response: {err}")))
         }
+        #[cfg(feature = "s3")]
         BlobFetch::Redirect(url) => axum::response::Response::builder()
             .status(StatusCode::FOUND)
             .header(axum::http::header::LOCATION, url)
