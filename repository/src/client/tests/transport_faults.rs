@@ -114,3 +114,30 @@ fn an_index_whose_ident_key_does_not_decode_is_refused() {
         "malformed identKey"
     );
 }
+
+/// bug-420 item 2: the redirect decision as the policy makes it — a public
+/// https hop is followed until the cap, then refused whatever its target; a
+/// downgrade or an internal literal is refused at any depth. (IP literals and
+/// an `.invalid` name keep this offline.)
+#[test]
+fn the_redirect_decision_caps_hops_and_vets_every_target() {
+    let url = |raw: &str| raw.parse::<reqwest::Url>().unwrap();
+    let public = url("https://93.184.216.34/blob");
+    assert_eq!(vet_redirect(0, &public), Ok(()));
+    assert_eq!(vet_redirect(9, &public), Ok(()));
+    assert_eq!(
+        vet_redirect(10, &public).unwrap_err(),
+        "repository redirected more than 10 times"
+    );
+    assert!(vet_redirect(0, &url("http://93.184.216.34/blob"))
+        .unwrap_err()
+        .contains("non-https"));
+    assert_eq!(
+        vet_redirect(0, &url("https://[::1]/blob")).unwrap_err(),
+        "refusing to follow a repository redirect to internal address '[::1]': a redirect to \
+         a private, loopback, or link-local host is a possible SSRF"
+    );
+    assert!(vet_redirect(0, &url("https://mfb-redirect.invalid/blob"))
+        .unwrap_err()
+        .contains("fails closed"));
+}

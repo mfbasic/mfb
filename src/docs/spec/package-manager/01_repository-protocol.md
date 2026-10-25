@@ -73,6 +73,12 @@ generates its own Ed25519 **server keypair**; its private half never appears in
 an HTTP response. Root initialization additionally stores online snapshot and
 timestamp private keys. Publisher private keys are not stored in plaintext. [[repository/src/main.rs:parse_args]][[repository/src/server/mod.rs:serve]][[repository/src/store/mod.rs:open_repository]][[repository/src/blobstore.rs:BlobBackend]]
 
+On SIGINT or SIGTERM the server stops accepting connections, lets in-flight
+requests finish, and exits with status 0; `serve` takes the shutdown future as
+a parameter and returns the bound address once it has drained. A signal handler
+that cannot be installed is reported on stderr and never fires, so it cannot
+stop a healthy server at startup. [[repository/src/main.rs:shutdown_signal]][[repository/src/server/mod.rs:serve]]
+
 ### Encoding
 
 | Field class | Encoding | Helper |

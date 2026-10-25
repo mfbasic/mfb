@@ -272,6 +272,7 @@ async fn serve_reports_an_address_it_cannot_bind() {
         h.store.clone(),
         BlobStore::local(h.packages_dir.clone()),
         addr,
+        std::future::pending(),
     )
     .await
     .unwrap_err();
@@ -279,6 +280,44 @@ async fn serve_reports_an_address_it_cannot_bind() {
         err.starts_with(&format!("failed to bind {addr}: ")),
         "{err}"
     );
+}
+
+/// SIGTERM/SIGINT drain: once the shutdown future fires, `serve` stops
+/// accepting, returns the address it bound, and the port is free again.
+#[tokio::test]
+async fn serve_returns_its_address_once_shutdown_fires() {
+    let h = harness();
+    let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = probe.local_addr().unwrap();
+    drop(probe);
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(serve(
+        h.store.clone(),
+        BlobStore::local(h.packages_dir.clone()),
+        addr,
+        async move {
+            let _ = stopped.await;
+        },
+    ));
+    let client = reqwest::Client::new();
+    let health = format!("http://{addr}/health");
+    let mut up = false;
+    for _ in 0..100 {
+        if client.get(&health).send().await.is_ok() {
+            up = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(up, "the server comes up");
+    stop.send(()).unwrap();
+    let returned = tokio::time::timeout(std::time::Duration::from_secs(10), server)
+        .await
+        .expect("serve returns after shutdown")
+        .unwrap();
+    assert_eq!(returned, Ok(addr));
+    // Nothing listens there any more.
+    assert!(client.get(&health).send().await.is_err());
 }
 
 /// The reaper `serve` spawns sweeps once a minute: with the clock paused, a
@@ -303,7 +342,8 @@ async fn the_background_reaper_sweeps_expired_challenges_every_minute() {
     assert!(serve(
         h.store.clone(),
         BlobStore::local(h.packages_dir.clone()),
-        addr
+        addr,
+        std::future::pending(),
     )
     .await
     .is_err());

@@ -17,50 +17,53 @@ impl Store {
     /// field for the caller to render, never a filter this query applies.
     pub fn package_detail(&self, ident: &str) -> Result<Option<PackageDetailRow>, String> {
         let conn = self.conn();
-        let owner: Option<String> = conn
-            .query_row(
-                "SELECT o.owner_display FROM packages p
-                 JOIN owners o ON o.id = p.owner_id
-                 WHERE p.ident = ?1",
-                params![ident],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|err| format!("failed to load package: {err}"))?;
-        let Some(owner) = owner else {
-            return Ok(None);
-        };
-
+        // One statement answers both "does the package exist, and who owns it"
+        // and "which versions does it have": the LEFT JOIN yields one row per
+        // version, or a single row with NULL version columns for a package
+        // with none, and no rows at all for an unknown ident.
         let mut statement = conn
             .prepare(
-                "SELECT pv.id, pv.version, pv.hash, pv.created_at, pv.state,
+                "SELECT o.owner_display, pv.id, pv.version, pv.hash, pv.created_at, pv.state,
                         pv.abi_index, pv.author, pv.url, pv.description
-                 FROM package_versions pv
-                 JOIN packages p ON p.id = pv.package_id
+                 FROM packages p
+                 JOIN owners o ON o.id = p.owner_id
+                 LEFT JOIN package_versions pv ON pv.package_id = p.id
                  WHERE p.ident = ?1
                  ORDER BY pv.created_at DESC, pv.id DESC",
             )
             .map_err(|err| format!("failed to prepare detail query: {err}"))?;
         let rows = statement
             .query_map(params![ident], |row| {
-                Ok(PackageDetailVersion {
-                    id: row.get(0)?,
-                    version: row.get(1)?,
-                    hash: row.get(2)?,
-                    published_at: row.get(3)?,
-                    state: row.get(4)?,
-                    abi_index: row.get(5)?,
-                    author: row.get(6)?,
-                    url: row.get(7)?,
-                    description: row.get(8)?,
-                    targets: Vec::new(),
-                })
+                let owner: String = row.get(0)?;
+                let version = match row.get::<_, Option<i64>>(1)? {
+                    None => None,
+                    Some(id) => Some(PackageDetailVersion {
+                        id,
+                        version: row.get(2)?,
+                        hash: row.get(3)?,
+                        published_at: row.get(4)?,
+                        state: row.get(5)?,
+                        abi_index: row.get(6)?,
+                        author: row.get(7)?,
+                        url: row.get(8)?,
+                        description: row.get(9)?,
+                        targets: Vec::new(),
+                    }),
+                };
+                Ok((owner, version))
             })
             .map_err(|err| format!("failed to load package detail: {err}"))?;
+        let mut owner = None;
         let mut versions = Vec::new();
         for row in rows {
-            versions.push(row.map_err(|err| format!("failed to read package detail: {err}"))?);
+            let (row_owner, version) =
+                row.map_err(|err| format!("failed to read package detail: {err}"))?;
+            owner = Some(row_owner);
+            versions.extend(version);
         }
+        let Some(owner) = owner else {
+            return Ok(None);
+        };
 
         let mut target_statement = conn
             .prepare(
@@ -103,20 +106,40 @@ impl Store {
     /// second existence query.
     pub fn package_audit(&self, ident: &str) -> Result<Option<PackageAuditRow>, String> {
         let conn = self.conn();
-        let owner: Option<String> = conn
-            .query_row(
-                "SELECT o.owner_display FROM packages p
+        // The owner and the version list in one statement, as in
+        // `package_detail`: no rows means no such package, and a single row
+        // with a NULL version is a package with none.
+        let mut version_statement = conn
+            .prepare(
+                "SELECT o.owner_display, pv.version
+                 FROM packages p
                  JOIN owners o ON o.id = p.owner_id
-                 WHERE p.ident = ?1",
-                params![ident],
-                |row| row.get(0),
+                 LEFT JOIN package_versions pv ON pv.package_id = p.id
+                 WHERE p.ident = ?1
+                 ORDER BY pv.created_at ASC, pv.id ASC",
             )
-            .optional()
-            .map_err(|err| format!("failed to load package: {err}"))?;
+            .map_err(|err| format!("failed to prepare version query: {err}"))?;
+        let rows = version_statement
+            .query_map(params![ident], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .map_err(|err| format!("failed to list package versions: {err}"))?;
+        let mut owner = None;
+        let mut versions = Vec::new();
+        for row in rows {
+            let (row_owner, version) =
+                row.map_err(|err| format!("failed to read package version: {err}"))?;
+            owner = Some(row_owner);
+            versions.extend(version);
+        }
         let Some(owner) = owner else {
             return Ok(None);
         };
 
+        // Query the state changes on the connection already held. Calling
+        // another `Store` method here would re-enter `self.conn()` while this
+        // function still owns the guard, and the mutex is not reentrant — that
+        // deadlocks the handler rather than failing it.
         let mut statement = conn
             .prepare(
                 "SELECT pv.version, rsc.state, rsc.created_at
@@ -140,29 +163,6 @@ impl Store {
         for row in rows {
             state_changes.push(row.map_err(|err| format!("failed to read state change: {err}"))?);
         }
-
-        // Query the versions on the connection already held. Calling
-        // `list_package_versions` here would re-enter `self.conn()` while this
-        // function still owns the guard, and the mutex is not reentrant — that
-        // deadlocks the handler rather than failing it.
-        let mut version_statement = conn
-            .prepare(
-                "SELECT pv.version FROM package_versions pv
-                 JOIN packages p ON p.id = pv.package_id
-                 WHERE p.ident = ?1
-                 ORDER BY pv.created_at ASC, pv.id ASC",
-            )
-            .map_err(|err| format!("failed to prepare version query: {err}"))?;
-        let rows = version_statement
-            .query_map(params![ident], |row| row.get::<_, String>(0))
-            .map_err(|err| format!("failed to list package versions: {err}"))?;
-        let mut versions = Vec::new();
-        for row in rows {
-            versions.push(row.map_err(|err| format!("failed to read package version: {err}"))?);
-        }
-        drop(version_statement);
-        drop(statement);
-        drop(conn);
 
         Ok(Some(PackageAuditRow {
             owner,

@@ -414,10 +414,46 @@ async fn main() {
         }
     };
 
-    if let Err(err) = server::serve(opened.store, blob_store, options.listen).await {
+    if let Err(err) =
+        server::serve(opened.store, blob_store, options.listen, shutdown_signal()).await
+    {
         eprintln!("error: {err}");
         process::exit(1);
     }
+}
+
+/// Resolves when the process is asked to stop: SIGINT (`Ctrl-C`) or, on Unix,
+/// SIGTERM, which is what a container runtime or service manager sends. `serve`
+/// then stops accepting and lets in-flight requests finish before returning.
+///
+/// A signal that cannot be listened for is reported and never fires, rather
+/// than resolving at once, which would shut a healthy server down at startup.
+async fn shutdown_signal() {
+    let interrupt = async {
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            eprintln!("warning: cannot listen for SIGINT ({err})");
+            std::future::pending::<()>().await;
+        }
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(err) => {
+                eprintln!("warning: cannot listen for SIGTERM ({err})");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = interrupt => {}
+        () = terminate => {}
+    }
+    eprintln!("mfb-repo: shutting down; finishing in-flight requests");
 }
 // coverage:on
 

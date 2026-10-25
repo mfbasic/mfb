@@ -40,15 +40,19 @@ pub struct AppState {
     rate_limiter: RateLimiter,
 }
 
-// coverage:off — serve() binds a real TCP listener, spawns the background
-// reaper task, and runs the axum accept loop; none of that is reachable under a
-// unit test. The individual route handlers it wires up are tested directly by
-// constructing AppState and calling them, which is where the request/response
-// logic lives.
+/// Run the registry on `listen` until `shutdown` resolves, then stop accepting,
+/// let in-flight requests finish, and return the address that was bound.
+///
+/// `shutdown` is the caller's: `mfb-repo` passes SIGINT/SIGTERM (so a container
+/// stop or `Ctrl-C` drains the server instead of cutting requests off), and a
+/// test passes a channel it fires. Before this took a shutdown future, axum's
+/// accept loop never returned, so `serve` could only end by an error or by the
+/// process being killed mid-request.
 pub async fn serve(
     store: Store,
     blob_store: BlobStore,
     listen: SocketAddr,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> Result<SocketAddr, String> {
     let state = AppState {
         store,
@@ -82,11 +86,11 @@ pub async fn serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown)
     .await
     .map_err(|err| format!("repository server failed: {err}"))?;
     Ok(actual)
 }
-// coverage:on
 
 /// Assemble the route table.
 ///

@@ -56,6 +56,9 @@ serde_json = "1"
 sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+# Already in the tree as reqwest's URL type; named directly for `url::Host`,
+# the parsed host a redirect target is vetted by.
+url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
