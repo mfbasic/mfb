@@ -87,13 +87,17 @@ Commit: —
 
 ### Phase 2 — NIR DCE to Level 1
 
-- [ ] `src/optimizer/stats.rs`: add `DEAD_CODE_ELIMINATION_NIR` and `count_dead_code_eliminations_nir`.
-- [ ] `src/optimizer/opt1/dce.rs:eliminate`: `level_enabled(2)` → `level_enabled(1)`; call the new counter.
-- [ ] `src/optimizer/catalog.rs`: replace the DCE row with two rows — `Dead-code elimination (DCE, NIR)` (level 1, stage NIR, new counter) and `Dead-code elimination (DCE, MIR)` (level 2, stage MIR, existing counter). Keep pipeline order.
-- [ ] Regenerate the codegen goldens the full artifact gate flags (procedure in `.ai/testing-gates.md`, "Coverage & the `.ncodesum` goldens").
+- [x] `src/optimizer/stats.rs`: add `DEAD_CODE_ELIMINATION_NIR` and `count_dead_code_eliminations_nir`.
+- [x] `src/optimizer/opt1/dce.rs:eliminate`: `level_enabled(2)` → `level_enabled(1)`; call the new counter. Module docs of `opt1/dce.rs` and `opt2/dce.rs` name their own rows. `cargo test --release --bin mfb dce` → 14 passed.
+- [x] `src/optimizer/catalog.rs`: replace the DCE row with two rows — `Dead-code elimination (DCE, NIR)` (level 1, stage NIR, new counter) and `Dead-code elimination (DCE, MIR)` (level 2, stage MIR, existing counter). Keep pipeline order. `mfb man optimizations` renders both rows (levels 1 and 2).
+- [x] (added) `opt1/dce/tests` `level_one_disables_the_row` → `level_zero_disables_the_row` (off at 0). See Corrections.
+- [x] (added) `src/docs/spec/tooling/07_cli-reference.md` `-O` entry: the `-O1` row list gains the NIR half of DCE, and "place copy forwarding" (a Level-1 catalog row the list had already omitted). See Corrections.
+- [x] (added) `planning/optimizations.md` DCE row marked "NIR half moved to Level 1 by plan-182 (phase 2)".
+- [x] Regenerate the codegen goldens the full artifact gate flags (procedure in `.ai/testing-gates.md`, "Coverage & the `.ncodesum` goldens"). Gate: `2384 golden(s) checked, 6 diff(s)`, all `syntax/app/app-mouse-surface` (`.app.nir`, `.app.nplan`, 4× `.app.ncodesum`); its `.nir` diff is exactly four unused constant `Integer` binds removed (`nested`, `skipped`, `unreachable`, `leaf`). `bash scripts/regen-native-goldens.sh target/release/mfb tests/syntax/app/app-mouse-surface` → `4 build(s), 6 golden(s) rewritten, 0 failure(s)`.
 
 Acceptance: `.run`/`build.log` unchanged; only native-dump kinds moved.
   Check: `git status --porcelain | grep -vE '\.(nir|nplan|nobj|ncode|ncodesum|mir)$'` → only source files of this phase (est. 1 s).
+  Result: only the phase's source/doc files remain after the filter; `bash scripts/test-accept.sh target/release/mfb /tmp/p182-ph2-accept` → `acceptance tests passed (1756 test(s) ran)`, exit 0. Default-level fire count: `mfb build -v /tmp/p182-probe` (unused `LET`s + `IF FALSE`/`IF TRUE` + post-RETURN code) → `Dead-code elimination (DCE, NIR): 2` (no line at `-O0`).
 Commit: —
 
 ### Phase 3 — Control-flow tidying rows to Level 1
@@ -112,6 +116,31 @@ Commit: —
 - Codegen: `scripts/artifact-gate.sh target/release/mfb all` → green after regeneration (~15–20 min, `.ai/testing-gates.md`).
 - Landing tier: `bash scripts/test-fast.sh` plus `cargo test --bin mfb builtins_codegen::optimizer::` (the optimizer sweeps, since levels moved).
 - Doc sync: `mfb man optimizations` renders the new levels (from `catalog.rs`); `planning/optimizations.md` already carries the target levels — mark these rows' notes "moved to Level 1 by plan-182" as each phase lands.
+- Default-level fire counts (Goal): `mfb build -v /tmp/p182-probe`, an executable project (`entry: main`) whose `src/main.mfb` is:
+
+  ```
+  IMPORT io
+
+  FUNC pick(n AS Integer) AS Integer
+    LET unused AS Integer = n
+    LET flag AS Boolean = n > 3
+    IF FALSE THEN
+      io::print("never")
+    END IF
+    IF TRUE THEN
+      RETURN n + 1
+    ELSE
+      RETURN n - 1
+    END IF
+    io::print("after")
+    RETURN 0
+  END FUNC
+
+  FUNC main AS Integer
+    io::print(toString(pick(4)))
+    RETURN 0
+  END FUNC
+  ```
 - Golden proof (AGENTS.md re-baseline rule): each regenerating commit cites this plan, states the gates above were run in full, and that no `.run`/`build.log` changed.
 
 ## Decisions
@@ -125,6 +154,8 @@ Commit: —
 - **Prerequisite command was missing an argument.** `scripts/test-accept.sh` requires `<mfb-exe> <actual-output-dir>`; the written command exited 2 with the usage text. Corrected to `MFB_OPT=2 bash scripts/test-accept.sh target/release/mfb /tmp/p182-prereq-out`, run on an unmodified main-tip build (`/tmp/p182-base`).
 - **Phase 1's check-fusion fixture never fires check fusion.** `mfb build -v -O3 tests/byte-identity/collections` → `Check fusion with existing comparisons: 0` on both the main and the phase-1 binary, so the check could not pass at any level. `examples/ai_chat` (where `planning/optimizations.md` measured the row) fires 8 at `-O3`; the phase-1 check now uses it at `-O2`.
 - **Unit tests pinned each moved row's old level.** Each moved pass has a `level_*_disables_the_row` test asserting the row is off one level below its old gate (`opt2/flags.rs`, `opt1/dce/tests`, `opt1/uce.rs`, `opt1/branches/tests`, `opt2/uce.rs`, `opt2/branches.rs`, `opt2/merge.rs`, `opt2/simplifycfg.rs`). AGENTS.md four questions: (1) written with each row, to pin its catalog gate; (2) protects "the row is off below its catalog level"; (3) nothing else depends (a tree grep of each test name hits only its own file); (4) the catalog level is the owner's decision recorded under Decisions — the old level is what this plan replaces. Each test keeps its intent and moves down one level (off at new level − 1). Tasks added per phase.
+- **The plan missed the spec.** `src/docs/spec/tooling/07_cli-reference.md`'s `-O` entry enumerates the rows `-O1` runs, so moving rows to Level 1 changes that contract (Hard Completion Gate, `.ai/specifications.md`). The list was also already stale: it omitted "Place copy forwarding", a `level: 1` row in `catalog.rs` (`grep -B1 "level: 1," src/optimizer/catalog.rs`). Tasks added to phases 2 and 3.
+- **`examples/ai_chat` fires NIR DCE 0 times at every level** (`mfb build -v -O2 examples/ai_chat` → `Dead-code elimination (DCE, NIR): 0`), so the Goal's "fixture that has dead branches" is a probe project at `/tmp/p182-probe` (unused scalar `LET`s, `IF FALSE`, `IF TRUE … ELSE`, code after `RETURN`). Its source is recorded in the Validation Plan.
 
 ## Summary
 

@@ -1,8 +1,9 @@
-//! Dead-code elimination — the Opt2 half of the Level-2 catalog row
+//! Dead-code elimination — the Opt2 half of the DCE design row
 //! (`planning/optimizations.md`): remove pure instructions whose results are
-//! provably unused from the selected pre-regalloc stream. The tree-level half
-//! lives in `opt1::dce`; both feed one "Dead-code elimination (DCE)" `-v`
-//! count.
+//! provably unused from the selected pre-regalloc stream. It is its own
+//! Level-2 catalog row, "Dead-code elimination (DCE, MIR)"; the tree-level
+//! half lives in `opt1::dce` as the Level-1 "Dead-code elimination (DCE, NIR)"
+//! row.
 //!
 //! [`plans::mark`] does the work with control flow untouched (conditional
 //! branches seeded live), consuming the [`plans::ssa`] overlay for precision:

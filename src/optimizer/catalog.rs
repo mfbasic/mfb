@@ -245,13 +245,23 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::JUMP_THREADING,
         },
         Row {
-            name: "Dead-code elimination (DCE)",
-            level: 2,
-            stage: "NIR + MIR",
+            name: "Dead-code elimination (DCE, NIR)",
+            level: 1,
+            stage: "NIR",
             summary: "Removes *dead* code: reachable but unused, and provably pure \
-                      and trap-free — unused scalar bindings, stranded pure \
-                      instructions. An unused `x + y` stays: it can still raise \
-                      `ErrOverflow`.",
+                      and trap-free — an unused scalar binding whose value is a \
+                      plain variable, literal, comparison or Boolean expression. \
+                      An unused `x + y` stays: it can still raise `ErrOverflow`.",
+            counter: &stats::DEAD_CODE_ELIMINATION_NIR,
+        },
+        Row {
+            name: "Dead-code elimination (DCE, MIR)",
+            level: 2,
+            stage: "MIR",
+            summary: "The precise form of dead-code elimination, on the \
+                      selected instruction stream: a pure instruction whose \
+                      result no live use reaches is removed. Instructions that \
+                      can raise an error are never candidates.",
             counter: &stats::DEAD_CODE_ELIMINATION,
         },
         Row {

@@ -66,8 +66,10 @@ pub(super) static JUMP_THREADING: AtomicU64 = AtomicU64::new(0);
 /// "Basic block merging" (Opt2): branches-to-next and orphaned labels fused
 /// away.
 pub(super) static BLOCK_MERGING: AtomicU64 = AtomicU64::new(0);
-/// "Dead-code elimination (DCE)" (both seams): dead binds/evals removed on NIR
-/// plus dead pure instructions removed on MIR.
+/// "Dead-code elimination (DCE, NIR)" (Opt1): dead binds/evals removed on NIR.
+pub(super) static DEAD_CODE_ELIMINATION_NIR: AtomicU64 = AtomicU64::new(0);
+/// "Dead-code elimination (DCE, MIR)" (Opt2): dead pure instructions removed
+/// on MIR.
 pub(super) static DEAD_CODE_ELIMINATION: AtomicU64 = AtomicU64::new(0);
 /// "Aggressive DCE (ADCE)" (Opt2): dead instructions + dead conditional
 /// branches removed with control-dependence marking.
@@ -264,6 +266,10 @@ pub(crate) fn count_jumps_threaded(fired: u64) {
 
 pub(crate) fn count_blocks_merged(fired: u64) {
     add(&BLOCK_MERGING, fired);
+}
+
+pub(crate) fn count_dead_code_eliminations_nir(fired: u64) {
+    add(&DEAD_CODE_ELIMINATION_NIR, fired);
 }
 
 pub(crate) fn count_dead_code_eliminations(fired: u64) {

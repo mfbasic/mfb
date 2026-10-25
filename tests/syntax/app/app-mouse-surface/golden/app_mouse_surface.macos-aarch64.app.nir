@@ -19673,8 +19673,7 @@
           "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Group" } },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "child" } } },
-          { "op": "bind", "mutable": false, "name": "nested", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+          { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "child" } } }
           ]
         },
         {
@@ -19799,7 +19798,6 @@
           "pattern": { "kind": "else" },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "skipped", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
           ]
         }
         ]
@@ -19944,7 +19942,6 @@
               "pattern": { "kind": "else" },
               "guard": null,
               "body": [
-              { "op": "bind", "mutable": false, "name": "unreachable", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
               ]
             }
             ]
@@ -26935,7 +26932,6 @@
           "pattern": { "kind": "else" },
           "guard": null,
           "body": [
-          { "op": "bind", "mutable": false, "name": "leaf", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
           ]
         }
         ]
