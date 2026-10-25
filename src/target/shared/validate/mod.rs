@@ -54,14 +54,74 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
         }
     }
 
+    let used_helpers = used_runtime_helpers(
+        module,
+        &function_names,
+        &global_names,
+        &import_names,
+        &type_value_names,
+    )?;
+
+    for helper in &used_helpers {
+        if !module.runtime_helpers.contains(helper) {
+            return Err(format!(
+                "NIR runtime call requires undeclared helper '{}'",
+                helper.name()
+            ));
+        }
+    }
+    for helper in &module.runtime_helpers {
+        if !used_helpers.contains(helper) {
+            return Err(format!(
+                "NIR declares unused runtime helper '{}'",
+                helper.name()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Every runtime helper the module's NIR uses, in first-use order: the helpers
+/// its runtime calls name plus the close ops codegen emits for its resource
+/// binds. `validate_nir` requires this to equal `NirModule::runtime_helpers`
+/// exactly.
+///
+/// Call-graph DCE (`optimizer::opt1::callgraph`) re-derives the declared set
+/// from it after removing functions: `runtime::required_helpers` ran on the IR,
+/// before the removal, so a helper only a removed function used would otherwise
+/// be declared and unused. `Err` is the validation error the walk hit.
+pub(crate) fn module_used_runtime_helpers(
+    module: &NirModule,
+) -> Result<Vec<RuntimeHelper>, String> {
+    let function_names = unique_function_names(&module.functions)?;
+    let global_names = unique_global_names(module)?;
+    let import_names = unique_import_names(module)?;
+    let type_value_names = type_value_names(module)?;
+    used_runtime_helpers(
+        module,
+        &function_names,
+        &global_names,
+        &import_names,
+        &type_value_names,
+    )
+}
+
+fn used_runtime_helpers(
+    module: &NirModule,
+    function_names: &HashSet<String>,
+    global_names: &HashSet<String>,
+    import_names: &HashSet<String>,
+    type_value_names: &TypeValueNames,
+) -> Result<Vec<RuntimeHelper>, String> {
     let mut used_helpers = Vec::new();
     for function in &module.functions {
         validate_function(
             function,
-            &function_names,
-            &global_names,
-            &import_names,
-            &type_value_names,
+            function_names,
+            global_names,
+            import_names,
+            type_value_names,
             &mut used_helpers,
         )?;
     }
@@ -128,24 +188,7 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
         }
     }
 
-    for helper in &used_helpers {
-        if !module.runtime_helpers.contains(helper) {
-            return Err(format!(
-                "NIR runtime call requires undeclared helper '{}'",
-                helper.name()
-            ));
-        }
-    }
-    for helper in &module.runtime_helpers {
-        if !used_helpers.contains(helper) {
-            return Err(format!(
-                "NIR declares unused runtime helper '{}'",
-                helper.name()
-            ));
-        }
-    }
-
-    Ok(())
+    Ok(used_helpers)
 }
 
 /// Whether a NIR type transitively owns a resource (directly, or as a
