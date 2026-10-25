@@ -1,5 +1,6 @@
 //! plan-176-P, plan-183-C: `lower_arena_free` — returning a chunk to its region.
 
+use super::decommit::{ARENA_SWEEP_EVERY, ARENA_SWEEP_SYMBOL};
 use super::layout::*;
 use super::small::*;
 use super::span::*;
@@ -90,10 +91,23 @@ pub(crate) fn lower_arena_free(perf: bool, debug_arena: bool) -> CodeFunction {
         abi::move_register(&freed, abi::return_register()),
         abi::compare_immediate(&freed, "0"),
         abi::branch_eq("arena_free_skip"),
+        // plan-183-E: every ARENA_SWEEP_EVERY medium and huge frees, sweep — the
+        // countdown starts at 0, so the first free sweeps (a no-op) and sets it.
+        abi::load_u64(&t, &sc, ARENA_SC_SWEEP),
+        abi::compare_immediate(&t, "1"),
+        abi::branch_hi("arena_free_sweep_later"),
+        abi::move_immediate(&t, "Integer", &ARENA_SWEEP_EVERY.to_string()),
+        abi::store_u64(&t, &sc, ARENA_SC_SWEEP),
+        abi::branch_link(ARENA_SWEEP_SYMBOL),
+        abi::branch("arena_free_freed"),
+        abi::label("arena_free_sweep_later"),
+        abi::subtract_immediate(&t, &t, 1),
+        abi::store_u64(&t, &sc, ARENA_SC_SWEEP),
         abi::branch("arena_free_freed"),
         abi::label("arena_free_small"),
     ]);
     relocations.push(internal_branch(symbol, ARENA_SPAN_FREE_SYMBOL));
+    relocations.push(internal_branch(symbol, ARENA_SWEEP_SYMBOL));
     emit_small_free(
         symbol,
         &ptr,

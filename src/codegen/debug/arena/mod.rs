@@ -82,6 +82,7 @@ const ARENA_COUNT_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_count";
 const ARENA_OVERFLOW_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_overflow";
 const ARENA_SLICES_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_slices";
 const ARENA_SLICE_SIZE_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_slice_size";
+const ARENA_RESERVATION_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_reservation_bytes";
 const ARENA_PREFIX_SYMBOL: &str = "_mfb_rt_debug_arena_key_prefix";
 const ARENA_KIND_SUFFIX_SYMBOL: &str = "_mfb_rt_debug_arena_key_kind";
 const ARENA_TOKEN_MAIN_SYMBOL: &str = "_mfb_rt_debug_arena_token_main";
@@ -712,6 +713,7 @@ impl DebugFeature for ArenaFeature {
             key_object(ARENA_OVERFLOW_KEY_SYMBOL, "arena.registry_overflow"),
             key_object(ARENA_SLICES_KEY_SYMBOL, "arena.slices"),
             key_object(ARENA_SLICE_SIZE_KEY_SYMBOL, "arena.slice_size"),
+            key_object(ARENA_RESERVATION_KEY_SYMBOL, "arena.reservation_bytes"),
             text(ARENA_PREFIX_SYMBOL, "arena."),
             text(ARENA_KIND_SUFFIX_SYMBOL, ".kind "),
             text(ARENA_TOKEN_MAIN_SYMBOL, "main\n"),

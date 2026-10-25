@@ -360,6 +360,51 @@ A `--debug` build counts the fills for each arena in the debug report:
 counts the chunks that hold a non-zero byte in `arena.<n>.zero_violations` (see
 `./mfb spec tooling debug-report`).
 
+## Giving memory back
+
+Memory a program stops using goes back to the OS while it runs (plan-183-E), in whole
+16 KiB pages (`ARENA_DECOMMIT_PAGE`, a page on every target) through
+`_mfb_arena_decommit(lo, hi)`, which makes the same calls `arena_destroy` does below,
+refunds the bytes to the cap and takes them off the arena's committed bytes. Decommitted
+pages fault until committed again and then read zero, so nothing has to zero them.
+[[src/codegen/memory/arena/arena/decommit.rs:lower_arena_decommit]]
+
+- **Cold runs.** A free run whose whole pages `[page_up(start), page_down(end))` are
+  decommitted is *cold* (a flag in its node's length word); its partial edge pages stay
+  committed. Taking any part of a cold run — an allocation, or `arena_extend` growing
+  into it — first commits the pages that part covers, `[page_up(start),
+  min(page_up(end_of_part), page_down(run_end)))`, so the rest is still a cold run.
+  A free merges as usual, and the merged run is cold when any part was: the pages of
+  it not yet decommitted are decommitted then, gap by gap, so the committed count stays
+  exact — and never past the merged run's last whole page, since a cold part shorter
+  than a page has no interior and the page after it may hold a live chunk. [[src/codegen/memory/arena/arena/span.rs:emit_cold_fixup]]
+- **Large frees.** A medium or huge chunk of 4 MiB or more (`ARENA_LARGE_FREE`) is not
+  zeroed: its partial edge pages are zeroed and its whole pages decommitted, and it
+  joins its neighbours as a cold run.
+- **The sweep.** Every 64 medium or huge frees (`ARENA_SWEEP_EVERY`) `arena_free` calls
+  `_mfb_arena_sweep`, which applies two rules, each only to memory found free at two
+  sweeps in a row — so a run freed and taken again in a loop is not decommitted and
+  recommitted each time:
+  - a hot free run of 4 MiB or more, on the huge list or a medium class that can hold
+    one, is flagged *seen* at one sweep and made cold at the next;
+  - a free run at a frontier — ending at `hugeFront`, or starting at `mediumFront` — is
+    flagged at one sweep (its own flag) and at the next leaves the region: the
+    frontier moves back over it and the region's commit edge back to the commit step
+    past the new frontier, decommitting what it leaves. Everything between a frontier
+    and its commit edge must stay committed, so over a cold run the edge stops at the
+    run's committed edge page.
+
+  A run's rest after a take keeps its flags, and a merged run takes its runs' *seen*
+  flags: memory freed next to an idle run ages with it, so a chunk taken from and freed
+  back to a run's edge again and again does not keep the whole run committed. At most
+  1,024 runs are looked at per sweep. [[src/codegen/memory/arena/arena/decommit.rs:lower_arena_sweep]]
+- **Small pages.** An arena keeps 64 empty small pages committed
+  (`ARENA_SMALL_EMPTY_HOT`); an emptied page past those is decommitted, flagged in its
+  descriptor (`+48`), and committed again when `_mfb_arena_small_page` takes it back.
+  [[src/codegen/memory/arena/arena/small.rs:emit_small_free]]
+
+The reservation itself is never unmapped before exit; only pages are decommitted.
+
 ## Cleanup and Reclamation
 
 An arena is reclaimed whole. `arena_destroy` (symbol `_mfb_arena_destroy`)

@@ -198,37 +198,65 @@ pub(crate) fn lower_arena_extend(debug_arena: bool) -> CodeFunction {
     s.node(&rn, &ridx);
     let short = s.label("run_short");
     let whole = s.label("run_whole");
+    let rflags = s.reg();
+    let run_end = s.reg();
+    let min = s.reg();
     s.ins.extend([
         abi::load_u64(&t, &rn, ARENA_NODE_START),
         abi::compare_registers(&t, &end),
         abi::branch_ne(&no_run),
-        abi::load_u64(&rlen, &rn, ARENA_NODE_LEN),
+    ]);
+    s.run_len(&rlen, &rn);
+    s.run_flags(&rflags, &rn);
+    let min_medium = s.label("min_medium");
+    let min_set = s.label("min_set");
+    s.ins.extend([
+        abi::add_registers(&run_end, &end, &rlen),
+        abi::compare_immediate(&is_huge, "0"),
+        abi::branch_eq(&min_medium),
+        abi::move_immediate(&min, "Integer", &HUGE_MIN_RUN.to_string()),
+        abi::branch(&min_set),
+        abi::label(&min_medium),
+        abi::move_immediate(&min, "Integer", &MEDIUM_MIN_RUN.to_string()),
+        abi::label(&min_set),
         abi::compare_registers(&rlen, &extra),
         abi::branch_lo(&short),
     ]);
-    // The run holds the growth: take `extra` from its low end.
+    // The run holds the growth: take `extra` from its low end (all of it when the rest
+    // would be too small to be a run). plan-183-E: a cold run commits the pages the
+    // growth covers first, before anything changes.
+    {
+        let cend = s.reg();
+        let all = s.label("take_all_end");
+        let have = s.label("take_have_end");
+        s.ins.extend([
+            abi::subtract_registers(&t, &rlen, &extra),
+            abi::compare_registers(&t, &min),
+            abi::branch_lo(&all),
+            abi::add_registers(&cend, &end, &extra),
+            abi::branch(&have),
+            abi::label(&all),
+            abi::move_register(&cend, &run_end),
+            abi::label(&have),
+        ]);
+        s.commit_cold_part(&rflags, &end, &cend, &run_end, &fail);
+    }
     s.head(&head, &rlen, &is_huge);
     s.unlink(&head, &rn);
     s.ins.extend([
         abi::store_u64(abi::ZERO, &rrec, 0),
         abi::subtract_registers(&t, &rlen, &extra),
     ]);
-    let min_medium = s.label("min_medium");
-    let min_set = s.label("min_set");
     s.ins.extend([
-        abi::compare_immediate(&is_huge, "0"),
-        abi::branch_eq(&min_medium),
-        abi::move_immediate(&u, "Integer", &HUGE_MIN_RUN.to_string()),
-        abi::branch(&min_set),
-        abi::label(&min_medium),
-        abi::move_immediate(&u, "Integer", &MEDIUM_MIN_RUN.to_string()),
-        abi::label(&min_set),
-        abi::compare_registers(&t, &u),
+        abi::compare_registers(&t, &min),
         abi::branch_lo(&whole),
-        // The rest stays a run: [end + extra, end + rlen), the same node and end record.
+        // The rest stays a run: [end + extra, end + rlen), the same node and end record,
+        // with the run's flags (a cold run's rest stays cold).
         abi::add_registers(&u, &end, &extra),
         abi::store_u64(&u, &rn, ARENA_NODE_START),
-        abi::store_u64(&t, &rn, ARENA_NODE_LEN),
+        abi::or_registers(&u, &t, &rflags),
+        abi::store_u64(&u, &rn, ARENA_NODE_LEN),
+        abi::add_registers(&u, &end, &extra),
     ]);
     s.record(&rrec, &u);
     s.ins.extend([
@@ -260,6 +288,7 @@ pub(crate) fn lower_arena_extend(debug_arena: bool) -> CodeFunction {
         abi::branch_ne(&fail),
     ]);
     emit_huge_front_advance(&mut s, &ptr, &want, &fail);
+    s.commit_cold_part(&rflags, &end, &run_end, &run_end, &fail);
     s.head(&head, &rlen, &is_huge);
     s.unlink(&head, &rn);
     s.ins.extend([

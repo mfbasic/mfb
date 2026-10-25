@@ -488,9 +488,10 @@ fn the_arena_state_lists_every_field_and_each_non_empty_entry() {
     assert!(lines.contains(&"  mediumHead[64]    0 non-empty".to_string()));
     assert!(lines.contains(&"  v128Slots[126]    1 non-empty".to_string()));
     assert!(lines.contains(&"    [1]             0x00000000000000000000000000000007".to_string()));
+    // The state ends with plan-183-E's empty-page count.
     assert_eq!(
         lines.last().unwrap(),
-        "  committed         0x0000000000000000"
+        "  emptyHot          0x0000000000000000"
     );
     // One line per word field, plus the three array headers and two entries.
     assert_eq!(lines.len(), 1 + ARENA_STATE_FIELDS.len() + 2);

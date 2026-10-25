@@ -1,18 +1,20 @@
 //! Freed arena memory is zero when it is handed out again, and fresh memory from the
-//! operating system is never zeroed by hand (plan-183-A).
+//! operating system is never zeroed by hand (plan-183-A); memory given back to the OS
+//! reads zero when it is used again (plan-183-E).
 //!
 //! **What these tests measure.** A `--debug` build started with `MFB_ARENA_CHECK_ZERO`
 //! set checks every chunk `arena_alloc` hands out and counts, in the report, the chunks
-//! checked (`zero_checks`) and those holding a non-zero byte past their first 16 bytes
-//! (`zero_violations`). A freed chunk's first 16 bytes still hold its free-list node,
-//! which the allocator does not clear when it hands the chunk back out. `fill_grow_bytes`
-//! counts the bytes the allocator zeroed in freshly mapped blocks.
+//! checked (`zero_checks`) and those holding any non-zero byte (`zero_violations`) — no
+//! allocator metadata lives in a free chunk (plan-183-C), so every byte must be zero.
+//! `fill_grow_bytes` counts the bytes the allocator zeroed in fresh memory.
 //!
 //! The program frees a short string (a 32-byte chunk), a 360-element list (about
 //! 3 KiB) and a 655,360-element list (about 5 MiB) every iteration and allocates the
 //! same sizes again in the next, each filled with a non-zero value, so every reused
-//! chunk last held data. On AArch64 the 5 MiB chunk goes through the `dc zva` path, on
-//! x86-64 through `rep stosb`, on riscv64 through the unrolled store loop.
+//! chunk last held data. The 3 KiB chunk is zeroed on free — on AArch64 through the
+//! `dc zva` path, on x86-64 through `rep stosb`, on riscv64 through the unrolled store
+//! loop; the 5 MiB one is past `ARENA_LARGE_FREE`, so its whole pages go back to the OS
+//! and only its partial edge pages are zeroed.
 //!
 //! Set `MFB_TEST_REMOTE` to run the programs on another box (`tests/common/remote.rs`).
 
@@ -86,6 +88,53 @@ fn freed_chunks_come_back_zero() {
     );
     assert_eq!(counter("fill_grow_calls"), 0);
     assert!(counter("fill_free_bytes") > 0, "frees scrub their chunks");
+}
+
+/// A 64 MiB list freed and allocated again three times (plan-183-E): each free gives
+/// the chunk's whole pages back to the OS instead of zeroing 64 MiB, the next
+/// allocation takes the same run back, committing its pages again — and every byte of
+/// it reads zero.
+const DECOMMIT: &str = "\
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  FOR i = 1 TO 4
+    LET big AS List OF Integer = collections::repeat([], i + 7, 8388608)
+    total = total + len(big) + collections::get(big, 8388607)
+  NEXT
+  io::print(toString(total))
+  RETURN 0
+END FUNC
+";
+
+#[test]
+fn a_decommitted_chunk_comes_back_zero() {
+    let name = "arena_zeroing_decommit";
+    let exe = common::debug_report::build_debug(name, DECOMMIT);
+    let (out, lines) = run(name, &exe, &[("MFB_ARENA_CHECK_ZERO", "1")]);
+    assert_eq!(out.trim(), "33554470", "the program's total");
+    let counter = |key: &str| common::debug_report::counter(name, &lines, 0, key);
+    assert_eq!(
+        counter("zero_violations"),
+        0,
+        "memory committed again after a decommit held a non-zero byte: {lines:?}"
+    );
+    assert!(
+        counter("hit_huge_run") >= 3,
+        "the later lists did not take the freed run back: {lines:?}"
+    );
+    // Three frees before the last allocation, each giving back nearly 64 MiB.
+    assert!(
+        counter("decommitted_bytes") >= 3 * 60 * (1 << 20),
+        "the 64 MiB frees did not give their pages back: {lines:?}"
+    );
+    assert!(
+        counter("fill_free_bytes") < 1 << 20,
+        "a 64 MiB free zeroed more than its edge pages: {lines:?}"
+    );
+    assert_eq!(counter("fill_grow_bytes"), 0);
 }
 
 /// Without the switch nothing is checked: the check costs a normal `--debug` run nothing.

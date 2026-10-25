@@ -258,6 +258,14 @@ pub(super) fn lower_core_runtime_helpers(
     code_functions.push(crate::codegen::memory::arena::arena::lower_arena_span_free(
         debug_arena,
     ));
+    // plan-183-E: memory the program stopped using goes back to the OS.
+    code_functions.push(crate::codegen::memory::arena::arena::lower_arena_decommit(
+        platform,
+        debug_arena,
+        arena_cap,
+        platform_imports,
+    )?);
+    code_functions.push(crate::codegen::memory::arena::arena::lower_arena_sweep());
     // plan-183-D: collection growth tries to extend in place first.
     code_functions.push(crate::codegen::memory::arena::arena::lower_arena_extend(
         debug_arena,

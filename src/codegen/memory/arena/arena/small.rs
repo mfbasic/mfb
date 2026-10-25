@@ -78,7 +78,32 @@ pub(crate) fn lower_arena_small_page(debug_arena: bool) -> CodeFunction {
         abi::subtract_immediate(&idx, &p1, 1),
     ]);
     emit_desc_address(&desc, &idx, &t, &mut instructions);
+    // plan-183-E: an empty page past the ones kept committed was decommitted; commit it
+    // again before it leaves the list (a refusal leaves the list as it was).
     instructions.extend([
+        abi::load_u64(&t, &desc, ARENA_SMALL_DESC_COLD),
+        abi::compare_immediate(&t, "0"),
+        abi::branch_ne("arena_small_page_cold"),
+        abi::load_u64(&t, &sc, ARENA_SC_EMPTY_HOT),
+        abi::subtract_immediate(&t, &t, 1),
+        abi::store_u64(&t, &sc, ARENA_SC_EMPTY_HOT),
+        abi::branch("arena_small_page_popped"),
+        abi::label("arena_small_page_cold"),
+        abi::shift_left_immediate(&t, &idx, ARENA_SMALL_PAGE.trailing_zeros() as u8),
+        abi::load_u64(&u, &sc, ARENA_SC_SMALL_PAGES),
+        abi::add_registers(abi::c_arg(0), &u, &t),
+        abi::move_immediate(&t, "Integer", &ARENA_SMALL_PAGE.to_string()),
+        abi::add_registers(abi::c_arg(1), abi::c_arg(0), &t),
+        abi::branch_link(ARENA_COMMIT_SYMBOL),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(full),
+        abi::subtract_immediate(&idx, &p1, 1),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_COMMIT_SYMBOL));
+    emit_desc_address(&desc, &idx, &t, &mut instructions);
+    instructions.extend([
+        abi::store_u64(abi::ZERO, &desc, ARENA_SMALL_DESC_COLD),
+        abi::label("arena_small_page_popped"),
         abi::load_u64(&t, &desc, ARENA_SMALL_DESC_NEXT),
         abi::store_u64(&t, &sc, ARENA_SC_SMALL_EMPTY),
         abi::branch(init),
@@ -472,6 +497,29 @@ pub(crate) fn emit_small_free(
         abi::store_u64(abi::ZERO, &desc, ARENA_SMALL_DESC_PREV),
         abi::store_u64(abi::ZERO, &desc, ARENA_SMALL_DESC_CLASS),
         abi::store_u64(&p1, sc, ARENA_SC_SMALL_EMPTY),
+        // plan-183-E: the arena keeps ARENA_SMALL_EMPTY_HOT empty pages committed; a page
+        // past those goes back to the OS (it is all zero, and reads zero when committed
+        // again).
+        abi::load_u64(&t, sc, ARENA_SC_EMPTY_HOT),
+        abi::compare_immediate(&t, &ARENA_SMALL_EMPTY_HOT.to_string()),
+        abi::branch_lo(&format!("{from}_small_keep_hot")),
+        abi::move_immediate(&t, "Integer", "1"),
+        abi::store_u64(&t, &desc, ARENA_SMALL_DESC_COLD),
+        abi::subtract_immediate(&t, &p1, 1),
+        abi::shift_left_immediate(&t, &t, ARENA_SMALL_PAGE.trailing_zeros() as u8),
+        abi::load_u64(&u, sc, ARENA_SC_SMALL_PAGES),
+        abi::add_registers(abi::c_arg(0), &u, &t),
+        abi::move_immediate(&t, "Integer", &ARENA_SMALL_PAGE.to_string()),
+        abi::add_registers(abi::c_arg(1), abi::c_arg(0), &t),
+        abi::branch_link(super::decommit::ARENA_DECOMMIT_SYMBOL),
+        abi::branch(&format!("{from}_small_lists_done")),
+        abi::label(&format!("{from}_small_keep_hot")),
+        abi::add_immediate(&t, &t, 1),
+        abi::store_u64(&t, sc, ARENA_SC_EMPTY_HOT),
         abi::label(&format!("{from}_small_lists_done")),
     ]);
+    relocations.push(internal_branch(
+        from,
+        super::decommit::ARENA_DECOMMIT_SYMBOL,
+    ));
 }

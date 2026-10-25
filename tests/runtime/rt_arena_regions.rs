@@ -170,3 +170,132 @@ fn a_random_mix_of_all_three_tiers_never_hands_a_chunk_out_twice() {
     assert_eq!(counter("double_free_skips"), 0, "no free was refused");
     assert_eq!(counter("live_bytes"), 0, "everything was freed by the end");
 }
+
+/// plan-183-E: 40 lists of 1 MiB live at once, all freed, then 300 medium lists made
+/// and dropped one at a time — every 64 medium or huge frees the arena sweeps. With
+/// `PIN` the deepest level pins a medium chunk below the 40, so their 40 MiB run is off
+/// the frontier; without it the run ends the medium region.
+const IDLE: &str = "\
+IMPORT io
+IMPORT collections
+
+MUT pin AS List OF Integer = []
+
+FUNC hold(n AS Integer) AS Integer
+  IF n = 0 THEN
+    IF PIN THEN
+      pin = collections::repeat([], 1, 3000)
+    END IF
+    RETURN 0
+  END IF
+  LET mine AS List OF Integer = collections::repeat([], n, 131072)
+  RETURN hold(n - 1) + collections::get(mine, 0)
+END FUNC
+
+FUNC churn(n AS Integer) AS Integer
+  MUT total AS Integer = 0
+  MUT j AS Integer = 0
+  WHILE j < n
+    LET x AS List OF Integer = collections::repeat([], j, 3000)
+    total = total + collections::get(x, 0)
+    j = j + 1
+  END WHILE
+  RETURN total
+END FUNC
+
+FUNC main AS Integer
+  LET held AS Integer = hold(40)
+  io::print(toString(held) & \" \" & toString(churn(300)) & \" \" & toString(len(pin)))
+  RETURN 0
+END FUNC
+";
+
+fn idle(name: &str, pin: bool) -> Vec<String> {
+    let source = IDLE.replace("PIN", if pin { "TRUE" } else { "FALSE" });
+    let exe = common::debug_report::build_debug(name, &source);
+    let (out, lines) = run(name, &exe);
+    let pinned = if pin { 3000 } else { 0 };
+    assert_eq!(
+        out.trim(),
+        format!("820 44850 {pinned}"),
+        "{name}: the totals"
+    );
+    lines
+}
+
+/// The idle 40 MiB run, kept off the frontier by the pinned chunk, is decommitted by
+/// the sweep: found free at one sweep, still free at the next — the medium churn takes
+/// its chunks from the run's edge and gives them back, which does not make the rest of
+/// it young. The exit's teardown is one decommit, so a sweep's shows as a second.
+#[test]
+fn an_idle_run_goes_back_to_the_os_after_two_sweeps() {
+    let name = "arena_regions_idle_run";
+    let lines = idle(name, true);
+    let counter = |key: &str| common::debug_report::counter(name, &lines, 0, key);
+    assert!(
+        counter("decommits") >= 2,
+        "the idle 40 MiB run was never decommitted: {lines:?}"
+    );
+    assert_eq!(counter("zero_violations"), 0, "{lines:?}");
+}
+
+/// Without the pin the freed 40 MiB end the medium region: two sweeps later the
+/// frontier retreats over them and the commit edge follows, decommitting what it
+/// leaves; the churn after it then commits again from the edge, and reads zero.
+#[test]
+fn a_free_run_at_the_frontier_retreats() {
+    let name = "arena_regions_retreat";
+    let lines = idle(name, false);
+    let counter = |key: &str| common::debug_report::counter(name, &lines, 0, key);
+    assert!(
+        counter("decommits") >= 2,
+        "the frontier never retreated over the freed run: {lines:?}"
+    );
+    assert_eq!(counter("zero_violations"), 0, "{lines:?}");
+}
+
+/// plan-183-E: a cold run shorter than a page, between a freed chunk and a live one.
+/// `x` (8 MB) is carved just below `live` and freed: a large free, so it becomes a cold
+/// run whose end touches `live`. `y`, 4 KiB smaller, is taken from that run's low end,
+/// leaving a 4 KiB cold run against `live` — its whole pages none, its edge page the one
+/// `live` starts in. Freeing `y` merges it with that run; the merge must decommit
+/// nothing of `live`'s first page (it once decommitted up to the page boundary past the
+/// tiny run, and the read of `live` faulted).
+const TINY_COLD: &str = "\
+IMPORT io
+IMPORT strings
+
+MUT live AS String = \"\"
+
+FUNC stepX AS Integer
+  LET x AS String = strings::repeat(\"x\", 8000000)
+  RETURN len(x)
+END FUNC
+
+FUNC stepY AS Integer
+  LET y AS String = strings::repeat(\"y\", 7995904)
+  RETURN len(y)
+END FUNC
+
+FUNC main AS Integer
+  live = strings::repeat(\"L\", 3000000)
+  LET a AS Integer = stepX()
+  LET b AS Integer = stepY()
+  io::print(toString(a + b) & \" \" & strings::mid(live, 0, 1) & strings::mid(live, 2999999, 1) & \" \" & toString(len(live)))
+  RETURN 0
+END FUNC
+";
+
+#[test]
+fn a_tiny_cold_run_beside_a_live_chunk_leaves_it_committed() {
+    let name = "arena_regions_tiny_cold";
+    let exe = common::debug_report::build_debug(name, TINY_COLD);
+    let (out, lines) = run(name, &exe);
+    assert_eq!(out.trim(), "15995904 LL 3000000", "{name}: the live string");
+    let counter = |key: &str| common::debug_report::counter(name, &lines, 0, key);
+    assert!(
+        counter("decommits") >= 2,
+        "the 8 MB frees did not decommit: {lines:?}"
+    );
+    assert_eq!(counter("zero_violations"), 0, "{lines:?}");
+}

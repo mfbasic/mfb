@@ -1062,7 +1062,13 @@ pub(crate) const ARENA_SC_SLICE_TOP: usize = 152;
 /// Bytes this arena has committed and not decommitted (what it holds against the
 /// arena memory cap).
 pub(crate) const ARENA_SC_COMMITTED: usize = 160;
-pub(crate) const ARENA_ALLOC_SCALARS_SIZE: usize = 168;
+/// plan-183-E: medium and huge frees left before the next sweep (`_mfb_arena_sweep`);
+/// 0 until the first free sets it.
+pub(crate) const ARENA_SC_SWEEP: usize = 168;
+/// plan-183-E: how many pages on the small empty-page list are still committed (at most
+/// `ARENA_SMALL_EMPTY_HOT`; the ones past that are decommitted).
+pub(crate) const ARENA_SC_EMPTY_HOT: usize = 176;
+pub(crate) const ARENA_ALLOC_SCALARS_SIZE: usize = 184;
 pub(crate) const ARENA_STATE_SIZE: usize = ARENA_ALLOC_SCALARS_OFFSET + ARENA_ALLOC_SCALARS_SIZE;
 /// Capacity of the per-thread lazily-allocated stdin local copy buffer, in bytes.
 pub(crate) const STDIN_LOCAL_BUFFER_CAPACITY: u64 = 4096;
@@ -1173,6 +1179,10 @@ pub(crate) const ARENA_SMALL_DESC_FREE: usize = 16;
 pub(crate) const ARENA_SMALL_DESC_HINT: usize = 24;
 pub(crate) const ARENA_SMALL_DESC_NEXT: usize = 32;
 pub(crate) const ARENA_SMALL_DESC_PREV: usize = 40;
+/// plan-183-E: 1 while the page sits on the empty list decommitted.
+pub(crate) const ARENA_SMALL_DESC_COLD: usize = 48;
+/// plan-183-E: how many empty small pages an arena keeps committed.
+pub(crate) const ARENA_SMALL_EMPTY_HOT: u64 = 64;
 pub(crate) const ARENA_SMALL_DESC_BITS: usize = 64;
 pub(crate) const ARENA_TAG_BLOCK_SHIFT: u32 = 11;
 pub(crate) const ARENA_TAG_RECORD_SIZE: u64 = 16;

@@ -710,13 +710,23 @@ A/B tests:
    free path, or whether it belongs in a debug-only build.
 7. **The ×1.5 buffer growth policy** behind the audio example's series vs a larger factor or
    a reserve, once 1–4 decide how freed large chunks come back.
+   **Closed (plan-183):** the policy stays; a grow first extends the block in place
+   (plan-183-D, `arena_extend`), and a collection past 32 MiB extends at every step, so the
+   ×1.5 series no longer holds old and new at once (a 2^25-float list peaks at its final
+   capacity, 310 MB, down from 517 MB — `tests/runtime/rt_arena_grow_in_place.rs`).
 
 Spikes (is it possible and safe, not which is faster):
 
 8. **A dedicated `mmap`/`munmap` for very large requests** (the audio example's 43–129 MB
    buffers). Find the threshold where it beats keeping the chunk in the arena.
+   **Closed (plan-183):** requests of 32 MiB or more go to the slice's huge region
+   (plan-183-C), and a free of 4 MiB or more decommits its whole pages at once (plan-183-E) —
+   the memory goes back to the OS without leaving the reservation.
 9. **Unmap a block once it is entirely free.** How much per-block live accounting it needs,
    and what it costs on the free path.
+   **Closed (plan-183):** there are no blocks; free runs merge at once (plan-183-C) and a run
+   idle across two sweeps, or one a frontier can retreat over, is decommitted (plan-183-E,
+   `./mfb spec memory arenas`, *Giving memory back*). The cost is a flag in the run's node.
 10. **Reclaim a worker arena when its thread completes.** What still points into the worker
     arena after `thread::waitFor` (the result copy, the control block, which lives in the
     parent's arena), and whether it can be destroyed safely at that point.
@@ -764,6 +774,8 @@ Look into:
 
 9. **No block is ever unmapped before exit.** An arena that becomes empty keeps every block;
    memory only grows until the process ends.
+   **Closed (plan-183):** memory the program stops using is decommitted while it runs
+   (plan-183-E) — large frees, idle runs, frontier retreats, empty small pages past 64.
 10. **The browser example's growth.** 60 s of driven use (example.com, Wikipedia `BASIC`,
     Hacker News) mapped 238,167 arena blocks / 1,308,315,648 bytes; the fetch worker for the
     603,614-byte Wikipedia page alone mapped 194,400 blocks / 939 MB. Re-measure after 2–5,
@@ -780,6 +792,8 @@ Look into:
     RSS of 4,452,155,392 B, so RSS ≈ 4× `mapped_bytes` on macOS and ≈ `mapped_bytes` on 2223.
     Any RSS comparison across the two hosts is off by that factor; weigh it with A/B 5 (default
     block size).
+    **Closed (plan-183):** there are no 4 KiB blocks; an arena commits its slice in 4 MiB
+    steps and decommits in 16 KiB pages, whole pages on every target (plan-183-B/C/E).
 
 No testing needed:
 

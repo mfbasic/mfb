@@ -87,11 +87,12 @@ Sections print in the order of the compiler's feature registry,
 | `arena` | `arena.count` | the number of arenas registered during the run |
 | | `arena.registry_overflow` | arenas that could not register because all 1024 slots were taken; their events are not counted |
 | | `arena.slices`, `arena.slice_size` | the arena slices the build reserves (`1 + canvas + 2 × options.maxThreads`) and the size of each, which the startup reservation settled on (20 GiB unless the address space is limited; `./mfb spec memory program-startup`) |
+| | `arena.reservation_bytes` | the bytes the startup reservation holds: the slices plus 2 MiB of alignment slack (plan-183-E) |
 | | `arena.<n>.kind` | `main` (the entry thread), `worker` (a `thread::start` thread), `thread_block` (a thread's control-block arena, registered just before its `worker`), or `graphics` (a canvas program's graphics thread), numbered in registration order |
 | | `arena.<n>.reserved_bytes` | the size of the arena's slice of the startup reservation (set when the arena first allocates; 0 for an arena that never did) |
 | | `arena.<n>.grows` | how often a region's frontier extended: a never-used small page set up, or a medium or huge chunk carved at its region's frontier; each one is a series sample |
 | | `arena.<n>.commits`, `.committed_bytes`, `.committed_peak_bytes` | how often the arena committed more of its slice, the bytes it holds committed now (0 once it has been destroyed), and the most it held at once |
-| | `arena.<n>.decommits`, `.decommitted_bytes` | decommits of the arena's memory (its destruction decommits the whole slice) and their bytes |
+| | `arena.<n>.decommits`, `.decommitted_bytes` | decommits of the arena's memory and their bytes: a free of 4 MiB or more, a run the sweep found idle twice, a frontier retreat, an empty small page past the 64 kept (plan-183-E), and the arena's destruction, which decommits the whole slice (`./mfb spec memory arenas`, *Giving memory back*) |
 | | `arena.<n>.alloc_calls`, `.alloc_bytes` | allocation calls and the bytes requested, after size and alignment rounding |
 | | `arena.<n>.free_calls`, `.free_bytes` | free calls and their bytes, including frees that were skipped |
 | | `arena.<n>.live_bytes`, `.peak_live_bytes` | bytes allocated and not yet freed when the report ran, and the most ever held at once |

@@ -20,12 +20,14 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 
 mod alloc;
+mod decommit;
 mod extend;
 mod free;
 mod layout;
 mod small;
 mod span;
 pub(crate) use alloc::{lower_arena_alloc, lower_simd_alloc_list};
+pub(crate) use decommit::{lower_arena_decommit, lower_arena_sweep};
 pub(crate) use extend::{lower_arena_extend, ARENA_EXTEND_SYMBOL};
 pub(crate) use free::lower_arena_free;
 pub(crate) use layout::{lower_arena_commit, lower_arena_geometry};

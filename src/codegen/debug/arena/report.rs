@@ -223,9 +223,10 @@ pub(super) fn lower_report(
         abi::label(totals),
     ]);
     // plan-183-B: the reservation — the build's slice count and the slice size the
-    // startup reservation settled on.
+    // startup reservation settled on; plan-183-E: the bytes it reserved.
     let slice_count = vregs.next();
     let slice_size = vregs.next();
+    let reserved = vregs.next();
     instructions.push(abi::move_immediate(
         &slice_count,
         "Integer",
@@ -239,11 +240,20 @@ pub(super) fn lower_report(
         &mut relocations,
     );
     instructions.push(abi::load_u64(&slice_size, &slice_size, 0));
+    push_symbol_address(
+        symbol,
+        crate::codegen::runtime::arena_cap::ARENA_RESERVED_BYTES_SYMBOL,
+        &reserved,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::load_u64(&reserved, &reserved, 0));
     for (key, value, tag) in [
         (ARENA_COUNT_KEY_SYMBOL, &count, "count"),
         (ARENA_OVERFLOW_KEY_SYMBOL, &overflow, "overflow"),
         (ARENA_SLICES_KEY_SYMBOL, &slice_count, "slices"),
         (ARENA_SLICE_SIZE_KEY_SYMBOL, &slice_size, "slice_size"),
+        (ARENA_RESERVATION_KEY_SYMBOL, &reserved, "reservation_bytes"),
     ] {
         emit_debug_key_value(
             symbol,
