@@ -1405,6 +1405,30 @@ Lifetime rules, and why:
   hit to the MFBASIC walk, whose `__canvas_pictureCached` confirms the record against
   the image's current pixel block (§17).
 
+* **An item has two identities, and a damage identity mixed from them** (plan-175-A).
+  `G`, the GEOMETRY identity, folds what decides the shape of the item's record: its
+  own fields, its transform, and the parts of its paint that are geometry — the stroke
+  width, cap, join, miter limit, dashes, clip, and three predicates of appearance
+  fields (whether the stroke's alpha is zero, the gradient's stop count, whether the
+  ramp paints the stroke). `A`, the APPEARANCE identity, folds the rest: colours,
+  blend, the ramp, the transparency. `D = mix(G, A)` changes exactly when either does
+  and is what the damage diff and every draw hash compare. No identity folds an `id`.
+  The classification is one table (`func_item_lanes.rs`), read by the one native walk
+  (`emit_item_hash`, both lanes in one pass) and mirrored by the MFBASIC walk for the
+  kinds it hashes (`__canvas_hashPaintGeometry` / `__canvas_hashPaintAppearance`). The
+  worker publishes `2n` words for `n` items — every `D`, then every `G` — under the one
+  hashes revision, so the sequence lock covers both, and every reader of "the item's
+  hash" at index `i` reads `D`.
+* **Collisions, for both walks and both lanes.** Each identity is 62 bits: the native
+  walk's multiply-xorshift keeps 62 bits of a 64-bit state, and the MFBASIC walk's two
+  31-bit lanes (`__canvas_hashStep`) are 62. A false hit on a key needs two different
+  items with one key among the k keys alive in the cache: about k² / 2^63, 1.1e-9 at
+  k = 100,000. The cache key is trusted alone; keyed by `G` (plan-175-A Phase 2), a
+  paint change mints no new key, so the exposure falls to geometry changes. `A` is never trusted alone — it
+  is only ever compared with the `A` of the record `G` already chose, so a wrong
+  "equal" needs one item's old and new appearance to collide (2^-62 a changed item), and
+  costs that item its last paint. `D` decides damage only: a wrong "unchanged" is 2^-62
+  a changed entry and shows only under `MFB_CANVAS_DAMAGE`.
 * **A record may be in the arena without a slot** (plan-150-B). A particle that is
   neither turned nor scaled is built by `canvas::geoBuild` and appended straight to
   `__CANVAS_GEO_DATA` — no lookup, no slot, no index entry

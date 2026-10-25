@@ -146,6 +146,20 @@ falls out of the dispatch as −1, as it would on its own, and the picture is ha
 MFBASIC (`__canvas_pictureHash`).
 [[src/codegen/builtins/canvas/func_item_hash.rs:emit_item_hash]]
 
+The walk folds every field into one of two lanes, and so gives an item two identities:
+its GEOMETRY identity `G` — what decides the shape of its geometry record: the kind's
+own fields, its transform, and the paint's stroke width, cap, join, miter limit, dashes
+and clip, plus whether the stroke's alpha is zero, the gradient's stop count and whether
+the ramp paints the stroke — and its damage identity `D`, mixed from `G` and the
+APPEARANCE lane (both colours, the blend mode, the ramp, the transparency). `D` changes
+exactly when either does; it is what the damage diff compares. An item's `id` is in
+neither: it is only for `overID`, so renaming an item redraws nothing (the scene is
+still published, so the poll answers the new name). Which lane each field folds into is
+one table for `Paint` — a field it does not name fails the build — and a rule for the
+kinds' own fields. [[src/codegen/builtins/canvas/func_item_lanes.rs:item_field]]
+The published hashes are both: every item's `D`, then every item's `G`, one list under
+the one hashes revision. [[src/codegen/builtins/canvas/func_item_hash.rs:lower_scene_hashes]]
+
 ## A published scene points at nothing caller-owned
 
 `present` **deep-copies the scene transitively** into runtime-owned storage:

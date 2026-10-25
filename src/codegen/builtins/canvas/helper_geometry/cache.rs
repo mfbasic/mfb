@@ -355,35 +355,28 @@ FUNC __canvas_hashPoint(acc AS Integer, p AS vector::Float2) AS Integer
   RETURN __canvas_hashFloat(__canvas_hashFloat(acc, p.x), p.y)
 END FUNC
 
-' Everything in a `Paint`: both colours, the stroke width, the blend mode, the clip, the
-' transform, and the fill gradient with its stops. A gradient on a kind that ignores it
-' (a `Line`, an `Arc`, `Text`) only splits cache entries that draw identically, which
-' costs a build and never a wrong picture.
-FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint, transform AS Transform) AS Integer
+' plan-175-A: a paint's two lanes. `func_item_lanes.rs` classifies every `Paint` field
+' for the native walk; these two are its MFBASIC twin, for the kinds hashed here (a
+' `Text`). GEOMETRY is what decides the shape of a record: the stroke's width, cap, join,
+' miter limit, dashes and offset, the clip, the transform -- and three predicates of
+' appearance fields, each folded as its own word: whether the stroke's alpha is zero
+' (`__canvas_strokeHalf` answers -1 for it), the gradient's stop count (it sizes the
+' tail), and whether the ramp paints the stroke. APPEARANCE is the rest: both colours,
+' the blend mode, the ramp, the transparency.
+FUNC __canvas_hashPaintGeometry(acc AS Integer, paint AS Paint, transform AS Transform) AS Integer
   MUT h AS Integer = acc
-  ' Each colour's four channels (0-255 each) as one packed value: one step, not four.
-  h = __canvas_hashStep(h, ((toInt(paint.fill.red) * 256 + toInt(paint.fill.green)) * 256 + toInt(paint.fill.blue)) * 256 + toInt(paint.fill.alpha))
-  h = __canvas_hashStep(h, ((toInt(paint.stroke.red) * 256 + toInt(paint.stroke.green)) * 256 + toInt(paint.stroke.blue)) * 256 + toInt(paint.stroke.alpha))
-  h = __canvas_hashFloat(h, paint.strokeWidth)
-  MUT blend AS Integer = 0
-  IF paint.blend = BlendMode.Multiply THEN
-    blend = 1
+  MUT strokeZero AS Integer = 0
+  IF toInt(paint.stroke.alpha) <= 0 THEN
+    strokeZero = 1
   END IF
-  IF paint.blend = BlendMode.Screen THEN
-    blend = 2
-  END IF
-  IF paint.blend = BlendMode.Add THEN
-    blend = 3
-  END IF
-  ' The clip, the transform and the gradient are folded in only when present, after
-  ' ONE step carrying which of them are (with the blend mode). Their zero values are
-  ' the no-ops -- an empty clip ring list is "unclipped", an all-zero Transform the
-  ' identity, fewer than two stops no gradient -- and most paints set none of them, so
-  ' this is what keeps a plain item's hash to a handful of steps.
+  h = __canvas_hashFloat(__canvas_hashStep(h, strokeZero), paint.strokeWidth)
+  ' The clip and the transform are folded in only when present, after ONE step carrying
+  ' which of them are (with the stroke's ramp). Their zero values are the no-ops -- an
+  ' empty clip ring list is "unclipped", an all-zero Transform the identity -- and most
+  ' paints set neither, so this is what keeps a plain item's hash to a handful of steps.
   LET t AS Transform = transform
   LET hasClip AS Boolean = len(paint.clip) > 0
   LET hasTransform AS Boolean = NOT (t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0)
-  LET stopCount AS Integer = len(paint.gradient.stops)
   MUT flags AS Integer = 0
   IF hasClip THEN
     flags = flags + 1
@@ -391,10 +384,10 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint, transform AS Transform) 
   IF hasTransform THEN
     flags = flags + 2
   END IF
-  IF stopCount >= 2 THEN
+  IF paint.gradient.strokeApply = GradientApply.FillAndStroke THEN
     flags = flags + 4
   END IF
-  h = __canvas_hashStep(h, blend * 8 + flags)
+  h = __canvas_hashStep(__canvas_hashStep(h, flags), len(paint.gradient.stops))
   ' plan-163-C: the clip's rule, then each ring's count and points.
   IF hasClip THEN
     MUT rule AS Integer = 0
@@ -412,39 +405,6 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint, transform AS Transform) 
   IF hasTransform THEN
     h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.a), t.b), t.c)
     h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.d), t.tx), t.ty)
-  END IF
-  ' A gradient's points and kind mean nothing without two stops: the renderers read
-  ' those slots only when the count says there is a ramp.
-  IF stopCount >= 2 THEN
-    MUT radial AS Integer = 0
-    IF paint.gradient.kind = GradientKind.Radial THEN
-      radial = 1
-    END IF
-    h = __canvas_hashStep(h, radial)
-    h = __canvas_hashPoint(h, paint.gradient.startPoint)
-    h = __canvas_hashPoint(h, paint.gradient.endPoint)
-    h = __canvas_hashStep(h, stopCount)
-    FOR EACH stop IN paint.gradient.stops
-      h = __canvas_hashFloat(h, stop.offset)
-      h = __canvas_hashStep(h, ((toInt(stop.color.red) * 256 + toInt(stop.color.green)) * 256 + toInt(stop.color.blue)) * 256 + toInt(stop.color.alpha))
-    NEXT
-    ' plan-163-D: the spread and stroke apply as one step, then the transform, the focal
-    ' offset and the focal radius.
-    MUT ramp AS Integer = 0
-    IF paint.gradient.spread = GradientSpread.Reflect THEN
-      ramp = 1
-    END IF
-    IF paint.gradient.spread = GradientSpread.Repeat THEN
-      ramp = 2
-    END IF
-    IF paint.gradient.strokeApply = GradientApply.FillAndStroke THEN
-      ramp = ramp + 4
-    END IF
-    LET gt AS Transform = paint.gradient.transform
-    h = __canvas_hashStep(h, ramp)
-    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, gt.a), gt.b), gt.c)
-    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, gt.d), gt.tx), gt.ty)
-    h = __canvas_hashFloat(__canvas_hashPoint(h, paint.gradient.focalOffset), paint.gradient.focalRadius)
   END IF
   ' plan-163-B: the stroke's shape -- cap and join as one step, then the miter limit,
   ' the dash lengths after their count, and the offset.
@@ -467,9 +427,75 @@ FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint, transform AS Transform) 
   FOR EACH dash IN paint.dashes
     h = __canvas_hashFloat(h, dash)
   NEXT
-  h = __canvas_hashFloat(h, paint.dashOffset)
+  RETURN __canvas_hashFloat(h, paint.dashOffset)
+END FUNC
+
+FUNC __canvas_hashPaintAppearance(acc AS Integer, paint AS Paint) AS Integer
+  MUT h AS Integer = acc
+  ' Each colour's four channels (0-255 each) as one packed value: one step, not four.
+  h = __canvas_hashStep(h, ((toInt(paint.fill.red) * 256 + toInt(paint.fill.green)) * 256 + toInt(paint.fill.blue)) * 256 + toInt(paint.fill.alpha))
+  h = __canvas_hashStep(h, ((toInt(paint.stroke.red) * 256 + toInt(paint.stroke.green)) * 256 + toInt(paint.stroke.blue)) * 256 + toInt(paint.stroke.alpha))
+  MUT blend AS Integer = 0
+  IF paint.blend = BlendMode.Multiply THEN
+    blend = 1
+  END IF
+  IF paint.blend = BlendMode.Screen THEN
+    blend = 2
+  END IF
+  IF paint.blend = BlendMode.Add THEN
+    blend = 3
+  END IF
+  LET stopCount AS Integer = len(paint.gradient.stops)
+  ' A gradient's points and kind mean nothing without two stops: the renderers read
+  ' those slots only when the count says there is a ramp. Whether there is one is the
+  ' geometry lane's (the count); its ramp is this lane's.
+  MUT ramped AS Integer = 0
+  IF stopCount >= 2 THEN
+    ramped = 1
+  END IF
+  h = __canvas_hashStep(h, blend * 2 + ramped)
+  IF stopCount >= 2 THEN
+    MUT radial AS Integer = 0
+    IF paint.gradient.kind = GradientKind.Radial THEN
+      radial = 1
+    END IF
+    h = __canvas_hashStep(h, radial)
+    h = __canvas_hashPoint(h, paint.gradient.startPoint)
+    h = __canvas_hashPoint(h, paint.gradient.endPoint)
+    h = __canvas_hashStep(h, stopCount)
+    FOR EACH stop IN paint.gradient.stops
+      h = __canvas_hashFloat(h, stop.offset)
+      h = __canvas_hashStep(h, ((toInt(stop.color.red) * 256 + toInt(stop.color.green)) * 256 + toInt(stop.color.blue)) * 256 + toInt(stop.color.alpha))
+    NEXT
+    ' plan-163-D: the spread, then the transform, the focal offset and the focal radius.
+    ' (The stroke apply is the geometry lane's.)
+    MUT ramp AS Integer = 0
+    IF paint.gradient.spread = GradientSpread.Reflect THEN
+      ramp = 1
+    END IF
+    IF paint.gradient.spread = GradientSpread.Repeat THEN
+      ramp = 2
+    END IF
+    LET gt AS Transform = paint.gradient.transform
+    h = __canvas_hashStep(h, ramp)
+    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, gt.a), gt.b), gt.c)
+    h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, gt.d), gt.tx), gt.ty)
+    h = __canvas_hashFloat(__canvas_hashPoint(h, paint.gradient.focalOffset), paint.gradient.focalRadius)
+  END IF
   ' plan-163-C.
   RETURN __canvas_hashFloat(h, paint.transparency)
+END FUNC
+
+' Both lanes of a paint in one: what a kind hashed as a whole folds -- an `AutoPaint`'s
+' four state paints, and the arms kept for the kinds hashed natively.
+FUNC __canvas_hashPaint(acc AS Integer, paint AS Paint, transform AS Transform) AS Integer
+  RETURN __canvas_hashPaintAppearance(__canvas_hashPaintGeometry(acc, paint, transform), paint)
+END FUNC
+
+' plan-175-A: the damage identity `D = mix(G, A)` of an item hashed here, from its
+' geometry identity `g` and its appearance lane `a`. It changes exactly when either does.
+FUNC __canvas_mixHash(g AS Integer, a AS Integer) AS Integer
+  RETURN __canvas_hashStep(__canvas_hashStep(1099511628211, g), a)
 END FUNC
 
 ' A String folds in a codepoint at a time -- a String is not otherwise hashable here --
@@ -483,6 +509,71 @@ FUNC __canvas_hashText(acc AS Integer, text AS String) AS Integer
   RETURN h
 END FUNC
 
+' plan-175-A: a `Text`'s geometry identity -- its font list, size, string, spacing,
+' position and transform, and its paint's geometry lane. Its `id` is in no identity
+' (decision 1: an `id` is only for mouse feedback, so a renamed item redraws nothing).
+FUNC __canvas_textGeoHash(t AS Text) AS Integer
+  ' The font id is a resource HANDLE -- an address -- and must be folded in as the
+  ' integer it is, never through `__canvas_hashFloat`, whose `value * 65536.0`
+  ' overflows `toInt` for a 48-bit address. `__canvas_hashStep` reduces it first.
+  MUT h AS Integer = __canvas_hashStart(7)
+  h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.position.x), t.position.y), t.fontSize)
+  ' Every font, in order, after their count: `[a, b]` and `[b, a]` draw different
+  ' glyphs, and `[a]` and `[a, a]` must not collide by accident of the fold.
+  h = __canvas_hashStep(h, len(t.fonts))
+  FOR EACH f IN t.fonts
+    h = __canvas_hashStep(h, canvas::fontHandle(f))
+  NEXT
+  h = __canvas_hashText(h, t.text)
+  ' plan-162-D: the spacing moves every glyph after the first, so it keys the cache --
+  ' a spacing-only change must rebuild. Folded only when set, so an unspaced `Text`
+  ' keeps the key it always had.
+  IF t.letterSpacing <> 0.0 THEN
+    h = __canvas_hashFloat(h, t.letterSpacing)
+  END IF
+  RETURN __canvas_hashPaintGeometry(h, t.paint, t.transform)
+END FUNC
+
+' plan-175-A: an item's GEOMETRY identity `G` -- what keys the geometry cache. Natively
+' for every kind `canvas::itemGeoHash` folds; a `Text` and a `Picture` on a shape the
+' native walk does not fold have their own walks; a `Group` node, an `AutoPaint` and a
+' `ParticleSystem` fold everything into one lane, so for them `G` is `D`.
+FUNC __canvas_geoHash(item AS DrawItem) AS Integer
+  LET native AS Integer = canvas::itemGeoHash(item)
+  IF native >= 0 THEN
+    RETURN native
+  END IF
+  MATCH item
+    CASE Text(t)
+      RETURN __canvas_textGeoHash(t)
+    CASE Picture(pic)
+      RETURN __canvas_pictureGeoHash(pic)
+    CASE ELSE
+      RETURN __canvas_hashItem(item)
+  END MATCH
+  RETURN __canvas_hashItem(item)
+END FUNC
+
+' plan-175-A: the damage identity `D` of an item whose geometry identity `g` the caller
+' already has (`__canvas_geoHash`), so a `Text` folds its string once, not twice.
+FUNC __canvas_drawHashOf(item AS DrawItem, g AS Integer) AS Integer
+  LET native AS Integer = canvas::itemHash(item)
+  IF native >= 0 THEN
+    RETURN native
+  END IF
+  MATCH item
+    CASE Text(t)
+      RETURN __canvas_mixHash(g, __canvas_hashPaintAppearance(__canvas_hashStart(7), t.paint))
+    CASE Picture(pic)
+      RETURN __canvas_pictureHash(pic)
+    CASE ELSE
+      RETURN g
+  END MATCH
+  RETURN g
+END FUNC
+
+' The DAMAGE identity `D` (plan-175-A): what the damage diff and every draw hash compare,
+' and -- until the cache is keyed by `G` -- the geometry cache's key.
 FUNC __canvas_hashItem(item AS DrawItem) AS Integer
   ' bug-686: every kind but `Text` and `Group` is hashed natively and structurally
   ' (`func_item_hash.rs`) -- the arms below are only reached for those two. A kind is
@@ -538,26 +629,7 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       h = __canvas_hashPoint(__canvas_hashPoint(__canvas_hashPoint(__canvas_hashPoint(h, tile.srcPosition), tile.srcSize), tile.position), tile.size)
       RETURN h
     CASE Text(t)
-      ' The font id is a resource HANDLE -- an address -- and must be folded in as the
-      ' integer it is, never through `__canvas_hashFloat`, whose `value * 65536.0`
-      ' overflows `toInt` for a 48-bit address. `__canvas_hashStep` reduces it first.
-      MUT h AS Integer = __canvas_hashStart(7)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.position.x), t.position.y), t.fontSize)
-      ' Every font, in order, after their count: `[a, b]` and `[b, a]` draw different
-      ' glyphs, and `[a]` and `[a, a]` must not collide by accident of the fold.
-      h = __canvas_hashStep(h, len(t.fonts))
-      FOR EACH f IN t.fonts
-        h = __canvas_hashStep(h, canvas::fontHandle(f))
-      NEXT
-      h = __canvas_hashText(h, t.text)
-      h = __canvas_hashText(h, t.id)
-      ' plan-162-D: the spacing moves every glyph after the first, so it keys the cache --
-      ' a spacing-only change must rebuild. Folded only when set, so an unspaced `Text`
-      ' keeps the key it always had.
-      IF t.letterSpacing <> 0.0 THEN
-        h = __canvas_hashFloat(h, t.letterSpacing)
-      END IF
-      RETURN __canvas_hashPaint(h, t.paint, t.transform)
+      RETURN __canvas_drawHashOf(item, __canvas_textGeoHash(t))
     CASE Ellipse(e)
       MUT h AS Integer = __canvas_hashStart(8)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, e.position.x), e.position.y), e.radiusX), e.radiusY)

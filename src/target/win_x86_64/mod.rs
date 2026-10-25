@@ -193,6 +193,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.frameNanos",
     "canvas.carriedHashes",
     "canvas.sceneUnchanged",
+    "canvas.itemGeoHash",
     "canvas.sceneNamesGroups",
     "canvas.geoBuild",
     "canvas.geoSame",

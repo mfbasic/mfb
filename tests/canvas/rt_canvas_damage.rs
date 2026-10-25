@@ -249,6 +249,55 @@ fn re_presenting_an_unchanged_scene_renders_nothing() {
     }
 }
 
+/// The same two shapes, except that the second present renames the rectangle.
+const RENAMED: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT os
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET box AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 120.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET named AS canvas::DrawItem = canvas::Rectangle[id := "renamed", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 120.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 400.0], radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::present([box, dot])
+  os::sleep(150)
+  canvas::present([named, dot])
+  os::sleep(150)
+END FUNC
+"#;
+
+/// plan-175-A decision 1: an `id` is in no item identity, so an item renamed and
+/// nothing else damages nothing. The scene IS published -- the frame comes -- and the
+/// damage union is empty, so the frame is skipped: nothing is presented, and the picture
+/// on screen is the first frame's. (`overID` answering the new name is
+/// `rt_canvas_hit.rs:over_id_answers_a_renamed_item`.)
+#[test]
+fn an_id_only_change_damages_nothing() {
+    let (frame, lines) = render("canvas_damage_rename", RENAMED, true);
+    // One stats line a frame the graphics thread ran, drawn or skipped.
+    assert_eq!(
+        lines.len(),
+        2,
+        "the renamed scene was not published, so no second frame came:\n{}",
+        lines.join("\n"),
+    );
+    assert_eq!(
+        (number(&lines, "frames"), number(&lines, "skipped")),
+        (1, 1),
+        "the renamed scene's frame damaged something; an id is in no identity:\n{}",
+        lines.join("\n"),
+    );
+    assert_eq!(
+        number(&lines, "generations"),
+        2,
+        "renaming an item rebuilt geometry:\n{}",
+        lines.join("\n"),
+    );
+    assert_eq!(pixel(&frame, 150, 150), (200, 40, 40, 255), "the rectangle is drawn");
+}
+
 #[test]
 fn a_moved_item_repaints_its_own_rectangle_and_not_the_window() {
     let (_, lines) = render("canvas_damage_rect", MOVED, true);

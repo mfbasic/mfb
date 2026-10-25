@@ -40,6 +40,8 @@ pub(super) fn lower_scene_resolve(
     builder.emit(abi::compare_immediate(&hashes, "0"));
     builder.emit(abi::branch_eq(&no_hashes));
     builder.emit(abi::load_u64(&hcount, &hashes, COLLECTION_OFFSET_COUNT));
+    // plan-175-A: two words an index -- every item's `D`, then every item's `G`.
+    builder.emit(abi::shift_right_immediate(&hcount, &hcount, 1));
     builder.emit(abi::label(&no_hashes));
     let hashes_slot = builder.spill_to_slot("canvas_resolve_hashes", &hashes);
     let hcount_slot = builder.spill_to_slot("canvas_resolve_hcount", &hcount);
@@ -182,7 +184,7 @@ pub(super) fn lower_scene_resolve(
         let item = builder.temporary_vreg();
         builder.emit(abi::load_u64(&item, abi::stack_pointer(), item_slot));
         let key = builder.temporary_vreg();
-        emit_item_hash(builder, &item, &key)?;
+        emit_item_hash(builder, &item, &key, None)?;
         builder.emit(abi::store_u64(&key, abi::stack_pointer(), key_slot));
         // A stale published hash can still name geometry cached under the item's own.
         let build = builder.label("canvas_resolve_build");

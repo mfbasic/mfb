@@ -577,20 +577,35 @@ The classification table and its build-time guard; the native walk and the MFBAS
 walk each produce `(G, A)`; the worker publishes both and carries both; every consumer
 is handed `D = mix(G, A)` and behaves as now. The cache is still keyed by `D`.
 
-- [ ] `func_item_hash.rs`: the field classification, `fold_field` by lane, the three
-      geometry predicates from the builders' own functions, `mix`.
-- [ ] `helper_geometry.rs`: `__canvas_hashItem` and `__canvas_hashPaint` return the
-      pair for `Text`, `Group`, `AutoPaint`; `__canvas_pictureHash` likewise; the
-      `Tile` arm (the native walk hashes it, the arm is the fallback) gives `(G, empty A)`.
-- [ ] `func_carried_hashes.rs`, `func_scene_hashes.rs`, `func_present.rs`,
-      `func_present_layers.rs`, `func_geo_cache.rs:lower_scene_snapshot`: 2N words under
-      the one revision.
-- [ ] Unit tests: every `Paint` field and every item field is classified, including the
-      five of `Tile`; two paints
-      that differ only in an appearance field have one `G`; each geometry predicate
-      (stroke alpha 0 against 1, one stop against two, `FillOnly` against
-      `FillAndStroke`, empty against non-empty `colors`) changes `G`.
-- [ ] The collision argument of §4.5 in the module doc and `.ai/canvas-threading.md` §14.
+- [x] `func_item_hash.rs`: the field classification (`func_item_lanes.rs`), `fold_field`
+      by lane (`fold_item_field`, `fold_paint`), the three geometry predicates (the
+      stroke alpha's zero-ness, the stop count, `strokeApply`, each folded into `G` as
+      its own word — `__canvas_strokeHalf`'s inputs, Correction 4's notes), `D =
+      finish(fold(fold(SEED_DRAW, G), A))`; `canvas::itemGeoHash` answers `G`.
+- [x] `helper_geometry/cache.rs`: `__canvas_hashPaintGeometry` /
+      `__canvas_hashPaintAppearance` (and `__canvas_hashPaint`, both in one lane, for the
+      kinds hashed whole); `__canvas_geoHash` (G), `__canvas_drawHashOf` (D from G),
+      `__canvas_mixHash`; `Text` is `mix(textGeo, appearance)` with no `id`;
+      `__canvas_pictureHash` is `D` and `__canvas_pictureGeoHash` (new hook, both chunks)
+      `G`, neither with the `id`. A `Group` node, an `AutoPaint` and a `ParticleSystem`
+      fold everything in one lane, so their `G` is their `D`. The `Tile` arm is the
+      native walk's (`Tile` has no appearance field: its `A` is the empty lane's seed).
+- [x] `func_carried_hashes.rs` (carries both words), `func_item_hash.rs:
+      lower_scene_hashes` and `helper_render/scene.rs:__canvas_hashScene` /
+      `__canvas_hashLayers` (2n words: every `D`, then every `G`),
+      `func_geo_cache/resolve.rs` (the index count is half the list). `func_present*.rs`
+      and `lower_scene_snapshot` needed no change: they pass the list whole.
+- [x] Unit tests: `builtins/tests/canvas_item_lanes.rs` — every `Paint` field and every
+      field of the eleven kinds, the five of `Tile` included, has its lane, and an
+      unclassified `Paint` field fails (`cargo test --release --bin mfb -- canvas_item`
+      → 10 passed, the 7 guard tests of `canvas_item_hash_guards.rs` among them). The
+      value tests of `G` are Phase 2's (Correction 4). Decision 1's obligation:
+      `rt_canvas_hit.rs:over_id_answers_a_renamed_item` (passes) and
+      `rt_canvas_damage.rs:an_id_only_change_damages_nothing` (passes; at the base the
+      rename rebuilt, `generations=3`, and repainted, `partial=1`).
+- [x] The collision argument of §4.5 in the module doc (`func_item_hash.rs`) and
+      `.ai/canvas-threading.md` §14; the spec's "The item unions" paragraph on the two
+      identities.
 
 Acceptance: frames are byte-identical to the base on Metal, box 2226 and box 206, and
 `generations` is unchanged for every bench row.

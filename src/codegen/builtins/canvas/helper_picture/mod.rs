@@ -59,6 +59,10 @@ FUNC __canvas_pictureHash(pic AS Picture) AS Integer
   RETURN 0
 END FUNC
 
+FUNC __canvas_pictureGeoHash(pic AS Picture) AS Integer
+  RETURN 0
+END FUNC
+
 FUNC __canvas_pictureHitItem(pic AS Picture) AS DrawItem
   RETURN __canvas_noItem()
 END FUNC
@@ -81,11 +85,12 @@ END FUNC"#;
 /// The names the unconditional source calls: each is defined once in [`PICTURE`] and
 /// once in [`ABSENT`], and exactly one of the two chunks is in any canvas program.
 #[cfg(test)]
-const HOOKS: [&str; 9] = [
+const HOOKS: [&str; 10] = [
     "__canvas_pictureAppend",
     "__canvas_pictureBlocks",
     "__canvas_pictureAutoBlocks",
     "__canvas_pictureHash",
+    "__canvas_pictureGeoHash",
     "__canvas_pictureHitItem",
     "__canvas_pictureShapeId",
     "__canvas_pictureNamesFont",

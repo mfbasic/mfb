@@ -625,8 +625,18 @@ END FUNC
 ' and its records are rebuilt as the empty ones they now are. A `setBytes` does NOT
 ' change this key -- the pixel block is checked on every frame instead
 ' (`__canvas_pictureCached`).
+'
+' plan-175-A: this is the picture's damage identity `D`, mixed from its geometry identity
+' (below) and its shape's own `D`, which carries the shape's appearance. Its `id` is in
+' neither (decision 1).
 FUNC __canvas_pictureHash(pic AS Picture) AS Integer
-  MUT h AS Integer = __canvas_hashText(__canvas_hashStart(6), pic.id)
+  RETURN __canvas_mixHash(__canvas_pictureGeoHash(pic), __canvas_hashItem(__canvas_shapeAsItem(pic.shape)))
+END FUNC
+
+' plan-175-A: the geometry identity `G` of such a picture: its clip and fit, its image,
+' and its shape's `G`.
+FUNC __canvas_pictureGeoHash(pic AS Picture) AS Integer
+  MUT h AS Integer = __canvas_hashStart(6)
   MUT mode AS Integer = 0
   IF pic.clip = PictureClip.ClipAndTransform THEN
     mode = 1
@@ -639,7 +649,7 @@ FUNC __canvas_pictureHash(pic AS Picture) AS Integer
   END IF
   h = __canvas_hashStep(h, mode)
   h = __canvas_hashStep(h, canvas::imageHandle(pic.image))
-  RETURN __canvas_hashStep(h, __canvas_hashItem(__canvas_shapeAsItem(pic.shape)))
+  RETURN __canvas_hashStep(h, __canvas_geoHash(__canvas_shapeAsItem(pic.shape)))
 END FUNC
 
 FUNC __canvas_pictureClosed(shape AS DrawItem) AS Boolean

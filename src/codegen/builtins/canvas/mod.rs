@@ -59,6 +59,7 @@ mod func_handle_bridge;
 mod func_installed_items;
 mod func_installed_layers;
 mod func_item_hash;
+pub(crate) mod func_item_lanes;
 pub(crate) mod func_load_font;
 mod func_load_image;
 mod func_measure_text;
