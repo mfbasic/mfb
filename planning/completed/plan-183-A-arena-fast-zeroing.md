@@ -88,7 +88,7 @@ less CPU.
 
 Acceptance: `cargo test --test rt_arena_zeroing --test rt_arena_large_block_reuse` passes on macOS, 2223, 2227 (x86_64 for `rep stosb`; short run) and the Windows box (est. 3 min each, 2227 longer: emulated).
 Measured 2026-10-24 (`MFB_TEST_EXE=target/debug/mfb`): macOS 2+3 passed; box 2226 (`MFB_TEST_REMOTE=linux-aarch64,test@127.0.0.1,2226,glibc`) 2+3 passed; x86_64 musl (`MFB_TEST_REMOTE=linux-x86_64,docker:alpine,,musl`) 2+3 passed; Windows box (`MFB_TEST_REMOTE=windows-x86_64,test@192.168.1.206`) 2+3 passed. Box 2227, once back up (`MFB_TEST_REMOTE=linux-x86_64,test@127.0.0.1,2227,musl`): 2+3 passed. Box 2224 (aarch64 musl, `MFB_TEST_REMOTE=linux-aarch64,test@127.0.0.1,2224,musl`): 2+3 passed. 2223 stayed down — see Corrections.
-Commit: —
+Commit: 260efd0d7 (work), e34d65408 (2227 row), b0f2f2f17 (goldens)
 
 ## Validation
 

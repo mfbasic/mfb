@@ -28,6 +28,7 @@ fn absent_keys_read_as_the_defaults() {
         percent: 50,
         mib: -1,
         check: ArenaMemoryCheck::Halt,
+        max_threads: 10,
     };
     assert_eq!(ArenaMemoryLimits::default(), expected);
     assert_eq!(arena_memory_limits(&HashMap::new()), expected);
@@ -72,7 +73,8 @@ fn valid_values_are_read_as_written_with_no_diagnostic() {
                 disable,
                 percent,
                 mib,
-                check
+                check,
+                max_threads: DEFAULT_MAX_THREADS,
             },
             "{options}"
         );
@@ -152,4 +154,31 @@ fn disable_with_other_keys_warns_for_each_ignored_key() {
         validate("{\"maxArenaMemoryDisable\": false, \"maxArenaMemoryPercent\": 20}"),
         (true, Vec::new())
     );
+}
+
+/// plan-183-B: `options.maxThreads` reads a whole number from 1 to 4096 as written,
+/// defaults to 10 when absent, and rejects anything else with
+/// `PROJECT_JSON_MAX_THREADS_INVALID` (reading as the default). The arena-memory
+/// disable switch does not touch it.
+#[test]
+fn max_threads_reads_validates_and_defaults() {
+    assert_eq!(arena_memory_limits(&manifest("{}")).max_threads, 10);
+    for (options, want) in [
+        ("{\"maxThreads\": 1}", 1),
+        ("{\"maxThreads\": 2}", 2),
+        ("{\"maxThreads\": 4096}", 4096),
+        ("{\"maxThreads\": 64, \"maxArenaMemoryDisable\": true}", 64),
+    ] {
+        assert_eq!(arena_memory_limits(&manifest(options)).max_threads, want, "{options}");
+        assert_eq!(validate(options), (true, Vec::new()), "{options}");
+    }
+    for value in ["0", "4097", "-3", "2.5", "\"10\"", "true", "1e9"] {
+        let options = format!("{{\"maxThreads\": {value}}}");
+        let (valid, raised) = validate(&options);
+        assert!(!valid, "{options}");
+        assert_eq!(raised.len(), 1, "{options}: {raised:?}");
+        assert_eq!(raised[0].0, "PROJECT_JSON_MAX_THREADS_INVALID", "{options}");
+        assert!(raised[0].1.contains("`maxThreads`"), "{options}: {raised:?}");
+        assert_eq!(arena_memory_limits(&manifest(&options)).max_threads, 10, "{options}");
+    }
 }

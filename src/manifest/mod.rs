@@ -17,7 +17,7 @@ mod arena_memory;
 mod fields;
 mod locator_check;
 pub(crate) use arena_memory::{
-    arena_memory_limits, DEFAULT_ARENA_MEMORY_CHECK, DEFAULT_ARENA_MEMORY_MIB,
+    arena_memory_limits, DEFAULT_ARENA_MEMORY_CHECK, DEFAULT_ARENA_MEMORY_MIB, DEFAULT_MAX_THREADS,
     DEFAULT_ARENA_MEMORY_PERCENT,
 };
 pub(crate) use fields::*;

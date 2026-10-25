@@ -136,7 +136,8 @@ pub(crate) fn register(r: &mut Registry) {
         .add_constant(constant("ErrInvalidSurrogate", "77050025", "A `\\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\\u` low surrogate and a lone low surrogate is never valid.", "_mfb_str_error_invalid_surrogate"))
         .add_constant(constant("ErrCanvasGroupLimit", "77050026", "The canvas named-group table is full: `canvas::setGroup` holds at most 256 groups at once. Remove one with `canvas::removeGroup`, or install fewer — installing again under a name you already used replaces it and needs no new slot.", "_mfb_str_error_canvas_group_limit"))
         .add_constant(constant("ErrTooLarge", "77050027", "The result would be larger than the size limit the caller set. Distinct from `ErrOutOfMemory`: the input can be perfectly valid and memory can be available — raise the limit (for example `maxBytes` on `compress::inflate`) when the size is expected, or reject the input.", "_mfb_str_error_too_large"))
-        .add_constant(constant("ErrCanvasParticleLifetime", "77050028", "A `canvas::ParticleSystem` has a `lifetime` of zero or less. A particle's colour and size are worked out from how far it is through its life, and there is no such point in a life with no length — give `emission.lifetime` a value above zero. A system that should draw nothing wants `maxParticles` of zero instead.", "_mfb_str_error_canvas_particle_lifetime"));
+        .add_constant(constant("ErrCanvasParticleLifetime", "77050028", "A `canvas::ParticleSystem` has a `lifetime` of zero or less. A particle's colour and size are worked out from how far it is through its life, and there is no such point in a life with no length — give `emission.lifetime` a value above zero. A system that should draw nothing wants `maxParticles` of zero instead.", "_mfb_str_error_canvas_particle_lifetime"))
+        .add_constant(constant("ErrThreadLimit", "77050029", "`thread::start` was called while `options.maxThreads` threads already hold their place: a thread holds it from its start until it has finished and its `Thread` value has been dropped. Raised before anything is created. Let a thread finish and drop its handle, or raise `options.maxThreads` in project.json (1 to 4096, default 10). Distinct from `ErrOutOfMemory`: memory may be available — the program's thread limit is reached.", "_mfb_str_error_thread_limit"));
 
     r.add_package(pkg);
 }
@@ -313,6 +314,9 @@ mod tests {
         //       field of a record handed to `present` among a whole scene, and a
         //       handler that catches it wants to know WHICH rule of which item, not
         //       that some argument somewhere was wrong.
+        //   +1  ErrThreadLimit (plan-183-B): `thread::start` past `options.maxThreads`.
+        //       Not `ErrOutOfMemory`: the startup reservation holds a fixed number of
+        //       arena slices, and the fix is a finished thread or a larger limit.
         //   +1  ErrStackOverflow (bug-789, owner decision 2026-10-03): unbounded
         //       recursion used to die by SIGSEGV on the stack guard. Not
         //       `ErrOutOfMemory`: the arena may have room, and the fix is to bound
@@ -328,6 +332,7 @@ mod tests {
             "ErrTooLarge",
             "ErrCanvasParticleLifetime",
             "ErrStackOverflow",
+            "ErrThreadLimit",
         ];
         for added in ADDED_SINCE_MIGRATION {
             assert!(names.contains(added), "{added} is not in the table");

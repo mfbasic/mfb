@@ -24,11 +24,16 @@ pub(crate) const DEFAULT_ARENA_MEMORY_CHECK: ArenaMemoryCheck = ArenaMemoryCheck
 /// (`× 1048576`) fits in u64, `2^44 - 1`. Exact in f64, so the comparison against
 /// a JSON number is exact.
 pub(crate) const MAX_ARENA_MEMORY_MIB: u64 = u64::MAX >> 20;
+/// plan-183-B: the default `maxThreads`.
+pub(crate) const DEFAULT_MAX_THREADS: u64 = 10;
+/// plan-183-B: the largest `maxThreads`.
+pub(crate) const MAX_MAX_THREADS: u64 = 4096;
 
 const KEY_DISABLE: &str = "maxArenaMemoryDisable";
 const KEY_PERCENT: &str = "maxArenaMemoryPercent";
 const KEY_MIB: &str = "maxArenaMemoryMiB";
 const KEY_CHECK: &str = "maxArenaMemoryCheck";
+const KEY_MAX_THREADS: &str = "maxThreads";
 
 fn option<'a>(manifest: &'a HashMap<String, JsonValue>, key: &str) -> Option<&'a JsonValue> {
     manifest
@@ -55,6 +60,13 @@ fn valid_mib(value: &JsonValue) -> Option<i64> {
             n.fract() == 0.0 && (**n == -1.0 || (**n >= 1.0 && **n <= MAX_ARENA_MEMORY_MIB as f64))
         })
         .map(|n| *n as i64)
+}
+
+fn valid_max_threads(value: &JsonValue) -> Option<u64> {
+    value
+        .get::<f64>()
+        .filter(|n| n.fract() == 0.0 && (1.0..=MAX_MAX_THREADS as f64).contains(*n))
+        .map(|n| *n as u64)
 }
 
 fn valid_check(value: &JsonValue) -> Option<ArenaMemoryCheck> {
@@ -86,6 +98,9 @@ pub(crate) fn arena_memory_limits(manifest: &HashMap<String, JsonValue>) -> Aren
         check: option(manifest, KEY_CHECK)
             .and_then(valid_check)
             .unwrap_or(defaults.check),
+        max_threads: option(manifest, KEY_MAX_THREADS)
+            .and_then(valid_max_threads)
+            .unwrap_or(defaults.max_threads),
     }
 }
 
@@ -147,6 +162,18 @@ pub(super) fn validate_arena_memory(
             KEY_CHECK,
             "PROJECT_JSON_FIELD_TYPE",
             "Field `maxArenaMemoryCheck` must be `\"warn\"` or `\"halt\"`, for example `\"maxArenaMemoryCheck\": \"halt\"`.",
+        );
+        valid = false;
+    }
+    // plan-183-B: `maxThreads` — not an arena-memory key, so the disable switch
+    // leaves it in force.
+    if option(manifest, KEY_MAX_THREADS).is_some_and(|value| valid_max_threads(value).is_none()) {
+        report(
+            KEY_MAX_THREADS,
+            "PROJECT_JSON_MAX_THREADS_INVALID",
+            &format!(
+                "Field `maxThreads` must be a whole number from 1 to {MAX_MAX_THREADS}, for example `\"maxThreads\": 10`."
+            ),
         );
         valid = false;
     }

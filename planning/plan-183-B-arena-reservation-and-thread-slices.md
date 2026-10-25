@@ -50,9 +50,9 @@ The UI thread has no arena state (`src/docs/spec/app/07_window.md`), and nor doe
 
 ## Phase B1 — Config key and error code
 
-- [ ] `src/manifest/`: `maxThreads` read, validate and diagnose; `01_project-manifest.md` section and code-table row.
-- [ ] `src/codegen/builtins/errorcode/mod.rs`: `ErrThreadLimit`; `mfb man errorCode` prose (`.ai/man-content.md`); error-model spec entry.
-- [ ] Tests: the manifest unit tests for valid, invalid and absent values (existing `src/manifest/` test module).
+- [~] `src/manifest/`: `maxThreads` read, validate and diagnose; `01_project-manifest.md` section and code-table row. Done: `max_threads` on `ArenaMemoryLimits` (it reaches codegen with the arena settings, `cli/build/mod.rs` → NIR), `PROJECT_JSON_MAX_THREADS_INVALID` `2-200-0029` in the rule table and `01_rule-codes.md`. Remains: the `01_project-manifest.md` *Thread limit* section, held until B2 so the spec never describes a limit the runtime does not enforce yet.
+- [~] `src/codegen/builtins/errorcode/mod.rs`: `ErrThreadLimit`; `mfb man errorCode` prose (`.ai/man-content.md`); error-model spec entry. Done: `ErrThreadLimit` `7-705-0029` (`cargo test --bin mfb errorcode` → 7 passed, `table_matches_registry` included); `mfb man errorCode` renders it. Remains: the language threads topic's limit rule (the error model topic lists no codes; the threads topic owns `thread::start`), held with the manifest section until B2.
+- [x] Tests: the manifest unit tests for valid, invalid and absent values (existing `src/manifest/` test module). `max_threads_reads_validates_and_defaults`; `cargo test --bin mfb manifest::` → 257 passed.
 
 Acceptance: `cargo test --bin mfb manifest::` passes (est. 1 min); `mfb man errorCode` renders `ErrThreadLimit`.
 Commit: —

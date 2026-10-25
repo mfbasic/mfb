@@ -278,7 +278,7 @@ their unused message text. [[src/rules/table/mod.rs:rules]] Unless noted, severi
 
 ### `2-200` — `project.json` validation & build orchestration
 
-The low block (`0001`-`0028`) validates `project.json`; the high block (`0100`/`0101`)
+The low block (`0001`-`0029`) validates `project.json`; the high block (`0100`/`0101`)
 reports orchestration failures. Note `2-200-0010` is the registry's only `info`, and
 `2-200-0009` one of exactly ten `warn` rules (with `2-200-0012
 PROJECT_JSON_UNKNOWN_MODE`, `2-200-0028 PROJECT_JSON_ARENA_MEMORY_IGNORED`, `2-201-0017 PRIVATE_SHADOWS_PUBLIC`, `2-203-0104
@@ -331,6 +331,7 @@ itself; it is not a dataflow analysis, and the ambiguous cases warn.
 | `2-200-0026` | `PROJECT_LOCAL_JSON_FIELD` | error | project-local.json may only hold a `config` object |
 | `2-200-0027` | `PROJECT_LOCAL_JSON_TYPE_OVERRIDE` | error | project-local.json overrides a config value with a different type |
 | `2-200-0028` | `PROJECT_JSON_ARENA_MEMORY_IGNORED` | warn | project.json `options.maxArenaMemoryDisable` is true, so another `maxArenaMemory*` key is ignored |
+| `2-200-0029` | `PROJECT_JSON_MAX_THREADS_INVALID` | error | project.json `options.maxThreads` is not a whole number from 1 to 4096 |
 | `2-200-0100` | `BUILD_FAILED` | error | build failed for an unclassified orchestration reason |
 | `2-200-0101` | `FMT_CHECK_FAILED` | error | one or more source files are not formatted (mfb fmt --check) |
 

@@ -181,6 +181,11 @@ pub(crate) struct ArenaMemoryLimits {
     pub(crate) mib: i64,
     /// `maxArenaMemoryCheck`.
     pub(crate) check: ArenaMemoryCheck,
+    /// plan-183-B: `maxThreads`, 1 to 4096 — how many `thread::start` workers may be
+    /// alive at once. It sizes the startup reservation (`1 + graphics + 2 ×
+    /// maxThreads` arena slices), so it rides with the other arena settings. Unlike
+    /// them it holds with `maxArenaMemoryDisable: true`.
+    pub(crate) max_threads: u64,
 }
 
 impl Default for ArenaMemoryLimits {
@@ -190,6 +195,7 @@ impl Default for ArenaMemoryLimits {
             percent: crate::manifest::DEFAULT_ARENA_MEMORY_PERCENT,
             mib: crate::manifest::DEFAULT_ARENA_MEMORY_MIB,
             check: crate::manifest::DEFAULT_ARENA_MEMORY_CHECK,
+            max_threads: crate::manifest::DEFAULT_MAX_THREADS,
         }
     }
 }

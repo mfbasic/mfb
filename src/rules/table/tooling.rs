@@ -110,6 +110,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "project.json `options.maxArenaMemoryDisable` is true, so another `maxArenaMemory*` key is ignored",
     },
     Rule {
+        code: "2-200-0029",
+        name: "PROJECT_JSON_MAX_THREADS_INVALID",
+        severity: Severity::Error,
+        message: "project.json `options.maxThreads` is not a whole number from 1 to 4096",
+    },
+    Rule {
         code: "2-200-0100",
         name: "BUILD_FAILED",
         severity: Severity::Error,
