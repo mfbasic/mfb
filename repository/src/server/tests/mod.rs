@@ -1,6 +1,7 @@
 use super::*;
 
 mod accounts;
+mod blob_faults;
 mod browse_faults;
 mod identity;
 mod log_routes;

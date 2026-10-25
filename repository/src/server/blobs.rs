@@ -75,15 +75,19 @@ pub(super) async fn package_blob(
                     "stored blob hash does not match its path (blob-store corruption)".to_string(),
                 ));
             }
-            axum::response::Response::builder()
-                .status(StatusCode::OK)
-                .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
-                .header(
-                    axum::http::header::CACHE_CONTROL,
-                    "public, max-age=31536000, immutable",
-                )
-                .body(axum::body::Body::from(bytes))
-                .map_err(|err| internal(format!("failed to build blob response: {err}")))
+            // Every header here is a constant, so this cannot fail; the
+            // builder form's "failed to build" error arm was unreachable.
+            Ok((
+                [
+                    (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
+                    (
+                        axum::http::header::CACHE_CONTROL,
+                        "public, max-age=31536000, immutable",
+                    ),
+                ],
+                bytes,
+            )
+                .into_response())
         }
         #[cfg(feature = "s3")]
         BlobFetch::Redirect(url) => axum::response::Response::builder()
