@@ -465,7 +465,13 @@ pub(super) fn lower_geo_refresh(
             builder.emit(abi::load_u64(&bytes, &list, COLLECTION_OFFSET_COUNT));
             builder.emit(abi::shift_left_immediate(&bytes, &bytes, 3));
             builder.emit(abi::add_immediate(&list, &list, COLLECTION_HEADER_SIZE));
-            builder.emit_block_copy_advance(&dst, &list, &bytes, &scratch, "canvas_geo_ref_ins_copy");
+            builder.emit_block_copy_advance(
+                &dst,
+                &list,
+                &bytes,
+                &scratch,
+                "canvas_geo_ref_ins_copy",
+            );
         }
         let n = builder.temporary_vreg();
         let offset = builder.temporary_vreg();

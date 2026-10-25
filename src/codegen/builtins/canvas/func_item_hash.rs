@@ -173,7 +173,9 @@ fn fold_paint(
 ) -> Result<(), String> {
     for (index, (name, ty)) in record_fields(builder, paint_type)?.into_iter().enumerate() {
         match paint_field(&name)? {
-            PaintField::Geometry => fold_field(builder, &lanes.g, paint, paint_type, index, &name, &ty)?,
+            PaintField::Geometry => {
+                fold_field(builder, &lanes.g, paint, paint_type, index, &name, &ty)?
+            }
             PaintField::Appearance => {
                 fold_field(builder, &lanes.a, paint, paint_type, index, &name, &ty)?
             }
@@ -446,7 +448,11 @@ pub(super) fn emit_item_hash(
     builder.emit(abi::load_u64(&tag, item, 0));
     builder.emit(abi::add_immediate(&rec, item, 16));
     builder.emit(abi::move_immediate(&mix, "Integer", &MIX.to_string()));
-    builder.emit(abi::move_immediate(&lanes.g.hash, "Integer", &SEED.to_string()));
+    builder.emit(abi::move_immediate(
+        &lanes.g.hash,
+        "Integer",
+        &SEED.to_string(),
+    ));
     builder.emit(abi::move_immediate(
         &lanes.a.hash,
         "Integer",
@@ -524,7 +530,11 @@ pub(super) fn emit_item_hash(
         hash: builder.temporary_vreg(),
         mix,
     };
-    builder.emit(abi::move_immediate(&d.hash, "Integer", &SEED_DRAW.to_string()));
+    builder.emit(abi::move_immediate(
+        &d.hash,
+        "Integer",
+        &SEED_DRAW.to_string(),
+    ));
     fold(builder, &d, &g);
     fold(builder, &d, &a);
     finish(builder, &d.hash, out);

@@ -359,7 +359,11 @@ pub(crate) fn lower_scene_names_groups(
     let done = builder.label("canvas_names_groups_done");
     builder.emit(abi::move_register(&items, &incoming));
     builder.emit(abi::load_u64(&n, &items, COLLECTION_OFFSET_COUNT));
-    builder.emit(abi::move_immediate(&stride_v, "Integer", &stride.to_string()));
+    builder.emit(abi::move_immediate(
+        &stride_v,
+        "Integer",
+        &stride.to_string(),
+    ));
     // A variable-width list's data region starts past `capacity` entries, not `count`:
     // the caller's list may carry headroom (`.ai/collections.md`).
     builder.emit(abi::add_immediate(&entries, &items, COLLECTION_HEADER_SIZE));

@@ -300,7 +300,11 @@ fn a_paint_only_change_builds_nothing_and_refreshes_every_record() {
     assert_eq!(lines.len(), 3, "one frame per present: {lines:?}");
     let built = field(&lines[0], "generations");
     let entries = field(&lines[0], "entries");
-    assert!(built > 400, "the first frame builds every record.\n{}", lines[0]);
+    assert!(
+        built > 400,
+        "the first frame builds every record.\n{}",
+        lines[0]
+    );
     for pair in lines.windows(2) {
         assert_eq!(
             field(&pair[1], "generations"),

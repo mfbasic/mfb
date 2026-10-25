@@ -185,7 +185,15 @@ pub(super) fn lower_scene_resolve(
         let other = builder.label("canvas_resolve_other_paint");
         builder.emit(abi::compare_registers(&held, &d));
         builder.emit(abi::branch_ne(&other));
-        emit_hit(builder, &g, &slot, top_off, gi_slot, resolved_slot, &item_next)?;
+        emit_hit(
+            builder,
+            &g,
+            &slot,
+            top_off,
+            gi_slot,
+            resolved_slot,
+            &item_next,
+        )?;
         builder.emit(abi::label(&other));
         // 4. Another paint, and an entry of THIS frame already uses the record (equal
         // items share one): this item is resolved under its `D` instead -- found, or
@@ -207,7 +215,15 @@ pub(super) fn lower_scene_resolve(
         emit_find(builder, &g, &d, &shared);
         builder.emit(abi::compare_immediate(&shared, "0"));
         builder.emit(abi::branch_lt(&miss));
-        emit_hit(builder, &g, &shared, top_off, gi_slot, resolved_slot, &item_next)?;
+        emit_hit(
+            builder,
+            &g,
+            &shared,
+            top_off,
+            gi_slot,
+            resolved_slot,
+            &item_next,
+        )?;
         // 3. Another paint, and nothing this frame uses the record: REFRESH it -- its
         // appearance slots rewritten in place from the item (`emit_refresh_record`), the
         // slot marked as holding the new `D`. No allocation, no insert, no generation.

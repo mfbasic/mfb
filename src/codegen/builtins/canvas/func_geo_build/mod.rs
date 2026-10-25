@@ -583,7 +583,6 @@ pub(super) fn emit_fill_record(
     Ok(())
 }
 
-
 /// plan-175-A Phase 2: rewrite the APPEARANCE slots of the record at `out` for the
 /// `DrawItem` at `item`, whose record it is up to its paint — found by the item's
 /// geometry identity, so every slot the geometry decides already holds what a fresh
