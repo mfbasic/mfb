@@ -40,6 +40,30 @@ END FUNC
 
 #[test]
 fn a_thousand_ten_megabyte_workers_stay_under_a_hundred_megabytes() {
+    // plan-183: on `MFB_TEST_REMOTE`'s box, the peak RSS is the `--debug` report's
+    // `process.peak_rss_bytes` — the same `ru_maxrss` reading — since this host cannot
+    // measure a remote process.
+    if common::remote::remote().is_some() {
+        let name = "worker_arena_release_remote";
+        let exe = common::debug_report::build_debug(name, PROGRAM);
+        let output = common::remote::output(&exe, &[], &[]);
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert_eq!(stdout, "1000\n", "every worker ran");
+        let rss: u64 = stderr
+            .lines()
+            .rev()
+            .find_map(|line| line.strip_prefix("process.peak_rss_bytes "))
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| panic!("no process.peak_rss_bytes in:\n{stderr}"));
+        assert!(
+            rss < 100 * 1024 * 1024,
+            "peak RSS was {} MB: finished workers' arenas are not being returned to the OS",
+            rss / (1024 * 1024)
+        );
+        return;
+    }
     let project = common::temp_project("worker_arena_release", PROGRAM);
     let exe = common::build_project(&project);
     let (status, stdout, rss) = common::run_bounded_with_rss(

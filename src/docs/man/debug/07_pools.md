@@ -7,7 +7,7 @@ The memory pools each thread keeps its values in, and how to look inside one
 ```
 list arena                                   l arena
 show arena [<id>]
-show arena <id> <block> [<offset>] [<size>]
+show arena <id> <region> [<offset>] [<size>]
 ```
 
 Each thread that runs MFBASIC code keeps the values it makes — strings, lists,
@@ -18,42 +18,49 @@ built with `--debug`, and list nothing until it has started running.
 ### Listing the pools
 
 `list arena` prints one pool per line, under the header
-`ID | Thread | Address | Size (KB)`. `ID` is the number `show arena` takes. `Thread`
-is the thread that uses the pool (the `ID` from `list thread`), or `-` for a
-pool that only carries values from one thread to another. `Size (KB)` is how
-much memory the pool holds.
+`ID | Thread | Address | Committed (KB)`. `ID` is the number `show arena` takes.
+`Thread` is the thread that uses the pool (the `ID` from `list thread`), or `-`
+for a pool that only carries values from one thread to another. `Committed (KB)`
+is how much memory the pool holds from the operating system. A pool takes memory
+a few megabytes at a time, so even a small program's pool holds several.
 
 ### Looking inside one
 
 `show arena` shows the main thread's pool (`show arena 3` shows pool 3): every
-number MFBASIC keeps about the pool, in hex, and then each block of memory the
-pool holds, oldest first. A pool starts with one block and adds bigger ones as
-your program makes more values:
+number MFBASIC keeps about the pool, in hex, then its three regions and the free
+space it is keeping for reuse. Values of 2048 bytes or less live in region 0,
+`small`; larger ones in region 1, `medium`; values of 32 MiB or more in region 2,
+`huge`:
 
 ```
-Arena Block (0):
-  prevBlock         0x0000000000000000
-  blockSize         0x0000000000001000
-  usableCapacity    0x0000000000000fe0
-  bumpOffset        0x0000000000000000
-Arena Block (1):
-  prevBlock         0x0000000100a04000
-  blockSize         0x0000000000002000
-  usableCapacity    0x0000000000001fe0
-  bumpOffset        0x0000000000000000
+Arena Region (0 small):
+  start             0x0000007001680000
+  handedOut         0x00000000000a0000
+  committed         0x0000000000180000
+Arena Region (1 medium):
+  start             0x00000070b1800000
+  handedOut         0x0000000000003ee0
+  committed         0x0000000000400000
+Arena Region (2 huge):
+  start             0x0000007500000000
+  handedOut         0x0000000000000000
+  committed         0x0000000000000000
+Free Runs: 1
+  medium[1]         0x00000070b1803310 0x0000000000000bd0
 ```
 
-`blockSize` is the block's size in bytes, and `usableCapacity` how much of it
-holds values. `show arena <id> <block>` prints the block's first 1 KB as raw
-bytes, 16 to a line, with the printable ones spelled out at the end of the line;
-add an offset and a size (decimal, or hex starting `0x`) to see another part.
+`handedOut` is how much of the region the pool has used so far, and `committed`
+how much of it holds memory from the operating system. Each free run is space a
+value gave back, listed with its address and size, ready for the next value that
+fits. `show arena <id> <region>` prints the region's first 1 KB as raw bytes, 16
+to a line, with the printable ones spelled out at the end of the line; add an
+offset and a size (decimal, or hex starting `0x`) to see another part.
 
-The pool fills a new block, and the space a value no longer needs, with random
-bytes. Bytes that look like noise are space no value is using; a value stands
-out as words of zeros and small numbers, or as text. A pool's bytes do not say
-which value they belong to or what type it is: to read a value, find where it
-is — in a register, or in the list of a collection's elements — and use
-`show type` (`mfb man debug values`).
+Space no value is using reads zero: the pool overwrites a value's bytes with zeros
+when the value is done with them, and new memory from the operating system starts
+out zero. A pool's bytes do not say which value they belong to or what type it is:
+to read a value, find where it is — in a register, or in the list of a
+collection's elements — and use `show type` (`mfb man debug values`).
 
 ### Watching memory being asked for
 
@@ -71,39 +78,40 @@ not 160.
 
 ## Examples
 
-Stop in `summarize`, list the pools, and dump part of the main thread's
-first block:
+Stop in `summarize`, list the pools, and dump the part of the main thread's
+small region that holds `counts`:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp summarize\nrun\nlist arena\nshow arena 0 0 0x340 48\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
+printf 'bp summarize\nrun\nlist arena\nshow arena 0 0 0x60020 48\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
-Launched examples/debug/build/debug.out as process 99522; paused before its first instruction.
+Launched examples/debug/build/debug.out as process 73670; paused before its first instruction.
 DBG> bp summarize
-Set a breakpoint at 0x0000000100205ee0 in summarize.
+Set a breakpoint at 0x0000000102c69e5c in summarize.
 DBG> run
 round 1: 37 primes
 round 2: 31 primes
---[BP] T: 0 P: 0x0000000100205ee0 F: (summarize) _mfb_fn_summarize
+--[BP] T: 0 P: 0x0000000102c69e5c F: (summarize) _mfb_fn_summarize
 DBG> list arena
-ID | Thread | Address            | Size (KB)
-0  | 0      | 0x000000016fbf9f50 | 12
-DBG> show arena 0 0 0x340 48
-Arena Block (0,0):
-0x0000_0340 1f 00 00 00 00 00 00 00 2d 96 57 99 20 ed f3 fb | . . . . . . . . - . W .   . . .
-0x0000_0350 e1 9a 2f 8a e1 d5 47 3e 6d 06 81 dc 34 5d 62 90 | . . / . . . G > m . . . 4 ] b .
-0x0000_0360 02 00 04 01 00 00 00 00 02 00 00 00 00 00 00 00 | . . . . . . . . . . . . . . . .
+ID | Thread | Address            | Committed (KB)
+0  | 0      | 0x000000016d195ed0 | 5824
+DBG> show arena 0 0 0x60020 48
+Arena Region (0,0 small):
+0x0006_0020 20 00 00 00 00 00 00 00 25 00 00 00 00 00 00 00 |   . . . . . . . % . . . . . . .
+0x0006_0030 1f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | . . . . . . . . . . . . . . . .
+0x0006_0040 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | . . . . . . . . . . . . . . . .
 DBG> q
-Killed process 99522.
+Killed process 73670.
 ```
 
-The first word is 31: the second element of `counts`, the `List OF Integer`
-`summarize` receives in `x0` (`show type list x0 0..` lists it at this
-address). The noise after it is room `counts` keeps for elements it does not
-have yet, and the line at `0x0360` is where the next value, `averages`,
-begins. With the example's rounds on threads of their own (`3000 20000 1`),
+`counts`, the `List OF Integer` `summarize` receives in `x0`, starts at offset
+`0x60000` of the small region (`list reg x0` shows its address, and `show type
+list x0 0..` lists it). The line at `0x6_0020` ends its header, then come its two
+elements, 37 and 31; the zeros after them are room `counts` keeps for elements it
+does not have yet. Where the dump lands on a different run depends on the program
+and its input. With the example's rounds on threads of their own (`3000 20000 1`),
 each worker thread has a pool too.
 
 ## See also

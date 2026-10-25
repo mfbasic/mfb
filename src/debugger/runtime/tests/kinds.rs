@@ -14,7 +14,10 @@ fn registry(memory: &mut Memory, slots: &[(u64, u64)]) {
         let slot = region + REGION_HEADER_SIZE as u64 + id as u64 * SLOT_SIZE as u64;
         memory.put(slot, *state);
         memory.put(slot + SLOT_KIND_OFFSET as u64, *kind);
-        memory.put(state + STATE_BLOCK_HEAD, 0);
+        memory.put(
+            state + (ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_COMMITTED) as u64,
+            0,
+        );
     }
 }
 
@@ -89,8 +92,7 @@ fn when_two_threads_look_like_main_the_others_keep_their_roles() {
     with_worker(&mut memory);
     let state = |memory: &mut Memory, at: u64| {
         memory.put(at + ARENA_WORKER_THREAD_OFFSET as u64, 0);
-        memory.put(at + STATE_BLOCK_HEAD, 0x90_0000);
-        memory.put(0x90_0000 + BLOCK_SIZE, ARENA_DEFAULT_BLOCK_SIZE);
+        memory.put(at + ARENA_SLICE_BASE_OFFSET as u64, 0x40_0000_0000);
     };
     state(&mut memory, 0x30_8000);
     state(&mut memory, 0x50_8000);

@@ -10,7 +10,7 @@ use crate::codegen::engine::types::CodeInstruction;
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::linux_common::code::{
-    self as common, emit_asm_generic_arena_map, emit_asm_generic_arena_unmap, AppSupport, LinuxArch,
+    self as common, emit_asm_generic_arena_map, AppSupport, LinuxArch,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
@@ -85,7 +85,7 @@ impl LinuxArch for Aarch64 {
         emit_asm_generic_arena_map(size_reg, instructions)
     }
 
-    fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
-        emit_asm_generic_arena_unmap(instructions)
+    fn arena_vm_syscalls(&self) -> (&'static str, &'static str, &'static str) {
+        crate::target::linux_common::code::ASM_GENERIC_ARENA_VM_SYSCALLS
     }
 }

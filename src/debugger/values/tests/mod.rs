@@ -2,10 +2,10 @@ use super::*;
 
 mod payloads;
 
-/// Where the fake arena block's usable space starts.
+/// Where the fake arena region's usable space starts.
 const BASE: u64 = 0x1_0000;
 
-/// Fake memory: `bytes` at `BASE`, all of it one arena block's usable
+/// Fake memory: `bytes` at `BASE`, all of it one arena region's usable
 /// space, with a block header's worth of readable bytes before it.
 struct Fake {
     bytes: Vec<u8>,
@@ -17,7 +17,7 @@ impl Fake {
     }
 
     fn region(&self) -> Region {
-        Region::of_block(0, 0, BASE - 32, 32 + self.bytes.len() as u64)
+        Region::of_area(0, 0, BASE, self.bytes.len() as u64)
     }
 
     fn show(&self, address: u64, view: &View) -> Result<Vec<String>, String> {
@@ -165,7 +165,7 @@ fn memory_outside_the_arena_or_past_a_block_is_refused() {
     assert_eq!(
         fake.show(0x10, &View::Scalar(Scalar::Integer)),
         Err(
-            "0x0000000000000010 is not in an arena block, so it holds no Integer; \
+            "0x0000000000000010 is not in an arena region, so it holds no Integer; \
                  'show mem' reads any memory"
                 .to_string()
         )
@@ -174,7 +174,7 @@ fn memory_outside_the_arena_or_past_a_block_is_refused() {
         fake.show(BASE + 4, &View::Scalar(Scalar::Integer)),
         Err(format!(
             "not an Integer at 0x{:016x}: its 8 bytes run past the end of their arena \
-                 block",
+                 region",
             BASE + 4
         ))
     );
@@ -201,7 +201,7 @@ fn a_string_is_its_length_and_its_text_escaped() {
         fake.show(BASE, &View::String),
         Err(format!(
             "not a String at 0x{BASE:016x}: its length, 200, runs past the end of its \
-                 arena block"
+                 arena region"
         ))
     );
 }
@@ -331,7 +331,7 @@ fn a_header_that_cannot_be_the_collection_asked_for_is_refused() {
         Fake::new(bytes).show(BASE, &list),
         Err(format!(
             "not a List at 0x{BASE:016x}: its 4136 bytes run past the end of its arena \
-                 block"
+                 region"
         ))
     );
 }

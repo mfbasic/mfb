@@ -169,7 +169,11 @@ fn max_threads_reads_validates_and_defaults() {
         ("{\"maxThreads\": 4096}", 4096),
         ("{\"maxThreads\": 64, \"maxArenaMemoryDisable\": true}", 64),
     ] {
-        assert_eq!(arena_memory_limits(&manifest(options)).max_threads, want, "{options}");
+        assert_eq!(
+            arena_memory_limits(&manifest(options)).max_threads,
+            want,
+            "{options}"
+        );
         assert_eq!(validate(options), (true, Vec::new()), "{options}");
     }
     for value in ["0", "4097", "-3", "2.5", "\"10\"", "true", "1e9"] {
@@ -178,7 +182,14 @@ fn max_threads_reads_validates_and_defaults() {
         assert!(!valid, "{options}");
         assert_eq!(raised.len(), 1, "{options}: {raised:?}");
         assert_eq!(raised[0].0, "PROJECT_JSON_MAX_THREADS_INVALID", "{options}");
-        assert!(raised[0].1.contains("`maxThreads`"), "{options}: {raised:?}");
-        assert_eq!(arena_memory_limits(&manifest(&options)).max_threads, 10, "{options}");
+        assert!(
+            raised[0].1.contains("`maxThreads`"),
+            "{options}: {raised:?}"
+        );
+        assert_eq!(
+            arena_memory_limits(&manifest(&options)).max_threads,
+            10,
+            "{options}"
+        );
     }
 }

@@ -90,10 +90,11 @@ pub(super) enum Backtrace {
     All,
 }
 
-/// Which bytes of an arena block `show arena` dumps.
+/// Which bytes of an arena region `show arena` dumps (plan-183-C: `0` small, `1`
+/// medium, `2` huge).
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Dump {
-    pub(super) block: usize,
+    pub(super) area: usize,
     pub(super) offset: u64,
     pub(super) size: u64,
 }
@@ -215,7 +216,7 @@ pub(super) const MAX_MEMORY: u64 = 64 << 10;
 /// The arena a bare `show arena` shows: the main arena's registry slot.
 const MAIN_ARENA: usize = 0;
 
-/// How much of a block a dump shows when no size is given.
+/// How much of a region a dump shows when no size is given.
 const DUMP_SIZE: u64 = 1024;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -525,12 +526,12 @@ pub(super) fn parse(line: &str, arch: &Arch) -> Result<Command, String> {
             id: arena_id(id)?,
             dump: None,
         }),
-        ("show", ["arena", id, block, rest @ ..]) if rest.len() <= 2 => Ok(Command::ShowArena {
+        ("show", ["arena", id, area, rest @ ..]) if rest.len() <= 2 => Ok(Command::ShowArena {
             id: arena_id(id)?,
             dump: Some(Dump {
-                block: block
-                    .parse::<usize>()
-                    .map_err(|_| format!("'{block}' is not a block number"))?,
+                area: area.parse::<usize>().map_err(|_| {
+                    format!("'{area}' is not a region number (0 small, 1 medium, 2 huge)")
+                })?,
                 offset: rest.first().map_or(Ok(0), |word| number(word))?,
                 size: rest.get(1).map_or(Ok(DUMP_SIZE), |word| number(word))?,
             }),

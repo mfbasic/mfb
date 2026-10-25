@@ -106,8 +106,8 @@ The mutex and the eight condition variables are initialized (`pthread_*_init`) b
 ## The block arena
 
 The block arena is an ordinary arena state (`ARENA_STATE_SIZE` bytes, a heap block,
-zeroed) whose chunks `_mfb_arena_alloc` maps on demand and `_mfb_arena_destroy`
-unmaps. Every value that crosses between the two threads is deep-copied into it —
+zeroed) on one of the thread's two arena slices, whose blocks `_mfb_arena_alloc`
+commits on demand and `_mfb_arena_destroy` decommits. Every value that crosses between the two threads is deep-copied into it —
 the seed at start, each message at its enqueue, the worker's result at its exit — so
 nothing either thread reads lives in the other thread's arena.
 [[src/codegen/runtime/thread/control_block.rs:lower_thread_block_arena_create]]
@@ -141,7 +141,7 @@ The block carries two references (`refs`, 2 at start): the handle side's and the
 worker's. Each is given up exactly once, under the block lock:
 
 - **The worker's**, by `_mfb_rt_thread_finish` at the end of its run, after it has
-  stored its result and unmapped its own arena, in the same critical section that
+  stored its result and decommitted its own arena, in the same critical section that
   publishes `COMPLETED`.
 - **The handle side's**, by the parent view's `thread.drop`. There is one parent
   view per thread and one drop of it — the resource rules give the record a single
@@ -155,13 +155,17 @@ Whichever side takes the count to zero frees the block
 through the queue's recorded drop function (so a resource transferred but never
 accepted is closed); the block arena (the seed, the result and everything else in
 it return to the OS); the worker's arena-state block (retired from the `--debug`
-registry first); and the block.
+registry first); the thread's two arena slices (`slices`, +176, packed `(worker + 1)
+| (block + 1) << 32`), whose bits it clears under the thread-table lock; and the
+block. A thread therefore holds its place against `options.maxThreads` from
+`thread::start` until it has finished and its parent view has been dropped.
+[[src/codegen/runtime/thread/slices.rs:lower_thread_slices_release]]
 [[src/codegen/runtime/thread/control_block.rs:lower_thread_block_release]]
 
 A handle-side release that reaches zero first joins a worker it has not joined or
 detached — the worker has already given up its reference, so it has nothing left
 to do but unlock and return: its arena-state block is no longer in use, because the
-worker unmaps its arena (`_mfb_arena_destroy`, which runs on that block) BEFORE it
+worker decommits its arena (`_mfb_arena_destroy`, which runs on that block) BEFORE it
 releases. That ordering is what makes the detach path safe: a drop that detached a
 `RUNNING` worker and then released last frees the block without waiting for the
 worker, so the worker must not touch the block, or its arena state, after its own
@@ -172,7 +176,7 @@ and skips both when the handle is already zero. A worker whose handle
 side let go while it was running is detached, so it frees the block itself when it
 finishes. [[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:simple_thread_handle_helper]]
 
-The worker's arena chunks are unmapped by the worker at the end of its run (see
+The worker's arena slice is decommitted by the worker at the end of its run (see
 `queue-semantics`); its arena-state block goes with the control block.
 
 ## The thread table

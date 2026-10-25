@@ -28,7 +28,7 @@ concurrently.
 
 ## Arena materialization
 
-No thread allocates in another thread's arena — an arena's free-list pop is
+No thread allocates in another thread's arena — an arena's allocator is
 unsynchronized. Every value that crosses is deep-copied into the thread's **block
 arena** (`./mfb spec threading control-block`), which belongs to neither thread and
 serializes allocations and drops under the block lock. Reads of retained

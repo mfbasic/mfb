@@ -17,7 +17,7 @@ use super::disassemble::{self, Request, Window};
 use super::environment::{self, Environment};
 use super::location::{self, Condition, Location};
 use super::names::{classify, stop_name, Collisions, Origin};
-use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
+use super::runtime::{self, Area, Arena, FreeRun, Role, ARENA_STATE_FIELDS};
 use super::values::{self, Region, View};
 use super::{
     Ending, Exit, FunctionSymbol, Inferior, Program, Register, RegisterGroup, RegisterValue,
@@ -48,8 +48,9 @@ Commands:
   stored 8 past where {arg0}'s own value points
   show            Show memory: show mem <where> [<size>]
                   The error a thread has raised and not yet caught: show error [<thread>]
-                  An arena's state and blocks: show arena [<id>]
-                  Dump a block: show arena <id> <block> [<offset>] [<size>]
+                  An arena's state, regions and free runs: show arena [<id>]
+                  Dump a region (0 small, 1 medium, 2 huge):
+                    show arena <id> <region> [<offset>] [<size>]
                   An arena value as a type: show type <type> <where> (as show mem)
                   ('show type' alone for the types and their forms)
                   The performance and memory report a --debug build writes as

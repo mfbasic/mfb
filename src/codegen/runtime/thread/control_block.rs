@@ -76,6 +76,9 @@ pub(crate) const CONTROL_OFFSET_DATA: usize = 160;
 /// The worker's arena-state block (a heap block: arena state, seed scratch word and
 /// the writable globals region, [`worker_arena_state_size`]).
 pub(crate) const CONTROL_OFFSET_WORKER_ARENA: usize = 168;
+/// plan-183-B: the thread's two arena slices, packed `(worker + 1) | (block + 1) << 32`
+/// (0: none). The final release hands them back (`_mfb_rt_thread_slices_release`).
+pub(crate) const CONTROL_OFFSET_SLICES: usize = 176;
 /// The four queues, embedded ([`THREAD_QUEUE_SIZE`] bytes each). Each is a ring of
 /// `{value, …}` entries in the block arena plus its two condvars; all four share the
 /// block lock.
@@ -192,7 +195,7 @@ fn thread_call(
     )
 }
 
-fn table_lock(
+pub(crate) fn table_lock(
     symbol: &str,
     call: &str,
     platform_imports: &HashMap<String, String>,
@@ -901,10 +904,24 @@ pub(crate) fn lower_thread_block_release(
         &mut instructions,
         &mut relocations,
     )?;
+    // plan-183-B: hand the thread's two slices back. The block arena was destroyed
+    // above and the worker's arena when the worker finished, so both are decommitted;
+    // a worker that never ran committed nothing.
+    let no_slices = format!("{symbol}_no_slices");
     instructions.extend([
         abi::label(&no_worker_arena),
+        abi::load_u64(&r.v8, abi::stack_pointer(), BLOCK),
+        abi::load_u64(abi::c_arg(0), &r.v8, CONTROL_OFFSET_SLICES),
+        abi::compare_immediate(abi::c_arg(0), "0"),
+        abi::branch_eq(&no_slices),
+        abi::branch_link(crate::codegen::runtime::thread::THREAD_SLICES_RELEASE_SYMBOL),
+        abi::label(&no_slices),
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), BLOCK),
     ]);
+    relocations.push(internal_branch(
+        symbol,
+        crate::codegen::runtime::thread::THREAD_SLICES_RELEASE_SYMBOL,
+    ));
     platform.emit_heap_free(
         symbol,
         platform_imports,

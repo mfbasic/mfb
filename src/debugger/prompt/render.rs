@@ -162,11 +162,11 @@ pub(crate) fn thread_lines(
     )
 }
 
-/// The `list arena` lines: `<id> <thread id> <address> <size in KB>`, the size
+/// The `list arena` lines: `<id> <thread id> <address> <committed KB>`, the size
 /// rounded up to whole kilobytes and `-` for an arena no thread allocates from.
 pub(crate) fn arena_lines(arenas: &[Arena]) -> Vec<String> {
     table(
-        &["ID", "Thread", "Address", "Size (KB)"],
+        &["ID", "Thread", "Address", "Committed (KB)"],
         arenas
             .iter()
             .map(|arena| {
@@ -176,7 +176,7 @@ pub(crate) fn arena_lines(arenas: &[Arena]) -> Vec<String> {
                         .thread
                         .map_or_else(|| "-".to_string(), |id| id.to_string()),
                     format!("0x{:016x}", arena.address),
-                    arena.mapped.div_ceil(1024).to_string(),
+                    arena.committed.div_ceil(1024).to_string(),
                 ]
             })
             .collect(),
@@ -232,18 +232,28 @@ pub(crate) fn state_lines(state: &[u8]) -> Vec<String> {
     lines
 }
 
-/// The `Arena Block (#):` sections, oldest block first.
-pub(crate) fn block_lines(blocks: &[Block]) -> Vec<String> {
+/// plan-183-C: the `Arena Region (#):` sections — each region's start, its
+/// handed-out bytes (up to its frontier) and its committed bytes — then the
+/// `Free Runs:` list, list by list.
+pub(crate) fn area_lines(areas: &[Area], runs: &[FreeRun]) -> Vec<String> {
     let mut lines = Vec::new();
-    for (number, block) in blocks.iter().enumerate() {
-        lines.push(format!("Arena Block ({number}):"));
+    for (number, area) in areas.iter().enumerate() {
+        lines.push(format!("Arena Region ({number} {}):", area.name));
         for (name, value) in [
-            ("prevBlock", block.prev),
-            ("blockSize", block.size),
-            ("usableCapacity", block.usable),
-            ("bumpOffset", block.bump),
+            ("start", area.address),
+            ("handedOut", area.size),
+            ("committed", area.committed),
         ] {
             lines.push(format!("  {name:<FIELD_WIDTH$} 0x{value:016x}"));
+        }
+    }
+    if !areas.is_empty() {
+        lines.push(format!("Free Runs: {}", runs.len()));
+        for run in runs {
+            lines.push(format!(
+                "  {:<FIELD_WIDTH$} 0x{:016x} 0x{:016x}",
+                run.list, run.address, run.size
+            ));
         }
     }
     lines

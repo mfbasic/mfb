@@ -261,11 +261,11 @@ fn list_arena_without_a_registry_asks_for_a_debug_build() {
 
 #[test]
 fn arena_lines_round_up_to_kilobytes_and_mark_unowned_arenas() {
-    let arena = |id, thread, address, mapped| Arena {
+    let arena = |id, thread, address, committed| Arena {
         id,
         thread,
         address,
-        mapped,
+        committed,
     };
     assert_eq!(
         arena_lines(&[
@@ -274,7 +274,7 @@ fn arena_lines_round_up_to_kilobytes_and_mark_unowned_arenas() {
             arena(13, None, 0x2_0000, 0),
         ]),
         [
-            "ID | Thread | Address            | Size (KB)",
+            "ID | Thread | Address            | Committed (KB)",
             "0  | 0      | 0x0000000016f00000 | 4",
             "12 | 3      | 0x0000000000010000 | 5",
             "13 | -      | 0x0000000000020000 | 0",
@@ -468,8 +468,8 @@ prog`datetime::#normInstant:
 #[test]
 fn the_arena_state_lists_every_field_and_each_non_empty_entry() {
     let mut state = vec![0u8; crate::codegen::error::constants::error_constants::ARENA_STATE_SIZE];
-    state[0..8].copy_from_slice(&0x1_0000_4000u64.to_le_bytes());
-    // quickBin[2], at 104 + 16.
+    state[16..24].copy_from_slice(&0x1_0000_4000u64.to_le_bytes());
+    // smallHead[2], at 104 + 16.
     state[120..128].copy_from_slice(&0xabcdu64.to_le_bytes());
     // v128Slots[1], a 16-byte entry.
     let v128 = ARENA_STATE_FIELDS
@@ -481,43 +481,70 @@ fn the_arena_state_lists_every_field_and_each_non_empty_entry() {
     state[v128] = 7;
     let lines = state_lines(&state);
     assert_eq!(lines[0], "Arena State:");
-    assert_eq!(lines[1], "  blockHead         0x0000000100004000");
-    assert!(lines.contains(&"  quickBin[128]     1 non-empty".to_string()));
+    assert_eq!(lines[1], "  reserved0         0x0000000000000000");
+    assert_eq!(lines[3], "  sliceBase         0x0000000100004000");
+    assert!(lines.contains(&"  smallHead[128]    1 non-empty".to_string()));
     assert!(lines.contains(&"    [2]             0x000000000000abcd".to_string()));
-    assert!(lines.contains(&"  largeBin[64]      0 non-empty".to_string()));
+    assert!(lines.contains(&"  mediumHead[64]    0 non-empty".to_string()));
     assert!(lines.contains(&"  v128Slots[126]    1 non-empty".to_string()));
     assert!(lines.contains(&"    [1]             0x00000000000000000000000000000007".to_string()));
     assert_eq!(
         lines.last().unwrap(),
-        "  largeFlushCredit  0x0000000000000000"
+        "  committed         0x0000000000000000"
     );
     // One line per word field, plus the three array headers and two entries.
     assert_eq!(lines.len(), 1 + ARENA_STATE_FIELDS.len() + 2);
 }
 
 #[test]
-fn blocks_print_their_headers_numbered_from_the_oldest() {
-    let block = |address, prev, size| Block {
-        address,
-        prev,
-        size,
-        usable: size - 32,
-        bump: 0,
-    };
+fn regions_print_their_frontiers_then_the_free_runs() {
+    let areas = [
+        Area {
+            name: "small",
+            address: 0x4001_0000,
+            size: 0x3_0000,
+            committed: 0x3f_0000,
+        },
+        Area {
+            name: "medium",
+            address: 0x5000_0000,
+            size: 0x8000,
+            committed: 0x40_0000,
+        },
+        Area {
+            name: "huge",
+            address: 0x8e00_0000,
+            size: 0,
+            committed: 0,
+        },
+    ];
+    let runs = [FreeRun {
+        list: "medium[3]".to_string(),
+        address: 0x5000_1000,
+        size: 0x1000,
+    }];
     assert_eq!(
-        block_lines(&[block(0x2000, 0, 0x1000), block(0x3000, 0x2000, 0x2000)]),
+        area_lines(&areas, &runs),
         [
-            "Arena Block (0):",
-            "  prevBlock         0x0000000000000000",
-            "  blockSize         0x0000000000001000",
-            "  usableCapacity    0x0000000000000fe0",
-            "  bumpOffset        0x0000000000000000",
-            "Arena Block (1):",
-            "  prevBlock         0x0000000000002000",
-            "  blockSize         0x0000000000002000",
-            "  usableCapacity    0x0000000000001fe0",
-            "  bumpOffset        0x0000000000000000",
+            "Arena Region (0 small):",
+            "  start             0x0000000040010000",
+            "  handedOut         0x0000000000030000",
+            "  committed         0x00000000003f0000",
+            "Arena Region (1 medium):",
+            "  start             0x0000000050000000",
+            "  handedOut         0x0000000000008000",
+            "  committed         0x0000000000400000",
+            "Arena Region (2 huge):",
+            "  start             0x000000008e000000",
+            "  handedOut         0x0000000000000000",
+            "  committed         0x0000000000000000",
+            "Free Runs: 1",
+            "  medium[3]         0x0000000050001000 0x0000000000001000",
         ]
+    );
+    assert!(
+        area_lines(&[], &[]).is_empty(),
+        "an arena not laid out has no regions"
     );
 }
 
@@ -548,7 +575,7 @@ fn show_arena_parses_its_forms() {
         Ok(Command::ShowArena {
             id: 3,
             dump: Some(Dump {
-                block: 1,
+                area: 1,
                 offset: 0,
                 size: 1024
             })
@@ -559,7 +586,7 @@ fn show_arena_parses_its_forms() {
         Ok(Command::ShowArena {
             id: 3,
             dump: Some(Dump {
-                block: 1,
+                area: 1,
                 offset: 0x40,
                 size: 32
             })
@@ -581,7 +608,10 @@ fn show_arena_parses_its_forms() {
             "show arena x",
             "'x' is not an arena id; type 'list arena' for the arenas",
         ),
-        ("show arena 0 b", "'b' is not a block number"),
+        (
+            "show arena 0 b",
+            "'b' is not a region number (0 small, 1 medium, 2 huge)",
+        ),
         ("show arena 0 0 zz", "'zz' is not a number"),
         ("show arena 0 0 0 0 0", "too many arguments to 'show arena'"),
     ] {

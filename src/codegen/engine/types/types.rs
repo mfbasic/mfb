@@ -307,6 +307,15 @@ pub(crate) enum ThreadStack {
     Inherited,
 }
 
+/// plan-183-B: the address-space operations of the arena reservation
+/// ([`CodegenPlatform::emit_arena_vm`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ArenaVm {
+    Reserve,
+    Commit,
+    Decommit,
+}
+
 pub(crate) trait CodegenPlatform {
     fn target(&self) -> &'static str;
     /// The OS family this platform belongs to, for exhaustive-`match` OS
@@ -954,7 +963,25 @@ pub(crate) trait CodegenPlatform {
         size_reg: crate::target::shared::abi::Reg,
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String>;
-    fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String>;
+    /// plan-183-B: one operation on the arena reservation's address space. `addr` and
+    /// `size` are registers the caller owns (vregs: they survive the call, which
+    /// clobbers the caller-saved set); `size` is a whole number of 64 KiB and `addr`
+    /// 64 KiB-aligned for `Commit`/`Decommit`. Leaves in `return_register()`:
+    /// - `Reserve`: the base of `size` bytes of inaccessible address space (`addr` is
+    ///   ignored), or a negative value when the OS refuses.
+    /// - `Commit`: 0 once `[addr, addr+size)` is readable and writable, non-zero on
+    ///   failure. Never-touched committed pages read zero.
+    /// - `Decommit`: nothing meaningful. The range's pages go back to the OS and the
+    ///   range becomes inaccessible again; a later `Commit` reads zero.
+    fn emit_arena_vm(
+        &self,
+        op: ArenaVm,
+        addr: crate::target::shared::abi::Reg,
+        size: crate::target::shared::abi::Reg,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String>;
     /// plan-179-B: read the machine's physical RAM, for the arena memory cap.
     /// Stage the platform's OS call against the
     /// `arena_cap::HOST_MEMORY_PROBE_BUFFER_BYTES` buffer at `sp + 0`, then leave

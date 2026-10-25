@@ -4,7 +4,7 @@
 //! Arena memory carries no type: a `String` is a length and bytes, a record its
 //! fields (`./mfb spec memory heap-values`). These views read it the way the
 //! compiler lays each type out, and refuse whatever cannot be one: memory
-//! outside every arena block (`show mem` reads any memory), a collection
+//! outside every arena region (`show mem` reads any memory), a collection
 //! header whose kind, type codes or sizes are impossible, text that is not
 //! UTF-8. Collections name their element types with the runtime type codes
 //! (`./mfb spec memory collections`), so an element is decoded without being
@@ -41,25 +41,23 @@ pub(crate) use view::*;
 
 /// The most text a `String` view reads and shows.
 pub(crate) const MAX_TEXT: u64 = 64 << 10;
-/// The bytes before an arena block's usable space (`ARENA_BLOCK_HEADER_SIZE`).
-const BLOCK_HEADER: u64 = 32;
-
-/// The usable space of one arena block: values live in `start..end`.
+/// The handed-out part of one region of an arena's slice (plan-183-C): values live
+/// in `start..end`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Region {
     pub(crate) arena: usize,
-    pub(crate) block: usize,
+    pub(crate) area: usize,
     pub(crate) start: u64,
     pub(crate) end: u64,
 }
 
 impl Region {
-    /// The usable space of the block at `address`, `size` bytes long.
-    pub(crate) fn of_block(arena: usize, block: usize, address: u64, size: u64) -> Region {
+    /// Region number `area` of `arena`, `size` bytes from `address`.
+    pub(crate) fn of_area(arena: usize, area: usize, address: u64, size: u64) -> Region {
         Region {
             arena,
-            block,
-            start: address + BLOCK_HEADER,
+            area,
+            start: address,
             end: address.saturating_add(size),
         }
     }
@@ -69,7 +67,7 @@ impl Region {
 /// of `regions`.
 /// A `String` literal the executable carries (a `_mfb_str_*` data symbol): laid
 /// out as an arena `String` is — its length, its bytes, a NUL — but in the
-/// file's data, outside every arena block. Shown as `show type string` shows a
+/// file's data, outside every arena region. Shown as `show type string` shows a
 /// `String`, naming the literal.
 pub(crate) fn show_literal(
     read: &mut Read,
@@ -83,7 +81,7 @@ pub(crate) fn show_literal(
     );
     let literal = Region {
         arena: usize::MAX,
-        block: usize::MAX,
+        area: usize::MAX,
         start: address,
         end: address.saturating_add(9).saturating_add(length),
     };
@@ -123,7 +121,7 @@ pub(crate) fn show(
                 .map_err(|_| {
                     format!(
                     "not a String at 0x{address:016x}: its length, {length}, runs past the end \
-                     of its arena block"
+                     of its arena region"
                 )
                 })?;
             let bytes = memory.read(address + 8, shown, "String")?;
@@ -208,7 +206,7 @@ struct Memory<'a, 'b> {
 }
 
 impl Memory<'_, '_> {
-    /// Check that `length` bytes at `address` lie in one arena block, or say
+    /// Check that `length` bytes at `address` lie in one arena region, or say
     /// they cannot be the `what` asked for.
     fn check(&self, address: u64, length: u64, what: &str) -> Result<Region, String> {
         let end = address.checked_add(length);
@@ -224,12 +222,12 @@ impl Memory<'_, '_> {
                 {
                     format!(
                         "not {} at 0x{address:016x}: its {length} bytes run past the end of \
-                         their arena block",
+                         their arena region",
                         a(what)
                     )
                 } else {
                     format!(
-                        "0x{address:016x} is not in an arena block, so it holds no {what}; \
+                        "0x{address:016x} is not in an arena region, so it holds no {what}; \
                          'show mem' reads any memory"
                     )
                 }
@@ -333,7 +331,7 @@ impl Memory<'_, '_> {
         }
         self.check(address, size, what).map_err(|_| {
             not(format!(
-                "its {size} bytes run past the end of its arena block"
+                "its {size} bytes run past the end of its arena region"
             ))
         })?;
         Ok(Collection {

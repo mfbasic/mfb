@@ -86,19 +86,24 @@ Sections print in the order of the compiler's feature registry,
 | | `perf.mismatch`, `perf.overflow` | printed only when non-zero: a span end with no open start, and samples dropped because the timing region filled |
 | `arena` | `arena.count` | the number of arenas registered during the run |
 | | `arena.registry_overflow` | arenas that could not register because all 1024 slots were taken; their events are not counted |
+| | `arena.slices`, `arena.slice_size` | the arena slices the build reserves (`1 + canvas + 2 × options.maxThreads`) and the size of each, which the startup reservation settled on (20 GiB unless the address space is limited; `./mfb spec memory program-startup`) |
 | | `arena.<n>.kind` | `main` (the entry thread), `worker` (a `thread::start` thread), `thread_block` (a thread's control-block arena, registered just before its `worker`), or `graphics` (a canvas program's graphics thread), numbered in registration order |
-| | `arena.<n>.maps`, `.mapped_bytes`, `.unmaps`, `.unmapped_bytes` | blocks the arena mapped from the OS and returned to it, and their bytes |
+| | `arena.<n>.reserved_bytes` | the size of the arena's slice of the startup reservation (set when the arena first allocates; 0 for an arena that never did) |
+| | `arena.<n>.grows` | how often a region's frontier extended: a never-used small page set up, or a medium or huge chunk carved at its region's frontier; each one is a series sample |
+| | `arena.<n>.commits`, `.committed_bytes`, `.committed_peak_bytes` | how often the arena committed more of its slice, the bytes it holds committed now (0 once it has been destroyed), and the most it held at once |
+| | `arena.<n>.decommits`, `.decommitted_bytes` | decommits of the arena's memory (its destruction decommits the whole slice) and their bytes |
 | | `arena.<n>.alloc_calls`, `.alloc_bytes` | allocation calls and the bytes requested, after size and alignment rounding |
-| | `arena.<n>.hit_quick_bin`, `.hit_carve`, `.hit_large_bin`, `.hit_walk`, `.grow` | which path served each allocation: a small-size bin, a split of the current carve chunk, a large-bin size class (a large request, or a small one taking a large chunk as its carve chunk), a free-list walk, or a newly mapped block; the five always add up to `alloc_calls` |
 | | `arena.<n>.free_calls`, `.free_bytes` | free calls and their bytes, including frees that were skipped |
-| | `arena.<n>.double_free_skips` | frees skipped because the chunk was already free |
 | | `arena.<n>.live_bytes`, `.peak_live_bytes` | bytes allocated and not yet freed when the report ran, and the most ever held at once |
-| | `arena.<n>.flushes`, `.insert_free_calls` | free-list coalescing passes, and chunks inserted into the coalescing free list |
-| | `arena.<n>.fill_grow_calls`, `.fill_grow_bytes` | zero fills of a newly mapped block and their bytes: always 0, because the OS hands out new memory already zeroed and the arena never fills it by hand |
-| | `arena.<n>.fill_free_calls`, `.fill_free_bytes` | zero scrubs of a freed chunk and their bytes: each covers the chunk past its 16-byte free-list node, so a 16-byte chunk is not scrubbed and not counted, and skipped double frees add no scrub bytes |
-| | `arena.<n>.zero_checks`, `.zero_violations` | with `MFB_ARENA_CHECK_ZERO` set (below), the allocations checked — every successful one — and those whose chunk held a non-zero byte past its first 16 bytes; both 0 when the variable is unset |
+| | `arena.<n>.hit_small`, `.hit_medium_run`, `.hit_medium_frontier`, `.hit_huge_run`, `.hit_huge_frontier` | which region and source served each allocation: a small-page slot, a medium free run, the medium frontier, a huge free run, or the huge frontier; the five always add up to `alloc_calls` |
+| | `arena.<n>.small_pages` | small pages set up for a size class, from the empty-page list or never used before |
+| | `arena.<n>.double_free_skips` | frees skipped because the pointer is not a chunk the arena handed out: already free, inside a chunk, or outside its slice |
+| | `arena.<n>.fill_grow_calls`, `.fill_grow_bytes` | zero fills of newly committed memory and their bytes: always 0, because the OS hands out new memory already zeroed and the arena never fills it by hand |
+| | `arena.<n>.fill_free_calls`, `.fill_free_bytes` | zero scrubs of a freed chunk and their bytes: each covers the whole chunk (plan-183-C), and skipped double frees add none |
+| | `arena.<n>.zero_checks`, `.zero_violations` | with `MFB_ARENA_CHECK_ZERO` set (below), the allocations checked — every successful one — and those whose chunk held a non-zero byte; both 0 when the variable is unset |
+| | `arena.<n>.extend_calls`, `.extend_hits` | in-place growth attempts and those that succeeded |
 | | `arena.<n>.series.count` | the number of memory-over-time samples that follow, at most 256 |
-| | `arena.<n>.series.<i>.t_ns`, `.mapped_bytes`, `.live_bytes`, `.peak_rss_bytes` | one sample per line group, oldest first: nanoseconds since the first arena registered (monotonic clock), the arena's mapped and live bytes just after a grow, and the process's peak RSS read at that moment the same way as `process.peak_rss_bytes` |
+| | `arena.<n>.series.<i>.t_ns`, `.committed_bytes`, `.live_bytes`, `.peak_rss_bytes` | one sample per line group, oldest first: nanoseconds since the first arena registered (monotonic clock), the arena's committed and live bytes just after a grow, and the process's peak RSS read at that moment the same way as `process.peak_rss_bytes` |
 | `process` | `process.peak_rss_bytes` | the most physical memory the process has held at once, in bytes, as the operating system counts it when the report runs: `ru_maxrss` from `getrusage` on macOS and Linux (Linux's KiB scaled to bytes), `PeakWorkingSetSize` from `K32GetProcessMemoryInfo` on Windows; `0` if the call fails |
 | `thread` (a program that starts threads) | `thread.table_capacity` | slots in the thread table's array: 0 before the first `thread::start`, then 64, doubling each time it fills |
 | | `thread.table_high` | slots ever handed out — the most control blocks alive at once |
@@ -116,10 +121,10 @@ undercount but never wraps.
 [[src/codegen/debug/arena/mod.rs:ArenaFeature]]
 
 Each arena also records a **series**: memory over time, sampled when the arena grows
-(maps a new block), not by a timer. An arena that never grows after its first block
+(a region's frontier extends), not by a timer. An arena that never grows after its first allocation
 has a single sample.
 - Every grow reads the clock and the peak RSS and writes a sample after the kept ones.
-- The sample is kept when the arena's `grow` count has reached the next kept grow.
+- The sample is kept when the arena's `grows` count has reached the next kept grow.
   That starts at the first grow, with a stride of 1.
 - When 256 samples are kept, the series halves: it keeps every other sample from the
   first, plus the newest, so 129 remain. The stride then doubles.
@@ -132,8 +137,8 @@ grow count, not in time.
 [[src/codegen/debug/arena/sample.rs:lower_sample]]
 
 A `thread_block` arena is destroyed when its control block is freed, so a finished
-thread's block arena shows `unmaps` equal to `maps` and `unmapped_bytes` equal to
-`mapped_bytes`; its `live_bytes` counts the values freed with the arena rather than
+thread's block arena shows `committed_bytes` 0 and `decommitted_bytes` at least
+`committed_peak_bytes`; its `live_bytes` counts the values freed with the arena rather than
 one by one (the seed and the result). The `thread` section reads the thread table
 unlocked at exit, like the arena table. [[src/codegen/debug/thread.rs:ThreadFeature]]
 
@@ -199,7 +204,7 @@ schedules an idle callback with `g_idle_add` that writes the buffer to fd 1 and 
 | `MFB_CANVAS_POINTER_X` / `_Y` | canvas app, headless run on Linux GTK and Windows | delivers a pointer position to the platform callback |
 | `MFB_WINAPP_INPUT` | Windows app, windowed run | posts each character of the value to the input control, then Enter |
 | `MFB_WINAPP_TERM_RESIZE_W` / `_H` | Windows `term::` app, headless run | gives the window a client size in pixels |
-| `MFB_ARENA_CHECK_ZERO` | any | a non-empty value makes `arena_alloc` check every chunk it hands out for a non-zero byte past its first 16 bytes, counted in `arena.<n>.zero_checks`/`.zero_violations`; unset or empty, nothing is checked |
+| `MFB_ARENA_CHECK_ZERO` | any | a non-empty value makes `arena_alloc` check every chunk it hands out for a non-zero byte, counted in `arena.<n>.zero_checks`/`.zero_violations`; unset or empty, nothing is checked |
 
 `MFB_ARENA_CHECK_ZERO` is read once, when the main arena registers at program entry,
 into `_mfb_rt_debug_arena_check_zero`: `getenv` on macOS and Linux,

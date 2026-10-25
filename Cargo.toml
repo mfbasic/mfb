@@ -1381,6 +1381,18 @@ name = "rt_arena_large_block_reuse"
 path = "tests/runtime/rt_arena_large_block_reuse.rs"
 
 [[test]]
+name = "rt_thread_limit"
+path = "tests/runtime/rt_thread_limit.rs"
+
+[[test]]
+name = "rt_arena_reservation"
+path = "tests/runtime/rt_arena_reservation.rs"
+
+[[test]]
+name = "rt_arena_regions"
+path = "tests/runtime/rt_arena_regions.rs"
+
+[[test]]
 name = "rt_arena_zeroing"
 path = "tests/runtime/rt_arena_zeroing.rs"
 

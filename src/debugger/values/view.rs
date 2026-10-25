@@ -145,7 +145,7 @@ pub(crate) const TYPE_USAGE: &str = "\
 Usage: show type <type> <where> [...]
 
 Reads the value at <where> (an address, or a register holding one, as for
-show mem) as <type>. The value must be in one of the program's arena blocks,
+show mem) as <type>. The value must be in one of the program's arena regions,
 in a debug build; show mem reads any memory.
 
   int, float, fixed, money, bool, byte, scalar

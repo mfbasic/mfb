@@ -39,7 +39,7 @@ worth checking before it gets here.
 
 Collect the thread with `thread::waitFor`, which waits for it to finish and
 gives you its result. The handle closes when the variable holding it goes out of
-scope, and a thread still running then is cancelled (see `thread::cancel`). If the host cannot create the worker's synchronization primitives or the worker thread itself — typically because the process has hit a thread or resource limit — `start` raises `ErrInterrupted`. `ErrOutOfMemory` means the program ran out of memory."#;
+scope, and a thread still running then is cancelled (see `thread::cancel`). If the host cannot create the worker's synchronization primitives or the worker thread itself — typically because the process has hit a thread or resource limit — `start` raises `ErrInterrupted`. `ErrOutOfMemory` means the program ran out of memory. A program holds at most `options.maxThreads` threads at once (10 unless project.json raises it, up to 4096): a thread counts from its `start` until it has finished and its `Thread` value has been dropped, and a `start` past the limit raises `ErrThreadLimit` without creating anything. Keep a `Thread` you start in a loop in a scope that ends with the iteration."#;
 
 const EX: &str = r#"Start a worker and wait for its answer:
 
@@ -123,7 +123,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             th(false, worker_msg, worker_res, out()),
             Body::abi_function(lowering::lower_start),
-            vec!["ErrInterrupted", "ErrInvalidArgument", "ErrOutOfMemory"],
+            vec!["ErrInterrupted", "ErrInvalidArgument", "ErrOutOfMemory", "ErrThreadLimit"],
         )
     };
 

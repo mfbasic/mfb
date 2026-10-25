@@ -178,6 +178,7 @@ fn emit_series_line(
 }
 
 pub(super) fn lower_report(
+    slices: u64,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -221,9 +222,28 @@ pub(super) fn lower_report(
         abi::load_u64(&overflow, &base, REGION_OVERFLOW_OFFSET),
         abi::label(totals),
     ]);
+    // plan-183-B: the reservation — the build's slice count and the slice size the
+    // startup reservation settled on.
+    let slice_count = vregs.next();
+    let slice_size = vregs.next();
+    instructions.push(abi::move_immediate(
+        &slice_count,
+        "Integer",
+        &slices.to_string(),
+    ));
+    push_symbol_address(
+        symbol,
+        crate::codegen::runtime::arena_cap::ARENA_SLICE_SIZE_SYMBOL,
+        &slice_size,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::load_u64(&slice_size, &slice_size, 0));
     for (key, value, tag) in [
         (ARENA_COUNT_KEY_SYMBOL, &count, "count"),
         (ARENA_OVERFLOW_KEY_SYMBOL, &overflow, "overflow"),
+        (ARENA_SLICES_KEY_SYMBOL, &slice_count, "slices"),
+        (ARENA_SLICE_SIZE_KEY_SYMBOL, &slice_size, "slice_size"),
     ] {
         emit_debug_key_value(
             symbol,

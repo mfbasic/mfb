@@ -478,10 +478,10 @@ Then, repeatedly:
 | `show mem <where> [<size>]` | dumps `<size>` bytes (default 64) of memory |
 | `show type` | prints the `TYPE_USAGE` block |
 | `show type <type> <where> [...]` | prints the arena value at `<where>` read as `<type>` |
-| `show arena [<id>]` | prints arena `<id>`'s state and block headers (default 0) |
+| `show arena [<id>]` | prints arena `<id>`'s state, regions and free runs (default 0) |
 | `show error [<thread>]` | prints the error thread `<thread>` (default the current thread) has raised and not yet caught |
 | `show report` | prints the debug report the program wrote as it exited, or why there is none |
-| `show arena <id> <block> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of a block from `<offset>` (default 0) |
+| `show arena <id> <region> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of region `<region>` (0 small, 1 medium, 2 huge) from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
 | `step-all [<count>]`, `sa …` | runs every thread `<count>` rounds of one instruction (default 1) |
 | `breakpoint <target> [<commands>]`, `bp …` | sets breakpoints at `<target>`, each running `<commands>` at a stop |
@@ -609,7 +609,7 @@ Then, repeatedly:
 | `show <what>` but `mem`, `type`, `arena`, `error` or `report` | `cannot show '<what>'; 'show mem', 'show type', 'show arena', 'show error' and 'show report' are what can be shown` |
 | `show arena` with more than four arguments | `too many arguments to 'show arena'` |
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
-| a block number not a `usize` | `'<block>' is not a block number` |
+| a region number not a `usize` | `'<region>' is not a region number (0 small, 1 medium, 2 huge)` |
 | an offset or size not a `u64` (decimal, or hex after `0x`) | `'<word>' is not a number` |
 | `env` or `list env` on a program attached to | `'env' needs a program the debugger launched; this one was attached to` (`'list env'` for `list env`) |
 | `env` alone | `'env' needs what to do: env s <name> <value>, env r <name>, env clear or env reset; 'list env' shows the environment` |
@@ -737,7 +737,7 @@ under the header `ID | Name | PC | Task`:
 | Role | Thread |
 | --- | --- |
 | `App` | thread 0 of an app |
-| `MFB Main` | thread 0 of a console program; in an app, the thread whose stack region holds the address in `_mfb_rt_main_arena`, or — when the program has no such symbol — the one thread whose `x19` points into its own stack at an arena state with `workerThread` 0 and a `blockHead` block whose `blockSize` is a non-zero multiple of `ARENA_DEFAULT_BLOCK_SIZE` (more than one such thread: none) |
+| `MFB Main` | thread 0 of a console program; in an app, the thread whose stack region holds the address in `_mfb_rt_main_arena`, or — when the program has no such symbol — the one thread whose `x19` points into its own stack at an arena state with `workerThread` 0 and a `sliceBase` that is a non-zero multiple of 2 MiB (more than one such thread: none) |
 | `User Thread` | a thread whose `pthread_t` is the `CONTROL_OFFSET_OS_HANDLE` of a used `_mfb_rt_thread_table` slot, or whose `x19` holds a worker arena state whose control block's `CONTROL_OFFSET_WORKER_ARENA` is that same state |
 | `Other` | everything else: the Canvas graphics thread, system threads, a `process::detach` reaper |
 
@@ -820,8 +820,8 @@ processor's (`arch.help.groups`).
 ### `list arena`
 
 One line per live arena in the `--debug` registry,
-`<id> | <thread id> | <address> | <size in KB>`, under the header
-`ID | Thread | Address | Size (KB)`: [[src/debugger/runtime.rs:arenas]]
+`<id> | <thread id> | <address> | <committed KB>`, under the header
+`ID | Thread | Address | Committed (KB)`: [[src/debugger/runtime.rs:arenas]]
 [[src/debugger/prompt/render.rs:arena_lines]]
 
 - `<id>` is the registry slot (`./mfb spec tooling debug-report`); a slot whose
@@ -833,9 +833,8 @@ One line per live arena in the `--debug` registry,
   these with no match, a thread whose `x19` is the state. Kind 3 (a thread
   block arena) is `-`.
 - `<address>` is the arena state's address.
-- `<size in KB>` is the sum of `blockSize` over the chain from `blockHead`
-  through each `prevBlock` (`./mfb spec memory arenas`), divided by 1024 and
-  rounded up.
+- `<committed KB>` is the arena's `committed` scalar word — the bytes of its slice
+  it has committed (`./mfb spec memory arenas`) — divided by 1024 and rounded up.
 
 A program with no `_mfb_rt_debug_arena_base` symbol (no `--debug`) answers
 `error: listing arenas needs a debug build; rebuild the program with: mfb build
@@ -940,14 +939,14 @@ after the program has ended. `<type>` is `int`/`integer`, `float`, `fixed`,
 `money`, `bool`/`boolean`, `byte`, `scalar`, `string`, `list`, `set`, `map` or
 `resource`, in any case. [[src/debugger/values/view.rs:parse_view]]
 
-Every byte read must lie in the usable space (`blockAddress + 32` up to
-`blockAddress + blockSize`) of one block of one arena in the `--debug` registry
-(`Region`); without a registry the command fails with `'show type' reads values
+Every byte read must lie in the handed-out part of one region of one arena in the
+`--debug` registry (`Region`: a region's start up to its frontier, as `show arena`
+prints them); without a registry the command fails with `'show type' reads values
 in the arena, which needs a debug build; …`, and before the runtime has started
-with `no arenas yet: …`. An address in no block is `0x<address> is not in an
-arena block, so it holds no <Type>; 'show mem' reads any memory`; one whose
-bytes run past their block is `not a <Type> at 0x<address>: its <n> bytes run
-past the end of their arena block`. Layouts are `./mfb spec memory
+with `no arenas yet: …`. An address in no region is `0x<address> is not in an
+arena region, so it holds no <Type>; 'show mem' reads any memory`; one whose
+bytes run past their region is `not a <Type> at 0x<address>: its <n> bytes run
+past the end of their arena region`. Layouts are `./mfb spec memory
 heap-values`, `scalar-storage` and `collections`.
 
 A `string` view of an address the executable names with a `_mfb_str_*` data
@@ -968,8 +967,8 @@ mfb_str_2)`. [[src/debugger/values/mod.rs:show_literal]]
 | `scalar` | 4 | `Value: 0x<8 hex> (U+<hex> '<char>')`; a non-codepoint fails |
 | `string` | 8 + length + 1 | `Length: <n> Value: "<text>"` |
 
-A `string`'s length word, its bytes and its NUL must lie in the block
-(`not a String … its length, <n>, runs past the end of its arena block`), its
+A `string`'s length word, its bytes and its NUL must lie in the region
+(`not a String … its length, <n>, runs past the end of its arena region`), its
 bytes must be UTF-8 (`not a String … byte <i> of its value, 0x<b>, is not
 UTF-8`), and at most 65536 bytes are shown, then ` (the first 65536 bytes)`. Text
 is escaped as `char::escape_debug` does. [[src/debugger/values/mod.rs:quoted]]
@@ -981,7 +980,7 @@ key type 0 and a known value code; a set's known key code and Boolean value; a
 map's known codes), `count <= capacity`, `dataLength <= dataCapacity`, a kind-2
 list's `count * width <= dataCapacity`, and that the block —
 `40 + capacity*40 (none for kind 2) + dataCapacity`, the hash index excluded — is
-in one arena block. With no further argument each prints one line:
+in one arena region. With no further argument each prints one line:
 
 ```text
 List Type: <type> Length: <count> Capacity: <capacity> Data: <dataLength>/<dataCapacity> bytes Block: 0x<start>-0x<end> (<size> bytes)
@@ -1039,19 +1038,26 @@ the compiler's own offset constants — as the name left-aligned in 17 columns
 and the value in hex at its width (`0x` + 16 digits; `v128Slots` entries 32).
 An array prints `<name>[<count>]` and `<n> non-empty`, then a line
 `    [<index>]` per entry that is not all zero bytes.
-[[src/debugger/prompt/render.rs:state_lines]] Then each block, **oldest first**
-(numbered from 0: the chain from `blockHead` through `prevBlock`, reversed), as
-`Arena Block (<n>):` and its `prevBlock`, `blockSize`, `usableCapacity` and
-`bumpOffset`. [[src/debugger/runtime.rs:blocks]]
+[[src/debugger/prompt/render.rs:state_lines]] Then, for an arena that has laid
+its slice out, each region as `Arena Region (<n> <name>):` — 0 `small`, 1
+`medium`, 2 `huge` — with its `start`, `handedOut` (the bytes up to its frontier:
+the small pages used so far, the medium front, the huge span down to its front)
+and `committed` bytes, and then `Free Runs: <n>` and one line per run on the
+medium class lists and the huge list, `<list> 0x<address> 0x<size>`
+(`medium[<class>]` or `huge`). [[src/debugger/runtime.rs:areas]]
+[[src/debugger/runtime.rs:free_runs]] [[src/debugger/prompt/render.rs:area_lines]]
+A list longer than the node pool is refused (`the <list> list of the arena at
+0x… does not end; it cannot be read`).
 
-`show arena <id> <block> [<offset>] [<size>]` dumps block `<block>`
-(numbered as above; past the last, `arena <id> has <n> block(s), numbered from
-0, the oldest`). `<offset>` and `<size>` are decimal or `0x` hex; `<size>` of 0
-fails with `a dump needs a size of 1 or more bytes`, and `<offset> + <size>`
-past the block's `blockSize` with `offset 0x… + size 0x… runs past the end of
-block <n>, whose blockSize is 0x…`. The bytes are read from the block's
-address plus `<offset>` and printed under `Arena Block (<id>,<block>):` as one
-line per 16 bytes: the line's offset in the block as `0x` and hex digits
+`show arena <id> <region> [<offset>] [<size>]` dumps region `<region>` (an
+arena not laid out: `arena <id> has not allocated yet: its slice has no
+regions`; past 2: `arena <id> has 3 regions: 0 small, 1 medium, 2 huge`).
+`<offset>` and `<size>` are decimal or `0x` hex; `<size>` of 0 fails with `a dump
+needs a size of 1 or more bytes`, and `<offset> + <size>` past the region's
+handed-out bytes with `offset 0x… + size 0x… runs past the end of the <name>
+region's 0x… handed-out bytes`. The bytes are read from the region's start plus
+`<offset>` and printed under `Arena Region (<id>,<region> <name>):` as one
+line per 16 bytes: the line's offset in the region as `0x` and hex digits
 grouped in fours by `_` (at least 8 digits), the bytes as two hex digits each
 (a short last line padded), `|`, and each byte as its ASCII character (`.`
 outside 0x20–0x7e), all space-separated. [[src/debugger/prompt/render.rs:dump_lines]]

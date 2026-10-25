@@ -166,11 +166,15 @@ fn an_app_s_initial_thread_is_the_app_and_main_is_where_the_main_arena_is() {
     );
 }
 
-/// A main arena state at `state`: no worker, one 4096-byte block.
+/// A main arena state at `state`: no worker, and a 2 MiB-aligned slice base.
 fn main_arena_at(memory: &mut Memory, state: u64) {
     memory.put(state + ARENA_WORKER_THREAD_OFFSET as u64, 0);
-    memory.put(state + STATE_BLOCK_HEAD, 0x90_0000);
-    memory.put(0x90_0000 + BLOCK_SIZE, ARENA_DEFAULT_BLOCK_SIZE);
+    memory.put(state + ARENA_SLICE_BASE_OFFSET as u64, 0x40_0000_0000);
+}
+
+/// `state`'s allocator scalar word `offset`.
+fn scalar(state: u64, offset: usize) -> u64 {
+    state + (ARENA_ALLOC_SCALARS_OFFSET + offset) as u64
 }
 
 #[test]
@@ -182,7 +186,7 @@ fn without_symbols_the_registers_decide() {
     // A system thread's register into its own stack, at a word that is not
     // an arena state.
     memory.put(0x90_8000 + ARENA_WORKER_THREAD_OFFSET as u64, 0);
-    memory.put(0x90_8000 + STATE_BLOCK_HEAD, 0x1234);
+    memory.put(0x90_8000 + ARENA_SLICE_BASE_OFFSET as u64, 0x1234);
     let threads = [
         thread(0x11, 0, (0x10_0000, 0x20_0000)),
         // Its arena register points into its own stack at a main arena
@@ -224,7 +228,7 @@ fn without_symbols_two_threads_that_fit_name_neither() {
 }
 
 #[test]
-fn the_registry_lists_live_arenas_with_their_owner_and_mapped_bytes() {
+fn the_registry_lists_live_arenas_with_their_owner_and_committed_bytes() {
     let mut memory = Memory::default();
     with_worker(&mut memory);
     let region = 0x10_0000;
@@ -233,24 +237,20 @@ fn the_registry_lists_live_arenas_with_their_owner_and_mapped_bytes() {
     memory.put(region + REGION_COUNT_OFFSET as u64, 4);
     let slot = |id: u64| region + REGION_HEADER_SIZE as u64 + id * SLOT_SIZE as u64;
     let main_arena = 0x20_0000;
-    // Slot 0: main, two blocks of 4096 and 8192 bytes.
+    // Slot 0: main, 12 KiB committed.
     memory.put(slot(0), main_arena);
     memory.put(slot(0) + SLOT_KIND_OFFSET as u64, 0);
-    memory.put(main_arena + STATE_BLOCK_HEAD, 0x21_0000);
-    memory.put(0x21_0000 + BLOCK_SIZE, 8192);
-    memory.put(0x21_0000 + BLOCK_PREV, 0x22_0000);
-    memory.put(0x22_0000 + BLOCK_SIZE, 4096);
-    memory.put(0x22_0000 + BLOCK_PREV, 0);
+    memory.put(scalar(main_arena, ARENA_SC_COMMITTED), 12288);
     // Slot 1: a joined worker, skipped.
     memory.put(slot(1), 0);
     // Slot 2: the live worker, no blocks yet.
     memory.put(slot(2), WORKER_ARENA);
     memory.put(slot(2) + SLOT_KIND_OFFSET as u64, 1);
-    memory.put(WORKER_ARENA + STATE_BLOCK_HEAD, 0);
+    memory.put(scalar(WORKER_ARENA, ARENA_SC_COMMITTED), 0);
     // Slot 3: a block arena, owned by no thread.
     memory.put(slot(3), 0x23_0000);
     memory.put(slot(3) + SLOT_KIND_OFFSET as u64, 3);
-    memory.put(0x23_0000 + STATE_BLOCK_HEAD, 0);
+    memory.put(scalar(0x23_0000, ARENA_SC_COMMITTED), 0);
     let threads = [
         thread(0x11, 0, (0x1_0000, 0x2_0000)),
         thread(0x77, 0, (0x3_0000, 0x4_0000)),
@@ -263,19 +263,19 @@ fn the_registry_lists_live_arenas_with_their_owner_and_mapped_bytes() {
                 id: 0,
                 thread: Some(0),
                 address: main_arena,
-                mapped: 12288
+                committed: 12288
             },
             Arena {
                 id: 2,
                 thread: Some(1),
                 address: WORKER_ARENA,
-                mapped: 0
+                committed: 0
             },
             Arena {
                 id: 3,
                 thread: None,
                 address: 0x23_0000,
-                mapped: 0
+                committed: 0
             },
         ])
     );
@@ -289,13 +289,51 @@ fn a_registry_not_yet_made_lists_nothing() {
     assert_eq!(arenas(&mut memory, &[], &[]).unwrap(), Some(Vec::new()));
 }
 
+/// An arena laid out with no free runs, every list head readable and empty.
+fn laid_out(memory: &mut Memory, state: u64) {
+    memory.put(scalar(state, ARENA_SC_SMALL_PAGES), 0x4000_0000);
+    memory.put(scalar(state, ARENA_SC_NODES), 0x5000_0000);
+    memory.put(scalar(state, ARENA_SC_NODE_LIMIT), 4);
+    for class in 0..ARENA_MEDIUM_CLASS_COUNT {
+        memory.put(
+            state + (ARENA_MEDIUM_HEAD_BASE_OFFSET + class * 8) as u64,
+            0,
+        );
+    }
+    memory.put(state + ARENA_HUGE_HEAD_OFFSET as u64, 0);
+}
+
 #[test]
-fn a_block_chain_that_loops_is_refused() {
+fn free_runs_list_by_list_and_a_list_that_loops_is_refused() {
     let mut memory = Memory::default();
-    memory.put(0x100 + STATE_BLOCK_HEAD, 0x200);
-    memory.put(0x200 + BLOCK_SIZE, 16);
-    memory.put(0x200 + BLOCK_PREV, 0x200);
-    assert!(mapped_bytes(&mut memory, 0x100)
+    laid_out(&mut memory, 0x100);
+    let node = |index: u64| 0x5000_0000 + index * ARENA_NODE_SIZE;
+    // medium[3]: node 1; huge: node 2.
+    memory.put(0x100 + (ARENA_MEDIUM_HEAD_BASE_OFFSET + 3 * 8) as u64, 1);
+    memory.put(node(1) + ARENA_NODE_START as u64, 0x6000_0000);
+    memory.put(node(1) + ARENA_NODE_LEN as u64, 0x1000);
+    memory.put(node(1) + ARENA_NODE_NEXT as u64, 0);
+    memory.put(0x100 + ARENA_HUGE_HEAD_OFFSET as u64, 2);
+    memory.put(node(2) + ARENA_NODE_START as u64, 0x7000_0000);
+    memory.put(node(2) + ARENA_NODE_LEN as u64, 0x200_0000);
+    memory.put(node(2) + ARENA_NODE_NEXT as u64, 0);
+    assert_eq!(
+        free_runs(&mut memory, 0x100).unwrap(),
+        [
+            FreeRun {
+                list: "medium[3]".to_string(),
+                address: 0x6000_0000,
+                size: 0x1000
+            },
+            FreeRun {
+                list: "huge".to_string(),
+                address: 0x7000_0000,
+                size: 0x200_0000
+            },
+        ]
+    );
+    memory.put(node(2) + ARENA_NODE_NEXT as u64, 2);
+    assert!(free_runs(&mut memory, 0x100)
         .unwrap_err()
         .contains("does not end"));
 }
@@ -355,29 +393,47 @@ fn every_role_has_its_label() {
 }
 
 #[test]
-fn blocks_list_oldest_first() {
+fn areas_are_the_three_regions_with_their_frontiers() {
     let mut memory = Memory::default();
-    memory.put(0x100 + STATE_BLOCK_HEAD, 0x3000);
-    for (block, prev, size) in [(0x3000, 0x2000, 0x2000), (0x2000, 0, 0x1000)] {
-        memory.put(block + BLOCK_PREV, prev);
-        memory.put(block + BLOCK_SIZE, size);
-        memory.put(block + BLOCK_USABLE, size - 32);
-        memory.put(block + BLOCK_BUMP, 0);
+    // Not laid out yet: no regions.
+    memory.put(scalar(0x100, ARENA_SC_SMALL_PAGES), 0);
+    assert_eq!(areas(&mut memory, 0x100).unwrap(), []);
+    for (offset, value) in [
+        (ARENA_SC_SMALL_PAGES, 0x4001_0000),
+        (ARENA_SC_SMALL_NEXT, 3),
+        (ARENA_SC_SMALL_COMMIT, 0x4040_0000),
+        (ARENA_SC_MEDIUM_BASE, 0x5000_0000),
+        (ARENA_SC_MEDIUM_FRONT, 0x5000_8000),
+        (ARENA_SC_MEDIUM_COMMIT, 0x5040_0000),
+        (ARENA_SC_HUGE_FRONT, 0x8e00_0000),
+        (ARENA_SC_HUGE_COMMIT, 0x8e00_0000),
+        (ARENA_SC_SLICE_TOP, 0x9000_0000),
+    ] {
+        memory.put(scalar(0x100, offset), value);
     }
-    let blocks = blocks(&mut memory, 0x100).unwrap();
     assert_eq!(
-        blocks
-            .iter()
-            .map(|block| (block.address, block.prev, block.size))
-            .collect::<Vec<_>>(),
-        [(0x2000, 0, 0x1000), (0x3000, 0x2000, 0x2000)]
+        areas(&mut memory, 0x100).unwrap(),
+        [
+            Area {
+                name: "small",
+                address: 0x4001_0000,
+                size: 0x3_0000,
+                committed: 0x3f_0000
+            },
+            Area {
+                name: "medium",
+                address: 0x5000_0000,
+                size: 0x8000,
+                committed: 0x40_0000
+            },
+            Area {
+                name: "huge",
+                address: 0x8e00_0000,
+                size: 0x200_0000,
+                committed: 0x200_0000
+            },
+        ]
     );
-    memory.put(0x2000 + BLOCK_PREV, 0x3000);
-    assert!(blocks_err(&mut memory).contains("does not end"));
-}
-
-fn blocks_err(memory: &mut Memory) -> String {
-    blocks(memory, 0x100).unwrap_err()
 }
 
 /// The table covers `ArenaState` end to end: fields in order, no gaps or

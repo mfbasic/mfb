@@ -86,8 +86,8 @@ by `mfb init` but are not consulted by selection or build stages.
 [[src/manifest/fields.rs:validate_sources]] [[src/manifest/package.rs:package_metadata]]
 
 ⁴ `options` holds runtime tunables baked into the compiled executable.
-Seven keys are read: the four `maxArenaMemory*` keys of the arena memory cap (see
-*Arena memory cap*); `canvasAutoPaintMS`, how long a `canvas::AutoPaint` holds its
+Eight keys are read: the four `maxArenaMemory*` keys of the arena memory cap (see
+*Arena memory cap*); `maxThreads` (see *Thread limit*); `canvasAutoPaintMS`, how long a `canvas::AutoPaint` holds its
 enter and exit paints (below); `stdinLogCap`, the stdin broadcast-log
 backpressure high-water mark in bytes — the runtime reader blocks a
 producer rather than growing the log past `base + stdinLogCap`. It is read lazily
@@ -197,13 +197,35 @@ set it:
 - **RAM is measured where the program runs**, at startup, not at build time; the
   startup check and `maxArenaMemoryCheck` are in `./mfb spec memory program-startup`,
   and the allocator's accounting is in `./mfb spec memory arenas`.
-- **Arena memory only.** The cap counts arena blocks, including their headers.
+- **Arena memory only.** The cap counts what the arenas commit of their slices,
+  their side tables included.
   It does not count the thread stacks, the audio buffers, Metal (GPU) buffers, the
   perf profiling region, or the `--debug` registry. Memory a native `LINK` library
   allocates for itself is not counted either.
 - It is the **consuming executable's** setting, like `maxBuffer`: it applies to
   package code, and a package's own value is not encoded into its `.mfp`.
   [[src/manifest/arena_memory.rs:arena_memory_limits]]
+
+## Thread limit (`options.maxThreads`)
+
+```json
+{ "options": { "maxThreads": 10 } }
+```
+
+| Key | Type | Default | Valid values |
+| --- | --- | --- | --- |
+| `maxThreads` | integer | `10` | a whole number from 1 to 4096 |
+
+`maxThreads` is how many `thread::start` threads the program may hold at once. A
+thread holds its place from `thread::start` until it has finished **and** its
+`Thread` value has been dropped; a further `thread::start` fails with
+`ErrThreadLimit` before anything is created. The value is fixed into the executable
+at build time and sizes the startup address-space reservation: `1 + 1 (canvas
+programs) + 2 × maxThreads` equal arena slices (`./mfb spec memory
+program-startup`). Any other value — a fraction, a string, 0, more than 4096 — is a
+`PROJECT_JSON_MAX_THREADS_INVALID` error. It is not an arena-memory key, so
+`maxArenaMemoryDisable` leaves it in force, and like the cap it is the consuming
+executable's setting. [[src/manifest/arena_memory.rs:validate_arena_memory]]
 
 ## Named configs (`config`)
 
@@ -580,6 +602,7 @@ All manifest and entry-point diagnostics live in the `2-200-####` rule range
 | `2-200-0026` | `PROJECT_LOCAL_JSON_FIELD` | error | `project-local.json` is not an object, or holds a member other than `config` (see *Local overrides*) [[src/manifest/config.rs:load_project_config]] |
 | `2-200-0027` | `PROJECT_LOCAL_JSON_TYPE_OVERRIDE` | error | `project-local.json` overrides a config value with a different type |
 | `2-200-0028` | `PROJECT_JSON_ARENA_MEMORY_IGNORED` | warn | `options.maxArenaMemoryDisable` is `true` and another `maxArenaMemory*` key is present; that key is ignored (see *Arena memory cap*) [[src/manifest/arena_memory.rs:validate_arena_memory]] |
+| `2-200-0029` | `PROJECT_JSON_MAX_THREADS_INVALID` | error | `options.maxThreads` is not a whole number from 1 to 4096 (see *Thread limit*) [[src/manifest/arena_memory.rs:validate_arena_memory]] |
 
 The two dependency-closure codes below live in the `6-605-####` package range
 (see `./mfb spec diagnostics rule-codes`), not `2-200-####`, because they are

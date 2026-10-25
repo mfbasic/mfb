@@ -556,6 +556,32 @@ pub(crate) fn emit_start_graphics(
     instructions.push(abi::add_immediate(&scratch.cursor, &scratch.cursor, 8));
     instructions.push(abi::compare_registers(&scratch.cursor, &scratch.end));
     instructions.push(abi::branch_lo(&zero_loop));
+    // plan-183-B: the graphics thread's arena commits from slice 1 of the startup
+    // reservation, `base + 1 × sliceSize`, with nothing committed yet. It lives until
+    // the process exits, so nothing hands the slice back.
+    push_symbol_address(
+        symbol,
+        crate::codegen::runtime::arena_cap::ARENA_SLICE_SIZE_SYMBOL,
+        &scratch.cursor,
+        instructions,
+        relocations,
+    );
+    push_symbol_address(
+        symbol,
+        crate::codegen::runtime::arena_cap::ARENA_BASE_SYMBOL,
+        &scratch.end,
+        instructions,
+        relocations,
+    );
+    instructions.extend([
+        abi::load_u64(&scratch.cursor, &scratch.cursor, 0),
+        abi::load_u64(&scratch.end, &scratch.end, 0),
+    ]);
+    debug_assert_eq!(crate::codegen::runtime::arena_cap::GRAPHICS_SLICE, 1);
+    instructions.extend([
+        abi::add_registers(&scratch.end, &scratch.end, &scratch.cursor),
+        abi::store_u64(&scratch.end, &scratch.arena, ARENA_SLICE_BASE_OFFSET),
+    ]);
 
     // plan-130-C: register the graphics thread's arena with the `--debug` arena registry,
     // before the thread that owns it exists.

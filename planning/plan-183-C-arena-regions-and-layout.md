@@ -82,26 +82,28 @@ There are no blocks:
 
 ## Phase C1 — Layout and regions
 
-- [ ] `error_constants.rs`: the new layout; every offset is a constant.
-- [ ] `alloc.rs`, `free.rs`, `mod.rs`: regions, page table, side bitmaps, out-of-line free runs; FreeNode removed; whole-chunk zero-on-free.
-- [ ] `arena_cap/accounting.rs`: charge on commit, refund on decommit.
-- [ ] Block headers removed: `arena_destroy`, `_mfb_rt_thread_finish`, `emit_unmap_refund`.
-- [ ] `04_arenas.md`: state layout, regions, algorithms, *Process Memory Cap*; the block section removed.
-- [ ] Tests:
-  - `rt_arena_zeroing.rs` tightened: every byte of a freed chunk is zero, including the first 16;
+- [x] `error_constants.rs`: the new layout; every offset is a constant. Small heads in the old quick-bin span, medium heads in the old large-bin span, the huge head and node free list in the old carve words, a 21-word scalar block at the end (`ARENA_SC_*`, addressed off a computed register); `ARENA_STATE_SIZE` 3936. See Corrections 2.
+- [x] `alloc.rs`, `free.rs`, `mod.rs`: regions, page table, side bitmaps, out-of-line free runs; FreeNode removed; whole-chunk zero-on-free. New `layout.rs` (geometry, `_mfb_arena_commit`), `small.rs` (pages, descriptors, slot bitmaps), `span.rs` (medium/huge runs: tag records and a node pool — Corrections 1). Old quick bins, carve chunk, free list, large bins, flush and insert helpers deleted.
+- [x] `arena_cap/accounting.rs`: charge on commit, refund on decommit. `emit_commit_charge`/`emit_commit_refund`/`emit_decommit_refund`, counter `_mfb_rt_arena_committed_bytes`; `rt_arena_memory_cap` 3 passed.
+- [x] Block headers removed: `arena_destroy`, `_mfb_rt_thread_finish`, `emit_unmap_refund`. `arena_destroy` decommits the whole slice and refunds the arena's `committed` word; `_mfb_rt_thread_finish` reaches it through `arena_destroy`; `emit_unmap_refund` became `emit_decommit_refund`.
+- [x] `04_arenas.md`: state layout, regions, algorithms, *Process Memory Cap*; the block section removed. Also `09_debug-report.md`, `08_program-startup.md`, `01_project-manifest.md`, threading 02/07/08, `mfb man debug report`/`pools`, `.ai/codegen-invariants.md`. `cargo test --bin mfb spec` → 72 passed.
+- [x] Tests:
+  - `rt_arena_zeroing.rs` tightened: every byte of a freed chunk is zero, including the first 16; (`ARENA_ZERO_CHECK_SKIP` is 0, so the switch checks every byte)
   - new `tests/runtime/rt_arena_regions.rs`:
     - 1,000 small allocations interleaved with huge ones; free the huge ones and assert one merged free run;
-    - a 100,000-operation random alloc/free stress across all tiers, with a shadow model asserting no live chunk is ever handed out twice and every freed range reads zero.
+    - a 100,000-operation random alloc/free stress across all tiers, with a shadow model asserting no live chunk is ever handed out twice and every freed range reads zero. (The shadow model is in the program: each slot's string is checked for its length and letter before it is replaced, so a chunk handed to a second owner fails the check; `MFB_ARENA_CHECK_ZERO` checks every chunk handed out. 18 huge, ~30,000 medium and ~70,000 small operations: `bad 0`, `zero_violations 0`, `live_bytes 0`.)
 
 Acceptance: `cargo test --test rt_arena_regions --test rt_arena_zeroing --test rt_arena_large_block_reuse --test rt_worker_arena_release` passes on macOS, 2223, 2229 (riscv64, for the offset reach) and the Windows box (est. 6 min each; 2229 longer).
+Measured 2026-10-24: macOS 2+2+3+2 passed; box 2229 (`MFB_TEST_REMOTE=linux-riscv64,test@127.0.0.1,2229,musl`) 2+2+3+2 passed; box 2226 standing in for 2223 (`linux-aarch64,…,2226,glibc`) 2+2+3+2 passed; Windows box 2+2+3+2 passed. (`rt_worker_arena_release` reads peak RSS from the `--debug` report on a remote box.)
 Commit: —
 
 ## Phase C2 — Debugger and specs that read the layout
 
-- [ ] `src/debugger/runtime.rs`: arena views show regions, frontiers and free runs instead of blocks and bins; tests in `src/debugger/runtime/tests` and `src/debugger/prompt/tests`.
-- [ ] `src/docs/spec/tooling/10_debugger.md` (arena output), `07_control-block.md` and `09_debug-report.md` where they cite the layout.
+- [x] `src/debugger/runtime.rs`: arena views show regions, frontiers and free runs instead of blocks and bins; tests in `src/debugger/runtime/tests` and `src/debugger/prompt/tests`. `runtime::areas`/`free_runs`, `render::area_lines`, `show arena <id> <region>` dumps, `list arena`'s `Committed (KB)`, the no-symbol main-arena test by slice base; `ARENA_STATE_FIELDS` tiles the new state.
+- [x] `src/docs/spec/tooling/10_debugger.md` (arena output), `07_control-block.md` and `09_debug-report.md` where they cite the layout. Plus `mfb man debug pools`, regenerated from a real session (its "random bytes" text was stale since plan-183-A's zero fill).
 
 Acceptance: `cargo test --bin mfb debugger::` passes (est. 1 min); on macOS, `mfb dbg` of a `--debug -O0` build shows the region view.
+Measured: `cargo test --bin mfb debugger::` → 311 passed. `printf 'bp pause\nrun\nlist arena\nshow arena 0\nq\n' | mfb dbg /tmp/p183/dbgprog/build/dbgprog.out` (signed with `scripts/sign-debugger.sh`) printed `Arena Region (0 small)` … `(2 huge)` with their frontiers and committed bytes, and `Free Runs: 1` / `medium[1] 0x00000070b1803310 0x0000000000000bd0`.
 Commit: —
 
 ## Validation
@@ -111,3 +113,14 @@ Commit: —
 - Doc sync as listed in the phases.
 
 ## Corrections
+
+1. **Medium and huge use tag records and a node pool, not a granule bitmap scanned for neighbours.** Finding a free neighbour's start by scanning an allocated-bit bitmap is O(run length) — a 1 GiB free run is a million words. Instead one 16-byte record per 2 KiB block of the span holds `{start, end}`: what starts in the block (an allocated chunk's size and granule offset, or a free run's node) and which free run ends in it. Every medium/huge chunk and run exceeds 2 KiB (a split rest below 2064 bytes, or below one 16 KiB huge page, stays in its chunk), so at most one thing starts and one run ends per block, and a free finds its size and both neighbours in O(1), each checked against the run's node. The start record also gives the chunk's true size and refuses a pointer that is not a chunk start (a repeated free, a pointer into a chunk). Medium and huge share the one tag array and node pool, and runs are listed by size class (medium) or on one list (huge), best fit, as designed. Side cost: 32 bytes per 2 KiB of span, committed as the frontiers advance.
+2. **The allocator's scalar words are a block at the end of the state.** The old allocator span holds the 128 small heads, the 64 medium heads, the huge head and the node free list; the 21 scalar words (geometry, three frontiers and their committed edges, tag/node commit edges, committed bytes) do not fit there. They sit past rv64's 12-bit immediate, so every helper computes their base into a register once — the "computed address" route the plan allows. Words +0, +24, +48 are reserved. `ARENA_STATE_SIZE` grew from 3776 to 3936.
+3. **The report's rows changed in C, not E.** Removing blocks and bins removed `maps`/`mapped_bytes`/`unmaps`/`unmapped_bytes`, the `hit_quick_bin`…`grow` paths, `flushes` and `insert_free_calls`. Their replacements are the rows plan-183-E lists — `reserved_bytes`, `commits`, `committed_bytes`, `committed_peak_bytes`, `decommits`, `decommitted_bytes`, `extend_calls`, `extend_hits` — plus `hit_small`, `small_pages`, `hit_medium_run`, `hit_medium_frontier`, `hit_huge_run`, `hit_huge_frontier`, and `grows`. **A grow is now a frontier extension** (a never-used small page, a medium or huge chunk carved at its frontier), and the memory series samples on it: commits come in 4 MiB steps, so sampling per commit could not exercise the series' halving without gigabytes. `rt_debug_arena`, `rt_thread_block_arena` and `rt_arena_zeroing` assert the same properties in the new rows; the series' `committed_bytes` only rises, so "strictly increasing" became "never falls, and rises overall".
+4. **`rt_arena_large_block_reuse`'s ×4 bound moved to E's committed bound in C.** Committed bytes carry a per-region floor (a 4 MiB data step per region, 64 KiB side granules) that mapped bytes never had: the climbing case committed 5,963,776 bytes for a 1,364,672-byte peak (4.37×) with every allocation reused. The bound plan-183-E specifies for committed bytes, `≤ 1.25 × peak + 64 MiB`, is in force from C.
+5. **Alignment above 16 is served by the huge region** (16 KiB-aligned chunks); above 16 KiB it is `ErrInvalidArgument`. Every one of the 280 `arena_alloc` call sites passes 1, 2 or 8 (survey of `src/`), so no code path needs more.
+6. **A small page that empties stays on its class list when it is the class's only page.** Moving every empty page to the empty list made a class that frees and allocates one slot at a time re-initialise a page each time: the zeroing smoke program set up 121 pages for 201 small allocations; with the rule, 2.
+7. **The Rust reference model of the old free list was deleted** (`engine/tests/tests.rs`: `FreeListSim`, `checked_arena_used_after_alloc` and the nine tests on them). It modelled the address-ordered free list and block payloads C removed and never exercised emitted code; the region allocator is exercised by `rt_arena_regions`' stress test.
+8. **plan-183-B and plan-183-C landed in one commit.** C rewrote B's interim grow and destroy code before B's goldens were regenerated, so the tree held both. B's acceptance rows were measured on the B-only binary and re-run on the combined one (macOS, 2226, Windows).
+9. **Box 2223 was down**; 2226 stands in for it, and 2229 ran the riscv64 row.
+10. **The `tests/acceptance` TESTING app times out under a debug-built `mfb`** in the full acceptance run (300 s watchdog; `scripts/test-accept.sh` documents 339 s with a debug compiler). The golden run uses the release build.

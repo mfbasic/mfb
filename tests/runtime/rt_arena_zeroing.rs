@@ -59,10 +59,15 @@ fn freed_chunks_come_back_zero() {
     let (out, lines) = run(name, &exe, &[("MFB_ARENA_CHECK_ZERO", "1")]);
     assert_eq!(out.trim(), "26229160", "the program's total length");
     let counter = |key: &str| common::debug_report::counter(name, &lines, 0, key);
-    // 40 iterations of three values: the first allocates fresh, the rest reuse.
+    // 40 iterations of three values: the first allocates fresh, the rest reuse a
+    // slot of an existing page or a freed medium run.
     assert!(
-        counter("hit_quick_bin") + counter("hit_large_bin") >= 3 * 39,
+        counter("hit_small") + counter("hit_medium_run") >= 3 * 39,
         "the freed chunks were not reused: {lines:?}"
+    );
+    assert!(
+        counter("small_pages") <= 4,
+        "the small pages are reused, not set up again for each value: {lines:?}"
     );
     assert_eq!(
         counter("zero_checks"),
@@ -72,7 +77,7 @@ fn freed_chunks_come_back_zero() {
     assert_eq!(
         counter("zero_violations"),
         0,
-        "a reused chunk held a non-zero byte past its first 16: {lines:?}"
+        "a reused chunk held a non-zero byte: {lines:?}"
     );
     assert_eq!(
         counter("fill_grow_bytes"),

@@ -1,5 +1,5 @@
 //! The prompt over a `--debug` program's runtime data: the arena registry,
-//! arena blocks, a parked error, `String` literals, and real stack frames to
+//! arena regions, a parked error, `String` literals, and real stack frames to
 //! unwind. The process is a word map with data symbols, threads with their
 //! unwind registers, and functions with their code.
 
@@ -10,16 +10,12 @@ use super::*;
 use crate::codegen::debug::arena::{
     ARENA_BASE_SYMBOL, ARENA_KIND_MAIN, REGION_COUNT_OFFSET, REGION_HEADER_SIZE, SLOT_KIND_OFFSET,
 };
-use crate::codegen::error::constants::error_constants::ARENA_CURRENT_ERROR_OFFSET;
+use crate::codegen::error::constants::error_constants::{
+    ARENA_ALLOC_SCALARS_OFFSET, ARENA_CURRENT_ERROR_OFFSET, ARENA_SC_COMMITTED,
+    ARENA_SC_HUGE_COMMIT, ARENA_SC_HUGE_FRONT, ARENA_SC_MEDIUM_BASE, ARENA_SC_MEDIUM_COMMIT,
+    ARENA_SC_MEDIUM_FRONT, ARENA_SC_SLICE_TOP, ARENA_SC_SMALL_COMMIT, ARENA_SC_SMALL_PAGES,
+};
 use crate::debugger::{Ending, FunctionRange, Step};
-
-/// `ArenaState.blockHead`, and a block header's `prevBlock`, `blockSize`,
-/// `usableCapacity` and `bumpOffset` (`./mfb spec memory arenas`).
-const BLOCK_HEAD: u64 = 0;
-const PREV: u64 = 0;
-const SIZE: u64 = 8;
-const USABLE: u64 = 16;
-const BUMP: u64 = 24;
 
 const REGISTRY_GLOBAL: u64 = 0x600;
 const REGION: u64 = 0x10_0000;
@@ -82,8 +78,9 @@ impl Heap {
         self.unwind.push([pc, sp, 0, lr]);
     }
 
-    /// A `--debug` registry holding the main arena: one block of
-    /// `BLOCK_BYTES`, its bytes counting up from 0.
+    /// A `--debug` registry holding the main arena, laid out with `BLOCK_BYTES`
+    /// handed out in its medium region (bytes counting up from 0) and nothing in
+    /// the small or huge region (plan-183-C).
     fn with_main_arena(&mut self) {
         self.symbols
             .insert(ARENA_BASE_SYMBOL.to_string(), REGISTRY_GLOBAL);
@@ -99,13 +96,22 @@ impl Heap {
             MAIN_STATE,
             &vec![0; crate::codegen::error::constants::error_constants::ARENA_STATE_SIZE],
         );
-        self.put(MAIN_STATE + BLOCK_HEAD, BLOCK);
+        let scalar = |offset: usize| MAIN_STATE + (ARENA_ALLOC_SCALARS_OFFSET + offset) as u64;
+        for (offset, value) in [
+            (ARENA_SC_SMALL_PAGES, 0x1000_0000),
+            (ARENA_SC_SMALL_COMMIT, 0x1000_0000),
+            (ARENA_SC_MEDIUM_BASE, BLOCK),
+            (ARENA_SC_MEDIUM_FRONT, BLOCK + BLOCK_BYTES),
+            (ARENA_SC_MEDIUM_COMMIT, BLOCK + 0x1_0000),
+            (ARENA_SC_HUGE_FRONT, 0x3000_0000),
+            (ARENA_SC_HUGE_COMMIT, 0x3000_0000),
+            (ARENA_SC_SLICE_TOP, 0x3000_0000),
+            (ARENA_SC_COMMITTED, 0x400),
+        ] {
+            self.put(scalar(offset), value);
+        }
         let bytes: Vec<u8> = (0..BLOCK_BYTES).map(|byte| byte as u8).collect();
         self.put_bytes(BLOCK, &bytes);
-        self.put(BLOCK + PREV, 0);
-        self.put(BLOCK + SIZE, BLOCK_BYTES);
-        self.put(BLOCK + USABLE, BLOCK_BYTES - 0x20);
-        self.put(BLOCK + BUMP, 0x40);
     }
 
     /// Thread 0 runs `_mfb_fn_work` (frame code above), called from `_main`.
@@ -268,7 +274,7 @@ fn list_arena_lists_the_registry_or_says_the_runtime_has_not_started() {
     assert_eq!(err, "");
     assert_eq!(
         out,
-        "ID | Thread | Address            | Size (KB)\n\
+        "ID | Thread | Address            | Committed (KB)\n\
          0  | 0      | 0x0000000000200000 | 1\n\
          Killed process 42.\n"
     );
@@ -279,7 +285,7 @@ fn list_arena_lists_the_registry_or_says_the_runtime_has_not_started() {
 }
 
 #[test]
-fn show_arena_shows_its_state_and_blocks_and_dumps_a_block() {
+fn show_arena_shows_its_state_and_regions_and_dumps_a_region() {
     let mut heap = Heap::default();
     heap.thread(0x1000, 0x8000, 0);
     heap.with_main_arena();
@@ -287,26 +293,26 @@ fn show_arena_shows_its_state_and_blocks_and_dumps_a_block() {
     assert_eq!(err, "");
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines[0], "Arena State:");
-    let block = lines
+    let region = lines
         .iter()
-        .position(|line| *line == "Arena Block (0):")
+        .position(|line| *line == "Arena Region (1 medium):")
         .unwrap();
     assert_eq!(
-        lines[block + 1..block + 5],
+        lines[region + 1..region + 4],
         [
-            "  prevBlock         0x0000000000000000",
-            "  blockSize         0x0000000000000100",
-            "  usableCapacity    0x00000000000000e0",
-            "  bumpOffset        0x0000000000000040",
+            "  start             0x0000000000210000",
+            "  handedOut         0x0000000000000100",
+            "  committed         0x0000000000010000",
         ]
     );
-    // A dump of 0x10 bytes from offset 0x30 of block 0.
-    let (out, err) = session_over(&mut heap, "show arena 0 0 0x30 0x10\nq\n");
+    assert!(lines.contains(&"Free Runs: 0"));
+    // A dump of 0x10 bytes from offset 0x30 of region 1, the medium one.
+    let (out, err) = session_over(&mut heap, "show arena 0 1 0x30 0x10\nq\n");
     assert_eq!(err, "");
     assert_eq!(
         out.lines().take(2).collect::<Vec<_>>(),
         [
-            "Arena Block (0,0):",
+            "Arena Region (0,1 medium):",
             "0x0000_0030 30 31 32 33 34 35 36 37 38 39 3a 3b 3c 3d 3e 3f | 0 1 2 3 4 5 6 7 8 9 : ; < = > ?",
         ]
     );
@@ -319,26 +325,15 @@ fn show_arena_refuses_an_arena_or_dump_that_is_not_there() {
     heap.with_main_arena();
     let (_, err) = session_over(
         &mut heap,
-        "show arena 3\nshow arena 0 1\nshow arena 0 0 0 0\nshow arena 0 0 0xf8 0x10\nq\n",
+        "show arena 3\nshow arena 0 5\nshow arena 0 1 0 0\nshow arena 0 1 0xf8 0x10\nq\n",
     );
     assert_eq!(
         err,
         "error: no arena 3; type 'list arena' for the arenas\n\
-         error: arena 0 has 1 block, numbered from 0, the oldest\n\
+         error: arena 0 has 3 regions: 0 small, 1 medium, 2 huge\n\
          error: a dump needs a size of 1 or more bytes\n\
-         error: offset 0xf8 + size 0x10 runs past the end of block 0, whose blockSize is \
-         0x100\n"
-    );
-    // Two blocks: the count is plural.
-    heap.put(BLOCK + PREV, 0x22_0000);
-    heap.put(0x22_0000 + PREV, 0);
-    heap.put(0x22_0000 + SIZE, 0x100);
-    heap.put(0x22_0000 + USABLE, 0);
-    heap.put(0x22_0000 + BUMP, 0);
-    let (_, err) = session_over(&mut heap, "show arena 0 5\nq\n");
-    assert_eq!(
-        err,
-        "error: arena 0 has 2 blocks, numbered from 0, the oldest\n"
+         error: offset 0xf8 + size 0x10 runs past the end of the medium region's 0x100 \
+         handed-out bytes\n"
     );
 }
 

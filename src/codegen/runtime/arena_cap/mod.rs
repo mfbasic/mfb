@@ -24,8 +24,10 @@ use std::collections::HashMap;
 
 mod accounting;
 mod cgroup;
+mod reserve;
 
 pub(crate) use accounting::*;
+pub(crate) use reserve::*;
 
 /// The process-wide arena map limit in bytes (u64). `0` means no enforcement.
 pub(crate) const ARENA_MAP_LIMIT_SYMBOL: &str = "_mfb_rt_arena_map_limit";
@@ -128,7 +130,7 @@ pub(crate) fn data_objects(
     if platform.family() == PlatformFamily::Linux {
         objects.extend(cgroup::data_objects());
     }
-    // plan-179-C: the mapped-bytes counter and its lock.
+    // plan-179-C, plan-183-C: the committed-bytes counter and its lock.
     objects.extend(accounting::data_objects(platform));
     objects
 }

@@ -63,7 +63,10 @@ pub(crate) const DARWIN_REALPATH_SYMBOL: &str = "_realpath$DARWIN_EXTSN";
 const DARWIN_PROT_READ_WRITE: &str = "3";
 const DARWIN_MAP_PRIVATE_ANON: &str = "4098";
 const DARWIN_SYSCALL_MMAP: &str = "33554629";
-const DARWIN_SYSCALL_MUNMAP: &str = "33554505";
+/// plan-183-B: `mprotect` (74) in the Unix syscall class.
+const DARWIN_SYSCALL_MPROTECT: &str = "33554506";
+/// plan-183-B: `MAP_FIXED | MAP_PRIVATE | MAP_ANON`.
+const DARWIN_MAP_FIXED_PRIVATE_ANON: &str = "4114";
 const DARWIN_CS_USER_TEMP_DIR: &str = "65537";
 
 impl crate::codegen::engine::types::CodegenPlatform for Platform {
@@ -994,11 +997,71 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Ok(())
     }
 
-    fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
-        instructions.extend([
-            abi::move_immediate(abi::SYSNR_DARWIN, "Integer", DARWIN_SYSCALL_MUNMAP),
-            abi::syscall(),
-        ]);
+    /// plan-183-B: `mmap(0, size, PROT_NONE, MAP_PRIVATE|MAP_ANON)` reserves;
+    /// `mprotect(addr, size, PROT_READ|PROT_WRITE)` commits; `mmap(addr, size,
+    /// PROT_NONE, MAP_FIXED|MAP_PRIVATE|MAP_ANON)` decommits — it replaces the range
+    /// with fresh inaccessible pages, which (unlike `madvise`) is guaranteed to drop
+    /// the old contents. Darwin reports failure with the carry flag.
+    fn emit_arena_vm(
+        &self,
+        op: crate::codegen::engine::types::ArenaVm,
+        addr: Reg,
+        size: Reg,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        use crate::codegen::engine::types::ArenaVm;
+        let site = instructions.len();
+        let ok = format!("arena_vm_{site}_ok");
+        let mmap = |instructions: &mut Vec<CodeInstruction>, fixed: bool| {
+            instructions.extend([
+                if fixed {
+                    abi::move_register(abi::sys_arg(0), addr)
+                } else {
+                    abi::move_immediate(abi::sys_arg(0), "Integer", "0")
+                },
+                abi::move_register(abi::sys_arg(1), size),
+                abi::move_immediate(abi::sys_arg(2), "Integer", "0"),
+                abi::move_immediate(
+                    abi::sys_arg(3),
+                    "Integer",
+                    if fixed {
+                        DARWIN_MAP_FIXED_PRIVATE_ANON
+                    } else {
+                        DARWIN_MAP_PRIVATE_ANON
+                    },
+                ),
+                abi::move_immediate(abi::sys_arg(4), "Integer", &u64::MAX.to_string()),
+                abi::move_immediate(abi::sys_arg(5), "Integer", "0"),
+                abi::move_immediate(abi::SYSNR_DARWIN, "Integer", DARWIN_SYSCALL_MMAP),
+                abi::syscall(),
+            ]);
+        };
+        match op {
+            ArenaVm::Reserve => {
+                mmap(instructions, false);
+                instructions.extend([
+                    abi::branch_lo(&ok),
+                    abi::bitwise_not(abi::return_register(), abi::ZERO),
+                    abi::label(&ok),
+                ]);
+            }
+            ArenaVm::Commit => {
+                instructions.extend([
+                    abi::move_register(abi::sys_arg(0), addr),
+                    abi::move_register(abi::sys_arg(1), size),
+                    abi::move_immediate(abi::sys_arg(2), "Integer", DARWIN_PROT_READ_WRITE),
+                    abi::move_immediate(abi::SYSNR_DARWIN, "Integer", DARWIN_SYSCALL_MPROTECT),
+                    abi::syscall(),
+                    abi::move_immediate(abi::return_register(), "Integer", "0"),
+                    abi::branch_lo(&ok),
+                    abi::move_immediate(abi::return_register(), "Integer", "1"),
+                    abi::label(&ok),
+                ]);
+            }
+            ArenaVm::Decommit => mmap(instructions, true),
+        }
         Ok(())
     }
 

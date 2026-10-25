@@ -5,24 +5,26 @@ an *arena*. Static strings and non-capturing function descriptors live in the
 program image; runtime-managed thread control blocks have separate storage.
 See `./mfb spec memory closures` and `./mfb spec threading control-block`.
 
-An arena owns a chain of OS-mapped blocks plus a
-small fixed *arena-state* control structure, and manages the mapped bytes with
-three cooperating structures (the classic deferred-coalescing
-design): **128 per-size-class quick bins** (exact chunk sizes 16…2048 — a freed
-small chunk parks on its bin in O(1) and the next same-class allocation pops it
-in O(1)), a **designated-victim carve chunk** (one active chunk that bump-serves
-small bin misses, so misses never splinter parked inventory), and a per-arena
-**address-ordered coalescing free-list** holding block remainders, plus **64
-large-bin size classes** for freed chunks over 2048 bytes (a large request takes
-any parked chunk it fits, splitting it). A gated **flush** sorts and coalesces
-every parked chunk before the arena maps more. Quick-bin and designated-victim
-hits and bin pushes are O(1); large-bin
-searches are bounded. Free-list walks and coalescing flushes have the costs
-specified below. The designated victim subsumes the
-bump pointer. Freeing is **internal reuse only**: a freed chunk goes
-back to the allocator for the next allocation but is never returned to the OS;
-mapped blocks are unmapped only by the bulk `arena_destroy` when the owning
-package instance shuts down.
+An arena owns one **slice** of the address space the program reserves at startup
+(`./mfb spec memory program-startup`, *The Arena Reservation*) plus a small fixed
+*arena-state* control structure. It commits memory from its slice as it needs it,
+in three regions (plan-183-C):
+
+- **small** — requests of 2048 bytes or less: 64 KiB pages, each serving one of
+  128 size classes (16, 32, …, 2048), with each page's slot bitmap in a side
+  descriptor;
+- **medium** — larger requests below 32 MiB: chunks carved upward from the
+  region's base, free runs on 64 size-class lists;
+- **huge** — requests of 32 MiB or more, and any request aligned above 16 bytes:
+  16 KiB-page chunks carved downward from the slice top, free runs on one list.
+
+No allocator metadata lives in free memory: run and page bookkeeping is in side
+tables of the slice and in the arena state, so **every byte of an arena that is not
+in use by the program is zero** — a freed chunk is zeroed whole, and committed
+memory the arena never handed out is the OS's zero pages. A medium or huge free
+merges with its free neighbours at once. Freed memory goes back to the allocator;
+`arena_destroy` decommits the whole slice when the owning package instance shuts
+down.
 
 Each package instance owns a distinct arena. The main package's arena-state lives
 on the entry stack and is pinned in `x19` (`ARENA_STATE_REGISTER`) for the life of
@@ -34,17 +36,17 @@ reclaim independently of the main thread (see `./mfb spec threading`).
 
 ## Arena-State Layout
 
-The arena-state structure is `ARENA_STATE_SIZE` = **3776 bytes**: [[src/codegen/error/constants/error_constants.rs:ARENA_STATE_SIZE]]
+The arena-state structure is `ARENA_STATE_SIZE` = **3936 bytes**: [[src/codegen/error/constants/error_constants.rs:ARENA_STATE_SIZE]]
 
 ```text
 ArenaState (at x19)
-  +0    U64  blockHead        ; pointer to the current (most-recent) block, 0 if none
+  +0    U64  reserved0        ; reserved: zero, read by nothing
   +8    U64  workerThread     ; this thread's control block, 0 on the main thread
-  +16   U64  reserved16       ; reserved: zero, read by nothing
+  +16   U64  sliceBase        ; first byte of the arena's slice, 0 for none
   +24   U64  reserved24       ; reserved: zero, read by nothing
   +32   U64  exitStatus       ; pending exit/result code used during teardown
   +40   U64  arenaStartTime   ; arena init time in ns (diagnostics)
-  +48   U64  freeListHead     ; lowest-address free chunk, 0 when the list is empty
+  +48   U64  reserved48       ; reserved: zero, read by nothing
   +56   U64  moneyRoundingMode ; per-thread Money arithmetic rounding: 0 = Commercial
                               ; (half-away, default), 1 = Banker (half-even); inherited
                               ; from the parent at thread spawn (money::setRounding)
@@ -53,16 +55,16 @@ ArenaState (at x19)
   +80   U64  cleanupFailMsg   ; pointer to last cleanup failure message
   +88   U64  rngStateLo       ; PCG64 RNG state, low 64 bits
   +96   U64  rngStateHi       ; PCG64 RNG state, high 64 bits
-  +104  U64  quickBin[128]    ; per-size-class bin heads: exact chunk sizes
-                              ; 16, 32, …, 2048 (class = size/16 - 1); 0 = empty
-  +1128 U64  carvePtr         ; designated-victim carve chunk: current pointer
-  +1136 U64  carveSize        ; remaining bytes in the carve chunk (0 = none)
+  +104  U64  smallHead[128]   ; per-class page lists: index + 1 of the first small page
+                              ; of class size/16 - 1 with a free slot; 0 = none
+  +1128 U64  hugeHead         ; huge free-run list: a run-node index, 0 = empty
+  +1136 U64  nodeFree         ; free list of the run-node pool, 0 = empty
   +1144 U64  outPtr           ; opt-in stdout buffer base, NULL until first use
   +1152 U64  outFilled        ; pending bytes held in the stdout buffer
   +1160 U64  outEnabled       ; io::setBuffered flag (0 = unbuffered default)
-  +1168 U64  largeBin[64]     ; large-block size-class heads, chunks > 2048: 4 classes
-                              ; per power of two from 2 KiB, the last holding 112 MiB
-                              ; and up (see arena_free); 0 = empty
+  +1168 U64  mediumHead[64]   ; medium free-run lists by size class (4 classes per power
+                              ; of two from 2 KiB, the last holding 112 MiB and up);
+                              ; run-node indices, 0 = empty
   +1680 U64  stackLimit       ; lowest sp a function body may start at (bug-789); 0 =
                               ; unchecked; low so one load reads it on every target
   +1688 U64  stackLimitTmp    ; scratch while a thread computes stackLimit
@@ -79,9 +81,35 @@ ArenaState (at x19)
   +3752 U64  stdinLocalPos    ; next unread byte in stdinLocalBuf (lock-free fast path)
   +3760 U64  stdinSubscriber  ; pointer to this thread's stdin broadcast-log registry
                               ; entry (NULL when not subscribed)
-  +3768 I64  largeFlushCredit ; large bytes freed since the last flush, minus 256 per
-                              ; chunk that flush sorted; a big request flushes only
-                              ; while it is positive; addressed by a computed register
+  +3768 U64  allocScalars[21] ; the allocator's slice geometry and frontiers (below);
+                              ; addressed off a computed register on every target
+```
+
+The scalar block (`ARENA_ALLOC_SCALARS_OFFSET`, offsets `ARENA_SC_*` within it):
+[[src/codegen/error/constants/error_constants.rs:ARENA_ALLOC_SCALARS_OFFSET]]
+
+```text
+  +0    smallPages    address of small page 0; 0 until the slice is laid out
+  +8    smallEnd      end of the small region = start of the run tags
+  +16   smallLimit    how many small pages fit
+  +24   smallNext     next never-used small page index
+  +32   smallEmpty    empty-page list, page index + 1 (0 = none)
+  +40   smallCommit   end of the committed small pages
+  +48   tableCommit   end of the committed page descriptors
+  +56   tags          the run-tag array
+  +64   mediumBase    first byte of medium data (tag block 0)
+  +72   mediumFront   medium frontier: every byte below it was handed out once
+  +80   mediumCommit  end of the committed medium data
+  +88   hugeFront     huge frontier: everything from it to the slice top is huge
+  +96   hugeCommit    start of the committed huge data
+  +104  tagsLow       end of the tag records committed for medium
+  +112  tagsHigh      start of the tag records committed for huge
+  +120  nodes         the run-node pool
+  +128  nodeNext      next never-used node index (index 0 is never used)
+  +136  nodeLimit     how many nodes the pool holds
+  +144  nodeCommit    end of the committed node pool
+  +152  sliceTop      the slice's last byte + 1
+  +160  committed     bytes this arena has committed and not decommitted
 ```
 
 `workerThread` is the back-pointer to this thread's control block, published by
@@ -94,66 +122,54 @@ and the cancellation-aware worker wait (`./mfb spec threading`); the pinned
 current-thread register cannot serve that role, because the entry stub reuses it as
 scratch on the main thread.
 
-`blockHead` anchors the unmap walk; `freeListHead`, the 128 `quickBin` heads,
-the 64 `largeBin` heads, and the `carvePtr`/`carveSize` designated victim anchor
-allocation (see the small- and large-request fast paths below), and
-`largeFlushCredit` gates the flush a large request may run before it maps.
-[[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_FLUSH_CREDIT_OFFSET]] The
-cleanup-failure triple records diagnostics if reclamation of a value fails during
-teardown, and the two RNG words at 88/96 give each arena (hence each thread) an
-independent `math::rand` stream seeded at startup. The words at 16/24 are
-**reserved**: every arena state is zero-initialized and nothing reads or writes
-them.
-[[src/codegen/error/constants/error_constants.rs:ARENA_RESERVED_16_OFFSET]] The entry shim's RNG scratch begins at `ARENA_STATE_SIZE`; globals follow it,
-and an argument-list entry reserves argc/argv materialization slots above the
-globals (see `./mfb spec memory program-startup`). Because the main arena-state lives on the entry
+`sliceBase` is set where the arena is created: slice 0 by the startup reservation
+for the main arena, slice 1 for a canvas program's graphics arena, and the two
+slices `thread::start` takes for a worker and its control block. The cleanup-failure
+triple records diagnostics if reclamation of a value fails during teardown, and the
+two RNG words at 88/96 give each arena (hence each thread) an independent
+`math::rand` stream seeded at startup. The words at 0, 24 and 48 are **reserved**:
+every arena state is zero-initialized and nothing reads or writes them.
+[[src/codegen/error/constants/error_constants.rs:ARENA_SLICE_BASE_OFFSET]] The entry
+shim's RNG scratch begins at `ARENA_STATE_SIZE`; globals follow it, and an
+argument-list entry reserves argc/argv materialization slots above the globals (see
+`./mfb spec memory program-startup`). Because the main arena-state lives on the entry
 stack (not zero-filled), the entry shim zeroes the whole `ARENA_STATE_SIZE`
 range with a loop before the first allocation; the thread-spawn path zeroes a
 worker's freshly allocated arena state with the same size-derived loop, so the
 two initializers can never fall out of lockstep when the state grows.
 
-## Free-List Layout
+## Slice Layout
 
-A free chunk overlays an intrusive `FreeNode` in its own dead bytes; its start is
-implicit (the node's own address):
-
-```text
-FreeNode (overlaid on a free chunk, start = node address)
-  +0   U64  next            ; next free chunk in ascending address order, 0 = end
-  +8   U64  size            ; size of this free chunk, in bytes (includes the node)
-  ...                       ; remaining bytes are dead
-```
-
-The list is kept ascending by `start`, so one walk finds both the insertion slot
-and the coalescing neighbors. **Allocated chunks carry no header or footer** —
-only free chunks spend 16 bytes on a node, in their own dead space — which is
-what keeps object layouts and copying untouched. The minimum granule is therefore
-16 bytes; every request is rounded up to 16 and every allocation is at least
-16-byte aligned, so each chunk start stays 16-aligned and each chunk size stays a
-multiple of 16 (a split front/tail remainder is always 0 or a valid ≥16 node,
-never sub-granule slack). Sizes passed to `arena_free` are supplied by the
-compiler's drop glue from the static type, so no per-object size tag is needed to
-recover a chunk's size at free time.
-
-## Block Layout
-
-Blocks are mapped on demand and chained head-first into a singly-linked list via
-a 32-byte (`ARENA_BLOCK_HEADER_SIZE`) header: [[src/codegen/error/constants/error_constants.rs:ARENA_BLOCK_HEADER_SIZE]]
+An arena's slice is `[base, base + S)`, `S` the reservation's slice size (at least
+256 MiB, a multiple of 2 MiB). The arena lays it out at its first allocation
+(`_mfb_arena_geometry`), so an arena that never allocates touches none of it:
+[[src/codegen/memory/arena/arena/layout.rs:lower_arena_geometry]]
 
 ```text
-ArenaBlock
-  +0   U64  prevBlock        ; previous block in the chain, 0 for the first
-  +8   U64  blockSize        ; total mapped size of this block, in bytes
-  +16  U64  usableCapacity   ; blockSize - 32 (bytes available after the header)
-  +24  U64  bumpOffset       ; reserved under the free-list (kept 0); see below
-  +32  ...  payload          ; usableCapacity bytes managed by the free-list
+| small: S/8                    | tags | nodes | medium → grows up   ...   grows down ← huge |
+| descriptors | 64 KiB pages    |  side        |                                            |
 ```
 
-`ArenaState.blockHead` always points at the newest block; older blocks are
-reachable only through each block's `prevBlock` link, which is the chain
-`arena_destroy` unmaps. The default block size is `ARENA_DEFAULT_BLOCK_SIZE` =
-**4096 bytes**. [[src/codegen/error/constants/error_constants.rs:ARENA_DEFAULT_BLOCK_SIZE]] Allocation does not read `bumpOffset` — it is written `0` at map
-time and kept as a reserved field; the bins, carve chunk and free-list drive placement.
+- **Small region**, the first `S/8` bytes: one 576-byte descriptor for every page
+  the region could hold, then the pages from the next 64 KiB boundary. A
+  descriptor is `{class, slots, free, hint, next, prev}` (class = size/16, slots =
+  65536 / size, free = free slots, hint = the first bitmap word that may have a
+  free slot, next/prev = the page's class-list links) and a 512-byte slot bitmap at
+  +64 whose bit is 1 while the slot is handed out. Bits past the last slot are set.
+- **Run tags**: one 16-byte record `{start, end}` per 2 KiB block of the rest of
+  the slice, indexed by `(address - mediumBase) >> 11`. `start` describes what
+  begins in the block — an allocated chunk, `size | (address >> 4 & 127) << 48 |
+  1` (bits 55–63 zero; bit 55 is reserved for a huge chunk's growth headroom, and
+  every reader masks bits 55 and up away), or a free run, `node << 2 | 2` — and `end` names the free run whose last byte
+  lies in the block. Every medium and huge chunk and free run is longer than 2 KiB
+  (a remainder shorter than the region's minimum run stays in the chunk it was cut
+  from), so at most one thing starts, and at most one free run ends, in any block.
+- **Run nodes**: half as many 32-byte nodes `{start, size, next, prev}` as there
+  are blocks, the most free runs the span can hold.
+- **Medium** data begins at the next 4 MiB boundary and grows up; **huge** data
+  grows down from the slice top. Each region commits on demand — data in 4 MiB
+  steps, side structures in 64 KiB granules (`_mfb_arena_commit`) — and a region
+  never commits into the other's committed range.
 
 ## `arena_alloc(size, align)`
 
@@ -164,146 +180,71 @@ failure. Its register contract is the standard runtime-helper one: **all
 caller-saved integer registers (x0–x17) are clobbered**; callee-saved registers
 (x19–x28) are preserved by its PCS frame. Callers must not hold a live value in
 any caller-saved register across the call — spill to a stack slot instead. The
-fast (first-fit) path makes no call, but the flush-before-grow path calls
-`arena_flush_coalesce` and a retired large carve chunk goes through
-`arena_insert_free`, so `arena_alloc` is **not** a leaf — it carries a frame and
-saves the link register.
+small path makes no call; a new page, a medium or huge request and the first
+allocation call helpers, so `arena_alloc` carries a frame and saves the link
+register.
 
-The algorithm:
-
-1. **Validate alignment.** A zero `align`, or one that is not a power of two
-   (`(align - 1) & align != 0`), returns `ErrInvalidArgument`.
-2. **Normalize the request.** A request within `ARENA_MIN_CHUNK` (16) of
-   `u64::MAX` is rejected as `ErrInvalidArgument` before normalization — the
-   granule round-up would otherwise wrap it to a tiny size that allocates
-   *small*, and no such request could ever be satisfied. A zero `size` becomes
-   `1`; `size` is then rounded up to the 16-byte granule, and `align` is raised
-   to at least 16. This keeps every chunk 16-aligned and 16-sized. No request
-   can ever normalize to a value smaller than itself.
-2a. **Quick-bin pop** (small requests: `align ≤ 16` and normalized
-   `size ≤ 2048`; anything else skips to step 3). If `quickBin[size/16 - 1]`
-   is non-empty, pop the bin head and return it — an exact-class O(1) hit, no
-   walk and no splitting. This is sound because free and alloc normalize
-   identically and every chunk the allocator ever hands out is 16-aligned, so
-   any bin node satisfies any `align ≤ 16` request of its class.
-2b. **Designated-victim bump.** On a bin miss, if the carve chunk holds at
-   least `size` bytes, serve from `carvePtr` and advance it — an O(1) bump.
-   Concentrating all small-miss carving in one chunk keeps parked bin
-   inventory whole (splitting parked chunks per miss shaves them into
-   sub-class fragments nothing ever requests).
-2c. **Victim renewal.** When the carve chunk runs dry, its remnant parks on
-   its exact-size bin (or joins the coalescing list if larger than 2048), and
-   a new victim is acquired: the largest parked bin chunk that fits the
-   request (a bounded top-down slot scan). If no bin fits, the walk (step 3)
-   hands over a **whole** chunk — never a split — as the new victim; failing
-   that, the flush retry (step 4) and finally a fresh block from the grow
-   (step 5) supply it.
-2d. **Large-bin size class** (large requests: `align ≤ 16` and normalized
-   `size > 2048`). Look at the first 16 nodes of the request's size class and
-   take an exact-size node at once, else the smallest node that fits; failing
-   that, take the head of the lowest non-empty *higher* class — every chunk
-   there is larger than any size in this one, so it fits without a look at its
-   size. The chunk is split: the request is returned from its start and the
-   remainder parks on its quick bin (≤ 2048) or its size class. This is O(1)
-   per request (at most 16 nodes and 63 heads), and a freed block serves any
-   later request it fits, not only one of its exact size. A miss falls through
-   to step 3. [[src/codegen/memory/arena/arena/mod.rs:emit_large_bin_slot]]
-   [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_BIN_SCAN_LIMIT]]
-3. **First-fit walk.** Walk the address-ordered free-list for the first chunk
-   where the request fits after alignment: `aligned = align_up(start, align)`
-   and `aligned + size <= start + chunkSize`. A small request (per step 2a's
-   bounds) takes the whole chunk as the new designated victim and bump-serves
-   from it. A large request **splits** it — return `aligned`; the front
-   padding (`aligned - start`, if > 0) and the tail remainder
-   (`chunkEnd - (aligned + size)`, if > 0) each park on their exact-size bin
-   when ≤ 2048 or relink into the list otherwise, so a split never leaves a
-   sub-class fragment on the list. All sums are overflow-checked; an overflow
-   skips the chunk.
-4. **Flush-before-grow.** If no chunk fits, do not map yet.
-   - A small request first takes the head of the lowest non-empty large-bin
-     class as its new designated victim — at most 64 KiB of it, the rest
-     re-parked on its class so one small request does not lock a whole large
-     block away. [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_DV_MAX]]
-     With the large bins empty, it flushes when the address-ordered list is
-     non-empty and retries from step 2c once. On this path the bins are known
-     to hold nothing of the request's class or larger, so coalescing adjacent
-     parked chunks genuinely can produce a fit; with the list empty, the only
-     free chunks are small ones a pure-small workload is recycling, and the
-     flush would only destroy that reuse.
-   - A large request flushes and retries from step 2d once, but only while
-     `largeFlushCredit` is positive: every large free adds its bytes to it, and
-     every flush resets it to minus 256 bytes per chunk the flush sorted. A
-     flush is O(M log M) in the M chunks it sorts, and the credit must recover from `-256 * M` to a positive value before
-     another large-request flush can run. [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_FLUSH_BYTES_PER_CHUNK]]
-     Without the flush, a program whose large sizes vary splits its free
-     memory into pieces too small for its next request and maps without bound.
-
-   The flush gathers the list and every quick-bin and large-bin chain, merge
-   sorts them by address, merges physically adjacent chunks in one pass, and
-   re-parks each result on its quick bin (≤ 2048) or its large-bin size class;
-   the list is left empty. [[src/codegen/memory/arena/arena/free.rs:lower_arena_flush_coalesce]]
-5. **Grow.** If nothing fits after that, map a new block sized
-   `max(4096, round_up(size + align + 32 + slack, 4096))`, write its header,
-   link it at the head, and **carve the request directly from the fresh
-   block**: one walk finds the block's address-ordered slot, then a small
-   request takes the whole usable region as the new designated victim while a
-   large request splits it as in step 3 — the fresh block is never
-   whole-inserted and the list is never re-walked. `slack` is 0 except for a
-   large request whose own size class, or the class below it, holds a parked
-   chunk: that request is climbing past something it freed (a scene or copy a
-   little longer each frame), and since mapped blocks never merge, an
-   exact-size block would make every step of the climb map afresh. It gets
-   `size / 4` of slack, which parks in the large bins and re-merges with the
-   request's own chunk when that is freed, so a climb maps a geometric series
-   instead of the sum of its steps. Every sum in the sizing is overflow-checked
-   (including the 32-byte header add and the slack); a wrapped sum reports
-   `ErrOutOfMemory` rather than mapping an undersized block. The block is used as
-   mapped: the OS returns anonymous memory zeroed on every target (`mmap` with
-   `MAP_ANONYMOUS` on Linux and macOS, `VirtualAlloc` with `MEM_COMMIT` on
-   Windows), so it is never filled by hand (see *Zero Fill*).
-
-A failed mapping (the platform `mmap`/`VirtualAlloc` hook) reports
-`ErrOutOfMemory`.
-
-Step 5 is also where the arena memory cap applies: the block is charged to the
-process-wide counter before it is mapped (see *Process Memory Cap*).
+1. **Validate.** A zero `align`, one that is not a power of two, or one above
+   16 KiB returns `ErrInvalidArgument`. So does a `size` within 16 of `u64::MAX`,
+   which the round-up would otherwise wrap to a small size.
+2. **Normalize.** A zero `size` becomes 1; `size` is rounded up to 16.
+3. **Lay the slice out** on the arena's first allocation; an arena with no slice
+   reports `ErrOutOfMemory`.
+4. **Small** (`size ≤ 2048`, `align ≤ 16`): the first page on class `size/16 - 1`'s
+   list gives its lowest free slot — scan the bitmap from the hint for a word that
+   is not all ones, take its lowest clear bit — and leaves the list when its last
+   slot goes. An empty list first gets a page (`_mfb_arena_small_page`): from the
+   empty-page list, else the next never-used page, committing its descriptor and
+   page as needed. [[src/codegen/memory/arena/arena/small.rs:emit_small_alloc]]
+5. **Medium** (`2048 < size < 32 MiB`, `align ≤ 16`): the best fit among the first
+   16 runs of the size's class (an exact size at once), else the head of the next
+   non-empty higher class, every run of which is larger; the run's low end becomes
+   the chunk and the rest stays a run (a rest under 2064 bytes stays in the chunk).
+   With no run, the chunk is carved at `mediumFront`, committing data and tag records
+   as needed; it may not reach `hugeFront`. [[src/codegen/memory/arena/arena/span.rs:lower_arena_span_alloc]]
+6. **Huge** (`size ≥ 32 MiB`, or `align > 16`): `size` is rounded up to 16 KiB;
+   the best fit among the first 64 runs of the huge list, its low end taken (a rest
+   under 16 KiB stays in the chunk), else a chunk carved down from `hugeFront`,
+   committing as needed; it may not reach `mediumFront`. Huge chunks are 16 KiB
+   aligned, which is how an alignment above 16 is honoured.
+7. The chunk's start record gets its tag. Failure anywhere — the small region full,
+   the medium and huge regions meeting, a refused commit, the run-node pool
+   exhausted — reports `ErrOutOfMemory`.
 
 ## Process Memory Cap
 
 The arena memory cap (`./mfb spec tooling project-manifest`, *Arena memory cap*)
-bounds the bytes of arena blocks the whole process has mapped — the main arena and
+bounds the bytes every arena of the process has committed — the main arena and
 every worker's, counted together, because each thread has its own arena and a
-per-arena cap would let N threads map N times the cap. Three data objects hold it,
-none of them in the arena state, so `ARENA_STATE_SIZE` is unchanged:
+per-arena cap would let N threads commit N times the cap. Three data objects hold it,
+none of them in the arena state:
 
 | symbol | what |
 | --- | --- |
 | `_mfb_rt_arena_map_limit` | u64 cap in bytes, stored by the startup check (`./mfb spec memory program-startup`, *The Arena Memory Cap Check*); `0` means no enforcement |
-| `_mfb_rt_arena_mapped_bytes` | u64 bytes of arena blocks mapped and not yet unmapped |
+| `_mfb_rt_arena_committed_bytes` | u64 bytes the arenas have committed and not decommitted |
 | `_mfb_rt_arena_map_lock` | 64-byte mutex guarding the counter, statically initialized (`PTHREAD_MUTEX_INITIALIZER`; an SRWLOCK on Windows) |
 
-[[src/codegen/runtime/arena_cap/accounting.rs:ARENA_MAPPED_BYTES_SYMBOL]]
+[[src/codegen/runtime/arena_cap/accounting.rs:ARENA_COMMITTED_BYTES_SYMBOL]]
 [[src/codegen/runtime/arena_cap/accounting.rs:ARENA_MAP_LOCK_SYMBOL]]
 
-- **Charge before the map** (`arena_alloc` step 5). The allocator reads the limit;
-  if it is 0 it maps without touching the counter. Otherwise, under the lock, it adds
-  the block's `map_size` — the whole mapping, header and slack included — to the
-  counter. A sum that wraps, or that is above the limit, is not stored: the lock is
-  released and the request fails with `ErrOutOfMemory` without a map. Charging
-  under the lock makes the check and the add one step, so two threads cannot both
-  pass a check made before either adds.
-  [[src/codegen/runtime/arena_cap/accounting.rs:emit_map_charge]]
-- **Refund a failed map.** When the platform map fails after a charge, the
-  allocator takes the lock again and subtracts `map_size` before reporting
-  `ErrOutOfMemory`. [[src/codegen/runtime/arena_cap/accounting.rs:emit_map_refund]]
-- **Refund on unmap.** `arena_destroy` reads each block's `blockSize` (header +8)
-  and, when the limit is nonzero, subtracts it under the lock before unmapping the
-  block. A finished worker's arena therefore gives its bytes back, and a program that
-  churns through workers is capped on its live mappings, not on the total it ever
-  mapped. [[src/codegen/runtime/arena_cap/accounting.rs:emit_unmap_refund]]
-- **The fast path is untouched.** Quick bins, the carve chunk and the free list
-  never take the lock; only a block map or unmap does. The limit is read on every
-  block map and every block unmap.
+- **Charge before a commit** (`_mfb_arena_commit`). The helper reads the limit; if it
+  is 0 it commits without touching the counter. Otherwise, under the lock, it adds
+  the commit's bytes — data steps and side-structure granules alike. A sum that
+  wraps, or that is above the limit, is not stored: the lock is released and the
+  request fails with `ErrOutOfMemory` without a commit. Charging under the lock makes
+  the check and the add one step, so two threads cannot both pass a check made
+  before either adds. [[src/codegen/runtime/arena_cap/accounting.rs:emit_commit_charge]]
+- **Refund a refused commit.** When the OS refuses the commit after a charge, the
+  helper takes the lock again and subtracts it before reporting `ErrOutOfMemory`.
+  [[src/codegen/runtime/arena_cap/accounting.rs:emit_commit_refund]]
+- **Refund on decommit.** `arena_destroy` subtracts the arena's `committed` word,
+  when the limit is nonzero, as it decommits the slice. A finished worker's arena
+  therefore gives its bytes back, and a program that churns through workers is capped
+  on what its arenas hold, not on the total they ever took.
+  [[src/codegen/runtime/arena_cap/accounting.rs:emit_decommit_refund]]
+- **The fast path is untouched.** Allocation and free never take the lock; only a
+  commit or a decommit does.
 - **Turning accounting off.** Storing 0 into the limit stops all charging and
   refunding. `_mfb_shutdown` does it first (so a signal handler never waits on a lock
   its own thread holds), and the POSIX `process::spawn`/`process::shell` fork child
@@ -311,65 +252,53 @@ none of them in the arena state, so `ARENA_STATE_SIZE` is unchanged:
   held at `fork()`; the child's copy of that lock would stay locked forever).
   [[src/codegen/runtime/arena_cap/accounting.rs:emit_disable_accounting]]
 - **Not counted:** the `--debug` perf region and the `--debug` arena registry,
-  which map memory through the same platform hook but are not arena blocks, and
-  every mapping that is not an arena block (thread stacks, audio and GPU buffers,
-  native `LINK` libraries' own memory). The `--debug` counter `mapped_bytes` is
+  which map memory through their own platform hook, and every mapping that is not
+  an arena's (thread stacks, audio and GPU buffers, native `LINK` libraries' own
+  memory). The `--debug` counters `committed_bytes`/`committed_peak_bytes` are
   separate and per arena.
 
 With `maxArenaMemoryDisable: true` none of this is emitted: no data objects, no
-lock calls, no checks. The grow path of an enabled build calls the platform lock
-functions, so `arena_alloc` clobbers the caller-saved registers on that path as
-its register contract already allows. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
+lock calls, no checks. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
 source as ordinary language-level errors (see the language spec §14.3.1).
 
 ## `arena_free(ptr, size)`
 
 `arena_free` (symbol `_mfb_arena_free`) takes the chunk pointer in `x0` and its
 byte `size` in `x1` and returns nothing; [[src/codegen/memory/arena/arena/free.rs:lower_arena_free]] like every runtime helper it
-clobbers all caller-saved integer registers (it carries a frame, saves the link
-register, and calls `arena_fill_zero`). `size` is
-normalized exactly as `arena_alloc` normalizes it (zero → 1, rounded up to 16),
-so the freed extent matches the live chunk that was handed out. A chunk of
-2048 bytes or less then **parks on its exact-size quick bin** — an O(1) head
-push, no list walk (`quickBin[size/16 - 1]`; bin nodes reuse the `FreeNode`
-overlay, so a later flush hands them straight to the coalescing insert). A
-larger chunk (> 2048) instead **parks on its large-bin size class**, also an
-O(1) head push, and adds its bytes to `largeFlushCredit`. The 64 classes split
-each power of two from 2 KiB into four: for `2^k ≤ size < 2^(k+1)` the class is
-`(k - 11) * 4 + ((size >> (k - 2)) & 3)`, and every size from 112 MiB up shares
-the last. [[src/codegen/memory/arena/arena/mod.rs:emit_large_bin_slot]] In either bin path the chunk is then zero-filled (see *Zero Fill*) over
-`[ptr+16, ptr+size)` — every payload byte past the 16-byte `FreeNode` overlay
-just written, so the scrub can never destroy live free-list metadata. An
-**immediate repeated free of the same address is a no-op**: the push finds the
-chunk already at its bin's head and returns without relinking it (a self-cycle
-would hand it to the next two allocations). `arena_free` never coalesces; merging
-happens in the flush (step 4 above) and in `arena_insert_free`, which the rare
-retirement of a designated victim larger than 2048 bytes uses. Its walk also
-detects a node already at `ptr` and returns without relinking. The insert's
-coalescing cases:
+clobbers all caller-saved integer registers. The chunk's region follows from its
+address; `size`, normalized as `arena_alloc` normalizes it, feeds only the `--debug`
+counters.
 
-- `prev.start + prev.size == ptr` → extend `prev` over the chunk;
-- `ptr + size == next.start` → absorb `next`;
-- both → merge all three into one chunk;
-- neither → link a fresh `{next, size}` node at `ptr`.
+- **Small**: the page is `(ptr - smallPages) >> 16`; its descriptor's class gives
+  the slot size, and `ptr` must be a slot boundary whose bit is set. The bit is
+  cleared, the hint lowered if needed, and the slot zeroed. A page whose first slot
+  comes free rejoins its class list; a page whose last slot comes free leaves it for
+  the empty-page list — unless it is the class's only page, which stays.
+  [[src/codegen/memory/arena/arena/small.rs:emit_small_free]]
+- **Medium or huge** (`_mfb_arena_span_free`): the start record of `ptr`'s block
+  must be an allocated-chunk tag whose granule offset matches `ptr`; it gives the
+  chunk's size. The record is cleared and the chunk zeroed whole. Then, within the
+  chunk's own region, the free run whose end record lies in the block before `ptr`
+  and ends at `ptr` (left), and the free run whose start record lies in the block of
+  the chunk's end and starts there (right), are unlinked and merged with it; the
+  result's tags are rewritten and it is listed by its size (or on the huge list).
+  [[src/codegen/memory/arena/arena/span.rs:lower_arena_span_free]]
 
-Adjacency is pure arithmetic on `start`/`size`, so no boundary tags are read.
-Chunks in different blocks are never contiguous (the 32-byte header always
-separates blocks), so a merge never spans a block. `arena_free` **never unmaps**
-— it only relinks; memory returns to the OS solely at `arena_destroy`. The `size`
-is supplied by the compiler's type-directed drop glue; there is no user-level
-free operation. This ABI requires the pointer and rounded extent to match the
-allocation and does not provide general double-free detection.
+A pointer that is not a chunk this arena handed out — a repeated free, a pointer
+into a chunk or a free run, an address outside the arena's slice, a free before the
+arena ever allocated — changes nothing (counted as `double_free_skips` in a
+`--debug` build). The `size` is supplied by the compiler's type-directed drop glue;
+there is no user-level free operation.
 
 ## Zero Fill
 
-Freed chunks are overwritten with zero — always on, in debug and release. The point
-is confidentiality: a freed value does not linger in the arena as plaintext for a
-later bug, dump or reader to find. One overwrite is enough, because RAM keeps no
-trace of the value it replaced, and zero is the cheapest value to write. A freshly
-mapped block is never filled: the OS hands out anonymous memory already zeroed on
-every target (step 5 of `arena_alloc`), so no byte another process or a previous
-mapping left can be read through it.
+Freed chunks are overwritten with zero — always on, in debug and release, the whole
+chunk. The point is confidentiality: a freed value does not linger in the arena as
+plaintext for a later bug, dump or reader to find. One overwrite is enough, because
+RAM keeps no trace of the value it replaced, and zero is the cheapest value to write.
+Committed memory is never filled by hand: never-touched committed pages read zero on
+every target (anonymous memory on Linux and macOS, `MEM_COMMIT` on Windows), so no
+byte another process or a previous mapping left can be read through it.
 
 `arena_fill_zero(ptr, len)` takes an 8-aligned `ptr` and a `len` that is a multiple
 of 8 (every chunk handed to it is 16-aligned and a multiple of 16). Its body is per
@@ -388,46 +317,44 @@ target: [[src/codegen/memory/arena/arena/mod.rs:lower_arena_fill_zero]]
 - **riscv64**: the generic loop — eight zero-word stores, 64 bytes an iteration,
   then one word at a time.
 
-`arena_free` calls it after parking the chunk on its bin, over the freed payload past
-the FreeNode words (see `arena_free` above); the node's own `{next, size}` overwrite
-the first 16 bytes, so every freed byte is overwritten.
-
-**Arena memory is not guaranteed zero.** A chunk handed out again begins with its
-free-list node's two words, and a chunk split from a larger free one carries that
-one's. So every allocation site fully initializes the bytes it later reads (the
-language's allocators do). A use-after-free or an uninitialized read sees mostly
-zeros, which can look like a valid value.
-
-The fill draws no randomness: it never reads or advances the language RNG
-(`math::rand`, offsets 88/96).
+**Every chunk `arena_alloc` hands out reads zero**, since nothing but the program
+writes into the arena and every free zeroes what it frees. Allocation sites still
+fully initialize what they later read (the language's allocators do); a
+use-after-free reads zeros, which can look like a valid value. The fill draws no
+randomness: it never reads or advances the language RNG (`math::rand`, offsets
+88/96).
 
 A `--debug` build counts the fills for each arena in the debug report:
 `arena.<n>.fill_free_calls`/`.fill_free_bytes` for freed chunks, and
-`arena.<n>.fill_grow_calls`/`.fill_grow_bytes`, which stay 0 because fresh blocks are
-not filled. Run with `MFB_ARENA_CHECK_ZERO` set, it also checks every chunk
-`arena_alloc` hands out past its first 16 bytes and counts the chunks that hold a
-non-zero byte in `arena.<n>.zero_violations` (see `./mfb spec tooling
-debug-report`).
+`arena.<n>.fill_grow_calls`/`.fill_grow_bytes`, which stay 0. Run with
+`MFB_ARENA_CHECK_ZERO` set, it also checks every chunk `arena_alloc` hands out and
+counts the chunks that hold a non-zero byte in `arena.<n>.zero_violations` (see
+`./mfb spec tooling debug-report`).
 
 ## Cleanup and Reclamation
 
-An arena is reclaimed whole. `arena_destroy` (symbol `_mfb_arena_destroy`) walks
-the block chain from `blockHead` through each `prevBlock`, [[src/codegen/memory/arena/arena/mod.rs:lower_arena_destroy]] unmapping every block
-with the platform `munmap`/`VirtualFree` hook, then clears **both list heads** —
-`blockHead` and `freeListHead` — and every word from `ARENA_QUICK_BIN_BASE_OFFSET` through
-`ARENA_STATE_SIZE` to `0`. This includes quick/large bins, the designated
-victim, output/input buffer state, vector scratch, current error, and flush
-credit. No allocator head retains an address into an unmapped block.
-It frees no individual values; all memory returns to the OS at once. The helper
-is idempotent — a second call sees `blockHead == 0` and does nothing.
+An arena is reclaimed whole. `arena_destroy` (symbol `_mfb_arena_destroy`)
+decommits the arena's whole slice in one call — `madvise(MADV_DONTNEED)` then
+`mprotect(PROT_NONE)` on Linux, an `mmap(MAP_FIXED, PROT_NONE)` over the range on
+macOS (guaranteed to drop the old contents, which `madvise` is not there),
+`VirtualFree(MEM_DECOMMIT)` on Windows — so its pages go back to the OS and read zero
+when committed again. [[src/codegen/memory/arena/arena/mod.rs:lower_arena_destroy]]
+[[src/codegen/engine/types/types.rs:emit_arena_vm]] It refunds the arena's committed
+bytes to the cap and clears the small and medium list heads, the huge head, the node
+free list and the scalar block, so the arena is inert and lays its slice out afresh
+if it allocates again. The slice stays the arena's (`thread::start`'s bookkeeping
+hands worker and control-block slices back, `./mfb spec threading control-block`).
+Nothing is unmapped: unmapping part of the reservation would leave a hole for an
+unrelated `mmap` to land in. The helper is idempotent — an arena that never
+allocated, or was already destroyed, has nothing laid out and does nothing.
 
 At process teardown, `_mfb_shutdown` reads the arena-state address from
 `_mfb_rt_main_arena`, clears that global first [[src/codegen/error/constants/error_constants.rs:SHUTDOWN_SYMBOL]] (so a signal arriving mid-teardown
 re-enters as a no-op), restores the terminal if TUI mode was active, and then
 calls `arena_destroy` on the main arena — except in a program that can still have a
 live worker (one embedding any `thread.` runtime call), where the free is skipped
-on every platform and the OS reclaims the blocks at process exit instead
-(`./mfb spec threading os-integration`). A worker arena's chunks are unmapped by
+on every platform and the OS reclaims the memory at process exit instead
+(`./mfb spec threading os-integration`). A worker arena's slice is decommitted by
 the worker as the last step of its run; its arena-state block (a heap block) is
 freed with the thread's control block. Nothing another thread reads points into a worker arena:
 every value that crosses is copied into the control block's own block arena and
@@ -687,11 +614,11 @@ call result is always safe for the caller to own and free.
 ## Measuring an Arena
 
 A program built with `mfb build --debug` counts the events described on this page
-for every arena: blocks mapped and unmapped, allocation and free calls and bytes,
-which `arena_alloc` path served each request, double-free skips, coalescing
-flushes and inserts, and live and peak live bytes. It prints them in the `arena`
-section of the debug report at exit. A normal build contains none of the counting
-code. [[src/codegen/debug/arena/mod.rs:ArenaFeature]]
+for every arena: its slice's size, commits and decommits and their bytes, allocation
+and free calls and bytes, which region and source served each request, small pages
+set up, frontier extensions, double-free skips, fills, and live and peak live bytes.
+It prints them in the `arena` section of the debug report at exit. A normal build
+contains none of the counting code. [[src/codegen/debug/arena/mod.rs:ArenaFeature]]
 
 ## See Also
 

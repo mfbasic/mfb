@@ -37,7 +37,6 @@ use crate::target::shared::plan::NativePlan;
 // the aarch64/riscv64 ones (mmap 222 / munmap 215 there).
 const SYS_WRITE: &str = "1";
 const SYS_MMAP: &str = "9";
-const SYS_MUNMAP: &str = "11";
 const SYS_EXIT_GROUP: &str = "231";
 const SYS_GETRANDOM: &str = "318";
 
@@ -200,15 +199,9 @@ impl LinuxArch for X86_64 {
         Ok(())
     }
 
-    fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
-        // munmap(addr, len) — nr 11. The shared arena_destroy leaves addr/len in
-        // the AArch64 x0/x1 slots, which the x86-64 selection maps to rdi/rsi, so
-        // they are already in place; only the syscall number is set here.
-        instructions.extend([
-            abi::move_immediate(abi::syscall_register(), "Integer", SYS_MUNMAP),
-            abi::syscall(),
-        ]);
-        Ok(())
+    /// plan-183-B: x86-64 `mmap` 9, `mprotect` 10, `madvise` 28.
+    fn arena_vm_syscalls(&self) -> (&'static str, &'static str, &'static str) {
+        (SYS_MMAP, "10", "28")
     }
 
     // No `emit_thread_trampoline` override: x86-64 uses the default

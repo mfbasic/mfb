@@ -115,8 +115,11 @@ fn a_debug_module_gets_the_report_helper_and_each_section() {
             "{report} missing from {symbols:?}"
         );
     }
+    // plan-183-B: the arena report reads the reservation's slice size, a word every
+    // native module defines (`module_layout`), debug or not.
     let data: Vec<String> = data_objects(&module(true))
         .into_iter()
+        .chain(crate::codegen::runtime::arena_cap::data_objects_reservation(&module(true)))
         .map(|object| object.symbol)
         .collect();
     for function in &functions {

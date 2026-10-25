@@ -18,25 +18,27 @@ use common::debug_report::{arena_lines, build_debug, build_debug_project, counte
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
-/// Every counter each registered arena reports, in report order.
-const COUNTERS: [&str; 24] = [
-    "maps",
-    "mapped_bytes",
-    "unmaps",
-    "unmapped_bytes",
+/// Every counter each registered arena reports, in report order (plan-183-C's set).
+const COUNTERS: [&str; 28] = [
+    "reserved_bytes",
+    "grows",
+    "commits",
+    "committed_bytes",
+    "committed_peak_bytes",
+    "decommits",
+    "decommitted_bytes",
     "alloc_calls",
     "alloc_bytes",
     "free_calls",
     "free_bytes",
     "live_bytes",
     "peak_live_bytes",
-    "hit_quick_bin",
-    "hit_carve",
-    "hit_large_bin",
-    "hit_walk",
-    "grow",
-    "flushes",
-    "insert_free_calls",
+    "hit_small",
+    "small_pages",
+    "hit_medium_run",
+    "hit_medium_frontier",
+    "hit_huge_run",
+    "hit_huge_frontier",
     "double_free_skips",
     "fill_grow_calls",
     "fill_grow_bytes",
@@ -44,6 +46,8 @@ const COUNTERS: [&str; 24] = [
     "fill_free_bytes",
     "zero_checks",
     "zero_violations",
+    "extend_calls",
+    "extend_hits",
 ];
 
 /// The registration shape: totals and each arena's kind, with every counter of every
@@ -211,11 +215,11 @@ fn main_arena(name: &str, source: &str) -> Vec<String> {
 /// Every successful allocation is attributed to exactly one allocation path.
 fn assert_partition(case: &str, lines: &[String]) {
     let paths = [
-        "hit_quick_bin",
-        "hit_carve",
-        "hit_large_bin",
-        "hit_walk",
-        "grow",
+        "hit_small",
+        "hit_medium_run",
+        "hit_medium_frontier",
+        "hit_huge_run",
+        "hit_huge_frontier",
     ]
     .iter()
     .map(|name| counter(case, lines, 0, name))
@@ -228,8 +232,9 @@ fn assert_partition(case: &str, lines: &[String]) {
 }
 
 /// Exact counts under churn: doubling the iterations adds at least one allocation and
-/// one free per extra iteration, the extra allocations come from the quick bins, the
-/// arena maps no more memory, and every allocation is attributed to exactly one path.
+/// one free per extra iteration, the extra allocations are small slots on pages the
+/// arena already has, the arena commits no more memory, and every allocation is
+/// attributed to exactly one path.
 #[test]
 fn churn_counts_scale_with_iterations_and_partition_by_path() {
     let small = main_arena("dbg_arena_churn_1000", &churn_source(1000));
@@ -248,13 +253,18 @@ fn churn_counts_scale_with_iterations_and_partition_by_path() {
         "1000 extra iterations must add at least 1000 frees: {small:?} / {large:?}"
     );
     assert!(
-        delta("hit_quick_bin") >= 999,
-        "a steady churn reuses its quick bins: {small:?} / {large:?}"
+        delta("hit_small") >= 999,
+        "a steady churn is served from the small pages: {small:?} / {large:?}"
     );
     assert_eq!(
-        counter("churn 1000", &small, 0, "maps"),
-        counter("churn 2000", &large, 0, "maps"),
-        "churn reuses memory: doubling the iterations must map no more blocks"
+        counter("churn 1000", &small, 0, "small_pages"),
+        counter("churn 2000", &large, 0, "small_pages"),
+        "churn reuses its slots: doubling the iterations must set up no more pages"
+    );
+    assert_eq!(
+        counter("churn 1000", &small, 0, "commits"),
+        counter("churn 2000", &large, 0, "commits"),
+        "churn reuses memory: doubling the iterations must commit no more"
     );
     assert_eq!(counter("churn 2000", &large, 0, "double_free_skips"), 0);
 }
@@ -280,17 +290,22 @@ fn a_mebibyte_read_grows_the_arena() {
     let lines = arena_lines(name, &stderr);
     assert_partition(name, &lines);
     assert!(
-        counter(name, &lines, 0, "grow") >= 1,
+        counter(name, &lines, 0, "commits") >= 1,
         "a 1 MiB allocation must grow the arena:\n{stderr}"
     );
     assert!(
-        counter(name, &lines, 0, "mapped_bytes") >= 1 << 20,
-        "the arena must map at least 1 MiB:\n{stderr}"
+        counter(name, &lines, 0, "committed_peak_bytes") >= 1 << 20,
+        "the arena must commit at least 1 MiB:\n{stderr}"
     );
     assert_eq!(
-        counter(name, &lines, 0, "maps"),
-        counter(name, &lines, 0, "unmaps"),
-        "shutdown unmaps every block it mapped:\n{stderr}"
+        counter(name, &lines, 0, "committed_bytes"),
+        0,
+        "shutdown decommits everything the arena committed:\n{stderr}"
+    );
+    assert!(
+        counter(name, &lines, 0, "decommitted_bytes")
+            >= counter(name, &lines, 0, "committed_peak_bytes"),
+        "shutdown decommits everything the arena committed:\n{stderr}"
     );
 }
 
@@ -328,8 +343,8 @@ fn record_churn_source(n: usize) -> String {
 /// plan-133-B: the fill counters count exactly the bytes the zero fill is handed.
 /// plan-183-A: a fresh block is used as the OS zeroed it, so the grow path fills
 /// nothing — `fill_grow_calls` and `fill_grow_bytes` stay 0 however often it grows. A
-/// freed chunk is scrubbed past its 16-byte node, so each extra 64 B record adds one
-/// fill of 48 B.
+/// freed chunk is scrubbed whole (plan-183-C), so each extra 64 B record adds one fill
+/// of 64 B.
 #[test]
 fn fill_counters_match_known_allocations() {
     // Grow path: a 1 MiB read maps at least one block beyond the first.
@@ -349,8 +364,8 @@ fn fill_counters_match_known_allocations() {
     let (stdout, stderr) = run_ok(name, &exe);
     assert_eq!(stdout, "1048576\n", "the program read the whole file");
     let lines = arena_lines(name, &stderr);
-    let grow = counter(name, &lines, 0, "grow");
-    assert!(grow >= 1, "a 1 MiB read must grow the arena:\n{stderr}");
+    let grows = counter(name, &lines, 0, "grows");
+    assert!(grows >= 1, "a 1 MiB read must grow the arena:\n{stderr}");
     assert_eq!(
         counter(name, &lines, 0, "fill_grow_calls"),
         0,
@@ -384,18 +399,18 @@ fn fill_counters_match_known_allocations() {
     );
     assert_eq!(
         delta("fill_free_bytes"),
-        48 * 1000,
-        "each scrub covers the chunk past its 16-byte node: {small:?} / {large:?}"
+        64 * 1000,
+        "each scrub covers the whole chunk (plan-183-C: no free-list node in free memory): {small:?} / {large:?}"
     );
 }
 
 /// plan-133-C: `arena.<index>.series.*` of `lines` — the reported sample count and each
-/// sample's `[t_ns, mapped_bytes, live_bytes, peak_rss_bytes]`, oldest first.
+/// sample's `[t_ns, committed_bytes, live_bytes, peak_rss_bytes]`, oldest first.
 fn series(case: &str, lines: &[String], index: usize) -> (u64, Vec<[u64; 4]>) {
     let count = counter(case, lines, index, "series.count");
     let samples = (0..count)
         .map(|sample| {
-            ["t_ns", "mapped_bytes", "live_bytes", "peak_rss_bytes"]
+            ["t_ns", "committed_bytes", "live_bytes", "peak_rss_bytes"]
                 .map(|field| counter(case, lines, index, &format!("series.{sample}.{field}")))
         })
         .collect();
@@ -444,10 +459,11 @@ fn the_series_rises_in_three_bursts() {
 }
 
 /// plan-133-C: 4,000 grows halve the series several times; it stays at most 256 samples,
-/// in grow order, and ends on the most recent grow. Each recursion level keeps one string
-/// slightly larger than an arena block alive until the recursion unwinds, so every level
-/// maps exactly one fresh 8 KiB block (measured: 4,000 levels → `grow 4000`,
-/// `mapped_bytes 32768000`). A retaining list does not work as a generator: its own
+/// in grow order, and ends on the most recent grow. Each recursion level keeps one
+/// medium string alive until the recursion unwinds, so every level carves a fresh chunk
+/// at the medium frontier (plan-183-C: a grow is a frontier extension). The committed
+/// bytes a sample records only rise, in 4 MiB steps, and the last sample's are the most
+/// the arena ever committed. A retaining list does not work as a generator: its own
 /// doubling reallocations leave space the retained values refill (plan-133-C Corrections).
 #[test]
 fn the_series_stays_bounded_and_ordered() {
@@ -471,10 +487,10 @@ fn the_series_stays_bounded_and_ordered() {
     let (stdout, stderr) = run_ok(case, &exe);
     assert_eq!(stdout, "16991172\n", "the recursion ran to depth 4000");
     let lines = arena_lines(case, &stderr);
-    let grow = counter(case, &lines, 0, "grow");
+    let grows = counter(case, &lines, 0, "grows");
     assert!(
-        grow >= 4000,
-        "every recursion level must map a block, so at least 4000 grows, got {grow}:\n{stderr}"
+        grows >= 4000,
+        "every recursion level must extend the medium frontier, so at least 4000 grows, got {grows}:\n{stderr}"
     );
     let (count, samples) = series(case, &lines, 0);
     assert!(
@@ -482,8 +498,12 @@ fn the_series_stays_bounded_and_ordered() {
         "the series must stay bounded at 256 samples, got {count}:\n{stderr}"
     );
     assert!(
-        samples.windows(2).all(|pair| pair[0][1] < pair[1][1]),
-        "mapped_bytes must strictly increase from sample to sample: {samples:?}"
+        samples.windows(2).all(|pair| pair[0][1] <= pair[1][1]),
+        "committed_bytes must never fall from sample to sample: {samples:?}"
+    );
+    assert!(
+        samples[0][1] < samples[samples.len() - 1][1],
+        "the recursion must commit more as it grows: {samples:?}"
     );
     assert!(
         samples[0][0] <= samples[samples.len() - 1][0],
@@ -491,7 +511,7 @@ fn the_series_stays_bounded_and_ordered() {
     );
     assert_eq!(
         samples[samples.len() - 1][1],
-        counter(case, &lines, 0, "mapped_bytes"),
-        "the last sample is the most recent grow, so it has the arena's final mapped_bytes"
+        counter(case, &lines, 0, "committed_peak_bytes"),
+        "the last sample is the most recent grow, so it has the most the arena committed"
     );
 }

@@ -30,18 +30,24 @@ use crate::codegen::debug::arena::{
     SLOT_KIND_OFFSET, SLOT_SIZE,
 };
 use crate::codegen::error::constants::error_constants::{
-    ARENA_CARVE_PTR_OFFSET, ARENA_CARVE_SIZE_OFFSET, ARENA_CLEANUP_FAILURE_CODE_OFFSET,
+    ARENA_ALLOC_SCALARS_OFFSET, ARENA_CLEANUP_FAILURE_CODE_OFFSET,
     ARENA_CLEANUP_FAILURE_COUNT_OFFSET, ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET,
-    ARENA_CURRENT_ERROR_OFFSET, ARENA_DEFAULT_BLOCK_SIZE, ARENA_FLAG_RHS_OFFSET,
-    ARENA_FREE_LIST_HEAD_OFFSET, ARENA_LARGE_BIN_BASE_OFFSET, ARENA_LARGE_BIN_COUNT,
-    ARENA_LARGE_FLUSH_CREDIT_OFFSET, ARENA_OUT_ENABLED_OFFSET, ARENA_OUT_FILLED_OFFSET,
-    ARENA_OUT_PTR_OFFSET, ARENA_QUICK_BIN_BASE_OFFSET, ARENA_QUICK_BIN_COUNT,
-    ARENA_RESERVED_16_OFFSET, ARENA_RESERVED_24_OFFSET, ARENA_RNG_STATE_HI_OFFSET,
-    ARENA_RNG_STATE_LO_OFFSET, ARENA_ROUNDING_MODE_OFFSET, ARENA_STACK_LIMIT_OFFSET,
-    ARENA_STACK_LIMIT_SCRATCH_OFFSET, ARENA_START_TIME_OFFSET, ARENA_STATE_SIZE,
-    ARENA_STDIN_LOCAL_BUF_OFFSET, ARENA_STDIN_LOCAL_FILLED_OFFSET, ARENA_STDIN_LOCAL_POS_OFFSET,
-    ARENA_STDIN_SUBSCRIBER_OFFSET, ARENA_V128_SLOTS_OFFSET, ARENA_V128_SLOTS_SIZE,
-    ARENA_WORKER_THREAD_OFFSET, MAIN_ARENA_GLOBAL_SYMBOL,
+    ARENA_CURRENT_ERROR_OFFSET, ARENA_FLAG_RHS_OFFSET, ARENA_HUGE_HEAD_OFFSET,
+    ARENA_MEDIUM_CLASS_COUNT, ARENA_MEDIUM_HEAD_BASE_OFFSET, ARENA_NODE_FREE_OFFSET,
+    ARENA_NODE_LEN, ARENA_NODE_NEXT, ARENA_NODE_SIZE, ARENA_NODE_START, ARENA_OUT_ENABLED_OFFSET,
+    ARENA_OUT_FILLED_OFFSET, ARENA_OUT_PTR_OFFSET, ARENA_RNG_STATE_HI_OFFSET,
+    ARENA_RNG_STATE_LO_OFFSET, ARENA_ROUNDING_MODE_OFFSET, ARENA_SC_COMMITTED,
+    ARENA_SC_HUGE_COMMIT, ARENA_SC_HUGE_FRONT, ARENA_SC_MEDIUM_BASE, ARENA_SC_MEDIUM_COMMIT,
+    ARENA_SC_MEDIUM_FRONT, ARENA_SC_NODES, ARENA_SC_NODE_COMMIT, ARENA_SC_NODE_LIMIT,
+    ARENA_SC_NODE_NEXT, ARENA_SC_SLICE_TOP, ARENA_SC_SMALL_COMMIT, ARENA_SC_SMALL_EMPTY,
+    ARENA_SC_SMALL_END, ARENA_SC_SMALL_LIMIT, ARENA_SC_SMALL_NEXT, ARENA_SC_SMALL_PAGES,
+    ARENA_SC_TABLE_COMMIT, ARENA_SC_TAGS, ARENA_SC_TAGS_HIGH, ARENA_SC_TAGS_LOW,
+    ARENA_SLICE_BASE_OFFSET, ARENA_SMALL_CLASS_COUNT, ARENA_SMALL_HEAD_BASE_OFFSET,
+    ARENA_SMALL_PAGE, ARENA_STACK_LIMIT_OFFSET, ARENA_STACK_LIMIT_SCRATCH_OFFSET,
+    ARENA_START_TIME_OFFSET, ARENA_STATE_SIZE, ARENA_STDIN_LOCAL_BUF_OFFSET,
+    ARENA_STDIN_LOCAL_FILLED_OFFSET, ARENA_STDIN_LOCAL_POS_OFFSET, ARENA_STDIN_SUBSCRIBER_OFFSET,
+    ARENA_V128_SLOTS_OFFSET, ARENA_V128_SLOTS_SIZE, ARENA_WORKER_THREAD_OFFSET,
+    MAIN_ARENA_GLOBAL_SYMBOL,
 };
 use crate::codegen::runtime::canvas::{GRAPHICS_OFFSET_TID, GRAPHICS_STATE_SYMBOL};
 use crate::codegen::runtime::thread::control_block::{
@@ -49,14 +55,9 @@ use crate::codegen::runtime::thread::control_block::{
     THREAD_TABLE_SYMBOL,
 };
 
-/// `ArenaState.blockHead` and `exitStatus`, and a block header's fields
-/// (`./mfb spec memory arenas`); the arena code writes these as literals.
-const STATE_BLOCK_HEAD: u64 = 0;
+/// `ArenaState.exitStatus` (`./mfb spec memory arenas`); the arena code writes it as
+/// a literal.
 const STATE_EXIT_STATUS: usize = 32;
-const BLOCK_PREV: u64 = 0;
-const BLOCK_SIZE: u64 = 8;
-const BLOCK_USABLE: u64 = 16;
-const BLOCK_BUMP: u64 = 24;
 
 /// One field of `ArenaState`: a word, or an array of `count` entries of
 /// `width` bytes.
@@ -78,13 +79,13 @@ const fn word(name: &'static str, offset: usize) -> Field {
 
 /// `ArenaState`, in layout order, from the compiler's own offsets.
 pub(crate) const ARENA_STATE_FIELDS: &[Field] = &[
-    word("blockHead", STATE_BLOCK_HEAD as usize),
+    word("reserved0", 0),
     word("workerThread", ARENA_WORKER_THREAD_OFFSET),
-    word("reserved16", ARENA_RESERVED_16_OFFSET),
-    word("reserved24", ARENA_RESERVED_24_OFFSET),
+    word("sliceBase", ARENA_SLICE_BASE_OFFSET),
+    word("reserved24", 24),
     word("exitStatus", STATE_EXIT_STATUS),
     word("arenaStartTime", ARENA_START_TIME_OFFSET),
-    word("freeListHead", ARENA_FREE_LIST_HEAD_OFFSET),
+    word("reserved48", 48),
     word("moneyRoundingMode", ARENA_ROUNDING_MODE_OFFSET),
     word("cleanupFailCount", ARENA_CLEANUP_FAILURE_COUNT_OFFSET),
     word("cleanupFailCode", ARENA_CLEANUP_FAILURE_CODE_OFFSET),
@@ -92,20 +93,20 @@ pub(crate) const ARENA_STATE_FIELDS: &[Field] = &[
     word("rngStateLo", ARENA_RNG_STATE_LO_OFFSET),
     word("rngStateHi", ARENA_RNG_STATE_HI_OFFSET),
     Field {
-        name: "quickBin",
-        offset: ARENA_QUICK_BIN_BASE_OFFSET,
-        count: ARENA_QUICK_BIN_COUNT,
+        name: "smallHead",
+        offset: ARENA_SMALL_HEAD_BASE_OFFSET,
+        count: ARENA_SMALL_CLASS_COUNT,
         width: 8,
     },
-    word("carvePtr", ARENA_CARVE_PTR_OFFSET),
-    word("carveSize", ARENA_CARVE_SIZE_OFFSET),
+    word("hugeHead", ARENA_HUGE_HEAD_OFFSET),
+    word("nodeFree", ARENA_NODE_FREE_OFFSET),
     word("outPtr", ARENA_OUT_PTR_OFFSET),
     word("outFilled", ARENA_OUT_FILLED_OFFSET),
     word("outEnabled", ARENA_OUT_ENABLED_OFFSET),
     Field {
-        name: "largeBin",
-        offset: ARENA_LARGE_BIN_BASE_OFFSET,
-        count: ARENA_LARGE_BIN_COUNT,
+        name: "mediumHead",
+        offset: ARENA_MEDIUM_HEAD_BASE_OFFSET,
+        count: ARENA_MEDIUM_CLASS_COUNT,
         width: 8,
     },
     // bug-789: the thread's stack limit and its scratch word, ahead of the v128
@@ -124,17 +125,88 @@ pub(crate) const ARENA_STATE_FIELDS: &[Field] = &[
     word("stdinLocalFilled", ARENA_STDIN_LOCAL_FILLED_OFFSET),
     word("stdinLocalPos", ARENA_STDIN_LOCAL_POS_OFFSET),
     word("stdinSubscriber", ARENA_STDIN_SUBSCRIBER_OFFSET),
-    word("largeFlushCredit", ARENA_LARGE_FLUSH_CREDIT_OFFSET),
+    // plan-183-C: the allocator's scalar block — the slice geometry, the frontiers and
+    // what each region has committed.
+    word(
+        "smallPages",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_SMALL_PAGES,
+    ),
+    word("smallEnd", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_SMALL_END),
+    word(
+        "smallLimit",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_SMALL_LIMIT,
+    ),
+    word(
+        "smallNext",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_SMALL_NEXT,
+    ),
+    word(
+        "smallEmpty",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_SMALL_EMPTY,
+    ),
+    word(
+        "smallCommit",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_SMALL_COMMIT,
+    ),
+    word(
+        "tableCommit",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_TABLE_COMMIT,
+    ),
+    word("tags", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_TAGS),
+    word(
+        "mediumBase",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_MEDIUM_BASE,
+    ),
+    word(
+        "mediumFront",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_MEDIUM_FRONT,
+    ),
+    word(
+        "mediumCommit",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_MEDIUM_COMMIT,
+    ),
+    word(
+        "hugeFront",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_HUGE_FRONT,
+    ),
+    word(
+        "hugeCommit",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_HUGE_COMMIT,
+    ),
+    word("tagsLow", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_TAGS_LOW),
+    word("tagsHigh", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_TAGS_HIGH),
+    word("nodes", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_NODES),
+    word("nodeNext", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_NODE_NEXT),
+    word(
+        "nodeLimit",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_NODE_LIMIT,
+    ),
+    word(
+        "nodeCommit",
+        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_NODE_COMMIT,
+    ),
+    word("sliceTop", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_SLICE_TOP),
+    word("committed", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_COMMITTED),
 ];
 
-/// One mapped block of an arena, as its header reads.
+/// plan-183-C: one region of an arena's slice — what it has handed out so far
+/// (`address .. address + size`, every byte below the region's frontier) and how much
+/// of the slice it has committed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Block {
+pub(crate) struct Area {
+    pub(crate) name: &'static str,
     pub(crate) address: u64,
-    pub(crate) prev: u64,
     pub(crate) size: u64,
-    pub(crate) usable: u64,
-    pub(crate) bump: u64,
+    pub(crate) committed: u64,
+}
+
+/// One free run of the medium or huge region.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FreeRun {
+    /// `medium[<class>]` or `huge`.
+    pub(crate) list: String,
+    pub(crate) address: u64,
+    pub(crate) size: u64,
 }
 
 /// The arena state at `state`, all `ARENA_STATE_SIZE` bytes.
@@ -142,32 +214,85 @@ pub(crate) fn arena_state(inferior: &mut dyn Inferior, state: u64) -> Result<Vec
     inferior.read_bytes(state, ARENA_STATE_SIZE)
 }
 
-/// The arena's blocks, oldest first: the chain from `blockHead` through each
-/// `prevBlock`, reversed.
-pub(crate) fn blocks(inferior: &mut dyn Inferior, state: u64) -> Result<Vec<Block>, String> {
-    let mut blocks = Vec::new();
-    let mut address = inferior.read_u64(state + STATE_BLOCK_HEAD)?;
-    while address != 0 {
-        if blocks.len() == MAX_BLOCKS {
-            return Err(format!(
-                "the block chain of the arena at 0x{state:016x} does not end; it cannot be read"
-            ));
-        }
-        let block = Block {
-            address,
-            prev: inferior.read_u64(address + BLOCK_PREV)?,
-            size: inferior.read_u64(address + BLOCK_SIZE)?,
-            usable: inferior.read_u64(address + BLOCK_USABLE)?,
-            bump: inferior.read_u64(address + BLOCK_BUMP)?,
-        };
-        address = block.prev;
-        blocks.push(block);
+/// plan-183-C: the arena's regions — small, medium, huge — in slice order, or none
+/// for an arena that has not allocated (its slice is not laid out yet).
+pub(crate) fn areas(inferior: &mut dyn Inferior, state: u64) -> Result<Vec<Area>, String> {
+    let sc = state + ARENA_ALLOC_SCALARS_OFFSET as u64;
+    let mut read = |offset: usize| inferior.read_u64(sc + offset as u64);
+    let small = read(ARENA_SC_SMALL_PAGES)?;
+    if small == 0 {
+        return Ok(Vec::new());
     }
-    blocks.reverse();
-    Ok(blocks)
+    let small_next = read(ARENA_SC_SMALL_NEXT)?;
+    let small_commit = read(ARENA_SC_SMALL_COMMIT)?;
+    let medium = read(ARENA_SC_MEDIUM_BASE)?;
+    let medium_front = read(ARENA_SC_MEDIUM_FRONT)?;
+    let medium_commit = read(ARENA_SC_MEDIUM_COMMIT)?;
+    let huge_front = read(ARENA_SC_HUGE_FRONT)?;
+    let huge_commit = read(ARENA_SC_HUGE_COMMIT)?;
+    let top = read(ARENA_SC_SLICE_TOP)?;
+    Ok(vec![
+        Area {
+            name: "small",
+            address: small,
+            size: small_next.saturating_mul(ARENA_SMALL_PAGE),
+            committed: small_commit.saturating_sub(small),
+        },
+        Area {
+            name: "medium",
+            address: medium,
+            size: medium_front.saturating_sub(medium),
+            committed: medium_commit.saturating_sub(medium),
+        },
+        Area {
+            name: "huge",
+            address: huge_front,
+            size: top.saturating_sub(huge_front),
+            committed: top.saturating_sub(huge_commit),
+        },
+    ])
 }
-/// More blocks than any arena maps: a chain this long is a corrupt read.
-const MAX_BLOCKS: usize = 1 << 22;
+
+/// plan-183-C: every free run on the medium class lists and the huge list, list by
+/// list. A list longer than the node pool is a corrupt read.
+pub(crate) fn free_runs(inferior: &mut dyn Inferior, state: u64) -> Result<Vec<FreeRun>, String> {
+    let sc = state + ARENA_ALLOC_SCALARS_OFFSET as u64;
+    if inferior.read_u64(sc + ARENA_SC_SMALL_PAGES as u64)? == 0 {
+        return Ok(Vec::new());
+    }
+    let nodes = inferior.read_u64(sc + ARENA_SC_NODES as u64)?;
+    let limit = inferior.read_u64(sc + ARENA_SC_NODE_LIMIT as u64)?;
+    let mut heads: Vec<(String, u64)> = (0..ARENA_MEDIUM_CLASS_COUNT)
+        .map(|class| {
+            (
+                format!("medium[{class}]"),
+                state + (ARENA_MEDIUM_HEAD_BASE_OFFSET + class * 8) as u64,
+            )
+        })
+        .collect();
+    heads.push(("huge".to_string(), state + ARENA_HUGE_HEAD_OFFSET as u64));
+    let mut runs = Vec::new();
+    for (list, head) in heads {
+        let mut node = inferior.read_u64(head)?;
+        let mut steps = 0u64;
+        while node != 0 {
+            if steps > limit {
+                return Err(format!(
+                    "the {list} list of the arena at 0x{state:016x} does not end; it cannot be read"
+                ));
+            }
+            let at = nodes + node * ARENA_NODE_SIZE;
+            runs.push(FreeRun {
+                list: list.clone(),
+                address: inferior.read_u64(at + ARENA_NODE_START as u64)?,
+                size: inferior.read_u64(at + ARENA_NODE_LEN as u64)?,
+            });
+            node = inferior.read_u64(at + ARENA_NODE_NEXT as u64)?;
+            steps += 1;
+        }
+    }
+    Ok(runs)
+}
 /// More thread-table slots than the table can hold.
 const MAX_THREAD_SLOTS: u64 = 1 << 24;
 
@@ -304,22 +429,18 @@ fn runs_main(inferior: &mut dyn Inferior, thread: &ThreadFacts, main_arena: Opti
     }
 }
 
-/// Whether `state` reads as the main arena state: no worker control block,
-/// and a newest block whose header gives a whole number of default-sized
-/// blocks. A failed read means no.
+/// Whether `state` reads as the main arena state: no worker control block, and a
+/// slice base that is a non-zero, 2 MiB-aligned address (plan-183-B). A failed read
+/// means no.
 fn shaped_like_main_arena(inferior: &mut dyn Inferior, state: u64) -> bool {
     if inferior.read_u64(state + ARENA_WORKER_THREAD_OFFSET as u64) != Ok(0) {
         return false;
     }
-    let Ok(block) = inferior.read_u64(state + STATE_BLOCK_HEAD) else {
-        return false;
-    };
-    if block == 0 || block % 16 != 0 {
-        return false;
-    }
     inferior
-        .read_u64(block + BLOCK_SIZE)
-        .is_ok_and(|size| size >= ARENA_DEFAULT_BLOCK_SIZE && size % ARENA_DEFAULT_BLOCK_SIZE == 0)
+        .read_u64(state + ARENA_SLICE_BASE_OFFSET as u64)
+        .is_ok_and(|base| {
+            base != 0 && base % crate::codegen::runtime::arena_cap::ARENA_SLICE_ALIGN == 0
+        })
 }
 
 /// One live arena.
@@ -332,8 +453,8 @@ pub(crate) struct Arena {
     pub(crate) thread: Option<usize>,
     /// The arena state's address.
     pub(crate) address: u64,
-    /// Bytes of memory the arena has mapped.
-    pub(crate) mapped: u64,
+    /// Bytes of its slice the arena has committed.
+    pub(crate) committed: u64,
 }
 
 /// Every live arena in the `--debug` registry, or `None` when the program has
@@ -396,27 +517,11 @@ pub(crate) fn arenas(
             id,
             thread,
             address: state,
-            mapped: mapped_bytes(inferior, state)?,
+            committed: inferior
+                .read_u64(state + (ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_COMMITTED) as u64)?,
         });
     }
     Ok(Some(arenas))
-}
-
-/// The bytes of every block the arena has mapped: the chain from
-/// `blockHead` through each block's `prevBlock`.
-fn mapped_bytes(inferior: &mut dyn Inferior, state: u64) -> Result<u64, String> {
-    let mut total = 0u64;
-    let mut block = inferior.read_u64(state + STATE_BLOCK_HEAD)?;
-    for _ in 0..MAX_BLOCKS {
-        if block == 0 {
-            return Ok(total);
-        }
-        total = total.saturating_add(inferior.read_u64(block + BLOCK_SIZE)?);
-        block = inferior.read_u64(block + BLOCK_PREV)?;
-    }
-    Err(format!(
-        "the block chain of the arena at 0x{state:016x} does not end; it cannot be read"
-    ))
 }
 
 /// The error a thread's arena holds in its current-error slot

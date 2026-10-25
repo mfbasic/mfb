@@ -3,11 +3,12 @@ use crate::codegen::collection::layout::*;
 use crate::codegen::debug::arena::{
     emit_debug_arena_add, emit_debug_arena_bump, emit_debug_arena_live_add,
     emit_debug_arena_live_sub, emit_debug_arena_slot, COUNTER_ALLOC_BYTES, COUNTER_ALLOC_CALLS,
-    COUNTER_DOUBLE_FREE_SKIPS, COUNTER_FILL_FREE_BYTES, COUNTER_FILL_FREE_CALLS, COUNTER_FLUSHES,
-    COUNTER_FREE_BYTES, COUNTER_FREE_CALLS, COUNTER_GROW, COUNTER_HIT_CARVE, COUNTER_HIT_LARGE_BIN,
-    COUNTER_HIT_QUICK_BIN, COUNTER_HIT_WALK, COUNTER_INSERT_FREE_CALLS, COUNTER_MAPPED_BYTES,
-    COUNTER_MAPS, COUNTER_UNMAPPED_BYTES, COUNTER_UNMAPS, COUNTER_ZERO_CHECKS,
-    COUNTER_ZERO_VIOLATIONS, DEBUG_ARENA_SAMPLE_SYMBOL,
+    COUNTER_COMMITS, COUNTER_COMMITTED_BYTES, COUNTER_COMMITTED_PEAK_BYTES, COUNTER_DECOMMITS,
+    COUNTER_DECOMMITTED_BYTES, COUNTER_DOUBLE_FREE_SKIPS, COUNTER_FILL_FREE_BYTES,
+    COUNTER_FILL_FREE_CALLS, COUNTER_FREE_BYTES, COUNTER_FREE_CALLS, COUNTER_HIT_HUGE_FRONTIER,
+    COUNTER_HIT_HUGE_RUN, COUNTER_HIT_MEDIUM_FRONTIER, COUNTER_HIT_MEDIUM_RUN, COUNTER_HIT_SMALL,
+    COUNTER_RESERVED_BYTES, COUNTER_SMALL_PAGES, COUNTER_ZERO_CHECKS, COUNTER_ZERO_VIOLATIONS,
+    DEBUG_ARENA_SAMPLE_SYMBOL,
 };
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::VirtualRegister;
@@ -20,14 +21,20 @@ use crate::types::ParameterType;
 
 mod alloc;
 mod free;
+mod layout;
+mod small;
+mod span;
 pub(crate) use alloc::{lower_arena_alloc, lower_simd_alloc_list};
-pub(crate) use free::{lower_arena_flush_coalesce, lower_arena_free, lower_arena_insert_free};
+pub(crate) use free::lower_arena_free;
+pub(crate) use layout::{lower_arena_commit, lower_arena_geometry};
+pub(crate) use small::lower_arena_small_page;
+pub(crate) use span::{lower_arena_span_alloc, lower_arena_span_free};
 /// Emit `perf_start(name)` / `perf_end(name)` at an arena-region boundary: load the
 /// region's name object into the arg register and `bl` the perf helper. The
 /// register allocator spills any live vreg across the `bl` (perf clobbers x0–x17),
 /// and perf is arena-free by construction, so bracketing arena code cannot recurse
 /// (perf → arena → perf). `from` is the emitting helper's symbol.
-fn emit_perf_arena_call(
+pub(crate) fn emit_perf_arena_call(
     call: &str,
     from: &str,
     name_symbol: &str,
@@ -43,20 +50,20 @@ fn emit_perf_arena_call(
     relocations.push(internal_branch(from, &sym));
 }
 
-/// bug-690: `slot = state + class(size) * 8`, the large-bin slot a chunk of
-/// normalized `size` (> `ARENA_QUICK_BIN_MAX`) parks on; its list head is the word at
-/// `slot + ARENA_LARGE_BIN_BASE_OFFSET`.
+/// `slot = state + class(size) * 8`: the medium list a run of normalized `size`
+/// (> `ARENA_SMALL_MAX`) belongs to has its head at `slot +
+/// ARENA_MEDIUM_HEAD_BASE_OFFSET` (bug-690's size classes, kept by plan-183-C).
 ///
-/// The classes are log2 size classes with `2^ARENA_LARGE_BIN_SUBCLASS_BITS` linear
+/// The classes are log2 size classes with `2^ARENA_MEDIUM_SUBCLASS_BITS` linear
 /// sub-classes per power of two. With 4 sub-classes, for `2^k ≤ size < 2^(k+1)` the
 /// class is `(k - 11) * 4 + ((size >> (k - 2)) & 3)`: class 0 is `[2048, 2560)`, and
 /// every size in a class is smaller than every size in any higher class. Sizes from
-/// `ARENA_LARGE_BIN_TOP_SIZE` up share the last class. That ordering is what lets an
-/// allocation take ANY chunk from a higher class without looking at its size.
+/// `ARENA_MEDIUM_TOP_SIZE` up share the last class. That ordering is what lets an
+/// allocation take ANY run from a higher class without looking at its size.
 ///
 /// `k`/`shift`/`sub` are scratch vregs the caller owns; `prefix` makes the two
 /// labels unique within the calling helper.
-fn emit_large_bin_slot(
+pub(crate) fn emit_medium_class_slot(
     slot: impl Into<abi::Reg>,
     size: impl Into<abi::Reg>,
     k: impl Into<abi::Reg>,
@@ -72,9 +79,9 @@ fn emit_large_bin_slot(
     let sub: abi::Reg = sub.into();
     let top = format!("{prefix}_top");
     let ready = format!("{prefix}_ready");
-    let sub_bits = ARENA_LARGE_BIN_SUBCLASS_BITS;
-    let base_k = ARENA_QUICK_BIN_MAX.trailing_zeros();
-    let top_k = ARENA_LARGE_BIN_TOP_SIZE.trailing_zeros();
+    let sub_bits = ARENA_MEDIUM_SUBCLASS_BITS;
+    let base_k = ARENA_SMALL_MAX.trailing_zeros();
+    let top_k = ARENA_MEDIUM_TOP_SIZE.trailing_zeros();
     instructions.extend([
         // k = floor(log2(size)) = 63 - clz(size); size > QUICK_BIN_MAX, so k ≥ base_k.
         abi::count_leading_zeros(k, size),
@@ -93,72 +100,17 @@ fn emit_large_bin_slot(
         abi::subtract_immediate(sub, sub, (base_k << sub_bits) as usize),
         abi::branch(&ready),
         abi::label(&top),
-        abi::move_immediate(sub, "Integer", &(ARENA_LARGE_BIN_COUNT - 1).to_string()),
+        abi::move_immediate(sub, "Integer", &(ARENA_MEDIUM_CLASS_COUNT - 1).to_string()),
         abi::label(&ready),
         abi::shift_left_immediate(sub, sub, 3),
         abi::add_registers(slot, ARENA_STATE_REGISTER, sub),
     ]);
 }
 
-/// bug-690: park the free chunk `ptr`/`size` (normalized, ≥ 16) on its bin — the
-/// exact quick bin for `size ≤ ARENA_QUICK_BIN_MAX`, else its large-bin size class —
-/// writing the `FreeNode {next, size}` overlay. `slot`/`head`/`k`/`shift`/`sub` are
-/// scratch vregs the caller owns; `prefix` makes the labels unique in the helper.
-#[allow(clippy::too_many_arguments)]
-fn emit_park_chunk(
-    ptr: impl Into<abi::Reg>,
-    size: impl Into<abi::Reg>,
-    slot: impl Into<abi::Reg>,
-    head: impl Into<abi::Reg>,
-    k: impl Into<abi::Reg>,
-    shift: impl Into<abi::Reg>,
-    sub: impl Into<abi::Reg>,
-    prefix: &str,
-    instructions: &mut Vec<CodeInstruction>,
-) {
-    let ptr: abi::Reg = ptr.into();
-    let size: abi::Reg = size.into();
-    let slot: abi::Reg = slot.into();
-    let head: abi::Reg = head.into();
-    let k: abi::Reg = k.into();
-    let shift: abi::Reg = shift.into();
-    let sub: abi::Reg = sub.into();
-    let large = format!("{prefix}_large");
-    let done = format!("{prefix}_done");
-    instructions.extend([
-        abi::store_u64(size, ptr, 8),
-        abi::compare_immediate(size, &ARENA_QUICK_BIN_MAX.to_string()),
-        abi::branch_hi(&large),
-        abi::shift_right_immediate(slot, size, 4),
-        abi::shift_left_immediate(slot, slot, 3),
-        abi::add_registers(slot, ARENA_STATE_REGISTER, slot),
-        abi::load_u64(head, slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
-        abi::store_u64(head, ptr, 0),
-        abi::store_u64(ptr, slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
-        abi::branch(&done),
-        abi::label(&large),
-    ]);
-    emit_large_bin_slot(
-        slot,
-        size,
-        k,
-        shift,
-        sub,
-        &format!("{prefix}_class"),
-        instructions,
-    );
-    instructions.extend([
-        abi::load_u64(head, slot, ARENA_LARGE_BIN_BASE_OFFSET),
-        abi::store_u64(head, ptr, 0),
-        abi::store_u64(ptr, slot, ARENA_LARGE_BIN_BASE_OFFSET),
-        abi::label(&done),
-    ]);
-}
-
 /// plan-130-C: a successful allocation of `size` served by the path whose hit counter
 /// is `counter` — bump it and raise `live_bytes`/`peak_live_bytes`. No-op without a
 /// registry slot (a normal build, or an unregistered arena).
-fn emit_debug_alloc_hit(
+pub(crate) fn emit_debug_alloc_hit(
     slot: &Option<VirtualRegister>,
     counter: usize,
     size: impl Into<abi::Reg>,
@@ -293,115 +245,128 @@ pub(crate) fn lower_arena_fill_zero(arch: &str) -> CodeFunction {
     )
 }
 
+/// `arena_destroy()` — give back everything the arena (the arena register) holds:
+/// plan-183-C decommits its whole slice in one call (its pages go back to the OS and
+/// read zero when committed again), refunds its committed bytes to the arena memory
+/// cap, and clears its allocator words — the region geometry, the page and run lists,
+/// the node pool — so the arena is inert and lays its slice out afresh if it
+/// allocates again. The slice stays the arena's; `thread::start`'s bookkeeping hands
+/// worker and control-block slices back. Idempotent: an arena that never allocated
+/// (or was already destroyed) has nothing to give back.
 pub(crate) fn lower_arena_destroy(
     platform: &dyn CodegenPlatform,
     debug_arena: bool,
-    // plan-179-C: give each unmapped block's bytes back to the arena memory cap.
     arena_cap: bool,
     platform_imports: &std::collections::HashMap<String, String>,
 ) -> Result<CodeFunction, String> {
-    // Vreg-allocated (plan-00-G Phase 2): walk the block list and `munmap` each
-    // block. `head` (the loop cursor) and `next` are loop-carried across the
-    // `munmap` syscall, so the allocator keeps them in callee-saved registers (or
-    // spills them); the syscall's own ABI registers (x0/x1 + the syscall-number
-    // register) stay physical. The block address/size are passed to the syscall in
-    // x0/x1, exactly where `emit_arena_unmap` expects them.
+    let symbol = ARENA_DESTROY_SYMBOL;
     let mut vregs = Vregs::new();
-    let head = vregs.next();
-    let next = vregs.next();
-    let clear_cursor = vregs.next();
-    let clear_limit = vregs.next();
+    let sc = vregs.next();
+    let base = vregs.next();
+    let len = vregs.next();
+    let committed = vregs.next();
+    let cursor = vregs.next();
+    let limit = vregs.next();
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    // plan-130-C: find this arena's registry slot once; each block it unmaps counts,
-    // read before the unmap's argument registers are loaded.
-    let mut dbg_slot: Option<VirtualRegister> = None;
-    if debug_arena {
-        let slot = vregs.next();
-        emit_debug_arena_slot(
-            ARENA_DESTROY_SYMBOL,
-            &slot,
-            &mut instructions,
-            &mut relocations,
-            &mut vregs,
-        );
-        dbg_slot = Some(slot);
-    }
+    layout::emit_scalars(&sc, &mut instructions);
     instructions.extend([
-        abi::load_u64(&head, ARENA_STATE_REGISTER, 0),
-        abi::label("arena_destroy_loop"),
-        abi::compare_immediate(&head, "0"),
+        abi::load_u64(&len, &sc, ARENA_SC_SMALL_PAGES),
+        abi::compare_immediate(&len, "0"),
         abi::branch_eq("arena_destroy_done"),
-        abi::load_u64(&next, &head, 0),
+        abi::load_u64(&base, ARENA_STATE_REGISTER, ARENA_SLICE_BASE_OFFSET),
+        abi::load_u64(&len, &sc, ARENA_SC_SLICE_TOP),
+        abi::subtract_registers(&len, &len, &base),
+        abi::load_u64(&committed, &sc, ARENA_SC_COMMITTED),
     ]);
-    if let Some(slot) = &dbg_slot {
-        let block_size = vregs.next();
-        instructions.push(abi::load_u64(&block_size, &head, 8));
-        emit_debug_arena_bump(
-            ARENA_DESTROY_SYMBOL,
-            slot,
-            COUNTER_UNMAPS,
-            "unmaps",
-            &mut instructions,
-            &mut vregs,
-        );
-        emit_debug_arena_add(
-            ARENA_DESTROY_SYMBOL,
-            slot,
-            COUNTER_UNMAPPED_BYTES,
-            &block_size,
-            "unmapped_bytes",
-            &mut instructions,
-            &mut vregs,
-        );
-    }
+    platform.emit_arena_vm(
+        ArenaVm::Decommit,
+        (&base).into(),
+        (&len).into(),
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     if arena_cap {
-        let block_size = vregs.next();
-        instructions.push(abi::load_u64(&block_size, &head, 8));
-        crate::codegen::runtime::arena_cap::emit_unmap_refund(
+        crate::codegen::runtime::arena_cap::emit_decommit_refund(
             &mut crate::codegen::runtime::arena_cap::CapSite {
-                symbol: ARENA_DESTROY_SYMBOL,
+                symbol,
                 platform,
                 platform_imports,
                 instructions: &mut instructions,
                 relocations: &mut relocations,
             },
-            &block_size,
+            &committed,
             &mut vregs,
         )?;
     }
+    if debug_arena {
+        let slot = vregs.next();
+        emit_debug_arena_slot(
+            symbol,
+            &slot,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        );
+        emit_debug_arena_bump(
+            symbol,
+            &slot,
+            COUNTER_DECOMMITS,
+            "decommits",
+            &mut instructions,
+            &mut vregs,
+        );
+        emit_debug_arena_add(
+            symbol,
+            &slot,
+            COUNTER_DECOMMITTED_BYTES,
+            &committed,
+            "decommitted",
+            &mut instructions,
+            &mut vregs,
+        );
+        instructions.extend([
+            abi::compare_immediate(&slot, "0"),
+            abi::branch_eq("arena_destroy_dbg_skip"),
+            abi::store_u64(abi::ZERO, &slot, COUNTER_COMMITTED_BYTES),
+            abi::label("arena_destroy_dbg_skip"),
+        ]);
+    }
+    // Clear the lists (small and medium heads, the huge head, the node free list) and
+    // the scalar block.
     instructions.extend([
-        abi::load_u64(abi::c_arg(1), &head, 8),
-        abi::move_register(abi::return_register(), &head),
-    ]);
-    platform.emit_arena_unmap(&mut instructions)?;
-    instructions.extend([
-        abi::move_register(&head, &next),
-        abi::branch("arena_destroy_loop"),
-        abi::label("arena_destroy_done"),
-        // Leave the arena fully inert (allocator-04): clear the free-list head
-        // alongside the block-list head — it points into the just-unmapped
-        // blocks, and a stale head would turn any post-destroy allocation into
-        // a use-after-free walk. The quick bins (allocator-01) point into the
-        // same unmapped blocks, so clear them too.
-        abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, 0),
-        abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::add_immediate(&cursor, ARENA_STATE_REGISTER, ARENA_SMALL_HEAD_BASE_OFFSET),
+        abi::add_immediate(&limit, ARENA_STATE_REGISTER, ARENA_NODE_FREE_OFFSET + 8),
+        abi::label("arena_destroy_clear_small"),
+        abi::store_u64(abi::ZERO, &cursor, 0),
+        abi::add_immediate(&cursor, &cursor, 8),
+        abi::compare_registers(&cursor, &limit),
+        abi::branch_lo("arena_destroy_clear_small"),
+        abi::add_immediate(&cursor, ARENA_STATE_REGISTER, ARENA_MEDIUM_HEAD_BASE_OFFSET),
         abi::add_immediate(
-            &clear_cursor,
+            &limit,
             ARENA_STATE_REGISTER,
-            ARENA_QUICK_BIN_BASE_OFFSET,
+            ARENA_MEDIUM_HEAD_BASE_OFFSET + ARENA_MEDIUM_CLASS_COUNT * 8,
         ),
-        abi::add_immediate(&clear_limit, ARENA_STATE_REGISTER, ARENA_STATE_SIZE),
-        abi::label("arena_destroy_bins"),
-        abi::store_u64(abi::ZERO, &clear_cursor, 0),
-        abi::add_immediate(&clear_cursor, &clear_cursor, 8),
-        abi::compare_registers(&clear_cursor, &clear_limit),
-        abi::branch_lo("arena_destroy_bins"),
+        abi::label("arena_destroy_clear_medium"),
+        abi::store_u64(abi::ZERO, &cursor, 0),
+        abi::add_immediate(&cursor, &cursor, 8),
+        abi::compare_registers(&cursor, &limit),
+        abi::branch_lo("arena_destroy_clear_medium"),
+        abi::move_register(&cursor, &sc),
+        abi::add_immediate(&limit, &sc, ARENA_ALLOC_SCALARS_SIZE),
+        abi::label("arena_destroy_clear_scalars"),
+        abi::store_u64(abi::ZERO, &cursor, 0),
+        abi::add_immediate(&cursor, &cursor, 8),
+        abi::compare_registers(&cursor, &limit),
+        abi::branch_lo("arena_destroy_clear_scalars"),
+        abi::label("arena_destroy_done"),
         abi::return_(),
     ]);
     Ok(finalize_vreg_helper(
         "runtime.arena_destroy",
-        ARENA_DESTROY_SYMBOL,
+        symbol,
         "Nothing",
         instructions,
         relocations,
@@ -494,29 +459,27 @@ mod zero_fill_tests {
         assert!(fill.relocations.is_empty(), "a leaf with no data reference");
     }
 
-    /// Freed chunks are scrubbed by the fill, and nothing else: plan-183-A's grow path
-    /// hands out freshly mapped memory as the OS zeroed it, with no fill and no
+    /// Freed chunks are scrubbed by the fill — small slots by `arena_free`, medium and
+    /// huge chunks by `_mfb_arena_span_free` — and nothing else: freshly committed
+    /// memory is handed out as the OS zeroed it (plan-183-A), with no fill and no
     /// random-stream helper left anywhere in the allocator.
     #[test]
     fn freed_chunks_are_zero_filled_and_fresh_blocks_are_not() {
         crate::codegen::engine::mir::mir::set_backend(
             &crate::arch::aarch64::backend::AARCH64_BACKEND,
         );
-        let alloc = lower_arena_alloc(
-            &crate::target::macos_aarch64::code::Platform,
-            false,
-            false,
-            false,
-            &std::collections::HashMap::new(),
-        )
-        .expect("arena_alloc");
+        let alloc = lower_arena_alloc(false, false);
         let free = lower_arena_free(false, false);
-        assert!(
-            free.relocations
-                .iter()
-                .any(|r| r.to == ARENA_FILL_ZERO_SYMBOL),
-            "arena_free does not zero-fill"
-        );
+        let span_free = lower_arena_span_free(false);
+        for (name, function) in [("arena_free", &free), ("arena_span_free", &span_free)] {
+            assert!(
+                function
+                    .relocations
+                    .iter()
+                    .any(|r| r.to == ARENA_FILL_ZERO_SYMBOL),
+                "{name} does not zero-fill"
+            );
+        }
         assert!(
             alloc
                 .relocations

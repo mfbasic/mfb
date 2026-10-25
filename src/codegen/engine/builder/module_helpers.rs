@@ -240,18 +240,27 @@ pub(super) fn lower_core_runtime_helpers(
         crate::codegen::debug::feature_active(module, crate::codegen::debug::ARENA_SECTION);
     // plan-179-C: the arena memory cap's accounting rides the map and unmap sites.
     let arena_cap = crate::codegen::runtime::arena_cap::arena_cap_enabled(module);
-    code_functions.push(lower_arena_alloc(
+    // plan-183-C: the region allocator — the dispatchers, the slice layout and commit
+    // helpers, the small-page and medium/huge run helpers.
+    code_functions.push(lower_arena_alloc(perf_arena, debug_arena));
+    code_functions.push(crate::codegen::memory::arena::arena::lower_arena_geometry(
+        debug_arena,
+    ));
+    code_functions.push(crate::codegen::memory::arena::arena::lower_arena_commit(
         platform,
-        perf_arena,
         debug_arena,
         arena_cap,
         platform_imports,
     )?);
+    code_functions.push(crate::codegen::memory::arena::arena::lower_arena_small_page(debug_arena));
+    code_functions.push(crate::codegen::memory::arena::arena::lower_arena_span_alloc(false));
+    code_functions.push(crate::codegen::memory::arena::arena::lower_arena_span_alloc(true));
+    code_functions.push(crate::codegen::memory::arena::arena::lower_arena_span_free(
+        debug_arena,
+    ));
     code_functions.push(lower_build_error_loc());
     code_functions.push(lower_make_error_result());
     code_functions.push(lower_simd_alloc_list());
-    code_functions.push(lower_arena_insert_free(debug_arena));
-    code_functions.push(lower_arena_flush_coalesce(debug_arena));
     code_functions.push(lower_arena_free(perf_arena, debug_arena));
     // The arena's zero fill is always on: it scrubs freed chunks (plan-183-A: fresh
     // OS memory is already zero and is never filled).
@@ -402,6 +411,15 @@ pub(super) fn lower_core_runtime_helpers(
     if crate::codegen::runtime::arena_cap::arena_cap_enabled(module) {
         code_functions.push(crate::codegen::runtime::arena_cap::lower_arena_cap_init(
             &module.arena_memory,
+            platform_imports,
+            platform,
+        )?);
+    }
+    // plan-183-B: the startup reservation, which the entry calls right after the cap
+    // check.
+    if module.entry.is_some() {
+        code_functions.push(crate::codegen::runtime::arena_cap::lower_arena_reserve(
+            module,
             platform_imports,
             platform,
         )?);
@@ -656,6 +674,24 @@ pub(super) fn lower_runtime_helpers_and_threads(
             thread_table_data_object,
         };
         code_functions.push(lower_thread_table_acquire(platform_imports, platform)?);
+        // plan-183-B: the arena slices each thread takes and gives back.
+        code_functions.push(
+            crate::codegen::runtime::thread::lower_thread_slices_acquire(
+                crate::codegen::runtime::arena_cap::arena_slice_count(module),
+                crate::codegen::runtime::arena_cap::fixed_slice_count(module),
+                platform_imports,
+                platform,
+            )?,
+        );
+        code_functions.push(
+            crate::codegen::runtime::thread::lower_thread_slices_release(
+                platform_imports,
+                platform,
+            )?,
+        );
+        data_objects.push(crate::codegen::runtime::thread::thread_limit_data_object(
+            module.arena_memory.max_threads,
+        ));
         code_functions.push(lower_thread_table_release(platform_imports, platform)?);
         code_functions.push(lower_thread_block_arena_create(
             debug_arena,

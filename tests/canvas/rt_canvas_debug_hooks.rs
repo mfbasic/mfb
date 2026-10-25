@@ -229,6 +229,8 @@ fn a_normal_build_names_only_the_headless_renderer_and_sync_variables() {
             "{target}: a normal build names a variable it must not read"
         );
         let mut debug = normal.clone();
+        // plan-183-A: every `--debug` build reads the arena's zero-check switch.
+        debug.insert("MFB_ARENA_CHECK_ZERO".to_string());
         debug.extend(
             canvas_debug
                 .iter()

@@ -83,7 +83,13 @@ during IR lowering, then the value builder applies the worker-direction split to
 
 `thread::start` takes the entry, the seed, the two queue limits, and two per-type
 copy functions (the seed type's and the entry's result type's, 0 for a word-sized
-value). It allocates the control block from the heap, zeroes it, and builds it
+value). It first takes two free slices of the arena reservation (`./mfb spec
+memory program-startup`, *The Arena Reservation*) — the lowest two not yet taken,
+under the thread-table lock — and with fewer than two free raises `ErrThreadLimit`
+(message `<maxThreads> threads are already running; raise options.maxThreads in
+project.json to allow more`) before it creates anything.
+[[src/codegen/runtime/thread/slices.rs:lower_thread_slices_acquire]] It then allocates
+the control block from the heap, zeroes it, records the slices in it, and builds it
 (see `control-block`):
 
 - The parent view, first — a resource record in the caller's arena, which the
@@ -91,7 +97,8 @@ value). It allocates the control block from the heap, zeroes it, and builds it
 - The worker view embedded in the block, pointing back at it.
 - The worker function pointer (a closure: code + env), and the result type's copy
   function, which the worker's exit runs.
-- A slot in the thread table, then the block arena.
+- A slot in the thread table, then the block arena, which commits from the higher
+  of the two slices.
 - The block lock and the eight queue condition variables, initialized.
 - The seed, deep-copied into the block arena (a word-sized seed is stored as is).
   The caller's value stays the caller's.
@@ -103,7 +110,8 @@ value). It allocates the control block from the heap, zeroes it, and builds it
   distinct entropy-fill seed). Its size is
   `ENTRY_GLOBALS_OFFSET + arena_global_slots * 8`, using the same slot count as
   the program entry: globals and the enabled LINK, terminal, presentation, mouse,
-  and input state regions. These regions are **per-arena**.
+  and input state regions. These regions are **per-arena**. It commits from the
+  lower of the two slices.
   [[src/codegen/runtime/thread/runtime_helpers_thread/mod.rs:worker_arena_state_size]]
   [[src/codegen/engine/builder/module_layout.rs:plan_arena_layout]]
 
@@ -111,7 +119,9 @@ It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
 block pointer as the OS start-routine argument (see `os-integration`). Any failure
 after
 the table slot is taken frees everything built so far through
-`_mfb_rt_thread_block_release`; an allocation failure is `ErrOutOfMemory`, a
+`_mfb_rt_thread_block_release`, which gives the slices back too (a failure
+before the block holds them gives them back directly); an allocation failure is
+`ErrOutOfMemory`, a
 synchronization initialization or OS thread-creation failure `ErrInterrupted`,
 and a queue limit outside `1..=u64::MAX / 8` `ErrInvalidArgument`. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 

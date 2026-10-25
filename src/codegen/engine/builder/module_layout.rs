@@ -77,6 +77,9 @@ pub(super) fn module_data_objects(
             value: "0000000000000000".to_string(),
         });
     }
+    // plan-183-B: the arena reservation's words — every module's `arena_alloc` reads
+    // the slice size.
+    data_objects.extend(crate::codegen::runtime::arena_cap::data_objects_reservation(module));
     // plan-130-A: the `--debug` report's data (once-guard, key and line strings)
     // and each registered section's. Empty unless the report is on, so every
     // normal build keeps its exact data-object set.

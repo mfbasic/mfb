@@ -3,8 +3,9 @@
 
 use super::*;
 
-/// `_mfb_debug_arena_sample(slot)` (plan-133-C): write this grow's sample into the entry
-/// after the kept ones, then keep it when the slot's grow count has reached `until`.
+/// `_mfb_debug_arena_sample(slot)` (plan-133-C): count one grow (plan-183-C: a region's
+/// frontier extended) in the slot's `grows`, write its sample into the entry after the
+/// kept ones, then keep it when that count has reached `until`.
 /// Keeping the 256th sample halves the series in place — the even entries, then the one
 /// just kept — and doubles the stride. An unkept grow sets `pending`, so the report shows
 /// the latest grow as the last sample either way.
@@ -50,9 +51,9 @@ pub(super) fn lower_sample(
     let count = vregs.next();
     let width = vregs.next();
     let entry = vregs.next();
-    let mapped = vregs.next();
+    let committed = vregs.next();
     let live = vregs.next();
-    let grow = vregs.next();
+    let grows = vregs.next();
     let until = vregs.next();
     let stride = vregs.next();
     let flag = vregs.next();
@@ -73,16 +74,18 @@ pub(super) fn lower_sample(
         abi::multiply_registers(&entry, &count, &width),
         abi::add_registers(&entry, &entry, &slot),
         abi::add_immediate(&entry, &entry, SERIES_SAMPLES_OFFSET),
-        abi::load_u64(&mapped, &slot, COUNTER_MAPPED_BYTES),
+        abi::load_u64(&committed, &slot, COUNTER_COMMITTED_BYTES),
         abi::load_u64(&live, &slot, COUNTER_LIVE_BYTES),
         abi::store_u64(&now, &entry, SERIES_FIELDS[0].1),
-        abi::store_u64(&mapped, &entry, SERIES_FIELDS[1].1),
+        abi::store_u64(&committed, &entry, SERIES_FIELDS[1].1),
         abi::store_u64(&live, &entry, SERIES_FIELDS[2].1),
         abi::store_u64(&rss, &entry, SERIES_FIELDS[3].1),
         // Keep it once the grow count reaches `until` (0 before the first grow).
-        abi::load_u64(&grow, &slot, COUNTER_GROW),
+        abi::load_u64(&grows, &slot, COUNTER_GROWS),
+        abi::add_immediate(&grows, &grows, 1),
+        abi::store_u64(&grows, &slot, COUNTER_GROWS),
         abi::load_u64(&until, &slot, SERIES_UNTIL_OFFSET),
-        abi::compare_registers(&grow, &until),
+        abi::compare_registers(&grows, &until),
         abi::branch_lo("debug_sample_pending"),
         abi::load_u64(&stride, &slot, SERIES_STRIDE_OFFSET),
         abi::compare_immediate(&stride, "0"),
@@ -140,7 +143,7 @@ pub(super) fn lower_sample(
         abi::move_immediate(&count, "Integer", &(half + 1).to_string()),
         abi::add_registers(&stride, &stride, &stride),
         abi::label("debug_sample_keep"),
-        abi::add_registers(&until, &grow, &stride),
+        abi::add_registers(&until, &grows, &stride),
         abi::store_u64(&count, &slot, SERIES_COUNT_OFFSET),
         abi::store_u64(&stride, &slot, SERIES_STRIDE_OFFSET),
         abi::store_u64(&until, &slot, SERIES_UNTIL_OFFSET),

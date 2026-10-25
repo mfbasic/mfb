@@ -252,8 +252,8 @@ fn find_arena(inferior: &mut dyn Inferior, program: Program, id: usize) -> Resul
         .ok_or_else(|| format!("no arena {id}; type 'list arena' for the arenas"))
 }
 
-/// `show arena`: the arena's state and its blocks' headers, or a dump of one
-/// block.
+/// `show arena`: the arena's state, its regions and its free runs, or a dump of
+/// part of one region (plan-183-C: `0` small, `1` medium, `2` huge).
 pub(super) fn show_arena(
     inferior: &mut dyn Inferior,
     program: Program,
@@ -261,18 +261,23 @@ pub(super) fn show_arena(
     dump: Option<Dump>,
 ) -> Result<Vec<String>, String> {
     let arena = find_arena(inferior, program, id)?;
-    let blocks = runtime::blocks(inferior, arena.address)?;
+    let areas = runtime::areas(inferior, arena.address)?;
     let Some(dump) = dump else {
         let state = runtime::arena_state(inferior, arena.address)?;
+        let runs = runtime::free_runs(inferior, arena.address)?;
         let mut lines = state_lines(&state);
-        lines.extend(block_lines(&blocks));
+        lines.extend(area_lines(&areas, &runs));
         return Ok(lines);
     };
-    let block = blocks.get(dump.block).ok_or_else(|| {
+    if areas.is_empty() {
+        return Err(format!(
+            "arena {id} has not allocated yet: its slice has no regions"
+        ));
+    }
+    let area = areas.get(dump.area).ok_or_else(|| {
         format!(
-            "arena {id} has {} block{}, numbered from 0, the oldest",
-            blocks.len(),
-            if blocks.len() == 1 { "" } else { "s" }
+            "arena {id} has {} regions: 0 small, 1 medium, 2 huge",
+            areas.len()
         )
     })?;
     if dump.size == 0 {
@@ -281,16 +286,16 @@ pub(super) fn show_arena(
     if dump
         .offset
         .checked_add(dump.size)
-        .is_none_or(|end| end > block.size)
+        .is_none_or(|end| end > area.size)
     {
         return Err(format!(
-            "offset {:#x} + size {:#x} runs past the end of block {}, whose blockSize is {:#x}",
-            dump.offset, dump.size, dump.block, block.size
+            "offset {:#x} + size {:#x} runs past the end of the {} region's {:#x} handed-out bytes",
+            dump.offset, dump.size, area.name, area.size
         ));
     }
     let length = usize::try_from(dump.size).map_err(|_| "the dump is too large".to_string())?;
-    let bytes = inferior.read_bytes(block.address + dump.offset, length)?;
-    let mut lines = vec![format!("Arena Block ({id},{}):", dump.block)];
+    let bytes = inferior.read_bytes(area.address + dump.offset, length)?;
+    let mut lines = vec![format!("Arena Region ({id},{} {}):", dump.area, area.name)];
     lines.extend(dump_lines(dump.offset, &bytes));
     Ok(lines)
 }
@@ -314,7 +319,7 @@ pub(super) fn show_memory(
 }
 
 /// `show type`: the value at `location` read as the type `view` names. It
-/// must be in one of the program's arena blocks, which needs a `--debug`
+/// must be in one of the program's arena regions, which needs a `--debug`
 /// build's arena registry to find.
 pub(super) fn show_type(
     inferior: &mut dyn Inferior,
@@ -351,13 +356,8 @@ pub(super) fn show_type(
     }
     let mut regions = Vec::new();
     for arena in &arenas {
-        for (number, block) in runtime::blocks(inferior, arena.address)?.iter().enumerate() {
-            regions.push(Region::of_block(
-                arena.id,
-                number,
-                block.address,
-                block.size,
-            ));
+        for (number, area) in runtime::areas(inferior, arena.address)?.iter().enumerate() {
+            regions.push(Region::of_area(arena.id, number, area.address, area.size));
         }
     }
     values::show(

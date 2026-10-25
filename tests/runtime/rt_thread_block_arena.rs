@@ -52,7 +52,9 @@ fn block_arenas(lines: &[String]) -> Vec<usize> {
         .collect()
 }
 
-/// Every registered block arena gave every chunk it mapped back to the OS.
+/// Every registered block arena gave everything it committed back to the OS
+/// (plan-183-C: an arena takes memory by committing its slice, and its destruction
+/// decommits it).
 fn assert_block_arenas_unmapped(case: &str, lines: &[String], stderr: &str) -> usize {
     let blocks = block_arenas(lines);
     assert!(
@@ -60,21 +62,20 @@ fn assert_block_arenas_unmapped(case: &str, lines: &[String], stderr: &str) -> u
         "{case}: no thread_block arena registered:\n{stderr}"
     );
     for index in &blocks {
-        let maps = counter(case, lines, *index, "maps");
-        let mapped = counter(case, lines, *index, "mapped_bytes");
+        let commits = counter(case, lines, *index, "commits");
+        let peak = counter(case, lines, *index, "committed_peak_bytes");
         assert!(
-            maps >= 1,
-            "{case}: block arena {index} never mapped a chunk"
+            commits >= 1,
+            "{case}: block arena {index} never committed memory"
         );
         assert_eq!(
-            counter(case, lines, *index, "unmaps"),
-            maps,
-            "{case}: block arena {index} kept a chunk mapped"
+            counter(case, lines, *index, "committed_bytes"),
+            0,
+            "{case}: block arena {index} kept memory committed"
         );
-        assert_eq!(
-            counter(case, lines, *index, "unmapped_bytes"),
-            mapped,
-            "{case}: block arena {index} kept bytes mapped"
+        assert!(
+            counter(case, lines, *index, "decommitted_bytes") >= peak,
+            "{case}: block arena {index} kept bytes committed"
         );
     }
     blocks.len()

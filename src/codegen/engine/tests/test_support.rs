@@ -73,7 +73,7 @@ impl CodegenPlatform for TestPlatform {
     fn emit_read_dir_entry(&self, _p: &str, _np: abi::Reg, _nl: abi::Reg, _b: abi::Reg, _s: abi::Reg, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_read_dir_entry") }
     fn emit_realpath(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_realpath") }
     fn emit_arena_map(&self, _size_reg: abi::Reg, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TestPlatform::emit_arena_map") }
-    fn emit_arena_unmap(&self, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TestPlatform::emit_arena_unmap") }
+    fn emit_arena_vm(&self, _op: crate::codegen::engine::types::ArenaVm, _addr: abi::Reg, _size: abi::Reg, _platform_imports: &HashMap<String, String>, _instructions: &mut Vec<CodeInstruction>, _relocations: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_arena_vm") }
     fn emit_host_memory_probe(&self, _from: &str, _platform_imports: &HashMap<String, String>, _ram: abi::Reg, _scratch: abi::Reg, _instructions: &mut Vec<CodeInstruction>, _relocations: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_host_memory_probe") }
     fn host_memory_probe_name(&self) -> &'static str { unimplemented!("TestPlatform::host_memory_probe_name") }
     fn addrinfo_addr_offset(&self) -> usize { 24 }

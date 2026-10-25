@@ -26,12 +26,14 @@ mod common;
 
 use std::process::Command;
 
-/// A reusing allocator maps at most this multiple of its peak live bytes. The arena
-/// maps whole blocks (4 KiB, or a big request's own size rounded to a page, plus a
-/// quarter when it is climbing), keeps the freed buffers of a list's doubling growth,
-/// and never merges two mapped blocks, so 1× is not reachable; every row above ends
-/// at 2.6× or less, and the bug is 9× to 500×.
-const MAX_MAPPED_PER_PEAK_LIVE: u64 = 4;
+/// plan-183-E's bound, brought forward by plan-183-C when the report's measure became
+/// committed bytes: an arena commits at most a quarter more than its peak live bytes,
+/// plus a fixed 64 MiB for what every region commits before it holds anything (each
+/// data region commits in 4 MiB steps, the side structures in 64 KiB granules). The
+/// bug is 9× to 500× its peak.
+fn committed_bound(peak_live: u64) -> u64 {
+    peak_live + peak_live / 4 + (64 << 20)
+}
 
 /// `arena.<index>.<counter>` of `exe args…`'s `--debug` report.
 fn report(name: &str, exe: &std::path::Path, args: &[&str]) -> (String, Vec<String>) {
@@ -89,8 +91,8 @@ fn varying_large_sizes_map_no_more_than_a_fixed_size() {
         common::debug_report::counter("arena_large_varying", lines, 0, name)
     };
     let (varying_mapped, fixed_mapped) = (
-        counter(&varying, "mapped_bytes"),
-        counter(&fixed, "mapped_bytes"),
+        counter(&varying, "committed_peak_bytes"),
+        counter(&fixed, "committed_peak_bytes"),
     );
     assert_eq!(
         counter(&varying, "peak_live_bytes"),
@@ -132,12 +134,13 @@ END FUNC
     let exe = common::debug_report::build_debug("arena_large_climb", source);
     let (out, lines) = report("arena_large_climb", &exe, &[]);
     assert_eq!(out.trim(), "84040000", "the copies' total length");
-    let mapped = common::debug_report::counter("arena_large_climb", &lines, 0, "mapped_bytes");
+    let mapped =
+        common::debug_report::counter("arena_large_climb", &lines, 0, "committed_peak_bytes");
     let peak = common::debug_report::counter("arena_large_climb", &lines, 0, "peak_live_bytes");
     assert!(
-        mapped <= MAX_MAPPED_PER_PEAK_LIVE * peak,
-        "2,000 copies climbing 40 elements at a time mapped {mapped} bytes for a peak \
-         of {peak} live: more than {MAX_MAPPED_PER_PEAK_LIVE}× (bug-690)"
+        mapped <= committed_bound(peak),
+        "2,000 copies climbing 40 elements at a time committed {mapped} bytes for a peak \
+         of {peak} live: more than 1.25× + 64 MiB (bug-690)"
     );
 }
 
@@ -208,17 +211,17 @@ END FUNC
             })
             .find(|index| lines.contains(&format!("arena.{index}.kind {kind}")))
             .unwrap_or_else(|| panic!("{name}: no `{kind}` arena in {lines:?}"));
-        let mapped = common::debug_report::counter(name, &lines, index, "mapped_bytes");
+        let mapped = common::debug_report::counter(name, &lines, index, "committed_peak_bytes");
         let peak = common::debug_report::counter(name, &lines, index, "peak_live_bytes");
-        if mapped > MAX_MAPPED_PER_PEAK_LIVE * peak {
+        if mapped > committed_bound(peak) {
             grown.push(format!(
-                "the {kind} arena mapped {mapped} bytes for a peak of {peak} live"
+                "the {kind} arena committed {mapped} bytes for a peak of {peak} live"
             ));
         }
     }
     assert!(
         grown.is_empty(),
-        "{name}: {} — more than {MAX_MAPPED_PER_PEAK_LIVE}×. A scene whose size changes \
+        "{name}: {} — more than 1.25× + 64 MiB. A scene whose size changes \
          every frame must reuse the blocks earlier frames freed (bug-690).",
         grown.join("; ")
     );

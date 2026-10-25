@@ -80,6 +80,8 @@ pub(crate) const ARENA_CHECK_ZERO_ENV: &str = "MFB_ARENA_CHECK_ZERO";
 const ARENA_LOCK_SYMBOL: &str = "_mfb_rt_debug_arena_lock";
 const ARENA_COUNT_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_count";
 const ARENA_OVERFLOW_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_overflow";
+const ARENA_SLICES_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_slices";
+const ARENA_SLICE_SIZE_KEY_SYMBOL: &str = "_mfb_rt_debug_arena_key_slice_size";
 const ARENA_PREFIX_SYMBOL: &str = "_mfb_rt_debug_arena_key_prefix";
 const ARENA_KIND_SUFFIX_SYMBOL: &str = "_mfb_rt_debug_arena_key_kind";
 const ARENA_TOKEN_MAIN_SYMBOL: &str = "_mfb_rt_debug_arena_token_main";
@@ -100,27 +102,30 @@ const REGION_T0_OFFSET: usize = 16;
 pub(crate) const REGION_HEADER_SIZE: usize = 24;
 pub(crate) const SLOT_KIND_OFFSET: usize = 8;
 
-/// Counter words of a slot, after `state_ptr` (+0) and `kind` (+8).
-pub(crate) const COUNTER_MAPS: usize = 16;
-pub(crate) const COUNTER_MAPPED_BYTES: usize = 24;
-pub(crate) const COUNTER_UNMAPS: usize = 32;
-pub(crate) const COUNTER_UNMAPPED_BYTES: usize = 40;
-pub(crate) const COUNTER_ALLOC_CALLS: usize = 48;
-pub(crate) const COUNTER_ALLOC_BYTES: usize = 56;
-pub(crate) const COUNTER_FREE_CALLS: usize = 64;
-pub(crate) const COUNTER_FREE_BYTES: usize = 72;
-pub(crate) const COUNTER_LIVE_BYTES: usize = 80;
-pub(crate) const COUNTER_PEAK_LIVE_BYTES: usize = 88;
-pub(crate) const COUNTER_HIT_QUICK_BIN: usize = 96;
-pub(crate) const COUNTER_HIT_CARVE: usize = 104;
-pub(crate) const COUNTER_HIT_LARGE_BIN: usize = 112;
-pub(crate) const COUNTER_HIT_WALK: usize = 120;
-pub(crate) const COUNTER_GROW: usize = 128;
-pub(crate) const COUNTER_FLUSHES: usize = 136;
-pub(crate) const COUNTER_INSERT_FREE_CALLS: usize = 144;
+/// Counter words of a slot, after `state_ptr` (+0) and `kind` (+8). plan-183-C: the
+/// region allocator's set — commits and decommits of the arena's slice, the path that
+/// served each allocation, and the rows plan-183-D/E fill (in-place growth, the
+/// slice's size).
+pub(crate) const COUNTER_COMMITS: usize = 16;
+pub(crate) const COUNTER_COMMITTED_BYTES: usize = 24;
+pub(crate) const COUNTER_COMMITTED_PEAK_BYTES: usize = 32;
+pub(crate) const COUNTER_DECOMMITS: usize = 40;
+pub(crate) const COUNTER_DECOMMITTED_BYTES: usize = 48;
+pub(crate) const COUNTER_ALLOC_CALLS: usize = 56;
+pub(crate) const COUNTER_ALLOC_BYTES: usize = 64;
+pub(crate) const COUNTER_FREE_CALLS: usize = 72;
+pub(crate) const COUNTER_FREE_BYTES: usize = 80;
+pub(crate) const COUNTER_LIVE_BYTES: usize = 88;
+pub(crate) const COUNTER_PEAK_LIVE_BYTES: usize = 96;
+pub(crate) const COUNTER_HIT_SMALL: usize = 104;
+pub(crate) const COUNTER_SMALL_PAGES: usize = 112;
+pub(crate) const COUNTER_HIT_MEDIUM_RUN: usize = 120;
+pub(crate) const COUNTER_HIT_MEDIUM_FRONTIER: usize = 128;
+pub(crate) const COUNTER_HIT_HUGE_RUN: usize = 136;
+pub(crate) const COUNTER_HIT_HUGE_FRONTIER: usize = 144;
 pub(crate) const COUNTER_DOUBLE_FREE_SKIPS: usize = 152;
-/// plan-133-B: entropy-fill calls and bytes, on the grow path (a fresh block's usable
-/// region) and the free path (a freed chunk's payload past its 16-byte node).
+/// plan-133-B: zero-fill calls and bytes, on the grow path (always 0 since
+/// plan-183-A) and the free path (a freed chunk, whole since plan-183-C).
 pub(crate) const COUNTER_FILL_GROW_CALLS: usize = 160;
 pub(crate) const COUNTER_FILL_GROW_BYTES: usize = 168;
 pub(crate) const COUNTER_FILL_FREE_CALLS: usize = 176;
@@ -129,26 +134,35 @@ pub(crate) const COUNTER_FILL_FREE_BYTES: usize = 184;
 /// handing them out, and those with a non-zero byte in the checked range.
 pub(crate) const COUNTER_ZERO_CHECKS: usize = 192;
 pub(crate) const COUNTER_ZERO_VIOLATIONS: usize = 200;
+pub(crate) const COUNTER_EXTEND_CALLS: usize = 208;
+pub(crate) const COUNTER_EXTEND_HITS: usize = 216;
+pub(crate) const COUNTER_RESERVED_BYTES: usize = 224;
+/// plan-183-C: how often a region's frontier extended — a never-used small page set
+/// up, a medium or huge chunk carved at its region's frontier. Each one samples the
+/// memory series (`_mfb_debug_arena_sample` counts it).
+pub(crate) const COUNTER_GROWS: usize = 232;
 
 /// Every counter, in slot and report order: `(report name, slot offset)`.
-const ARENA_COUNTERS: [(&str, usize); 24] = [
-    ("maps", COUNTER_MAPS),
-    ("mapped_bytes", COUNTER_MAPPED_BYTES),
-    ("unmaps", COUNTER_UNMAPS),
-    ("unmapped_bytes", COUNTER_UNMAPPED_BYTES),
+const ARENA_COUNTERS: [(&str, usize); 28] = [
+    ("reserved_bytes", COUNTER_RESERVED_BYTES),
+    ("grows", COUNTER_GROWS),
+    ("commits", COUNTER_COMMITS),
+    ("committed_bytes", COUNTER_COMMITTED_BYTES),
+    ("committed_peak_bytes", COUNTER_COMMITTED_PEAK_BYTES),
+    ("decommits", COUNTER_DECOMMITS),
+    ("decommitted_bytes", COUNTER_DECOMMITTED_BYTES),
     ("alloc_calls", COUNTER_ALLOC_CALLS),
     ("alloc_bytes", COUNTER_ALLOC_BYTES),
     ("free_calls", COUNTER_FREE_CALLS),
     ("free_bytes", COUNTER_FREE_BYTES),
     ("live_bytes", COUNTER_LIVE_BYTES),
     ("peak_live_bytes", COUNTER_PEAK_LIVE_BYTES),
-    ("hit_quick_bin", COUNTER_HIT_QUICK_BIN),
-    ("hit_carve", COUNTER_HIT_CARVE),
-    ("hit_large_bin", COUNTER_HIT_LARGE_BIN),
-    ("hit_walk", COUNTER_HIT_WALK),
-    ("grow", COUNTER_GROW),
-    ("flushes", COUNTER_FLUSHES),
-    ("insert_free_calls", COUNTER_INSERT_FREE_CALLS),
+    ("hit_small", COUNTER_HIT_SMALL),
+    ("small_pages", COUNTER_SMALL_PAGES),
+    ("hit_medium_run", COUNTER_HIT_MEDIUM_RUN),
+    ("hit_medium_frontier", COUNTER_HIT_MEDIUM_FRONTIER),
+    ("hit_huge_run", COUNTER_HIT_HUGE_RUN),
+    ("hit_huge_frontier", COUNTER_HIT_HUGE_FRONTIER),
     ("double_free_skips", COUNTER_DOUBLE_FREE_SKIPS),
     ("fill_grow_calls", COUNTER_FILL_GROW_CALLS),
     ("fill_grow_bytes", COUNTER_FILL_GROW_BYTES),
@@ -156,23 +170,25 @@ const ARENA_COUNTERS: [(&str, usize); 24] = [
     ("fill_free_bytes", COUNTER_FILL_FREE_BYTES),
     ("zero_checks", COUNTER_ZERO_CHECKS),
     ("zero_violations", COUNTER_ZERO_VIOLATIONS),
+    ("extend_calls", COUNTER_EXTEND_CALLS),
+    ("extend_hits", COUNTER_EXTEND_HITS),
 ];
 
 /// plan-133-C: the memory series after the counters — how many samples are kept, the
 /// grow-count stride between kept samples, the grow count that keeps the next one,
 /// whether the entry after the kept ones holds an unkept latest grow, then the entries.
-const SERIES_COUNT_OFFSET: usize = 208;
-const SERIES_STRIDE_OFFSET: usize = 216;
-const SERIES_UNTIL_OFFSET: usize = 224;
-const SERIES_PENDING_OFFSET: usize = 232;
-const SERIES_SAMPLES_OFFSET: usize = 240;
+const SERIES_COUNT_OFFSET: usize = 240;
+const SERIES_STRIDE_OFFSET: usize = 248;
+const SERIES_UNTIL_OFFSET: usize = 256;
+const SERIES_PENDING_OFFSET: usize = 264;
+const SERIES_SAMPLES_OFFSET: usize = 272;
 /// Kept samples before the series halves; one more entry holds the latest unkept grow.
 const SERIES_CAPACITY: usize = 256;
 const SERIES_SAMPLE_SIZE: usize = 32;
 /// One sample's words, in report order: `(report name, offset in the entry)`.
 const SERIES_FIELDS: [(&str, usize); 4] = [
     ("t_ns", 0),
-    ("mapped_bytes", 8),
+    ("committed_bytes", 8),
     ("live_bytes", 16),
     ("peak_rss_bytes", 24),
 ];
@@ -186,8 +202,8 @@ const REGION_SIZE: usize = REGION_HEADER_SIZE + ARENA_DEBUG_SLOTS * SLOT_SIZE;
 // series fills the rest of the slot.
 const _: () = assert!(
     16 + ARENA_COUNTERS.len() * 8 == SERIES_COUNT_OFFSET
-        && COUNTER_ZERO_VIOLATIONS + 8 == SERIES_COUNT_OFFSET
-        && SLOT_SIZE == 8464
+        && COUNTER_GROWS + 8 == SERIES_COUNT_OFFSET
+        && SLOT_SIZE == 8496
 );
 
 /// The key-suffix data object of a series sample's field (`.t_ns ` …).
@@ -694,6 +710,8 @@ impl DebugFeature for ArenaFeature {
             },
             key_object(ARENA_COUNT_KEY_SYMBOL, "arena.count"),
             key_object(ARENA_OVERFLOW_KEY_SYMBOL, "arena.registry_overflow"),
+            key_object(ARENA_SLICES_KEY_SYMBOL, "arena.slices"),
+            key_object(ARENA_SLICE_SIZE_KEY_SYMBOL, "arena.slice_size"),
             text(ARENA_PREFIX_SYMBOL, "arena."),
             text(ARENA_KIND_SUFFIX_SYMBOL, ".kind "),
             text(ARENA_TOKEN_MAIN_SYMBOL, "main\n"),
@@ -717,14 +735,18 @@ impl DebugFeature for ArenaFeature {
 
     fn code_functions(
         &self,
-        _module: &NirModule,
+        module: &NirModule,
         platform_imports: &HashMap<String, String>,
         platform: &dyn CodegenPlatform,
     ) -> Result<Vec<CodeFunction>, String> {
         Ok(vec![
             lower_register(platform_imports, platform)?,
             lower_sample(platform_imports, platform)?,
-            lower_report(platform_imports, platform)?,
+            lower_report(
+                crate::codegen::runtime::arena_cap::arena_slice_count(module),
+                platform_imports,
+                platform,
+            )?,
         ])
     }
 

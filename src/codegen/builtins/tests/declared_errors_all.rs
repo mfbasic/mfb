@@ -620,6 +620,11 @@ const THREAD_RAISES_NOTHING: &[(&str, &str)] = &[
         "_mfb_rt_stdin_unsubscribe",
         "unregisters the calling thread from the stdin broadcaster; no error path",
     ),
+    (
+        "_mfb_rt_thread_slices_release",
+        "plan-183-B: clears two slice bits under the table lock; thread/slices.rs::\
+         lower_thread_slices_release has no error path",
+    ),
 ];
 
 /// `_mfb_rt_thread_table_acquire` and `_mfb_rt_thread_block_arena_create` each
@@ -637,6 +642,13 @@ const THREAD_PROPAGATING: &[(&str, Propagating)] = &[
     (
         "_mfb_rt_thread_block_arena_create",
         Propagating::Known(&["ErrOutOfMemory"]),
+    ),
+    // plan-183-B: takes the table lock (a platform call), so it is not re-lowered
+    // standalone; its one raise is `ErrThreadLimit`
+    // (thread/slices.rs::lower_thread_slices_acquire).
+    (
+        "_mfb_rt_thread_slices_acquire",
+        Propagating::Known(&["ErrThreadLimit"]),
     ),
 ];
 

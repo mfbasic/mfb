@@ -575,9 +575,18 @@ impl CodegenPlatform for FailAt<'_> {
         self.tick()?;
         self.inner.emit_arena_map(size_reg, instructions)
     }
-    fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
+    fn emit_arena_vm(
+        &self,
+        op: crate::codegen::engine::types::ArenaVm,
+        addr: crate::target::shared::abi::Reg,
+        size: crate::target::shared::abi::Reg,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
         self.tick()?;
-        self.inner.emit_arena_unmap(instructions)
+        self.inner
+            .emit_arena_vm(op, addr, size, platform_imports, instructions, relocations)
     }
     fn emit_host_memory_probe(
         &self,

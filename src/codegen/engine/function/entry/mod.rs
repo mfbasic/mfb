@@ -353,6 +353,27 @@ pub(crate) fn lower_program_entry(
             abi::label(cap_ok),
         ]);
     }
+    // plan-183-B: reserve the arena slices and point this thread's arena at slice 0,
+    // after the cap check and before the first allocation. Status 1: the reservation
+    // could not be had even at its floor; the helper wrote why, and the program exits
+    // with status 1 through the ordinary exit path.
+    {
+        let reserved = "entry_arena_reserved";
+        instructions.push(abi::branch_link(
+            crate::codegen::runtime::arena_cap::ARENA_RESERVE_SYMBOL,
+        ));
+        relocations.push(internal_branch(
+            entry_symbol,
+            crate::codegen::runtime::arena_cap::ARENA_RESERVE_SYMBOL,
+        ));
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(reserved),
+            abi::move_immediate(abi::return_register(), "Integer", "1"),
+            abi::branch(exit_label),
+            abi::label(reserved),
+        ]);
+    }
     // plan-130: each active `--debug` feature's entry work (the perf section maps its
     // region and opens the whole-program span). The calls clobber x0–x17, but argc/argv
     // are already parked in the callee-saved SCRATCH[17]/SCRATCH[18] (or irrelevant

@@ -120,7 +120,9 @@ pub(crate) trait LinuxArch {
         instructions: &mut Vec<CodeInstruction>,
     ) -> Result<(), String>;
 
-    fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String>;
+    /// plan-183-B: this ISA's `(mmap, mprotect, madvise)` syscall numbers, for
+    /// [`emit_linux_arena_vm`].
+    fn arena_vm_syscalls(&self) -> (&'static str, &'static str, &'static str);
 
     /// Terminate the process. The default calls libc `_exit`; a backend that
     /// raw-syscalls `exit_group` overrides. The app-mode branch is handled by
@@ -224,24 +226,68 @@ pub(crate) fn emit_asm_generic_arena_map(
     Ok(())
 }
 
-/// The asm-generic `munmap` counterpart of [`emit_asm_generic_arena_map`]. The
-/// shared `arena_destroy` leaves addr/len in the first two argument slots, so
-/// only the syscall number is set here.
-pub(crate) fn emit_asm_generic_arena_unmap(
+/// plan-183-B: the arena reservation's address-space operations on Linux, as raw
+/// syscalls (`syscalls` = this ISA's `mmap`, `mprotect`, `madvise` numbers; every
+/// other constant is the same on every Linux ISA):
+/// - reserve: `mmap(0, size, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE)`;
+/// - commit: `mprotect(addr, size, PROT_READ|PROT_WRITE)`;
+/// - decommit: `madvise(addr, size, MADV_DONTNEED)`, which drops the pages (a
+///   private anonymous page reads zero afterwards), then `mprotect(addr, size,
+///   PROT_NONE)`.
+///
+/// The result is staged from `sys_return()` into `return_register()` (distinct on
+/// x86-64). A failed syscall returns `-errno`, negative for `Reserve` and non-zero for
+/// `Commit`, as [`CodegenPlatform::emit_arena_vm`] asks.
+pub(crate) fn emit_linux_arena_vm(
+    syscalls: (&'static str, &'static str, &'static str),
+    op: crate::codegen::engine::types::ArenaVm,
+    addr: abi::Reg,
+    size: abi::Reg,
     instructions: &mut Vec<CodeInstruction>,
-) -> Result<(), String> {
-    instructions.extend([
-        abi::move_immediate(abi::syscall_register(), "Integer", ASM_GENERIC_SYS_MUNMAP),
-        abi::syscall(),
-    ]);
-    Ok(())
+) {
+    use crate::codegen::engine::types::ArenaVm;
+    let (mmap, mprotect, madvise) = syscalls;
+    let call3 = |instructions: &mut Vec<CodeInstruction>, nr: &str, third: &str| {
+        instructions.extend([
+            abi::move_register(abi::sys_arg(0), addr),
+            abi::move_register(abi::sys_arg(1), size),
+            abi::move_immediate(abi::sys_arg(2), "Integer", third),
+            abi::move_immediate(abi::syscall_register(), "Integer", nr),
+            abi::syscall(),
+            abi::move_register(abi::return_register(), abi::sys_return()),
+        ]);
+    };
+    match op {
+        ArenaVm::Reserve => instructions.extend([
+            abi::move_immediate(abi::sys_arg(0), "Integer", "0"),
+            abi::move_register(abi::sys_arg(1), size),
+            abi::move_immediate(abi::sys_arg(2), "Integer", "0"),
+            abi::move_immediate(abi::sys_arg(3), "Integer", MAP_PRIVATE_ANON_NORESERVE),
+            abi::move_immediate(abi::sys_arg(4), "Integer", &u64::MAX.to_string()),
+            abi::move_immediate(abi::sys_arg(5), "Integer", "0"),
+            abi::move_immediate(abi::syscall_register(), "Integer", mmap),
+            abi::syscall(),
+            abi::move_register(abi::return_register(), abi::sys_return()),
+        ]),
+        ArenaVm::Commit => call3(instructions, mprotect, PROT_READ_WRITE),
+        ArenaVm::Decommit => {
+            call3(instructions, madvise, MADV_DONTNEED);
+            call3(instructions, mprotect, "0");
+        }
+    }
 }
+
+/// plan-183-B: `MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE` (0x02 | 0x20 | 0x4000).
+const MAP_PRIVATE_ANON_NORESERVE: &str = "16418";
+/// plan-183-B: `madvise` advice 4.
+const MADV_DONTNEED: &str = "4";
+/// The asm-generic `(mmap, mprotect, madvise)` numbers (aarch64, riscv64).
+pub(crate) const ASM_GENERIC_ARENA_VM_SYSCALLS: (&str, &str, &str) = ("222", "226", "233");
 
 /// `mmap` argument constants — the same on every Linux ISA.
 pub(crate) const PROT_READ_WRITE: &str = "3"; // PROT_READ | PROT_WRITE
 pub(crate) const MAP_PRIVATE_ANON: &str = "34"; // MAP_PRIVATE | MAP_ANONYMOUS (0x02 | 0x20)
 const ASM_GENERIC_SYS_MMAP: &str = "222";
-const ASM_GENERIC_SYS_MUNMAP: &str = "215";
 
 /// Emit a `bl` to an imported libc function through the PLT: the `bl` selects to
 /// the ISA's call instruction and the relocation binds it to the symbol's PLT
@@ -1332,8 +1378,17 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         self.arch.emit_arena_map(size_reg, instructions)
     }
 
-    fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
-        self.arch.emit_arena_unmap(instructions)
+    fn emit_arena_vm(
+        &self,
+        op: crate::codegen::engine::types::ArenaVm,
+        addr: abi::Reg,
+        size: abi::Reg,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        emit_linux_arena_vm(self.arch.arena_vm_syscalls(), op, addr, size, instructions);
+        Ok(())
     }
 
     /// plan-179-B: `sysinfo(&struct sysinfo)` into the 112-byte structure at +0;

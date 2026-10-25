@@ -862,22 +862,14 @@ pub(crate) const ARENA_WORKER_THREAD_OFFSET: usize = 8;
 pub(crate) const ARENA_CLEANUP_FAILURE_COUNT_OFFSET: usize = 64;
 pub(crate) const ARENA_CLEANUP_FAILURE_CODE_OFFSET: usize = 72;
 pub(crate) const ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET: usize = 80;
-/// Reserved arena-state words at offsets 16 and 24. Zero (every arena state is
-/// zero-initialized) and read by nothing. They held a dedicated memory-fill PCG64
-/// stream until the arena fill became a zero fill (`ARENA_FILL_ZERO_SYMBOL`), and are
-/// kept reserved rather than reused so the rest of the layout does not move.
-pub(crate) const ARENA_RESERVED_16_OFFSET: usize = 16;
-pub(crate) const ARENA_RESERVED_24_OFFSET: usize = 24;
+/// plan-183-B: the first byte of the arena's slice of the startup reservation (0 for
+/// an arena with no slice). The region geometry inside the slice is in the scalar
+/// block (`ARENA_SC_*`, plan-183-C). Offset 24 is reserved. (These words held a
+/// memory-fill PCG64 stream until the fill became a zero fill.)
+pub(crate) const ARENA_SLICE_BASE_OFFSET: usize = 16;
 /// Arena start time in nanoseconds (reserved word at offset 40), captured once at
 /// arena init for lightweight diagnostics.
 pub(crate) const ARENA_START_TIME_OFFSET: usize = 40;
-/// Per-arena address-ordered coalescing free-list head (lowest-address free
-/// chunk, 0 when empty). Stored in the reserved arena-state word at offset 48
-/// (`memory_layouts.md` Arenas §). The list subsumes the old bump pointer: a
-/// freshly mapped block's usable region is inserted as one big free chunk and
-/// `arena_alloc` carves allocations out of it (first-fit + split), while
-/// `arena_free` returns chunks and coalesces with address-adjacent neighbors.
-pub(crate) const ARENA_FREE_LIST_HEAD_OFFSET: usize = 48;
 /// Per-arena (per-thread) Money rounding mode (plan-29-D): `0 = Commercial`
 /// (round-half-away-from-zero, the default), `1 = Banker` (round-half-to-even).
 /// Stored in the reserved arena-state word at offset 56 so the zero-init clear
@@ -891,24 +883,18 @@ pub(crate) const ARENA_ROUNDING_MODE_OFFSET: usize = 56;
 /// so the historical 0..88 layout is unchanged for programs that never seed.
 pub(crate) const ARENA_RNG_STATE_LO_OFFSET: usize = 88;
 pub(crate) const ARENA_RNG_STATE_HI_OFFSET: usize = 96;
-/// Per-size-class quick bins (allocator-01): `ARENA_QUICK_BIN_COUNT` singly
-/// linked bin heads for exact chunk sizes 16, 32, …, `ARENA_QUICK_BIN_MAX`
-/// (granule 16; class index `size/16 - 1`), appended to the arena state after
-/// the historical 104 bytes. A freed chunk ≤ `ARENA_QUICK_BIN_MAX` parks on its
-/// bin (O(1) push) and the next same-class allocation pops it (O(1)); bins
-/// drain through the coalescing insert before the arena grows
-/// (flush-before-grow), so parked memory never forces a map. Bin nodes reuse
-/// the `FreeNode {next@0, size@8}` overlay.
-pub(crate) const ARENA_QUICK_BIN_BASE_OFFSET: usize = 104;
-pub(crate) const ARENA_QUICK_BIN_COUNT: usize = 128;
-pub(crate) const ARENA_QUICK_BIN_MAX: u64 = 2048;
-/// Designated-victim carve chunk (allocator-01): one active chunk that
-/// bump-serves small bin misses (`ptr`/`size` pair). Splitting parked bin
-/// inventory on every miss shaves it into sub-class crumbs (measured); the
-/// DV concentrates all small-miss carving in one chunk, dlmalloc-style.
-pub(crate) const ARENA_CARVE_PTR_OFFSET: usize =
-    ARENA_QUICK_BIN_BASE_OFFSET + ARENA_QUICK_BIN_COUNT * 8;
-pub(crate) const ARENA_CARVE_SIZE_OFFSET: usize = ARENA_CARVE_PTR_OFFSET + 8;
+/// plan-183-C: the small region's per-class page lists — `ARENA_SMALL_CLASS_COUNT`
+/// heads, one per 16-byte size class 16, 32, …, `ARENA_SMALL_MAX` (class index
+/// `size/16 - 1`). A head is the index + 1 of the first small page of that class
+/// with a free slot (0: none); the pages chain through their descriptors.
+pub(crate) const ARENA_SMALL_HEAD_BASE_OFFSET: usize = 104;
+pub(crate) const ARENA_SMALL_CLASS_COUNT: usize = 128;
+pub(crate) const ARENA_SMALL_MAX: u64 = 2048;
+/// plan-183-C: the huge region's free-run list head (a run-node index, 0: empty).
+pub(crate) const ARENA_HUGE_HEAD_OFFSET: usize =
+    ARENA_SMALL_HEAD_BASE_OFFSET + ARENA_SMALL_CLASS_COUNT * 8;
+/// plan-183-C: the run-node pool's free list (a node index, 0: empty).
+pub(crate) const ARENA_NODE_FREE_OFFSET: usize = ARENA_HUGE_HEAD_OFFSET + 8;
 /// Opt-in stdout output buffer (plan-14-A), three per-arena (per-thread) words
 /// appended after the allocator carve chunk. `OUT_ENABLED` is 0 (off) by default
 /// — the entry / thread-spawn arena-state zeroing clears all three, so a program
@@ -916,41 +902,26 @@ pub(crate) const ARENA_CARVE_SIZE_OFFSET: usize = ARENA_CARVE_PTR_OFFSET + 8;
 /// unbuffered direct-write path (byte-identical to pre-plan-14). `OUT_PTR` is the
 /// lazily-allocated 4 KiB buffer (NULL until the first buffered write) and
 /// `OUT_FILLED` counts the pending bytes held in it.
-pub(crate) const ARENA_OUT_PTR_OFFSET: usize = ARENA_CARVE_SIZE_OFFSET + 8;
+pub(crate) const ARENA_OUT_PTR_OFFSET: usize = ARENA_NODE_FREE_OFFSET + 8;
 pub(crate) const ARENA_OUT_FILLED_OFFSET: usize = ARENA_OUT_PTR_OFFSET + 8;
 pub(crate) const ARENA_OUT_ENABLED_OFFSET: usize = ARENA_OUT_FILLED_OFFSET + 8;
-/// Segregated large-block bins (plan-25-A, re-indexed by bug-690):
-/// `ARENA_LARGE_BIN_COUNT` singly linked bin heads for chunks *larger* than
-/// `ARENA_QUICK_BIN_MAX` (which the 128 direct-indexed quick bins cannot cover
-/// without a bin per 16-byte class). The bins are log2 SIZE CLASSES, each power of
-/// two split into `2^ARENA_LARGE_BIN_SUBCLASS_BITS` linear sub-classes
-/// (`arena.rs:emit_large_bin_slot`); chunks of `ARENA_LARGE_BIN_TOP_SIZE` and up
-/// share the last class. A large free pushes its chunk onto its class in O(1). A
-/// large alloc takes the best fit among the first `ARENA_LARGE_BIN_SCAN_LIMIT`
-/// nodes of its own class (an exact size wins at once, so repetitive large-list
-/// churn still pops the chunk it just freed), else the head of the next non-empty
-/// higher class, whose every chunk fits; the chunk is split and the remainder
-/// re-parked. So a freed large block is reused by any request it fits, not only by
-/// one of exactly its size — the exact-size hash this replaced stranded every
-/// block whose size never recurred (bug-690). Bin nodes reuse the
-/// `FreeNode {next@0, size@8}` overlay; the slots are appended after the
-/// stdout-buffer words so every historical offset is unchanged.
-pub(crate) const ARENA_LARGE_BIN_COUNT: usize = 64;
-/// log2 of the linear sub-classes per power of two in the large bins (bug-690).
-pub(crate) const ARENA_LARGE_BIN_SUBCLASS_BITS: u32 = 2;
-/// The smallest size that lands in the last large-bin class: the 64 classes cover
-/// `ARENA_QUICK_BIN_MAX` up to here at 4 per power of two (2 KiB → 128 MiB).
-pub(crate) const ARENA_LARGE_BIN_TOP_SIZE: u64 =
-    ARENA_QUICK_BIN_MAX << (ARENA_LARGE_BIN_COUNT >> ARENA_LARGE_BIN_SUBCLASS_BITS);
-/// How many nodes of its own class a large allocation inspects before it takes
-/// the best fit seen or moves up a class. The bound keeps a large allocation O(1)
-/// however many chunks one class holds (bug-690).
-pub(crate) const ARENA_LARGE_BIN_SCAN_LIMIT: u64 = 16;
-/// The largest piece of a parked large chunk a SMALL request takes as its
-/// designated victim when nothing else is free (bug-690); the rest of the chunk is
-/// re-parked for the large requests that freed it. A multiple of 16.
-pub(crate) const ARENA_LARGE_DV_MAX: u64 = 64 * 1024;
-pub(crate) const ARENA_LARGE_BIN_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET + 8;
+/// plan-183-C: the medium region's free-run lists — `ARENA_MEDIUM_CLASS_COUNT` heads
+/// (run-node indices, 0: empty), one per size class. The classes are log2 classes
+/// split into `2^ARENA_MEDIUM_SUBCLASS_BITS` linear sub-classes
+/// (`memory/arena/arena/mod.rs:emit_medium_class_slot`); sizes from
+/// `ARENA_MEDIUM_TOP_SIZE` up share the last class. Every size in a class is smaller
+/// than every size in any higher class, so a request may take any run of a higher
+/// class without looking at its size.
+pub(crate) const ARENA_MEDIUM_CLASS_COUNT: usize = 64;
+pub(crate) const ARENA_MEDIUM_SUBCLASS_BITS: u32 = 2;
+pub(crate) const ARENA_MEDIUM_TOP_SIZE: u64 =
+    ARENA_SMALL_MAX << (ARENA_MEDIUM_CLASS_COUNT >> ARENA_MEDIUM_SUBCLASS_BITS);
+/// How many runs of its own class a medium allocation inspects for the best fit
+/// before it takes the best seen or moves up a class (bounded, so O(1)).
+pub(crate) const ARENA_MEDIUM_SCAN_LIMIT: u64 = 16;
+/// How many runs of the huge list a huge allocation inspects for the best fit.
+pub(crate) const ARENA_HUGE_SCAN_LIMIT: u64 = 64;
+pub(crate) const ARENA_MEDIUM_HEAD_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET + 8;
 /// Per-thread rv64 `v128` scalarization slot region (bug-122). RV64GC has no
 /// 128-bit registers, so the neutral `v128` ops (the transcendental/`vector::`
 /// math kernels) stage their lanes in memory. That region was a single process
@@ -980,7 +951,7 @@ pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 126 * 16;
 /// sets it — disables the check, since every stack address is above it. Kept below
 /// rv64's 12-bit load immediate so the per-call check is one load on every target.
 pub(crate) const ARENA_STACK_LIMIT_OFFSET: usize =
-    ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
+    ARENA_MEDIUM_HEAD_BASE_OFFSET + ARENA_MEDIUM_CLASS_COUNT * 8;
 /// bug-789: scratch beside the limit word, used only while a thread computes it.
 pub(crate) const ARENA_STACK_LIMIT_SCRATCH_OFFSET: usize = ARENA_STACK_LIMIT_OFFSET + 8;
 const _: () = assert!(ARENA_STACK_LIMIT_SCRATCH_OFFSET + 8 <= 2047);
@@ -1038,24 +1009,59 @@ pub(crate) const ARENA_STDIN_LOCAL_BUF_OFFSET: usize = ARENA_CURRENT_ERROR_OFFSE
 pub(crate) const ARENA_STDIN_LOCAL_FILLED_OFFSET: usize = ARENA_STDIN_LOCAL_BUF_OFFSET + 8;
 pub(crate) const ARENA_STDIN_LOCAL_POS_OFFSET: usize = ARENA_STDIN_LOCAL_FILLED_OFFSET + 8;
 pub(crate) const ARENA_STDIN_SUBSCRIBER_OFFSET: usize = ARENA_STDIN_LOCAL_POS_OFFSET + 8;
-/// Large-bin flush credit (bug-690), a signed word: the bytes freed onto the large
-/// bins since the last `arena_flush_coalesce`, minus
-/// `ARENA_LARGE_FLUSH_BYTES_PER_CHUNK` for every chunk that flush sorted. A large
-/// request that finds no fit anywhere flushes (coalesces every parked chunk) before
-/// it maps only while this is positive, so each flush's O(M log M) sort is paid for
-/// by the large bytes freed before the next one can run — amortized O(log M) per
-/// `ARENA_LARGE_FLUSH_BYTES_PER_CHUNK` freed bytes, which is what plan-64 A1's
-/// ungated big-request flush was not. Zero-initialized by the whole-
-/// `ARENA_STATE_SIZE` clear. Past rv64's 12-bit `addi` immediate, so accesses
-/// compute the address in a register.
-pub(crate) const ARENA_LARGE_FLUSH_CREDIT_OFFSET: usize = ARENA_STDIN_SUBSCRIBER_OFFSET + 8;
-/// Large bytes that must be freed per chunk the previous flush sorted before a
-/// big request may flush again (bug-690). A power of two (the flush multiplies by
-/// shifting). At 256, the flush's sort costs at most about `log2(M) / 256` steps per
-/// freed byte — below the zero scrub `arena_free` already spends on every byte.
-pub(crate) const ARENA_LARGE_FLUSH_BYTES_PER_CHUNK: u64 = 256;
-pub(crate) const ARENA_STATE_SIZE: usize = ARENA_LARGE_FLUSH_CREDIT_OFFSET + 8;
-
+/// plan-183-C: the allocator's scalar words, a block at the end of the state. They
+/// lie past rv64's 12-bit immediate, so every helper computes `state +
+/// ARENA_ALLOC_SCALARS_OFFSET` into a register once and addresses the words off it
+/// (`ARENA_SC_*` are offsets within the block). The slice geometry words are 0 until
+/// the arena's first allocation computes them from the slice base.
+pub(crate) const ARENA_ALLOC_SCALARS_OFFSET: usize = ARENA_STDIN_SUBSCRIBER_OFFSET + 8;
+/// The address of small page 0; 0 until the geometry is computed.
+pub(crate) const ARENA_SC_SMALL_PAGES: usize = 0;
+/// The end of the small region (the start of the run tags).
+pub(crate) const ARENA_SC_SMALL_END: usize = 8;
+/// How many small pages fit.
+pub(crate) const ARENA_SC_SMALL_LIMIT: usize = 16;
+/// The next never-used small page index.
+pub(crate) const ARENA_SC_SMALL_NEXT: usize = 24;
+/// The empty small pages' list (page index + 1, 0: none).
+pub(crate) const ARENA_SC_SMALL_EMPTY: usize = 32;
+/// The end of the committed small pages.
+pub(crate) const ARENA_SC_SMALL_COMMIT: usize = 40;
+/// The end of the committed small page descriptors.
+pub(crate) const ARENA_SC_TABLE_COMMIT: usize = 48;
+/// The run-tag array: one 16-byte record per 2 KiB block of the medium and huge
+/// span, `{start, end}`.
+pub(crate) const ARENA_SC_TAGS: usize = 56;
+/// The first byte of the medium region's data (block 0 of the tag array).
+pub(crate) const ARENA_SC_MEDIUM_BASE: usize = 64;
+/// The medium region's top: everything below it has been handed out at least once.
+pub(crate) const ARENA_SC_MEDIUM_FRONT: usize = 72;
+/// The end of the committed medium data.
+pub(crate) const ARENA_SC_MEDIUM_COMMIT: usize = 80;
+/// The huge region's bottom: everything from here to the slice top is huge chunks
+/// or huge free runs.
+pub(crate) const ARENA_SC_HUGE_FRONT: usize = 88;
+/// The bottom of the committed huge data.
+pub(crate) const ARENA_SC_HUGE_COMMIT: usize = 96;
+/// The end of the tag records committed for the medium region (they grow up).
+pub(crate) const ARENA_SC_TAGS_LOW: usize = 104;
+/// The start of the tag records committed for the huge region (they grow down).
+pub(crate) const ARENA_SC_TAGS_HIGH: usize = 112;
+/// The run-node pool: 32-byte nodes `{start, size, next, prev}`, index 0 unused.
+pub(crate) const ARENA_SC_NODES: usize = 120;
+/// The next never-used node index.
+pub(crate) const ARENA_SC_NODE_NEXT: usize = 128;
+/// How many nodes the pool holds.
+pub(crate) const ARENA_SC_NODE_LIMIT: usize = 136;
+/// The end of the committed node pool.
+pub(crate) const ARENA_SC_NODE_COMMIT: usize = 144;
+/// The slice's last byte + 1.
+pub(crate) const ARENA_SC_SLICE_TOP: usize = 152;
+/// Bytes this arena has committed and not decommitted (what it holds against the
+/// arena memory cap).
+pub(crate) const ARENA_SC_COMMITTED: usize = 160;
+pub(crate) const ARENA_ALLOC_SCALARS_SIZE: usize = 168;
+pub(crate) const ARENA_STATE_SIZE: usize = ARENA_ALLOC_SCALARS_OFFSET + ARENA_ALLOC_SCALARS_SIZE;
 /// Capacity of the per-thread lazily-allocated stdin local copy buffer, in bytes.
 pub(crate) const STDIN_LOCAL_BUFFER_CAPACITY: u64 = 4096;
 
@@ -1153,36 +1159,40 @@ pub(crate) const STDIN_UNSUBSCRIBE_SYMBOL: &str = "_mfb_rt_stdin_unsubscribe";
 /// `project.json` `"options"` section can override the baked value at build time.
 pub(crate) const STDIN_LOG_CAP_DEFAULT: u64 = 4 * 1024 * 1024;
 
-pub(crate) const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
-pub(crate) const ARENA_BLOCK_HEADER_SIZE: usize = 32;
-/// Minimum allocation granule. A free chunk overlays a `FreeNode` ({next, size})
-/// in its own dead bytes, so it must hold at least 16 bytes. Every request is
-/// rounded up to this granule and every allocation is at least 16-byte aligned,
-/// which keeps every chunk start 16-aligned and every chunk size a multiple of
-/// 16 — so a split front/tail remainder is always either 0 or a valid (≥16)
-/// node, never sub-granule slack.
+/// plan-183-C: the region geometry. Small pages and their descriptors; the 2 KiB
+/// block a run tag covers (every medium chunk and free run is larger, so at most one
+/// starts and one free run ends in any block); the huge tier and its page; the step
+/// a data region commits in, and the granule side structures commit in.
+pub(crate) const ARENA_SMALL_PAGE: u64 = 64 << 10;
+pub(crate) const ARENA_SMALL_DESC_SIZE: u64 = 576;
+pub(crate) const ARENA_SMALL_DESC_CLASS: usize = 0;
+pub(crate) const ARENA_SMALL_DESC_SLOTS: usize = 8;
+pub(crate) const ARENA_SMALL_DESC_FREE: usize = 16;
+pub(crate) const ARENA_SMALL_DESC_HINT: usize = 24;
+pub(crate) const ARENA_SMALL_DESC_NEXT: usize = 32;
+pub(crate) const ARENA_SMALL_DESC_PREV: usize = 40;
+pub(crate) const ARENA_SMALL_DESC_BITS: usize = 64;
+pub(crate) const ARENA_TAG_BLOCK_SHIFT: u32 = 11;
+pub(crate) const ARENA_TAG_RECORD_SIZE: u64 = 16;
+pub(crate) const ARENA_NODE_SIZE: u64 = 32;
+pub(crate) const ARENA_NODE_START: usize = 0;
+pub(crate) const ARENA_NODE_LEN: usize = 8;
+pub(crate) const ARENA_NODE_NEXT: usize = 16;
+pub(crate) const ARENA_NODE_PREV: usize = 24;
+pub(crate) const ARENA_HUGE_MIN: u64 = 32 << 20;
+pub(crate) const ARENA_HUGE_PAGE: u64 = 16 << 10;
+/// The largest alignment `arena_alloc` honours: a huge chunk's page.
+pub(crate) const ARENA_MAX_ALIGN: u64 = ARENA_HUGE_PAGE;
+pub(crate) const ARENA_COMMIT_STEP: u64 = 4 << 20;
+/// Minimum allocation granule. Every request is rounded up to it and every chunk is
+/// at least 16-byte aligned.
 pub(crate) const ARENA_MIN_CHUNK: u64 = 16;
 
 pub(crate) const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
 pub(crate) const ARENA_DESTROY_SYMBOL: &str = "_mfb_arena_destroy";
-/// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
-/// to the per-arena allocator (park on its quick bin or large-bin size class, then
-/// entropy-scrub). Never unmaps; memory returns to the OS only at `arena_destroy`.
+/// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation to
+/// its region of the arena's slice, zeroed (plan-183-C).
 pub(crate) const ARENA_FREE_SYMBOL: &str = "_mfb_arena_free";
-/// `arena_insert_free(x0 = ptr, x1 = size)` — the address-ordered coalescing
-/// insert shared by `arena_free` and `arena_alloc`'s block-grow path. Pure
-/// free-list surgery; does not scrub (callers fill first when required).
-pub(crate) const ARENA_INSERT_FREE_SYMBOL: &str = "_mfb_arena_insert_free";
-/// `arena_flush_coalesce()` — plan-64 A1. The flush-before-grow path: gather every
-/// parked quick-bin and large-bin chunk plus the address-ordered list into one
-/// chain, sort it by address in a single in-place merge sort, coalesce
-/// physically-adjacent chunks in one linear pass, then re-park (≤ QUICK_BIN_MAX →
-/// exact bin, larger → its large-bin size class, bug-690). Replaces the old per-chunk `arena_insert_free` drain,
-/// whose each-insert-is-O(list) walk made a flush of M parked chunks O(M²) — the
-/// arena mixed-transient-churn quadratic. Coalescing is address-exact, so even a
-/// sort defect can only under-coalesce (a memory shortfall), never overlap live
-/// allocations. No args, operates on arena state; leaf, vreg-allocated.
-pub(crate) const ARENA_FLUSH_COALESCE_SYMBOL: &str = "_mfb_arena_flush_coalesce";
 
 /// Capacity of the lazily-allocated stdout output buffer, in bytes.
 pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;
@@ -1223,10 +1233,10 @@ pub(crate) const ARENA_FILL_ZERO_SYMBOL: &str = "_mfb_arena_fill_zero";
 /// outside 16..=2048. Process-global (u64); `arena_fill_zero` reads it on every call.
 /// Emitted for AArch64 modules only.
 pub(crate) const DCZVA_BYTES_SYMBOL: &str = "_mfb_rt_dczva_bytes";
-/// plan-183-A: the bytes at the start of a chunk the `MFB_ARENA_CHECK_ZERO` check skips.
-/// A freed chunk's first 16 bytes hold its free-list node, which the allocator does
-/// not clear when it hands the chunk out again.
-pub(crate) const ARENA_ZERO_CHECK_SKIP: usize = 16;
+/// plan-183-A/C: the bytes at the start of a chunk the `MFB_ARENA_CHECK_ZERO` check
+/// skips — none: no allocator metadata lives in free memory (plan-183-C), so every
+/// byte of a chunk handed out reads zero.
+pub(crate) const ARENA_ZERO_CHECK_SKIP: usize = 0;
 
 // ===========================================================================
 // SIMD

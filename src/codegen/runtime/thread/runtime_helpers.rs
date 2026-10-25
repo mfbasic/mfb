@@ -549,6 +549,9 @@ pub(crate) fn lower_thread_start_helper(
     const RESULT_COPY_OFFSET: usize = 144;
     // plan-156-C: the parent view this call returns, in the caller's arena.
     const VIEW_OFFSET: usize = 152;
+    // plan-183-B: the thread's two arena slices, packed, from the acquire until the
+    // control block holds them.
+    const SLICES_OFFSET: usize = 160;
     // Largest queue limit whose ring size (`capacity * THREAD_QUEUE_ENTRY_SIZE`) still
     // fits in 64 bits.
     const MAX_QUEUE_LIMIT: u64 = u64::MAX / THREAD_QUEUE_ENTRY_SIZE as u64;
@@ -594,6 +597,19 @@ pub(crate) fn lower_thread_start_helper(
         abi::branch_hi(&invalid_limit),
         abi::compare_registers(abi::c_arg(3), &r.v12),
         abi::branch_hi(&invalid_limit),
+        // plan-183-B: the thread's two arena slices come first, so a start past
+        // `maxThreads` fails with `ErrThreadLimit` before anything is created. The
+        // helper leaves the whole error (code, tag, message) in the result registers.
+        abi::branch_link(crate::codegen::runtime::thread::THREAD_SLICES_ACQUIRE_SYMBOL),
+    ]);
+    relocations.push(internal_branch(
+        symbol,
+        crate::codegen::runtime::thread::THREAD_SLICES_ACQUIRE_SYMBOL,
+    ));
+    instructions.extend([
+        abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+        abi::branch_ne(&parent_done),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), SLICES_OFFSET),
         // plan-156-C: the parent view — the `Thread` value this call returns — is a
         // resource record in the CALLER's arena, like any other resource the caller
         // opens, so the caller's scope drop frees it. Allocated before anything else so
@@ -634,6 +650,9 @@ pub(crate) fn lower_thread_start_helper(
         // plan-156-A §4.4: one reference for the handle side, one for the worker.
         abi::move_immediate(&r.v10, "Integer", "2"),
         abi::store_u64(&r.v10, &r.v9, CONTROL_OFFSET_REFS),
+        // plan-183-B: from here the block's final release hands the slices back.
+        abi::load_u64(&r.v10, abi::stack_pointer(), SLICES_OFFSET),
+        abi::store_u64(&r.v10, &r.v9, CONTROL_OFFSET_SLICES),
         abi::load_u64(&r.v10, abi::stack_pointer(), ENTRY_OFFSET),
         abi::store_u64(&r.v10, &r.v9, CONTROL_OFFSET_ENTRY),
         abi::load_u64(&r.v10, abi::stack_pointer(), DATA_OFFSET),
@@ -668,6 +687,21 @@ pub(crate) fn lower_thread_start_helper(
         abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
         abi::branch_ne(&oom),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
+        // plan-183-B: the block arena commits from the pair's high slice.
+        abi::load_u64(&r.v9, abi::stack_pointer(), ARENA_OFFSET),
+    ]);
+    let slice_regs = [&r.v10, &r.v11, &r.v12];
+    emit_assign_pair_slice(
+        symbol,
+        &r.v9,
+        SLICES_OFFSET,
+        true,
+        slice_regs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
         abi::load_u64(&r.v9, abi::stack_pointer(), CB_OFFSET),
         abi::store_u64(RESULT_VALUE_REGISTER, &r.v9, CONTROL_OFFSET_ARENA),
         abi::add_immediate(abi::c_arg(0), &r.v9, CONTROL_OFFSET_LOCK),
@@ -761,7 +795,18 @@ pub(crate) fn lower_thread_start_helper(
         // parent arena here) into the child, which then diverges independently.
         abi::load_u64(&r.v12, abi::ARENA, ARENA_ROUNDING_MODE_OFFSET),
         abi::store_u64(&r.v12, &r.v11, ARENA_ROUNDING_MODE_OFFSET),
+        // plan-183-B: the worker's arena commits from the pair's low slice.
     ]);
+    let slice_regs = [&r.v10, &r.v12, &r.v13];
+    emit_assign_pair_slice(
+        symbol,
+        &r.v11,
+        SLICES_OFFSET,
+        false,
+        slice_regs,
+        ctx.instructions,
+        ctx.relocations,
+    );
     // plan-130-C: register the worker's arena with the `--debug` arena registry. The
     // parent does it, synchronously, before the worker exists, so workers register in
     // start order.
@@ -1000,7 +1045,16 @@ pub(crate) fn lower_thread_start_helper(
     platform.emit_heap_free(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     ctx.instructions.push(abi::label(&skip_free));
     free_view(&mut ctx);
-    ctx.instructions.push(abi::label(&view_oom));
+    ctx.instructions.extend([
+        abi::label(&view_oom),
+        // plan-183-B: no control block holds the slices yet; give them back here.
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), SLICES_OFFSET),
+        abi::branch_link(crate::codegen::runtime::thread::THREAD_SLICES_RELEASE_SYMBOL),
+    ]);
+    ctx.relocations.push(internal_branch(
+        symbol,
+        crate::codegen::runtime::thread::THREAD_SLICES_RELEASE_SYMBOL,
+    ));
     raise_error_into(symbol, "ErrOutOfMemory", ctx.instructions, ctx.relocations);
     ctx.instructions
         .extend([abi::branch(&parent_done), abi::label(&oom)]);

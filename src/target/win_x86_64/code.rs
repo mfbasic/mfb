@@ -66,8 +66,6 @@ pub(crate) const SHADOW_FRAME: usize = 0x20;
 
 // VirtualAlloc flProtect = PAGE_READWRITE (0x04).
 const PAGE_READWRITE: &str = "4";
-// VirtualFree dwFreeType = MEM_RELEASE (0x8000).
-const MEM_RELEASE: &str = "32768";
 // MultiByteToWideChar CodePage = CP_UTF8 (65001).
 const CP_UTF8: &str = "65001";
 // The two GetLastError codes that a *successful* POSIX `read()` reports as a
@@ -1382,20 +1380,54 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         "GlobalMemoryStatusEx"
     }
 
-    fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
-        // VirtualFree(lpAddress, 0, MEM_RELEASE). `arena_destroy` hands the block
-        // address in `return_register()` (the neutral x0 slot, where the Linux
-        // `munmap` syscall reads its first arg). On Win64 the first arg is rcx
-        // (ARG[0]) while return_register() is rax — distinct registers — so move
-        // the address into ARG[0] before the call. VirtualFree requires
-        // dwSize == 0 with MEM_RELEASE.
-        // No shadow-space frame, for the reason `emit_arena_map` records (bug-479).
-        instructions.extend([
-            abi::move_register(abi::mfb_arg(0), abi::return_register()),
-            abi::move_immediate(abi::mfb_arg(1), "Integer", "0"),
-            abi::move_immediate(abi::mfb_arg(2), "Integer", MEM_RELEASE),
-            abi::branch_link("VirtualFree"),
-        ]);
+    /// plan-183-B: `VirtualAlloc(NULL, size, MEM_RESERVE, PAGE_NOACCESS)` reserves,
+    /// `VirtualAlloc(addr, size, MEM_COMMIT, PAGE_READWRITE)` commits (newly committed
+    /// pages are zero) and `VirtualFree(addr, size, MEM_DECOMMIT)` decommits. The
+    /// calls are made the way `emit_arena_map` makes `VirtualAlloc` (bug-479).
+    fn emit_arena_vm(
+        &self,
+        op: crate::codegen::engine::types::ArenaVm,
+        addr: Reg,
+        size: Reg,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        use crate::codegen::engine::types::ArenaVm;
+        let site = instructions.len();
+        let ok = format!("arena_vm_{site}_ok");
+        match op {
+            ArenaVm::Reserve => instructions.extend([
+                abi::move_immediate(abi::mfb_arg(0), "Integer", "0"),
+                abi::move_register(abi::mfb_arg(1), size),
+                abi::move_immediate(abi::mfb_arg(2), "Integer", "8192"), // MEM_RESERVE
+                abi::move_immediate(abi::mfb_arg(3), "Integer", "1"),    // PAGE_NOACCESS
+                abi::branch_link("VirtualAlloc"),
+                abi::move_register(abi::return_register(), abi::c_return(0)),
+                abi::compare_immediate(abi::c_return(0), "0"),
+                abi::branch_ne(&ok),
+                abi::bitwise_not(abi::return_register(), abi::ZERO),
+                abi::label(&ok),
+            ]),
+            ArenaVm::Commit => instructions.extend([
+                abi::move_register(abi::mfb_arg(0), addr),
+                abi::move_register(abi::mfb_arg(1), size),
+                abi::move_immediate(abi::mfb_arg(2), "Integer", "4096"), // MEM_COMMIT
+                abi::move_immediate(abi::mfb_arg(3), "Integer", PAGE_READWRITE),
+                abi::branch_link("VirtualAlloc"),
+                abi::move_immediate(abi::return_register(), "Integer", "0"),
+                abi::compare_immediate(abi::c_return(0), "0"),
+                abi::branch_ne(&ok),
+                abi::move_immediate(abi::return_register(), "Integer", "1"),
+                abi::label(&ok),
+            ]),
+            ArenaVm::Decommit => instructions.extend([
+                abi::move_register(abi::mfb_arg(0), addr),
+                abi::move_register(abi::mfb_arg(1), size),
+                abi::move_immediate(abi::mfb_arg(2), "Integer", "16384"), // MEM_DECOMMIT
+                abi::branch_link("VirtualFree"),
+            ]),
+        }
         Ok(())
     }
 

@@ -36,7 +36,7 @@ The totality is load-bearing, not defensive: this initializer must stay in
 lockstep with the thread-spawn child-state zeroing. This path zeroes
 `ARENA_STATE_SIZE` and then every global slot; the thread-spawn path zeroes its
 whole worker-arena block in one loop, which covers exactly the same words.
-Growing the arena state — adding quick bins, say — or the globals region can then
+Growing the arena state — adding allocator words, say — or the globals region can then
 never leave a new field as garbage in one path but initialized in the other. A
 spec that named individual offsets here would invite exactly that divergence.
 The full arena-state byte layout is owned by `./mfb spec memory arenas`.
@@ -46,16 +46,16 @@ Slot layout in the entry frame:
 
 ```text
 entry arena region (base = arena register = sp + shadow)
-  +0                      ArenaState      ; ARENA_STATE_SIZE = 3776 bytes, the main arena-state
-  +3776 ENTRY_SEED_SCRATCH getentropy buf ; ENTRY_SEED_SCRATCH_OFFSET = ARENA_STATE_SIZE (RNG-seed scratch word)
-  +3784 ENTRY_GLOBALS[0..]               ; ENTRY_STACK_SIZE = 3784; globals, LINK slots, term:: state
+  +0                      ArenaState      ; ARENA_STATE_SIZE = 3936 bytes, the main arena-state
+  +3936 ENTRY_SEED_SCRATCH getentropy buf ; ENTRY_SEED_SCRATCH_OFFSET = ARENA_STATE_SIZE (RNG-seed scratch word)
+  +3944 ENTRY_GLOBALS[0..]               ; ENTRY_STACK_SIZE = 3944; globals, LINK slots, term:: state
   +entry_stack_size-48  args region (arg-accepting entries only)
            +0 argc  +8 argv  +16 args List ptr  +24 data length  +32 saved count
 ```
 
-`ENTRY_STACK_SIZE` is `3784`; globals begin there. The in-frame
-scratch word at `ARENA_STATE_SIZE` (`3776`) is the RNG-seed `getentropy` buffer.
-(The arena-state's 128 quick bins begin at `ARENA_QUICK_BIN_BASE_OFFSET = 104`.)
+`ENTRY_STACK_SIZE` is `3944`; globals begin there. The in-frame
+scratch word at `ARENA_STATE_SIZE` (`3936`) is the RNG-seed `getentropy` buffer.
+(The arena-state's 128 small-class page lists begin at `ARENA_SMALL_HEAD_BASE_OFFSET = 104`.)
 For an arg-accepting entry, a dedicated 48-byte args region (argc, argv, args
 `List` pointer, data length, saved count) is appended ABOVE the globals at the
 top of the frame — the slots must not overlap the globals (they are written
@@ -208,6 +208,41 @@ the entry stub itself only calls it and tests the result. With the default
 `maxArenaMemoryPercent: 50`, `requested` never exceeds `threshold`, so a default
 build prints nothing and behaves as before.
 
+## The Arena Reservation
+
+Right after the cap check (or where it would be, with `maxArenaMemoryDisable: true`
+— the reservation does not depend on the cap), the entry calls
+`_mfb_rt_arena_reserve`, before the first allocation.
+[[src/codegen/runtime/arena_cap/reserve.rs:lower_arena_reserve]]
+
+- **Slices.** The build fixes `slices = 1 + (1 for a program that uses canvas) + 2 ×
+  options.maxThreads` — 21 by default, 22 for canvas. Slice 0 is the entry thread's
+  arena, slice 1 a canvas program's graphics-thread arena, and every `thread::start`
+  takes two (`./mfb spec threading thread-runtime-helpers`).
+  [[src/codegen/runtime/arena_cap/reserve.rs:arena_slice_count]]
+- **Reserve.** It asks for `slices × 20 GiB` plus 2 MiB of inaccessible address
+  space: `mmap(PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE)` on Linux,
+  `mmap(PROT_NONE, MAP_PRIVATE|MAP_ANON)` on macOS, `VirtualAlloc(MEM_RESERVE,
+  PAGE_NOACCESS)` on Windows. Refused, it halves the slice part and tries again,
+  settling for exactly the floor of `slices × 256 MiB` when half would fall below
+  it. A refused floor writes `error: could not reserve <slices × 256 MiB + 2 MiB>
+  bytes of address space for <slices> arenas; the program did not start.` to stderr
+  and the entry exits with status 1 through the ordinary exit path.
+- **Record.** `_mfb_rt_arena_base` is the reservation rounded up to 2 MiB,
+  `_mfb_rt_arena_slice_size` is `min(20 GiB, granted ÷ slices)` rounded down to
+  2 MiB, and `_mfb_rt_arena_reserved_bytes` is the request granted. The slice bitmap
+  `_mfb_rt_arena_slice_bits` (one bit a slice) gets the fixed slices' bits; the
+  thread-table lock guards it from then on. Every word is emitted in every native
+  module.
+- **The entry thread's arena** gets slice 0: `ArenaState` +16 (slice base) and +24
+  (commit frontier) both become the base. Nothing is committed until the first
+  allocation (`./mfb spec memory arenas`, step 5).
+
+A process limited to less address space than `slices × 20 GiB` (Linux `ulimit -v`,
+say) still starts, on smaller slices; `--debug` prints the outcome as
+`arena.slices` and `arena.slice_size` (`./mfb spec tooling debug-report`). Nothing is
+unmapped before exit; arenas give memory back by decommitting.
+
 ## Signal Dispositions
 
 On non-Windows console entries, the shim
@@ -300,8 +335,8 @@ report. The process exit code is then forced to `255`.
 ## Teardown and Exit
 
 The exit path (`entry_exit`) parks the exit code in the arena-state scratch word
-at offset `32` (which lives in the stack-resident entry frame, not the mmap'd
-arena blocks that teardown unmaps), calls `_mfb_shutdown` (`SHUTDOWN_SYMBOL`),
+at offset `32` (which lives in the stack-resident entry frame, not the arena's
+slice that teardown decommits), calls `_mfb_shutdown` (`SHUTDOWN_SYMBOL`),
 reloads the exit code, and calls the platform process-exit. [[src/codegen/error/constants/error_constants.rs:SHUTDOWN_SYMBOL]]
 
 When the arena memory cap is on, `_mfb_shutdown`'s very first act is to store 0

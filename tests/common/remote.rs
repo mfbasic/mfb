@@ -199,6 +199,45 @@ pub fn output(exe: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
         .unwrap_or_else(|e| panic!("ssh run {}: {e}", exe.display()))
 }
 
+/// The target the test's programs run on: `MFB_TEST_REMOTE`'s, else this host's
+/// (`macos-aarch64`, `linux-x86_64`, …).
+pub fn run_target() -> String {
+    if let Some(remote) = remote() {
+        return remote.target;
+    }
+    let os = match std::env::consts::OS {
+        "macos" => "macos",
+        "windows" => "windows",
+        _ => "linux",
+    };
+    format!("{os}-{}", std::env::consts::ARCH)
+}
+
+/// Run `exe` under a POSIX shell with `shell_prefix` (`ulimit -v 1024 &&`, say) in
+/// front, here or on the remote box. POSIX targets only; a container run is refused
+/// (its limits are the container's own).
+pub fn output_in_shell(exe: &Path, shell_prefix: &str) -> Output {
+    match remote() {
+        None => Command::new("sh")
+            .arg("-c")
+            .arg(format!("{shell_prefix} exec {}", exe.display()))
+            .output()
+            .unwrap_or_else(|e| panic!("sh -c {}: {e}", exe.display())),
+        Some(remote) => {
+            assert!(
+                !remote.windows() && remote.docker_image().is_none(),
+                "output_in_shell runs on a POSIX box"
+            );
+            let path = remote.ship(exe);
+            remote
+                .ssh()
+                .arg(format!("chmod +x {path} && {shell_prefix} {path}"))
+                .output()
+                .unwrap_or_else(|e| panic!("ssh run {}: {e}", exe.display()))
+        }
+    }
+}
+
 /// The executable a build wrote, chosen for where it will run.
 pub fn pick_executable(written: &[&str]) -> Option<PathBuf> {
     let flavored = format!("-{}.out", libc_flavor());

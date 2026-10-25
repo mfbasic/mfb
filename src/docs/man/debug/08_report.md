@@ -88,22 +88,26 @@ order the pools were created.
 | --- | --- |
 | `arena.count` | how many pools the program used |
 | `arena.registry_overflow` | pools that could not be counted because 1024 were already in use; normally `0` |
+| `arena.slices`, `arena.slice_size` | how many pools the program set address space aside for at startup (one for the program's own thread, one for a canvas program's drawing thread, two for each thread `options.maxThreads` allows), and how much each may grow to — 20 GiB, unless the system gives the program less address space |
 | `arena.<n>.kind` | `main` (the program's own thread), `worker` (a thread started with `thread::start`), `thread_block` (the bookkeeping for one such thread, listed just before its `worker`), or `graphics` (a canvas program's drawing thread) |
-| `arena.<n>.maps`, `.mapped_bytes` | blocks of memory the pool got from the operating system, and their total size |
-| `arena.<n>.unmaps`, `.unmapped_bytes` | blocks it gave back, and their total size |
+| `arena.<n>.reserved_bytes` | how much address space the pool may grow into |
+| `arena.<n>.grows` | how often the pool grew into more of that space |
+| `arena.<n>.commits`, `.committed_bytes`, `.committed_peak_bytes` | how often the pool took more memory from the operating system, how much it holds now, and the most it held at once |
+| `arena.<n>.decommits`, `.decommitted_bytes` | how often the pool gave memory back, and how much |
 | `arena.<n>.alloc_calls`, `.alloc_bytes` | requests for memory for a value, and the bytes requested (rounded up to the pool's sizes) |
 | `arena.<n>.free_calls`, `.free_bytes` | values whose memory came back to the pool, and their bytes |
 | `arena.<n>.live_bytes` | bytes still held by values when the report ran |
 | `arena.<n>.peak_live_bytes` | the most bytes values held at any one moment |
-| `arena.<n>.hit_quick_bin`, `.hit_carve`, `.hit_large_bin`, `.hit_walk`, `.grow` | how each request was served, fastest first: a ready slot of the right small size, a cut from the current block, a ready slot from the large sizes, a search of the returned slots, or a new block from the operating system. The five add up to `alloc_calls`. |
-| `arena.<n>.flushes`, `.insert_free_calls` | passes that merged neighboring returned slots, and slots put back for merging |
+| `arena.<n>.hit_small`, `.hit_medium_run`, `.hit_medium_frontier`, `.hit_huge_run`, `.hit_huge_frontier` | how each request was served: a slot for a small value (2048 bytes or less), returned memory reused for a larger value, new memory for a larger value, returned memory reused for a very large value (32 MiB or more), or new memory for one. The five add up to `alloc_calls`. |
+| `arena.<n>.small_pages` | groups of small slots the pool set up |
 | `arena.<n>.double_free_skips` | returns of memory that was already returned, skipped; normally `0` |
-| `arena.<n>.fill_grow_calls`, `.fill_grow_bytes` | new blocks filled before use, and the bytes filled; always `0`, because new blocks arrive from the operating system already zeroed |
-| `arena.<n>.fill_free_calls`, `.fill_free_bytes` | returned slots overwritten with zeros, and the bytes overwritten |
-| `arena.<n>.zero_checks`, `.zero_violations` | with `MFB_ARENA_CHECK_ZERO` set to any non-empty value when the program starts: requests checked (every one), and those handed memory with a non-zero byte past its first 16 bytes; normally `0` and `0` |
+| `arena.<n>.fill_grow_calls`, `.fill_grow_bytes` | new memory filled before use, and the bytes filled; always `0`, because new memory arrives from the operating system already zeroed |
+| `arena.<n>.fill_free_calls`, `.fill_free_bytes` | returned memory overwritten with zeros, and the bytes overwritten |
+| `arena.<n>.zero_checks`, `.zero_violations` | with `MFB_ARENA_CHECK_ZERO` set to any non-empty value when the program starts: requests checked (every one), and those handed memory with a non-zero byte; normally `0` and `0` |
+| `arena.<n>.extend_calls`, `.extend_hits` | times a value tried to grow where it stood, and times it could |
 | `arena.<n>.series.count` | how many memory-over-time samples follow (at most 256) |
 | `arena.<n>.series.<i>.t_ns` | when sample `i` was taken, in nanoseconds since the first pool was created |
-| `arena.<n>.series.<i>.mapped_bytes`, `.live_bytes` | the pool's block total and its held bytes at that moment |
+| `arena.<n>.series.<i>.committed_bytes`, `.live_bytes` | the memory the pool held from the operating system and the bytes its values held at that moment |
 | `arena.<n>.series.<i>.peak_rss_bytes` | the process's peak memory at that moment (as `process.peak_rss_bytes`) |
 
 What the numbers tell you:
@@ -112,10 +116,11 @@ What the numbers tell you:
   report ran. A small, steady number is normal. One that grows with the size
   of the input means the program is holding on to more and more as it runs.
 - **`peak_live_bytes`** is the most memory your values needed at once. Compare
-  it with `mapped_bytes` to see how much of what the pool took from the
-  system it really used.
+  it with `committed_peak_bytes` to see how much of what the pool took from the
+  system it really used. A pool takes memory in steps of a few megabytes, so a
+  small program holds more than its values need.
 - **The series** shows memory over time. A sample is taken each time the pool
-  needs a new block, not on a timer. If `live_bytes` keeps rising from sample
+  grows into new space, not on a timer. If `live_bytes` keeps rising from sample
   to sample, memory is growing. If it rises and falls back, it is churning.
 - **`alloc_calls`** counts how often the program made a new value that needed
   memory. A hot loop that builds strings shows up here.
@@ -174,7 +179,8 @@ Get-Content report.txt
 ```
 
 On macOS the report reads as below. The groups for pools 1 to 4 (`arena.1`
-to `arena.4`: two `thread_block` and two `worker` pools) are left out here. Linux and Windows
+to `arena.4`: two `thread_block` and two `worker` pools), and pool 0's series
+samples after the first three, are left out here. Linux and Windows
 print the same sections without the `perf` lines.
 
 ```
@@ -201,40 +207,50 @@ perf.program.max 2961000
 perf.program.sum 2961000
 arena.count 5
 arena.registry_overflow 0
+arena.slices 21
+arena.slice_size 21474836480
 arena.0.kind main
-arena.0.maps 2
-arena.0.mapped_bytes 12288
-arena.0.unmaps 0
-arena.0.unmapped_bytes 0
+arena.0.reserved_bytes 21474836480
+arena.0.grows 11
+arena.0.commits 5
+arena.0.committed_bytes 5963776
+arena.0.committed_peak_bytes 5963776
+arena.0.decommits 0
+arena.0.decommitted_bytes 0
 arena.0.alloc_calls 61
 arena.0.alloc_bytes 11600
 arena.0.free_calls 61
 arena.0.free_bytes 11600
 arena.0.live_bytes 0
 arena.0.peak_live_bytes 4624
-arena.0.hit_quick_bin 36
-arena.0.hit_carve 22
-arena.0.hit_large_bin 1
-arena.0.hit_walk 0
-arena.0.grow 2
-arena.0.flushes 0
-arena.0.insert_free_calls 0
+arena.0.hit_small 59
+arena.0.small_pages 10
+arena.0.hit_medium_run 1
+arena.0.hit_medium_frontier 1
+arena.0.hit_huge_run 0
+arena.0.hit_huge_frontier 0
 arena.0.double_free_skips 0
 arena.0.fill_grow_calls 0
 arena.0.fill_grow_bytes 0
-arena.0.fill_free_calls 42
-arena.0.fill_free_bytes 10624
+arena.0.fill_free_calls 61
+arena.0.fill_free_bytes 11600
 arena.0.zero_checks 0
 arena.0.zero_violations 0
-arena.0.series.count 2
-arena.0.series.0.t_ns 27000
-arena.0.series.0.mapped_bytes 4096
-arena.0.series.0.live_bytes 176
-arena.0.series.0.peak_rss_bytes 1163264
-arena.0.series.1.t_ns 39000
-arena.0.series.1.mapped_bytes 12288
-arena.0.series.1.live_bytes 4560
+arena.0.extend_calls 0
+arena.0.extend_hits 0
+arena.0.series.count 11
+arena.0.series.0.t_ns 29000
+arena.0.series.0.committed_bytes 1638400
+arena.0.series.0.live_bytes 0
+arena.0.series.0.peak_rss_bytes 1146880
+arena.0.series.1.t_ns 43000
+arena.0.series.1.committed_bytes 1638400
+arena.0.series.1.live_bytes 176
 arena.0.series.1.peak_rss_bytes 1196032
+arena.0.series.2.t_ns 47000
+arena.0.series.2.committed_bytes 1638400
+arena.0.series.2.live_bytes 176
+arena.0.series.2.peak_rss_bytes 1212416
 process.peak_rss_bytes 1523712
 thread.table_capacity 64
 thread.table_high 1

@@ -1,9 +1,9 @@
-//! plan-179-C: charging arena blocks against the arena memory cap.
+//! plan-179-C, plan-183-C: charging arena commits against the arena memory cap.
 //!
-//! One process-wide counter, `_mfb_rt_arena_mapped_bytes`, holds the bytes of every
-//! arena block mapped and not yet unmapped, across every thread's arena. It is
-//! guarded by `_mfb_rt_arena_map_lock`, a mutex taken only when a block is mapped or
-//! unmapped — never on the allocation fast path. The lock calls go through the
+//! One process-wide counter, `_mfb_rt_arena_committed_bytes`, holds the bytes every
+//! thread's arena has committed and not decommitted. It is guarded by
+//! `_mfb_rt_arena_map_lock`, a mutex taken only when an arena commits or decommits —
+//! never on the allocation fast path. The lock calls go through the
 //! thread seam, so Windows gets an SRWLOCK.
 //!
 //! The counter is touched only while `_mfb_rt_arena_map_limit` is nonzero. That one
@@ -19,8 +19,8 @@ use super::*;
 use crate::codegen::engine::builder::EmitCtx;
 use crate::codegen::runtime::thread::emit_thread_external_call;
 
-/// The process-wide mapped-bytes counter (u64).
-pub(crate) const ARENA_MAPPED_BYTES_SYMBOL: &str = "_mfb_rt_arena_mapped_bytes";
+/// The process-wide committed-bytes counter (u64).
+pub(crate) const ARENA_COMMITTED_BYTES_SYMBOL: &str = "_mfb_rt_arena_committed_bytes";
 /// The mutex guarding the counter: 64 bytes, 8-aligned, which holds a macOS
 /// `pthread_mutex_t` (64), a glibc or musl one (at most 48) and an SRWLOCK (8).
 pub(crate) const ARENA_MAP_LOCK_SYMBOL: &str = "_mfb_rt_arena_map_lock";
@@ -32,9 +32,9 @@ const ARENA_MAP_LOCK_BYTES: usize = crate::codegen::builtins::os::OS_ENV_LOCK_SI
 pub(super) fn data_objects(platform: &dyn CodegenPlatform) -> Vec<CodeDataObject> {
     vec![
         CodeDataObject {
-            symbol: ARENA_MAPPED_BYTES_SYMBOL.to_string(),
+            symbol: ARENA_COMMITTED_BYTES_SYMBOL.to_string(),
             kind: "raw".to_string(),
-            layout: "mfb.runtime.arena_mapped_bytes.v1 { u64 mappedBytes }".to_string(),
+            layout: "mfb.runtime.arena_committed_bytes.v1 { u64 committedBytes }".to_string(),
             align: 8,
             size: 8,
             value: "0000000000000000".to_string(),
@@ -101,7 +101,7 @@ impl CapSite<'_> {
         let counter = vregs.next();
         let value = vregs.next();
         self.lock_call("pthread_mutex_lock")?;
-        self.address(ARENA_MAPPED_BYTES_SYMBOL, &counter);
+        self.address(ARENA_COMMITTED_BYTES_SYMBOL, &counter);
         self.instructions.extend([
             abi::load_u64(&value, &counter, 0),
             if add {
@@ -115,11 +115,11 @@ impl CapSite<'_> {
     }
 }
 
-/// Before a block map: charge `map_size` to the counter, or branch to `over` (with
+/// Before a commit: charge `map_size` bytes to the counter, or branch to `over` (with
 /// the lock released) when the charged total would pass the limit or overflow.
 /// Leaves `charged` 1 when a charge was made, 0 when the limit is 0 (no
-/// enforcement) — the refund after a failed map reads it.
-pub(crate) fn emit_map_charge(
+/// enforcement) — the refund after a failed commit reads it.
+pub(crate) fn emit_commit_charge(
     site: &mut CapSite<'_>,
     map_size: &VirtualRegister,
     charged: &VirtualRegister,
@@ -141,7 +141,7 @@ pub(crate) fn emit_map_charge(
         abi::branch_eq(&skip),
     ]);
     site.lock_call("pthread_mutex_lock")?;
-    site.address(ARENA_MAPPED_BYTES_SYMBOL, &counter);
+    site.address(ARENA_COMMITTED_BYTES_SYMBOL, &counter);
     site.address(ARENA_MAP_LIMIT_SYMBOL, &limit_addr);
     site.instructions.extend([
         abi::load_u64(&total, &counter, 0),
@@ -164,8 +164,8 @@ pub(crate) fn emit_map_charge(
     Ok(())
 }
 
-/// After a failed block map: give back the charge `emit_map_charge` made.
-pub(crate) fn emit_map_refund(
+/// After a failed commit: give back the charge `emit_commit_charge` made.
+pub(crate) fn emit_commit_refund(
     site: &mut CapSite<'_>,
     map_size: &VirtualRegister,
     charged: &VirtualRegister,
@@ -179,8 +179,8 @@ pub(crate) fn emit_map_refund(
     Ok(())
 }
 
-/// Before a block unmap: give back its `block_size`, unless the limit is 0.
-pub(crate) fn emit_unmap_refund(
+/// After a decommit: give back its `block_size` bytes, unless the limit is 0.
+pub(crate) fn emit_decommit_refund(
     site: &mut CapSite<'_>,
     block_size: &VirtualRegister,
     vregs: &mut Vregs,

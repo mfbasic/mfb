@@ -54,7 +54,7 @@ and a read deep-copies the queued value out of it into the reader's own arena.
 The arena-state register is pointed at the block arena only for the length of
 that copy, under the lock that serializes every allocation in it, and never at
 another thread's arena — that thread may be allocating from its own at the same
-instant, and the allocator's free-list pop is unsynchronized. `thread::start`'s
+instant, and the allocator's lists are unsynchronized. `thread::start`'s
 seed and the worker's result cross the same way. `./mfb spec threading
 control-block` owns the block arena, and `queue-semantics` the queue side.
 [[src/codegen/cleanup/thread/builder_thread_cleanup.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/runtime/thread/control_block.rs:emit_call_in_block_arena]] [[src/codegen/memory/arena/builder_arena_transfer/transfer.rs:copy_value_to_current_arena]]
