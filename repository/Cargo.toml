@@ -66,3 +66,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # mode is a server that dies at startup rather than a red test. Dev-only: tower
 # is already in the tree as an axum dependency and does not enter the binary.
 tower = { version = "0.4", features = ["util"] }
+# Test-only `limits`: `Connection::set_limit` lowers SQLITE_LIMIT_LENGTH on a live
+# store so a text parameter is refused at bind (SQLITE_TOOBIG). That is the only
+# way a prepared statement's `query`/`query_map` fails, and the store must report
+# it rather than answer with an empty result. Dev-only feature unification: the
+# shipped binary's rusqlite is unchanged.
+rusqlite = { version = "0.31", features = ["bundled", "limits"] }

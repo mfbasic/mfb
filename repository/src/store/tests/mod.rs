@@ -2,6 +2,7 @@ use super::*;
 
 mod accounts;
 mod blobs;
+mod faults_versions;
 mod packages;
 mod registry_tables;
 mod transfers;
@@ -226,6 +227,51 @@ pub(crate) fn tamper(store: &Store, sql: &str) {
     conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
     conn.execute_batch(sql).unwrap();
     conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+}
+
+/// Make every `op` (`INSERT`, `UPDATE` or `DELETE`) on `table` abort with
+/// `injected <op> failure`, the way a full disk or a constraint another writer
+/// added refuses one statement while the rest of the database still works.
+pub(crate) fn refuse_writes(store: &Store, table: &str, op: &str) {
+    tamper(
+        store,
+        &format!(
+            "CREATE TRIGGER refuse_{op}_{table} BEFORE {op} ON {table}
+             BEGIN SELECT RAISE(ABORT, 'injected {op} failure'); END;"
+        ),
+    );
+}
+
+/// Make any transaction that runs `op` on `table` fail at `COMMIT` and roll
+/// back: the trigger records a deferred foreign-key violation, which SQLite
+/// only reports when the transaction tries to commit.
+pub(crate) fn refuse_commit_after(store: &Store, table: &str, op: &str) {
+    tamper(
+        store,
+        &format!(
+            "CREATE TABLE IF NOT EXISTS commit_trap (
+                 owner_id INTEGER REFERENCES owners(id) DEFERRABLE INITIALLY DEFERRED
+             );
+             CREATE TRIGGER trap_{op}_{table} AFTER {op} ON {table}
+             BEGIN INSERT INTO commit_trap (owner_id) VALUES (-1); END;"
+        ),
+    );
+}
+
+/// Leave the store's connection inside an open transaction, so the next
+/// `Connection::transaction()` fails to begin (`cannot start a transaction
+/// within a transaction`) while plain reads still work.
+pub(crate) fn wedge_transaction(store: &Store) {
+    store.conn().execute_batch("BEGIN").unwrap();
+}
+
+/// Lower the connection's SQLITE_LIMIT_LENGTH to `bytes`, so binding any
+/// longer text or blob parameter fails with SQLITE_TOOBIG — the one failure a
+/// prepared statement's `query`/`query_map` can return.
+pub(crate) fn limit_value_length(store: &Store, bytes: i32) {
+    store
+        .conn()
+        .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_LENGTH, bytes);
 }
 
 pub(crate) fn drop_tables(store: &Store, tables: &[&str]) {
