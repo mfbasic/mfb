@@ -95,7 +95,7 @@ There are no blocks:
 
 Acceptance: `cargo test --test rt_arena_regions --test rt_arena_zeroing --test rt_arena_large_block_reuse --test rt_worker_arena_release` passes on macOS, 2223, 2229 (riscv64, for the offset reach) and the Windows box (est. 6 min each; 2229 longer).
 Measured 2026-10-24: macOS 2+2+3+2 passed; box 2229 (`MFB_TEST_REMOTE=linux-riscv64,test@127.0.0.1,2229,musl`) 2+2+3+2 passed; box 2226 standing in for 2223 (`linux-aarch64,…,2226,glibc`) 2+2+3+2 passed; Windows box 2+2+3+2 passed. (`rt_worker_arena_release` reads peak RSS from the `--debug` report on a remote box.)
-Commit: —
+Commit: f7ae0e904 (goldens in the commit after it)
 
 ## Phase C2 — Debugger and specs that read the layout
 
@@ -104,7 +104,7 @@ Commit: —
 
 Acceptance: `cargo test --bin mfb debugger::` passes (est. 1 min); on macOS, `mfb dbg` of a `--debug -O0` build shows the region view.
 Measured: `cargo test --bin mfb debugger::` → 311 passed. `printf 'bp pause\nrun\nlist arena\nshow arena 0\nq\n' | mfb dbg /tmp/p183/dbgprog/build/dbgprog.out` (signed with `scripts/sign-debugger.sh`) printed `Arena Region (0 small)` … `(2 huge)` with their frontiers and committed bytes, and `Free Runs: 1` / `medium[1] 0x00000070b1803310 0x0000000000000bd0`.
-Commit: —
+Commit: f7ae0e904 (goldens in the commit after it)
 
 ## Validation
 
@@ -121,6 +121,6 @@ Commit: —
 5. **Alignment above 16 is served by the huge region** (16 KiB-aligned chunks); above 16 KiB it is `ErrInvalidArgument`. Every one of the 280 `arena_alloc` call sites passes 1, 2 or 8 (survey of `src/`), so no code path needs more.
 6. **A small page that empties stays on its class list when it is the class's only page.** Moving every empty page to the empty list made a class that frees and allocates one slot at a time re-initialise a page each time: the zeroing smoke program set up 121 pages for 201 small allocations; with the rule, 2.
 7. **The Rust reference model of the old free list was deleted** (`engine/tests/tests.rs`: `FreeListSim`, `checked_arena_used_after_alloc` and the nine tests on them). It modelled the address-ordered free list and block payloads C removed and never exercised emitted code; the region allocator is exercised by `rt_arena_regions`' stress test.
-8. **plan-183-B and plan-183-C landed in one commit.** C rewrote B's interim grow and destroy code before B's goldens were regenerated, so the tree held both. B's acceptance rows were measured on the B-only binary and re-run on the combined one (macOS, 2226, Windows).
+8. **plan-183-B and plan-183-C landed in one commit.** C rewrote B's interim grow and destroy code before B's goldens were regenerated, so the tree held both. B's acceptance rows were measured on the B-only binary and re-run on the combined one (macOS, 2226, Windows). The goldens for both were regenerated once, on the combined binary (plan-183-B's golden task carries the gate, acceptance and regen output).
 9. **Box 2223 was down**; 2226 stands in for it, and 2229 ran the riscv64 row.
 10. **The `tests/acceptance` TESTING app times out under a debug-built `mfb`** in the full acceptance run (300 s watchdog; `scripts/test-accept.sh` documents 339 s with a debug compiler). The golden run uses the release build.
