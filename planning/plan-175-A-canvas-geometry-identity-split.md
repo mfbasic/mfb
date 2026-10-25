@@ -7,8 +7,9 @@ Overall Effort: huge (>3d) — plan-175 is three letters: A (this file), then
 Effort: huge (>3d) over seven phases; each phase is large (3h–1d) and lands alone
 Depends on: nothing (its Phase 2 waits on §8.1, decision 3)
 Dependency graph (Correction 3): A Phase 1 → D → A Phases 2–7 → B → C. `plan-175-D`
-(`plan-175-D-canvas-worker-present-copy-compare.md`) is §8.1's worker copy and compare,
-which decision 3 put before Phase 2 and no letter covered.
+(`planning/completed/plan-175-D-canvas-worker-present-copy-compare.md`, landed at
+17b7b529e) is §8.1's worker copy and compare, which decision 3 put before Phase 2 and no
+letter covered.
 
 A canvas item has ONE 62-bit content hash. It is the key of the geometry cache and it
 is the damage identity (`.ai/canvas-threading.md` §14). It folds the item's whole
@@ -613,6 +614,12 @@ Commit: —
       geometry and two paints in one frame, alternating which is first, draw right and
       verify clean; a frame after a refresh is byte-identical to a fresh run that
       starts on that scene.
+- [ ] Moved from Phase 1 (Correction 4), the same file: a change of each appearance
+      field alone (fill, stroke colour with alpha staying non-zero, blend, a two-stop
+      ramp's colours, transparency) mints no new cache key (the item keeps its one
+      entry: refreshed, or rebuilt in place for a ramp); each geometry predicate alone
+      mints one — stroke alpha 0 against 1, one stop against two, `FillOnly` against
+      `FillAndStroke` on a `Line`, empty against non-empty `PolyLine.colors`.
 - [ ] `tests/canvas/rt_canvas_damage.rs`: a paint-only change under `MFB_CANVAS_DAMAGE`
       damages the item's bounds (the regression of spike experiment 1).
 - [ ] `scripts/test-canvas-gpu-rows.sh`: a `repaint` row (the dots scene, two frames,
@@ -892,6 +899,27 @@ correction is added here, dated, with the command that showed it.
    what §8.1 left unmeasured: on this Mac at 100,000 dots the worker spends its present in
    `carriedHashes`, `publishScene`, `sceneHashes` and (for an unchanged scene)
    `__canvas_groupSignature` (`sample`, plan-175-D §2).
+4. 2026-10-25, Phase 1: three corrections to §4.1 and §4.2, none to the design's effect.
+   - **The published pair is `(D, G)`, not `(G, A)`.** Every use of `A` in §4.3 compares
+     it with the `A` of the slot `G` already chose, and for one `G`, `D = mix(G, A)`
+     equal is `A` equal (up to the 2^-62 of §4.5). So the list holds every item's `D`
+     at `i` and its `G` at `n + i` (2n words, one revision): every reader that wants
+     "the item's hash" keeps reading index `i` and gets `D`, with no change, and the
+     slot's fifth word (Phase 2) holds `D`. `A` itself is never stored.
+   - **An item field's lane is a rule, not a table row.** §4.1 already says every item
+     field is geometry except `id` and a resource; `func_item_lanes.rs:item_field` is
+     that rule, plus a `PolyLine`'s colours. A table whose missing row failed the build
+     would have refused the synthetic kinds of `canvas_item_hash_guards.rs` (fields `n`,
+     `bytes`, `holder`, ...) before the refusals those tests pin. The rule is total and
+     defaults to `G`, the lane where a mistake can only rebuild a record. The class of
+     every canvas field is pinned by `builtins/tests/canvas_item_lanes.rs` instead.
+     `Paint` keeps the strict table: a field `PAINT_FIELDS` does not name fails the
+     build.
+   - **`G`'s value tests move to Phase 2.** In Phase 1 the cache is keyed by `D`, and
+     no test can call an internal member, so nothing at run time observes `G`. "Two
+     paints differing only in appearance have one `G`" and "each geometry predicate
+     changes `G`" are asserted in Phase 2 through `generations=` and `refreshes=`, where
+     they are the behaviour (Phase 2's test task lists each).
 
 ## Summary
 

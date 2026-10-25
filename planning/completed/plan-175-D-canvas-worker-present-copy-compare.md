@@ -151,7 +151,7 @@ no test and no pixel changes.
   --no-fail-fast` → 7, 9, 19, 12, 4 passed; `rt_canvas_rasteriser -- groups::` 19
   passed; `rt_canvas_particles -- a_lifetime_of_zero_raises_from_present` 1 passed;
   `rt_canvas_graphics_thread` 20 passed (the two un-ignored included).
-Commit: —
+Commit: 17b7b529e (and 87a2ae005, the un-ignored graphics-thread tests)
 
 ## Corrections
 
