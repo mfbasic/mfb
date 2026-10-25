@@ -84,6 +84,22 @@ pub fn temp_project(name: &str, source: &str) -> PathBuf {
     root
 }
 
+/// [`temp_project`] with `options.maxThreads` set: a program that holds more than the
+/// default 10 threads at once needs the limit raised (plan-183-B, `mfb spec tooling
+/// project-manifest`, *Thread limit*).
+pub fn temp_project_max_threads(name: &str, source: &str, max_threads: u64) -> PathBuf {
+    let root = temp_project(name, source);
+    let manifest = root.join("project.json");
+    let text = fs::read_to_string(&manifest).expect("read project.json");
+    let text = text.replacen(
+        "\"targets\":[\"native\"]",
+        &format!("\"targets\":[\"native\"],\"options\":{{\"maxThreads\":{max_threads}}}"),
+        1,
+    );
+    fs::write(&manifest, text).expect("write project.json");
+    root
+}
+
 pub fn build_project(project: &Path) -> PathBuf {
     let mut command = Command::new(mfb_exe());
     command.arg("build").arg(project);

@@ -24,7 +24,9 @@ use std::process::Command;
 const RUNS: usize = 20;
 
 /// 32 drivers each start 400 workers that block in `receive` and drop each view at
-/// once, so every drop races its worker's exit.
+/// once, so every drop races its worker's exit. A dropped worker holds its thread
+/// slot until it has exited, so many are alive at once: the project takes the most
+/// `options.maxThreads` allows (plan-183-B), so the limit never decides a run.
 const SOURCE: &str = "\
 IMPORT io
 IMPORT thread
@@ -66,7 +68,7 @@ END FUNC
 
 #[test]
 fn dropping_a_finishing_worker_never_frees_its_arena_state_early() {
-    let project = common::temp_project("thread_drop_finish_race", SOURCE);
+    let project = common::temp_project_max_threads("thread_drop_finish_race", SOURCE, 4096);
     let exe = common::build_project(&project);
     let mut failures = Vec::new();
     for run in 0..RUNS {

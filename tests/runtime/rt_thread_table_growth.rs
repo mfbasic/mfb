@@ -11,7 +11,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-use common::debug_report::{arena_lines, build_debug, counter, run_ok};
+use common::debug_report::{arena_lines, build_debug_project, counter, run_ok};
 
 fn thread_value(case: &str, stderr: &str, key: &str) -> u64 {
     let at = stderr
@@ -27,7 +27,8 @@ fn thread_value(case: &str, stderr: &str, key: &str) -> u64 {
 }
 
 /// `{SEQ}` threads started and waited one at a time, then 200 held live at once (each
-/// recursion level keeps its handle until the levels below it return).
+/// recursion level keeps its handle until the levels below it return) — so the
+/// project raises `options.maxThreads` past its default of 10 (plan-183-B).
 const PROGRAM: &str = r#"IMPORT io
 IMPORT thread
 
@@ -62,7 +63,9 @@ END FUNC
 fn run(seq: u64) -> u64 {
     let case = format!("growth_{seq}");
     let source = PROGRAM.replace("{SEQ}", &seq.to_string());
-    let exe = build_debug(&format!("thread_table_growth_{seq}"), &source);
+    let name = format!("thread_table_growth_{seq}");
+    let project = common::temp_project_max_threads(&name, &source, 256);
+    let exe = build_debug_project(&name, &project);
     let (stdout, stderr) = run_ok(&case, &exe);
     let sequential: u64 = (0..seq).map(|i| (i % 100) * (i % 100)).sum();
     let held: u64 = (1..=200u64).map(|n| n * n).sum();
