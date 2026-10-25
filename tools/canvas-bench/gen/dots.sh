@@ -12,8 +12,10 @@
 # frame).
 #
 # Prints, on stderr (a windowed app's stdout is the transcript):
-#   count=N frames=<loop turns> pps=<presents/s> fps=<frames drawn/s> renderer=<Software|Metal|Vulkan>
+#   count=N frames=<loop turns> pps=<presents/s> fps=<frames drawn/s> renderer=<Software|Metal|Vulkan> workerPresentUs=<us>
 # pps, fps and renderer are canvas::getFrameStats's, read at the end of the run.
+# workerPresentUs is the mean time inside one canvas::present call (the worker's
+# deep copy, content compare, carried hashes, hashing and publish).
 set -euo pipefail
 DIR=$1; N=$2; SECS=$3
 MOVE=${MOVE:-0}
@@ -61,12 +63,15 @@ FUNC main AS Integer
   NEXT
   LET started AS Integer = datetime::monotonicNanos()
   MUT frame AS Integer = 0
+  MUT presentNanos AS Integer = 0
   DO WHILE datetime::monotonicNanos() - started < $SECS * 1000000000
+    LET before AS Integer = datetime::monotonicNanos()
     IF frame MOD 2 = 0 OR $SAME = 1 THEN
       canvas::present(sceneA)
     ELSE
       canvas::present(sceneB)
     END IF
+    presentNanos = presentNanos + datetime::monotonicNanos() - before
     canvas::waitFrame()
     frame = frame + 1
   LOOP
@@ -78,7 +83,11 @@ FUNC main AS Integer
   IF stats.renderer = canvas::Renderer.Vulkan THEN
     renderer = "Vulkan"
   END IF
-  io::printError("count=" & toString(COUNT) & " frames=" & toString(frame) & " pps=" & toString(stats.pps) & " fps=" & toString(stats.fps) & " renderer=" & renderer)
+  MUT presentUs AS Integer = 0
+  IF frame > 0 THEN
+    presentUs = presentNanos / frame / 1000
+  END IF
+  io::printError("count=" & toString(COUNT) & " frames=" & toString(frame) & " pps=" & toString(stats.pps) & " fps=" & toString(stats.fps) & " renderer=" & renderer & " workerPresentUs=" & toString(presentUs))
   RETURN 0
 END FUNC
 M

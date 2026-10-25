@@ -6,6 +6,9 @@ Overall Effort: huge (>3d) — plan-175 is three letters: A (this file), then
 `plan-175-C-canvas-group-node-instancing.md` (medium), landed in that order.
 Effort: huge (>3d) over seven phases; each phase is large (3h–1d) and lands alone
 Depends on: nothing (its Phase 2 waits on §8.1, decision 3)
+Dependency graph (Correction 3): A Phase 1 → D → A Phases 2–7 → B → C. `plan-175-D`
+(`plan-175-D-canvas-worker-present-copy-compare.md`) is §8.1's worker copy and compare,
+which decision 3 put before Phase 2 and no letter covered.
 
 A canvas item has ONE 62-bit content hash. It is the key of the geometry cache and it
 is the damage identity (`.ai/canvas-threading.md` §14). It folds the item's whole
@@ -68,8 +71,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| bug-765's first deliverable is on the branch: 100,000 dots are GPU frames | `tools/canvas-bench/bench.sh target/release/mfb dots 100000 5` → `gpuFrames` equals `frames` | MET since `61c75308e` (`frames=69 gpuFrames=69`) |
-| The geometry verifier is green at the base | `cargo test --release --test rt_canvas_geo_native` → 4 passed | MET at `ab9061ff8` |
+| bug-765's first deliverable is on the branch: 100,000 dots are GPU frames | `tools/canvas-bench/bench.sh target/release/mfb dots 100000 5` → `gpuFrames` equals `frames` | MET 2026-10-25 at `2f281c5e7` (`frames=119 gpuFrames=119`, Metal) |
+| The geometry verifier is green at the base | `cargo test --release --test rt_canvas_geo_native` → 4 passed | MET 2026-10-25 at `2f281c5e7` (`4 passed`) |
 
 ## 1. Goal
 
@@ -880,6 +883,15 @@ correction is added here, dated, with the command that showed it.
    `an_autopaint_frame_costs_linear_in_its_instances`). Corrected in place in the
    2026-10-13 paragraph at the top; this plan's group and picture walks and §8.5 are
    otherwise unaffected.
+3. 2026-10-25, at the Prerequisites gate: decision 3 orders §8.1 (the worker's copy and
+   compare) before Phase 2, but no letter covered it — a log search of commit messages
+   since 2026-10-12 for "copy and compare" finds only this plan's own commits, and
+   `emit_publish` still copies before it compares (`grep -n copy_flat_block
+   src/codegen/builtins/canvas/gen_present.rs`). It is a missing prerequisite, landed as
+   the new letter `plan-175-D`, with the edge D → Phase 2 in the header. Its §2 measures
+   what §8.1 left unmeasured: on this Mac at 100,000 dots the worker spends its present in
+   `carriedHashes`, `publishScene`, `sceneHashes` and (for an unchanged scene)
+   `__canvas_groupSignature` (`sample`, plan-175-D §2).
 
 ## Summary
 

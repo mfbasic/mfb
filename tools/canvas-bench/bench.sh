@@ -1085,6 +1085,7 @@ cmd_dots() {
   local pps fps renderer
   pps=$(stats_field_line "$line" pps); fps=$(stats_field_line "$line" fps)
   renderer=$(echo "$line" | grep -oE 'renderer=[A-Za-z]+' | cut -d= -f2)
+  local workerus; workerus=$(echo "$line" | grep -oE 'workerPresentUs=[0-9]+' | cut -d= -f2)
   # --debug: the same run with the stats line, for what the rates cannot say:
   # how many of the frames a GPU backend drew, how many geometry records a
   # frame built, and where a frame's time went. Slower than release; its rates
@@ -1101,8 +1102,8 @@ cmd_dots() {
   g0=$(stats_field_line "$(head -1 "$stats" 2>/dev/null)" generations); g1=$(stats_field "$stats" generations)
   builds=$(awk -v a="${g0:-0}" -v b="${g1:-0}" -v r="$rendered" 'BEGIN{ if (r>1) printf "%.0f", (b-a)/(r-1); else print "-" }')
   phases=$(phase_fields "$stats" "$rendered")
-  printf "dots=%-7s scene=%-5s window=%s secs=%s | release: pps=%-6s fps=%-6s renderer=%-8s | debug: frames=%-5s gpuFrames=%-5s directFrames=%-5s builds/frame=%-7s phase: %s\n" \
-    "$n" "$kind" "$DOTS_WINDOW" "$secs" "${pps:--}" "${fps:--}" "${renderer:--}" "${frames:--}" "${gpu:--}" "${direct:--}" "$builds" "$phases"
+  printf "dots=%-7s scene=%-5s window=%s secs=%s | release: pps=%-6s fps=%-6s renderer=%-8s workerPresentUs=%-7s | debug: frames=%-5s gpuFrames=%-5s directFrames=%-5s builds/frame=%-7s phase: %s\n" \
+    "$n" "$kind" "$DOTS_WINDOW" "$secs" "${pps:--}" "${fps:--}" "${renderer:--}" "${workerus:--}" "${frames:--}" "${gpu:--}" "${direct:--}" "$builds" "$phases"
   # bug-765's goal, asked of the paint-only scene: 30 presents and 30 frames a
   # second, every frame a GPU frame.
   if [ "$kind" = paint ]; then
