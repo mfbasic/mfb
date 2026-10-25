@@ -342,7 +342,7 @@ END FUNC
     let exe = stdout
         .lines()
         .filter_map(|line| line.strip_prefix("Wrote executable to "))
-        .find(|p| p.ends_with("-glibc.out"))
+        .find(|p| p.ends_with(common::host_executable_suffix()))
         .or_else(|| {
             stdout
                 .lines()
@@ -492,7 +492,7 @@ END FUNC
     let exe = stdout
         .lines()
         .filter_map(|line| line.strip_prefix("Wrote executable to "))
-        .find(|p| p.ends_with("-glibc.out"))
+        .find(|p| p.ends_with(common::host_executable_suffix()))
         .or_else(|| {
             stdout
                 .lines()

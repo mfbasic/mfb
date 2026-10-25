@@ -195,7 +195,7 @@ fn a_global_self_update_keeps_every_reader_s_value() {
         let exe = stdout
             .lines()
             .filter_map(|line| line.strip_prefix("Wrote executable to "))
-            .find(|path| path.ends_with("-glibc.out"))
+            .find(|path| path.ends_with(common::host_executable_suffix()))
             .or_else(|| {
                 stdout
                     .lines()

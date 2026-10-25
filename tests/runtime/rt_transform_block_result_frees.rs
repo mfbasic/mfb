@@ -180,7 +180,7 @@ fn a_block_result_is_freed_after_the_append() {
         let exe = stdout
             .lines()
             .filter_map(|line| line.strip_prefix("Wrote executable to "))
-            .find(|path| path.ends_with("-glibc.out"))
+            .find(|path| path.ends_with(common::host_executable_suffix()))
             .or_else(|| {
                 stdout
                     .lines()

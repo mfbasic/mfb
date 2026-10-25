@@ -168,7 +168,7 @@ fn an_owner_appending_after_a_by_ref_rewrite_stays_in_bounds() {
         let exe = stdout
             .lines()
             .filter_map(|line| line.strip_prefix("Wrote executable to "))
-            .find(|path| path.ends_with("-glibc.out"))
+            .find(|path| path.ends_with(common::host_executable_suffix()))
             .or_else(|| {
                 stdout
                     .lines()

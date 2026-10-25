@@ -112,7 +112,7 @@ fn assert_block(case: &str, block: &[String], build: &str) -> Vec<String> {
 
 /// Build `source` as its own project, with or without `--debug`, and return the
 /// executable to run. On Linux the console build writes one executable per libc
-/// world; the glibc one is the host's.
+/// world; the host libc's one is the one to run.
 fn build(name: &str, source: &str, debug: bool) -> PathBuf {
     let project = common::temp_project(name, source);
     let mut command = Command::new(common::mfb_exe());
@@ -133,7 +133,7 @@ fn build(name: &str, source: &str, debug: bool) -> PathBuf {
         .collect();
     let chosen = written
         .iter()
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| written.first())
         .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{stdout}"));
     PathBuf::from(chosen)

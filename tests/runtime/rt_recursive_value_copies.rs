@@ -342,7 +342,7 @@ fn every_recursive_store_shape_frees_once_under_churn() {
         .collect();
     let exe = written
         .iter()
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| written.first())
         .unwrap_or_else(|| panic!("no executable in build output:\n{build_stdout}"));
 

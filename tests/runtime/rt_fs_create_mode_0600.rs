@@ -77,19 +77,9 @@ fn file_creating_builtins_create_owner_only_0600() {
     // where a single Linux build emits BOTH the glibc and musl flavors (build/mod.rs
     // "console build emits both libc flavors"). We must run the one matching THIS
     // host — the other flavor's ELF interpreter is absent and would fail to exec —
-    // so select by the test binary's own libc rather than hardcode a name or take
-    // whichever `.out` the directory lists first.
-    let build_dir = project.join("build");
-    let exe = if cfg!(target_os = "macos") {
-        build_dir.join("bug184_mode.out")
-    } else {
-        let libc = if cfg!(target_env = "musl") {
-            "musl"
-        } else {
-            "glibc"
-        };
-        build_dir.join(format!("bug184_mode-{libc}.out"))
-    };
+    // so select by the host's loader (`common::host_libc_flavor`), not by the test
+    // binary's own libc: CI's musl row runs a musl test binary on a glibc runner.
+    let exe = common::host_executable(&project, "bug184_mode");
     let run = Command::new(&exe).output().expect("run built executable");
     assert!(
         run.status.success(),

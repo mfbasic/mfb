@@ -87,7 +87,7 @@ fn build_debug(name: &str, source: &str) -> PathBuf {
         .collect();
     let chosen = written
         .iter()
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| written.first())
         .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{stdout}"));
     PathBuf::from(chosen)

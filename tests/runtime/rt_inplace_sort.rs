@@ -200,7 +200,7 @@ fn in_place_sort_matches_the_copying_sort() {
     let exe = stdout
         .lines()
         .filter_map(|line| line.strip_prefix("Wrote executable to "))
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| {
             stdout
                 .lines()

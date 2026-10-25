@@ -284,7 +284,7 @@ fn an_inline_domain_error_frees_the_scope_it_leaves() {
     let exe = stdout
         .lines()
         .filter_map(|line| line.strip_prefix("Wrote executable to "))
-        .find(|p| p.ends_with("-glibc.out"))
+        .find(|p| p.ends_with(common::host_executable_suffix()))
         .or_else(|| {
             stdout
                 .lines()

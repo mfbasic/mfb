@@ -161,7 +161,7 @@ fn run_case(name: &str, body: &str) -> Result<(String, u64, u64, u64), String> {
     let exe = stdout
         .lines()
         .filter_map(|line| line.strip_prefix("Wrote executable to "))
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| {
             stdout
                 .lines()

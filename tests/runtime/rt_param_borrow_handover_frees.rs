@@ -246,7 +246,7 @@ fn a_value_passed_through_a_parameter_returning_function_is_freed_once() {
         let exe = stdout
             .lines()
             .filter_map(|line| line.strip_prefix("Wrote executable to "))
-            .find(|path| path.ends_with("-glibc.out"))
+            .find(|path| path.ends_with(common::host_executable_suffix()))
             .or_else(|| {
                 stdout
                     .lines()

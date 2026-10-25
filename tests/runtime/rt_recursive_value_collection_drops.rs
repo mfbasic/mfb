@@ -44,7 +44,7 @@ fn run_debug(case: &str, source: &str, count: u64) -> (String, u64, u64) {
         .collect();
     let exe = written
         .iter()
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| written.first())
         .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{build_stdout}"));
     let output = Command::new(exe).output().expect("run the program");

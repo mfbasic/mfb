@@ -239,7 +239,7 @@ fn source(case: &Case, n: u64) -> String {
     )
 }
 
-/// Build with `--debug` and return the executable (the host glibc one on Linux).
+/// Build with `--debug` and return the executable (the host libc's one on Linux).
 fn build_debug(name: &str, source: &str) -> Result<(PathBuf, PathBuf), String> {
     let project = common::temp_project(name, source);
     let output = Command::new(common::mfb_exe())
@@ -261,7 +261,7 @@ fn build_debug(name: &str, source: &str) -> Result<(PathBuf, PathBuf), String> {
         .collect();
     let exe = written
         .iter()
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| written.first())
         .map(PathBuf::from)
         .ok_or_else(|| format!("no executable in build output:\n{stdout}"))?;

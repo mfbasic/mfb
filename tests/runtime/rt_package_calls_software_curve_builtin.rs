@@ -100,23 +100,27 @@ fn build(dir: &Path) -> String {
 /// spelled `app.out`, so hardcoding that name made this test unrunnable on all
 /// three Linux rows (`Os { code: 2, kind: NotFound }` out of `Command::new`).
 ///
-/// The rule is `common::build_project`'s — the FIRST reported path, which is the
-/// glibc one — and it is deliberately not `cfg!(target_env)`. On the
-/// `linux-x86_64-musl` row the test binary is musl but the RUNNER is glibc, and
-/// mfb's musl output does not execute there (it dies in the dynamic loader at
-/// 127; see the acceptance job's history in `.github/workflows`). Picking by the
-/// test binary's own libc would therefore red that row — while the 87 RSS cases
-/// in `rt_scope_drop_leaks`, which all go through `build_project`, pass on it
-/// today by running the glibc artifact. One rule, one place to be wrong.
+/// The rule is `common::build_project`'s — the reported path ending in the
+/// host's libc flavor (`common::host_executable_suffix`), else the first — and it
+/// is deliberately not `cfg!(target_env)`. On the `linux-x86_64-musl` row the
+/// test binary is musl but the RUNNER is glibc, and mfb's musl output does not
+/// execute there (it dies in the dynamic loader at 127; see the acceptance job's
+/// history in `.github/workflows`). Picking by the test binary's own libc would
+/// therefore red that row, and taking the first path (the glibc one) fails on a
+/// musl box. One rule, one place to be wrong.
 fn host_executable(build_output: &str) -> PathBuf {
     let written: Vec<&str> = build_output
         .lines()
         .filter_map(|line| line.strip_prefix("Wrote executable to "))
         .collect();
-    let first = written.first().unwrap_or_else(|| {
-        panic!("the build reported no executable:\n{build_output}");
-    });
-    PathBuf::from(*first)
+    let chosen = written
+        .iter()
+        .find(|path| path.ends_with(common::host_executable_suffix()))
+        .or_else(|| written.first())
+        .unwrap_or_else(|| {
+            panic!("the build reported no executable:\n{build_output}");
+        });
+    PathBuf::from(*chosen)
 }
 
 /// A package that reaches all three affected members on both Edwards curves, and

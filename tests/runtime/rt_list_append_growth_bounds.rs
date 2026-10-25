@@ -84,7 +84,7 @@ fn grown_bytes(ops: u64, per_op: u64, slot_bytes: u64) -> u64 {
         .sum()
 }
 
-/// Build `project` with `--debug` and return the executable (the host glibc one on
+/// Build `project` with `--debug` and return the executable (the host libc's one on
 /// Linux), as `rt_debug_arena` does.
 fn build_debug(name: &str, source: &str) -> PathBuf {
     let project = common::temp_project(name, source);
@@ -106,7 +106,7 @@ fn build_debug(name: &str, source: &str) -> PathBuf {
         .collect();
     let chosen = written
         .iter()
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| written.first())
         .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{stdout}"));
     PathBuf::from(chosen)

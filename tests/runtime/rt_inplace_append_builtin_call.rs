@@ -25,7 +25,7 @@ use std::process::Command;
 const PAYLOAD_BYTES: usize = 5_000;
 const N: u64 = 100;
 
-/// Build `source` with `--debug` and return the executable (the host glibc one on
+/// Build `source` with `--debug` and return the executable (the host libc's one on
 /// Linux), as `rt_list_append_growth_bounds` does.
 fn build_debug(name: &str, source: &str) -> PathBuf {
     let project = common::temp_project(name, source);
@@ -47,7 +47,7 @@ fn build_debug(name: &str, source: &str) -> PathBuf {
         .collect();
     let chosen = written
         .iter()
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| written.first())
         .unwrap_or_else(|| panic!("{name}: no executable in build output:\n{stdout}"));
     PathBuf::from(chosen)

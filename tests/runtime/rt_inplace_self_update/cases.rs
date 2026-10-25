@@ -895,7 +895,7 @@ fn exempt_check(index: usize, case: &Case, site: Site, label: &str) -> Result<()
     Ok(())
 }
 
-/// Build `source` with `--debug` and return the executable (the host glibc one on
+/// Build `source` with `--debug` and return the executable (the host libc's one on
 /// Linux).
 fn build_debug(name: &str, source: &str) -> Result<PathBuf, String> {
     let project = common::temp_project(name, source);
@@ -918,7 +918,7 @@ fn build_debug(name: &str, source: &str) -> Result<PathBuf, String> {
         .collect();
     written
         .iter()
-        .find(|path| path.ends_with("-glibc.out"))
+        .find(|path| path.ends_with(common::host_executable_suffix()))
         .or_else(|| written.first())
         .map(PathBuf::from)
         .ok_or_else(|| format!("no executable in build output:\n{stdout}"))
