@@ -1,6 +1,6 @@
 # plan-171-A: Instruction-form census tool and AArch64 `stp`/`ldp`
 
-Last updated: 2026-10-21
+Last updated: 2026-10-25
 Overall Effort: huge (>3d across A–K)
 Effort: large (3h–1d)
 Depends on: nothing (see Prerequisites)
@@ -68,10 +68,10 @@ Stated once for the whole plan-171 family; B–K point here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| The concurrent AArch64 decoder widening has landed (nothing uncommitted under the decoder) | `git -C <tree> status --short src/arch/aarch64/decode` → no output | MET (2026-10-04: landed in `f62f27418`) |
-| The concurrent `src/docs/**` edits have landed (spec/man tasks below edit those files) | `git -C <tree> status --short src/docs` → no output | MET at snapshot for tracked files; re-check |
-| The tree builds and the bin unit tests pass at the starting commit | `cargo test --bin mfb > /tmp/171-pre.log 2>&1; echo EXIT=$?` → `EXIT=0` | UNMEASURED |
-| The artifact gate is clean at the starting commit (so every later diff is ours) | from a detached worktree of the starting commit: `bash scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)` | UNMEASURED |
+| The concurrent AArch64 decoder widening has landed (nothing uncommitted under the decoder) | `git -C <tree> status --short src/arch/aarch64/decode` → no output | MET (2026-10-25, worktree `opts` at `89a4dce2c`: no output) |
+| The concurrent `src/docs/**` edits have landed (spec/man tasks below edit those files) | `git -C <tree> status --short src/docs` → no output | MET (2026-10-25, `89a4dce2c`: no output) |
+| The tree builds and the bin unit tests pass at the starting commit | `cargo test --bin mfb > /tmp/171-pre.log 2>&1; echo EXIT=$?` → `EXIT=0` | MET (2026-10-25, `89a4dce2c`: `EXIT=0`, 6166 passed, 0 failed, 5 ignored) |
+| The artifact gate is clean at the starting commit (so every later diff is ours) | from a detached worktree of the starting commit: `bash scripts/artifact-gate.sh target/release/mfb all` → `0 diff(s)` | MET (2026-10-25, `/tmp/171a-base` detached at `89a4dce2c`, its release `mfb`: `1722 tests, 1902 build(s), 2387 golden(s) checked, 0 diff(s)`) |
 
 Everything below is written against the world where these hold. The decoder
 prerequisite exists because every new AArch64 encoder form must gain a decoder
@@ -158,21 +158,27 @@ lines, summed; total uses `store_u64` 5364, `load_u64` 8205).
 Emitted census over the seven committed `.ncode` goldens (all macos-aarch64),
 counting directly adjacent same-base 8-byte accesses 8 bytes apart (loads only
 when the first destination is neither the base nor the second destination) —
-measured with the prototype script reproduced in Phase 1:
+re-measured at `89a4dce2c` (Correction 1; the 2026-10-04 numbers were stale):
 
 | `.ncode` golden | instrs | `str` pairs | `ldr` pairs |
 |---|---|---|---|
-| `func_map_getor_hash_probe` | 13918 | 638 | 517 |
-| `list_ops_codegen_rt` | 4857 | 50 | 28 |
-| `control_flow_if` | 2598 | 35 | 43 |
-| `control_flow_match` | 2676 | 29 | 29 |
-| `parser_hello_world` | 2049 | 34 | 24 |
-| `macos_app_mode_io` (`--app`) | 16110 | 745 | 226 |
-| `macos_app_mode_plumbing` (`--app`) | 7095 | 149 | 155 |
+| `func_map_getor_hash_probe` | 17098 | 676 | 574 |
+| `list_ops_codegen_rt` | 8262 | 92 | 116 |
+| `control_flow_if` | 5800 | 67 | 89 |
+| `control_flow_match` | 5837 | 69 | 143 |
+| `parser_hello_world` | 5289 | 63 | 67 |
+| `macos_app_mode_io` (`--app`) | 19371 | 785 | 336 |
+| `macos_app_mode_plumbing` (`--app`) | 10335 | 178 | 198 |
 
-(`python3 /tmp/ncode_census.py $(find tests -name '*.ncode' | sort)`; these
-counts include the prologue/epilogue saves.) The corpus-wide number across
-examples and benchmarks is UNMEASURED; Phase 1 measures it.
+(`python3 -I tools/ncode-census/census.py --pairs $(find tests -name '*.ncode' | sort)`,
+identical to the prototype reproduced in Phase 1; these counts include the
+prologue/epilogue saves.) Corpus-wide (`tools/ncode-census/ncode-census.sh
+<mfb of 89a4dce2c> macos-aarch64 …`, 56 projects, `baseline-macos-aarch64.tsv`):
+27,311,174 instructions in 16,044 functions; 495,927 adjacent `str` candidates
+(431,379 legal under §4.4) and 686,275 `ldr` candidates (649,431 legal); the
+rejections are 101,267 `range` (lower offset outside −512…504), 706 `same_dst`
+and 11 `dst_is_base`. Candidates overlap (three stores at 0/8/16 are two), so the
+pairs a greedy left-to-right merge forms are fewer.
 
 ### 2.3 Encoder, decoder, MIR, analyses
 
@@ -233,7 +239,8 @@ names the compiler's frame as `sub sp, sp, #N` then `str x30, [sp, #off]`.
 - *`finalize_frame` returns early with no prologue when `total_stack_size == 0`*
   — read; the body-pairing step must also run on that path.
 - *Whether requiring equal `source` on both halves loses many candidates* —
-  UNVERIFIED; Phase 1 measures it.
+  moot (Correction 2): `CodeInstruction.source` is the compiler's own emitting
+  call site, not a source position, and the `.ncode` dump does not carry it.
 - *Whether any consumer after `finalize_frame` pattern-matches `str_u64`/`ldr_u64`
   on `sp`* — UNVERIFIED; Phase 2 task greps for it.
 
@@ -384,7 +391,7 @@ like every row.
 
 Delivers the instrument and the baseline numbers; touches no compiler code.
 
-- [ ] Write `tools/ncode-census/census.py` (patterns of §4.1) and
+- [x] Write `tools/ncode-census/census.py` (patterns of §4.1) and
       `tools/ncode-census/ncode-census.sh` (scratch-copy builds, one target per
       run), plus `tools/ncode-census/README.md`. Prototype for the pair counts
       (what produced §2.2's table):
@@ -404,14 +411,21 @@ Delivers the instrument and the baseline numbers; touches no compiler code.
                           elif a.get('dst') not in (a.get('base'),b.get('dst')): ld+=1
           print(p, len(ins), st, ld)
       ```
-- [ ] Record the baseline for `macos-aarch64`, `linux-x86_64`, `linux-riscv64`
+- [x] Record the baseline for `macos-aarch64`, `linux-x86_64`, `linux-riscv64`
       into `tools/ncode-census/baseline-<target>.tsv` with the producing commit
-      in the README.
-- [ ] Measure Open Decision 2: the pair-candidate count with and without the
-      equal-`source` filter; write both numbers into this plan's §2.2.
+      in the README. (Also `linux-aarch64`, the other target this letter
+      changes. riscv64 builds 43 of 56: 12 app-mode refusals and one compiler
+      panic on `benchmark/language/mfb`, Correction 3.)
+- [x] ~~Measure Open Decision 2: the pair-candidate count with and without the
+      equal-`source` filter; write both numbers into this plan's §2.2.~~ Moot:
+      there is no per-instruction source position to compare (Correction 2);
+      §2.2 carries the corpus-wide candidate counts instead.
 
 Acceptance: the tool reproduces §2.2's table for the seven committed goldens.
   Check: `python3 tools/ncode-census/census.py --pairs $(find tests -name '*.ncode' | sort)` → the seven rows of §2.2 exactly (est. 5 s).
+  Result (2026-10-25): the seven rows of the re-measured §2.2 table, and
+  `diff <(python3 -I /tmp/171a-proto.py …) <(python3 -I tools/ncode-census/census.py --pairs …)`
+  (the prototype above, verbatim) → no output.
 Commit: —
 
 ### Phase 2 — `stp`/`ldp` primitive (no producer; byte-identical)
@@ -573,7 +587,28 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+1. **§2.2's golden table was stale.** The seven `.ncode` goldens were regenerated
+   many times between 2026-10-04 and `89a4dce2c` (plans 182/183, call-graph DCE),
+   so the prototype now prints different numbers (e.g. `control_flow_if` 5800
+   instructions, 67/89 pairs, was 2598, 35/43). The census tool reproduces the
+   prototype exactly on the current goldens; §2.2 carries the re-measured table.
+   The plan's own *design* does not depend on those numbers.
+2. **There is no per-instruction source position; Open Decision 2 is moot.**
+   `CodeInstruction.source` is `core::panic::Location::caller()` — the
+   *compiler's* emitting call site (plan-71-C audit metadata, "never
+   serialized", `src/codegen/engine/types/types.rs:CodeInstruction`) — not an
+   MFBASIC line, and plan-166 debug info is symbols only ("No DWARF, no line
+   tables", `planning/completed/plan-166-A-…`). Nothing steps by line, so equal
+   `source` protects no observable and would only compare Rust emitter lines.
+   The pairing row requires no source equality and keeps the first half's
+   `source`.
+3. **A pre-existing riscv64 compiler panic surfaced in the census.**
+   `mfb build -ncode -target linux-riscv64 benchmark/language/mfb` (with its
+   `bench_workers` package installed) panics at
+   `src/arch/riscv64/select.rs:select_riscv64`: `rv64 v128: function needs 172
+   concurrent vector slots, exceeding the 126-slot region` — with the release
+   `mfb` of `89a4dce2c`, before any plan-171 change. Unrelated to pairing
+   (riscv64 never pairs); tracked as its own bug (see the Summary).
 
 ## Summary
 
