@@ -22,6 +22,8 @@ pub(crate) fn lower_shutdown(
     platform: &dyn CodegenPlatform,
     // plan-130-A: a `--debug` build calls `_mfb_debug_shutdown` as the last act.
     debug_report: bool,
+    // plan-179-C: stop the arena memory cap's accounting before anything else.
+    arena_cap: bool,
 ) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2). The allocator builds the frame and saves
     // the link register (there are `bl`s). `x19` (arena_base) is reserved from
@@ -39,6 +41,19 @@ pub(crate) fn lower_shutdown(
         abi::move_register(&saved_arena, ARENA_STATE_REGISTER),
     ];
     let mut relocations = Vec::new();
+    // plan-179-C: zero the arena map limit first, so nothing from here on takes the
+    // map lock. A SIGINT/SIGTERM that lands on a thread holding that lock (inside a
+    // block charge, refund or destroy) runs this teardown on that same thread; with
+    // the limit 0 the arena destroy below skips the lock instead of deadlocking on
+    // it. Everything after this is exit, so the cap no longer matters.
+    if arena_cap {
+        crate::codegen::runtime::arena_cap::emit_disable_accounting(
+            SHUTDOWN_SYMBOL,
+            &arena,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
     push_symbol_address(
         SHUTDOWN_SYMBOL,
         MAIN_ARENA_GLOBAL_SYMBOL,

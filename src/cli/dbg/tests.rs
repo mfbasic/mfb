@@ -114,6 +114,9 @@ impl Inferior for Paused {
     fn pid(&self) -> u32 {
         7
     }
+    fn arch(&self) -> &'static crate::debugger::arch::Arch {
+        crate::debugger::arch::host()
+    }
     fn end(&mut self) -> Result<Ending, String> {
         Ok(self.ending)
     }
@@ -392,10 +395,8 @@ fn a_program_without_function_names_is_announced_as_not_a_debug_build() {
 /// prompt does, so the two cannot drift apart.
 #[test]
 fn the_dbg_help_lists_every_prompt_command() {
-    let commands = crate::debugger::prompt::HELP
-        .split_once('\n')
-        .expect("a heading line")
-        .1;
+    let help = crate::debugger::prompt::help(crate::debugger::arch::host());
+    let commands = help.split_once('\n').expect("a heading line").1;
     assert!(
         crate::cli::help::dbg_help().contains(commands),
         "mfb dbg --help does not carry the prompt's command list"
@@ -429,7 +430,7 @@ fn the_command_refuses_before_reading_input() {
         assert_eq!(
             message,
             format!(
-                "mfb dbg is not supported on {} {}; it runs on macOS and on Linux on AArch64",
+                "mfb dbg is not supported on {} {}; it runs on macOS, and on Linux on AArch64 and riscv64",
                 std::env::consts::OS,
                 std::env::consts::ARCH
             )
@@ -453,7 +454,7 @@ fn the_command_over_a_backend_or_none_refuses_before_reading_input() {
     assert_eq!(
         unsupported,
         format!(
-            "mfb dbg is not supported on {} {}; it runs on macOS and on Linux on AArch64",
+            "mfb dbg is not supported on {} {}; it runs on macOS, and on Linux on AArch64 and riscv64",
             std::env::consts::OS,
             std::env::consts::ARCH
         )

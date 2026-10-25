@@ -34,8 +34,8 @@ where you can:
 It needs nothing besides `mfb`. Everything it shows uses the names you wrote:
 `isPrime`, `round 2`, `io::print`.
 
-`mfb dbg` runs on macOS and on Linux on Arm (AArch64) computers. On Linux on
-x86-64 or RISC-V, and on Windows, lldb and gdb do the job;
+`mfb dbg` runs on macOS, and on Linux on Arm (AArch64) or RISC-V (riscv64)
+computers. On Linux on x86-64, and on Windows, lldb and gdb do the job;
 `mfb man debug-external` shows how, and it covers profilers and crash-address
 lookup on every platform too.
 
@@ -187,6 +187,7 @@ not: `mfb dbg` keeps it, and `show report` prints it once the program has ended
 - `values` — show a value in memory as the type it is.
 - `pools` — the memory pools each thread keeps its values in.
 - `report` — every line of the debug report a `--debug` build prints at exit.
+- `riscv64` — debugging on a RISC-V Linux computer: the register names, and what differs from Arm.
 
 ## Errors
 

@@ -30,11 +30,12 @@ printf '%s\n' '{"name":"currency_runtime_smoke","version":"0.1.0","mfb":"1.0","k
 cat > "$WORK/src/main.mfb" <<'MFB'
 IMPORT currency
 IMPORT io
+IMPORT money
 IMPORT thread
 
 ' Report what the worker's own table holds before and after importing the
 ' parent's rates, and convert with the imported rates.
-ISOLATED FUNC worker(self AS ThreadWorker OF String TO String, saved AS Map OF String TO Fixed) AS String
+ISOLATED FUNC worker(self AS ThreadWorker OF String TO String, saved AS Map OF String TO money::Rate) AS String
   LET before AS String = toString(currency::hasRate("EUR"))
   currency::importRates(saved)
   LET dollars AS currency::Amount = currency::convert(currency::amount(10m, "eur"), "USD")
@@ -42,8 +43,8 @@ ISOLATED FUNC worker(self AS ThreadWorker OF String TO String, saved AS Map OF S
 END FUNC
 
 FUNC main() AS Nothing
-  currency::setRate("USD", 1F)
-  currency::setRate("EUR", 1.25F)
+  currency::setRate("USD", money::toRate(1))
+  currency::setRate("EUR", money::toRate("1.25"))
   LET total AS currency::Amount = currency::add(currency::amount(5m, "usd"), currency::amount(4m, "EUR"))
   io::print(currency::format(total))
   RES t AS Thread OF String TO String = thread::start(worker, currency::exportRates())

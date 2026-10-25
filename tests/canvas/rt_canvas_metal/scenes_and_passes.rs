@@ -633,8 +633,8 @@ fn forty_thousand_opaque_polygon_edges_draw_on_metal() {
 
 // ---------------------------------------------------------------------------------------
 // plan-164-C: the curve shapes on Metal. Each row requires that the frame was drawn on
-// the GPU and agrees with the software oracle within `Tolerance::GPU_CURVE`, the
-// tolerance measured for a frame that draws a curve (`tests/common/canvas_image.rs`).
+// the GPU and agrees with the software oracle within `Tolerance::GPU_DEFAULT`
+// (`tests/common/canvas_image.rs`).
 // The same scene files are `scripts/test-canvas-gpu-rows.sh`'s `curve*` rows on Vulkan.
 // ---------------------------------------------------------------------------------------
 
@@ -647,7 +647,7 @@ fn the_curve_shapes_match_the_software_oracle_on_metal() {
         "canvas_metal_curves",
         CURVES,
         "a CurvePolygon, a dashed PolyCurve, an AutoPaint over one and a Picture in one",
-        Tolerance::GPU_CURVE,
+        Tolerance::GPU_DEFAULT,
         &[],
     );
 }
@@ -661,7 +661,7 @@ fn a_hovered_autopaint_over_a_curve_matches_the_software_oracle_on_metal() {
         "canvas_metal_curves_hover",
         CURVES,
         "an AutoPaint over a CurvePolygon, hovered",
-        Tolerance::GPU_CURVE,
+        Tolerance::GPU_DEFAULT,
         &[("MFB_CANVAS_POINTER", "0,200,440,0,1")],
     );
 }
@@ -676,7 +676,7 @@ fn every_curve_stroke_and_fill_matches_the_software_oracle_on_metal() {
         "canvas_metal_curve_strokes",
         CURVE_STROKES,
         "curve shapes under every cap, join, dash, fill rule and gradient",
-        Tolerance::GPU_CURVE,
+        Tolerance::GPU_DEFAULT,
         &[],
     );
 }
@@ -692,7 +692,7 @@ fn turned_and_grouped_curves_match_the_software_oracle_on_metal() {
         "canvas_metal_curves_placed",
         CURVES_PLACED,
         "curve shapes under their own transforms and inside turned, scaled groups",
-        Tolerance::GPU_CURVE,
+        Tolerance::GPU_DEFAULT,
         &[],
     );
 }
@@ -708,7 +708,7 @@ fn pictures_in_curved_shapes_match_the_software_oracle_on_metal() {
         "canvas_metal_curve_pictures",
         CURVE_PICTURES,
         "pictures inside CurvePolygons",
-        Tolerance::GPU_CURVE,
+        Tolerance::GPU_DEFAULT,
         &[],
     );
 }
@@ -726,7 +726,7 @@ fn the_pieces_reach_the_gpu_buffer_with_their_residuals() {
         "canvas_metal_curve_residuals",
         CURVE_RESIDUALS,
         "tiny curve shapes under a 30,000-fold transform",
-        Tolerance::GPU_CURVE,
+        Tolerance::GPU_DEFAULT,
         &[],
     );
 }
@@ -809,7 +809,7 @@ fn curve_pieces_are_counted_two_slots_each_against_the_edge_region() {
         !stats.contains("gpuFrames=0"),
         "131,072 pieces is exactly METAL_MAX_FRAME_EDGES slots, but Metal declined: {stats}"
     );
-    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_CURVE) {
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
         panic!("Metal draws 512 rings of 256 pieces differently from the oracle: {diff}");
     }
     let past = build(
@@ -827,7 +827,7 @@ fn curve_pieces_are_counted_two_slots_each_against_the_edge_region() {
         "131,328 pieces is 262,656 slots, two passes of METAL_MAX_FRAME_EDGES, but the \
          software renderer drew the frame: {stats}"
     );
-    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_CURVE) {
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
         panic!("Metal draws 513 rings of 256 pieces differently from the oracle: {diff}");
     }
 }

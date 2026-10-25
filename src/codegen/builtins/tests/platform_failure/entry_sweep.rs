@@ -45,6 +45,7 @@ fn lower_entry(
         true,
         Some(8),
         crate::codegen::debug::DEBUG_FEATURES,
+        true,
     )
 }
 

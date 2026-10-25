@@ -85,7 +85,7 @@ impl File {
         file.put(HASH, &hash);
         let rela = [
             GOT.to_le_bytes(),
-            ((2u64 << 32) | u64::from(R_AARCH64_JUMP_SLOT)).to_le_bytes(),
+            ((2u64 << 32) | u64::from(AARCH64.elf.jump_slot)).to_le_bytes(),
             0u64.to_le_bytes(),
         ]
         .concat();
@@ -143,7 +143,7 @@ impl File {
         self.bytes[4] = ELFCLASS64;
         self.bytes[5] = ELFDATA2LSB;
         self.put_u16(16, kind);
-        self.put_u16(18, EM_AARCH64);
+        self.put_u16(18, AARCH64.elf.machine);
         self.put_u64(24, 0x880);
         self.put_u64(32, PHDRS as u64);
         self.put_u64(40, shoff);
@@ -193,7 +193,7 @@ impl File {
     }
 
     fn read(&self) -> Option<Elf> {
-        read(&self.bytes)
+        read(&self.bytes, &AARCH64.elf)
     }
 }
 
@@ -229,7 +229,7 @@ fn a_gnu_hashed_library_names_its_symbols_imports_and_plt() {
 
 #[test]
 fn an_executable_skips_unnamed_undefined_and_section_symbols() {
-    let image = executable(&File::library().bytes).expect("readable");
+    let image = executable(&File::library().bytes, &AARCH64.elf).expect("readable");
     assert_eq!(
         image
             .functions
@@ -296,7 +296,10 @@ fn the_stub_walk_stops_where_the_code_cannot_be_read_or_names_no_import() {
     // An executable segment whose file bytes run past the end of the file.
     let mut file = File::library();
     file.put_u64(PHDRS + 32, SIZE as u64 + 0x100);
-    assert!(executable(&file.bytes).unwrap().stubs.is_empty());
+    assert!(executable(&file.bytes, &AARCH64.elf)
+        .unwrap()
+        .stubs
+        .is_empty());
 
     // A well-formed stub at the end of the code loading a slot no
     // relocation binds: `adrp x16, 0` / `ldr x17, [x16, #0x7f8]` / `br x17`.
@@ -305,12 +308,18 @@ fn the_stub_walk_stops_where_the_code_cannot_be_read_or_names_no_import() {
     file.put_u32(end, 0x9000_0010);
     file.put_u32(end + 4, 0xf943_fe11);
     file.put_u32(end + 8, 0xd61f_0220);
-    assert!(executable(&file.bytes).unwrap().stubs.is_empty());
+    assert!(executable(&file.bytes, &AARCH64.elf)
+        .unwrap()
+        .stubs
+        .is_empty());
 
     // No executable segment at all.
     let mut file = File::library();
     file.put_u32(PHDRS + 4, 4);
-    assert!(executable(&file.bytes).unwrap().stubs.is_empty());
+    assert!(executable(&file.bytes, &AARCH64.elf)
+        .unwrap()
+        .stubs
+        .is_empty());
 }
 
 #[test]

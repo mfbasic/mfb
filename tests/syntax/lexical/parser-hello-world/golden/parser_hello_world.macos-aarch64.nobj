@@ -47,9 +47,12 @@
   { "library": "libSystem", "symbol": "_pthread_self" },
   { "library": "libSystem", "symbol": "_pthread_get_stackaddr_np" },
   { "library": "libSystem", "symbol": "_pthread_get_stacksize_np" },
+  { "library": "libSystem", "symbol": "_sysctlbyname" },
   { "library": "libSystem", "symbol": "_write" },
   { "library": "libSystem", "symbol": "_raise" },
-  { "library": "libSystem", "symbol": "___error" }
+  { "library": "libSystem", "symbol": "___error" },
+  { "library": "libSystem", "symbol": "_pthread_mutex_lock" },
+  { "library": "libSystem", "symbol": "_pthread_mutex_unlock" }
   ],
   "externalSymbols": [],
   "symbolTable": [
@@ -66,12 +69,15 @@
   { "name": "_pthread_self", "kind": "imported", "section": null, "value": null, "stringTableOffset": 101 },
   { "name": "_pthread_get_stackaddr_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 115 },
   { "name": "_pthread_get_stacksize_np", "kind": "imported", "section": null, "value": null, "stringTableOffset": 141 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 167 },
-  { "name": "_raise", "kind": "imported", "section": null, "value": null, "stringTableOffset": 174 },
-  { "name": "___error", "kind": "imported", "section": null, "value": null, "stringTableOffset": 181 }
+  { "name": "_sysctlbyname", "kind": "imported", "section": null, "value": null, "stringTableOffset": 167 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 181 },
+  { "name": "_raise", "kind": "imported", "section": null, "value": null, "stringTableOffset": 188 },
+  { "name": "___error", "kind": "imported", "section": null, "value": null, "stringTableOffset": 195 },
+  { "name": "_pthread_mutex_lock", "kind": "imported", "section": null, "value": null, "stringTableOffset": 204 },
+  { "name": "_pthread_mutex_unlock", "kind": "imported", "section": null, "value": null, "stringTableOffset": 224 }
   ],
   "stringTable": {
-    "size": 190,
+    "size": 246,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_main", "offset": 7 },
@@ -86,9 +92,12 @@
     { "value": "_pthread_self", "offset": 101 },
     { "value": "_pthread_get_stackaddr_np", "offset": 115 },
     { "value": "_pthread_get_stacksize_np", "offset": 141 },
-    { "value": "_write", "offset": 167 },
-    { "value": "_raise", "offset": 174 },
-    { "value": "___error", "offset": 181 }
+    { "value": "_sysctlbyname", "offset": 167 },
+    { "value": "_write", "offset": 181 },
+    { "value": "_raise", "offset": 188 },
+    { "value": "___error", "offset": 195 },
+    { "value": "_pthread_mutex_lock", "offset": 204 },
+    { "value": "_pthread_mutex_unlock", "offset": 224 }
     ]
   },
   "relocations": [
@@ -103,11 +112,14 @@
   { "from": "_main", "to": "_pthread_self", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_pthread_get_stackaddr_np", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_pthread_get_stacksize_np", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_sysctlbyname", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_raise", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "___error", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_pthread_mutex_lock", "kind": "externalCall", "section": "__TEXT,__text" },
+  { "from": "_main", "to": "_pthread_mutex_unlock", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" }
   ]
 }

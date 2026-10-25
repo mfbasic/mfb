@@ -8,6 +8,10 @@ impl Inferior for Task {
         self.pid
     }
 
+    fn arch(&self) -> &'static crate::debugger::arch::Arch {
+        &crate::debugger::arm64::AARCH64
+    }
+
     fn end(&mut self) -> Result<Ending, String> {
         self.ended = true;
         // SAFETY: puts back the handler `new` replaced.

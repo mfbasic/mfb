@@ -257,7 +257,7 @@ Commit: —
       targets' dumps and absent for the guarded/sparse ones.
 - [ ] `rt_regalloc_levels_agree`: add the fixture.
 - [ ] Golden re-baseline (all targets, predicted set from Phase 1).
-- [ ] Runtime: macOS acceptance; 2223, 2227, 2229 `linux-runtime-proof.sh`; 2230.
+- [ ] Runtime: macOS acceptance; 2223, 2227, 2229 `linux-runtime-proof.sh`; box 206.
 - [ ] Benchmark (macOS host): `interp` (`vm`, `vm_loop`) and `dispatch` rows vs.
       `benchmark/language/baseline/mfb-O1.log`; if a row regresses, tune thresholds (Open
       Decision 1) and record the numbers.

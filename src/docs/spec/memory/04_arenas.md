@@ -259,7 +259,63 @@ The algorithm:
    `ErrOutOfMemory` rather than mapping an undersized block.
 
 A failed mapping (the platform `mmap`/`VirtualAlloc` hook) reports
-`ErrOutOfMemory`. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
+`ErrOutOfMemory`.
+
+Step 5 is also where the arena memory cap applies: the block is charged to the
+process-wide counter before it is mapped (see *Process Memory Cap*).
+
+## Process Memory Cap
+
+The arena memory cap (`./mfb spec tooling project-manifest`, *Arena memory cap*)
+bounds the bytes of arena blocks the whole process has mapped — the main arena and
+every worker's, counted together, because each thread has its own arena and a
+per-arena cap would let N threads map N times the cap. Three data objects hold it,
+none of them in the arena state, so `ARENA_STATE_SIZE` is unchanged:
+
+| symbol | what |
+| --- | --- |
+| `_mfb_rt_arena_map_limit` | u64 cap in bytes, stored by the startup check (`./mfb spec memory program-startup`, *The Arena Memory Cap Check*); `0` means no enforcement |
+| `_mfb_rt_arena_mapped_bytes` | u64 bytes of arena blocks mapped and not yet unmapped |
+| `_mfb_rt_arena_map_lock` | 64-byte mutex guarding the counter, statically initialized (`PTHREAD_MUTEX_INITIALIZER`; an SRWLOCK on Windows) |
+
+[[src/codegen/runtime/arena_cap/accounting.rs:ARENA_MAPPED_BYTES_SYMBOL]]
+[[src/codegen/runtime/arena_cap/accounting.rs:ARENA_MAP_LOCK_SYMBOL]]
+
+- **Charge before the map** (`arena_alloc` step 5). The allocator reads the limit;
+  if it is 0 it maps without touching the counter. Otherwise, under the lock, it adds
+  the block's `map_size` — the whole mapping, header and slack included — to the
+  counter. A sum that wraps, or that is above the limit, is not stored: the lock is
+  released and the request fails with `ErrOutOfMemory` without a map. Charging
+  under the lock makes the check and the add one step, so two threads cannot both
+  pass a check made before either adds.
+  [[src/codegen/runtime/arena_cap/accounting.rs:emit_map_charge]]
+- **Refund a failed map.** When the platform map fails after a charge, the
+  allocator takes the lock again and subtracts `map_size` before reporting
+  `ErrOutOfMemory`. [[src/codegen/runtime/arena_cap/accounting.rs:emit_map_refund]]
+- **Refund on unmap.** `arena_destroy` reads each block's `blockSize` (header +8)
+  and, when the limit is nonzero, subtracts it under the lock before unmapping the
+  block. A finished worker's arena therefore gives its bytes back, and a program that
+  churns through workers is capped on its live mappings, not on the total it ever
+  mapped. [[src/codegen/runtime/arena_cap/accounting.rs:emit_unmap_refund]]
+- **The fast path is untouched.** Quick bins, the carve chunk and the free list
+  never take the lock; only a block map or unmap does. The limit is read on every
+  block map and every block unmap.
+- **Turning accounting off.** Storing 0 into the limit stops all charging and
+  refunding. `_mfb_shutdown` does it first (so a signal handler never waits on a lock
+  its own thread holds), and the POSIX `process::spawn`/`process::shell` fork child
+  does it before it allocates (so it never waits on a lock another parent thread
+  held at `fork()`; the child's copy of that lock would stay locked forever).
+  [[src/codegen/runtime/arena_cap/accounting.rs:emit_disable_accounting]]
+- **Not counted:** the `--debug` perf region and the `--debug` arena registry,
+  which map memory through the same platform hook but are not arena blocks, and
+  every mapping that is not an arena block (thread stacks, audio and GPU buffers,
+  native `LINK` libraries' own memory). The `--debug` counter `mapped_bytes` is
+  separate and per arena.
+
+With `maxArenaMemoryDisable: true` none of this is emitted: no data objects, no
+lock calls, no checks. The grow path of an enabled build calls the platform lock
+functions, so `arena_alloc` clobbers the caller-saved registers on that path as
+its register contract already allows. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
 source as ordinary language-level errors (see the language spec §14.3.1).
 
 ## `arena_free(ptr, size)`

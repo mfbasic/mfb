@@ -1,0 +1,69 @@
+{
+  "project": "money_convert",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 3 },
+    { "module": "money", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 6,
+      "params": [
+      { "name": "value", "type": "Money", "default": null, "line": 6 },
+      { "name": "source", "type": "money.Rate", "default": null, "line": 6 },
+      { "name": "target", "type": "money.Rate", "default": null, "line": 6 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "result", "type": "Money", "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 7,
+        "expression": { "kind": "call", "callee": "money.convert", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "source" }, { "kind": "identifier", "value": "target" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "5" }] }] }, "right": { "kind": "string", "value": " error " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 8 },
+        { "kind": "return", "value": null, "line": 9 }
+        ]
+      }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "result" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "5" }] }] }] }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "usd", "type": "money.Rate", "value": { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "1" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "1000000m" }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "1.0842" }] }, { "kind": "identifier", "value": "usd" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "10000000000m" }, { "kind": "identifier", "value": "usd" }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.0067" }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "1m" }, { "kind": "identifier", "value": "usd" }, { "kind": "identifier", "value": "usd" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1000000m" } }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "1.0842" }] }, { "kind": "identifier", "value": "usd" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "0.00001m" }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.5" }] }, { "kind": "identifier", "value": "usd" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "money.Rounding" }, "member": "Banker" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "0.00001m" }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.5" }] }, { "kind": "identifier", "value": "usd" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "0.00003m" }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.5" }] }, { "kind": "identifier", "value": "usd" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "money.Rounding" }, "member": "Commercial" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "1m" }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "9223372.036854775807" }] }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "9223372.036854775807" }] }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "92233720368547.75808m" } }, { "kind": "identifier", "value": "usd" }, { "kind": "identifier", "value": "usd" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "1m" }, { "kind": "identifier", "value": "usd" }, { "kind": "constructor", "type": "money.Rate", "arguments": [{ "kind": "named", "name": "scaled", "value": { "kind": "number", "value": "0" } }] }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "1m" }, { "kind": "constructor", "type": "money.Rate", "arguments": [{ "kind": "named", "name": "scaled", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } } }] }, { "kind": "identifier", "value": "usd" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "92233720368547.75807m" }, { "kind": "identifier", "value": "usd" }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.5" }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "number", "value": "1m" }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "9223372" }] }, { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "0.000000000001" }] }] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 36 }
+      ]
+    }
+    ]
+  }
+  ]
+}

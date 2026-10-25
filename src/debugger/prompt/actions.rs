@@ -40,7 +40,7 @@ pub(super) fn list(
             }
             let mut lines = common_register_lines(&inferior.registers(thread)?);
             lines.push(String::new());
-            lines.extend(LIST_REG_USAGE.lines().map(str::to_string));
+            lines.extend(list_reg_usage(inferior.arch()).lines().map(str::to_string));
             Ok(lines)
         }
         Some(Listing::Registers { thread, picks }) => {
@@ -474,13 +474,15 @@ pub(super) fn jump(
         return Err(no_thread(thread, threads));
     }
     let (address, _) = resolve(inferior, thread, to)?;
-    if address % 4 != 0 {
+    let alignment = inferior.arch().alignment;
+    if address % alignment != 0 {
         return Err(format!(
-            "0x{address:016x} is not the start of an instruction: they start every 4 bytes"
+            "0x{address:016x} is not the start of an instruction: they start every {alignment} \
+             bytes"
         ));
     }
     inferior
-        .read_code(address, 4)
+        .read_code(address, alignment as usize)
         .map_err(|error| format!("cannot jump to 0x{address:016x}: {error}"))?;
     let mut values = vec![("pc".to_string(), address)];
     for (register, location) in registers {
@@ -488,20 +490,7 @@ pub(super) fn jump(
             .value(inferior, thread)
             .map_err(|fault| format!("cannot set {register}: {}", fault.message()))?
             .value;
-        match register.as_str() {
-            "nzcv" if value & !NZCV_FLAGS != 0 => {
-                return Err(format!(
-                    "cannot set nzcv to 0x{value:016x}: it holds only the flags, bits 28 to 31 \
-                     (0x00000000f0000000)"
-                ))
-            }
-            "fpsr" | "fpcr" if value > u64::from(u32::MAX) => {
-                return Err(format!(
-                    "cannot set {register} to 0x{value:016x}: it holds 32 bits"
-                ))
-            }
-            _ => {}
-        }
+        (inferior.arch().holds)(register, value)?;
         values.push((register.clone(), value));
     }
     inferior.set_registers(thread, &values)?;

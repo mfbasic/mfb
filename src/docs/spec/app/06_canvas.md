@@ -497,83 +497,76 @@ polyline is stroke-as-fill, so its half-width is in the radius slot. Its per-poi
 are its gradient stops, uploaded by the gradient path unchanged. The shader walks the
 segments as the oracle does and looks the colour up at the path parameter instead of an
 axis parameter. The first and last live segments travel in the block's gradient-axis
-words as whole numbers rather than 16.16, because 16.16 holds an index only up to 32,767.
+words as whole numbers rather than float32 bits, because the shader compares them with
+segment indices.
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/target/macos_aarch64/app/metal.rs:METAL_SHADER_BODY]]
 [[src/codegen/runtime/canvas/vulkan/edges.rs:emit_edge_upload]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:polylineScan]]
 [[src/codegen/runtime/canvas/scene_layout.rs:HEADER_POLYLINE_FIRST]]
 
-**Every shape's coverage on either GPU is computed in double-float from inputs at nearly
-the oracle's precision** — every shape but the two curve shapes, whose pieces are
-evaluated in fp32 on double-float differences and held to a looser tolerance (*Curves*
-→ *On the GPUs*). fp32 is not enough: where the oracle's f64 distance lies within
-~1e-5 px of a coverage quantisation boundary, fp32 rounds to the neighbouring step, and
-over a dark background one step is 3-12 sRGB levels. Rounding an input to 16.16 alone
-moves a distance by up to ~1.5e-5 px, so every value a distance reads travels as its
-16.16 word plus a residual word, `round((x·65536 − word)·2^31)`, in units of 2^-47 px:
+**Every value either GPU reads as a position or a length is a float32, and every
+distance is computed in fp32.** The emitters narrow the geometry header's doubles with
+one convert each (`emit_f32_bits`) and store the bit patterns: the item block's bounds,
+shape parameters, radius and stroke half-width, clip rectangle, an arc's sweep endpoints,
+an ellipse's rotation, a gradient's axis, focal offset and stops, a tile's source
+rectangle and the rims; every polygon, polyline, path-clip, join-record and curve-piece
+point in the edge region. The values made in MFBASIC travel the same way: the inverse
+transforms in the header, and each draw's group offset and matrix in the draw list
+(`__canvas_float32Bits`, words 2–3 and 8–11; words 5–6 are reserved and zero). The
+shaders read each with `intBitsToFloat` / `as_type<float>` (`fx`). Float32 has no range
+limit worth the name and keeps its relative precision at every scale, so a shape a few
+thousandths of a unit across, drawn 30,000 times larger, lands where the oracle puts it.
 
-* each polygon or polyline edge endpoint, in a region parallel to the edge words;
-* in the item block's four residual `ivec4`s: the shape parameters (centres,
-  half-extents, radii, line endpoints, ellipse axes), the radius and the stroke
-  half-width, an arc's two sweep endpoints, an ellipse's rotation cosine and sine, and
-  the clip rectangle (a path clip's edges ride the edge region with the shape's);
-* the group offset of each draw, as words 5 and 6 of its draw-list entry and the last
-  two of the four 32-bit words bound to both shader stages.
+The shaders evaluate the oracle's distance for every kind, operation for operation: the
+rectangle, circle, segment (round, butt with its two end planes, or square), arc,
+ellipse, polygon and polyline distances, the polygon's signed crossing test (multiplied
+out, no division) summed under its fill rule, the inverse transform, the
+central-difference gradient, the stroke's half-width and the coverage rounding
+`int(clamp(0.5 − d, 0, 1)·255 + 0.5)`; the clip's rectangle or path distance too. An
+arc's sweep planes take their direction vectors from its cap endpoints less its centre,
+divided by its radius, which gives back the oracle's Taylor `(cos, sin)`, so no GPU
+trigonometry is involved; whether the sweep is reflex is decided by the emitter in f64
+and carried as a flag, in the item-block word a polygon uses for its fill rule instead
+(`arc.y`; only an arc reads it as the flag). An ellipse runs the oracle's 24-step
+bisection.
 
-The shader rebuilds each value as a double-float, a pair of floats with about 48 bits,
-and evaluates the oracle's distance for every kind in it, operation for operation: the
-rectangle, circle, segment (round, or butt with its two end planes), arc, ellipse,
-polygon and polyline distances, the polygon's signed crossing test (multiplied out, no
-division) summed under its fill rule, the inverse transform, the central-difference gradient, the stroke's
-half-width and the coverage rounding; the clip's rectangle or path distance too. The
-quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 + 0.5)`. An arc's sweep planes take
-their direction vectors from its cap endpoints less its centre, divided by its radius,
-which gives back the oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved; whether the sweep is
-reflex is decided by the emitter in f64 and carried as a flag, in the item-block word a
-polygon uses for its fill rule instead (`arc.y`; only an arc reads it as the flag). An
-ellipse runs the
-oracle's 24-step bisection with every step in double-float: in fp32 a step whose test
-value lies within fp32's error of zero takes the other branch. The double-float helpers
-need their operations kept in written order: Metal's fast math reassociates them away,
-so each MSL helper disables reassociation for its body, and the GLSL marks them
-`precise`.
+**fp32 is not the oracle's f64, and the difference is bounded by one coverage step.**
+Where the oracle's distance lies closer to a coverage quantisation boundary than fp32's
+error, the GPU rounds to the neighbouring step. Over a dark background one step moves a
+channel by up to 13 sRGB levels (coverage 0 against 1/255), so a GPU frame is held to
+`Tolerance::GPU_DEFAULT`: no channel off by more than 13, on no more than 2% of the
+pixels. Measured over every scene in `tests/canvas/scenes/` on Metal and on Mesa's
+lavapipe, the worst pixel is 13 levels and the largest differing population 1.57%.
+Edges placed within millionths of a pixel of a step (`rectangles_at_a_step_on_black`)
+are the systematic case, every edge pixel one step off; ordinary scenes differ by 1–4
+levels on a fraction of a percent of their pixels.
 
-The double-float work is confined to pixels fp32 cannot decide, without changing the
-result. For polygon and polyline edges, an error bound on each edge's fp32 distance
-(2^-18 of the coordinates' magnitudes plus 2^-12 px) brackets its double-float distance.
-A first fp32 pass over the pixel's band finds the least upper bracket. Only edges whose
-lower bracket does not exceed it are evaluated in double-float, and only crossings too
-close to call against the same bound. Every other kind has an fp32 bound of the same
-kind: the rectangle, circle and line distance within the same bracket, the arc's ring
-and cap distances with the sweep ignored (the sweep only raises the band's distance), and for an ellipse `rmin·|s − 1|`, where `s` is the point's scale relative to the
-ellipse and `rmin` the smaller radius, a true lower bound on the distance. A pixel whose
-bound is past `0.5 +` the stroke half-width is 0 or 255 by its sign whatever the exact
-distance, so it skips double-float. Under a transform only the centre sample may skip,
-against `half + 0.5·max(F, 1)`, `F` the inverse matrix's Frobenius norm, which bounds the
-gradient the coverage divides by. On Metal, frames rendered with every one of these skips disabled were
-byte-identical to frames rendered with them, for every bug-735 and bug-687 oracle row
-(bug-735, "Phase 2 results").
+One shortcut skips work without changing a pixel: a sample whose distance is past the
+point where coverage clamps (`0.5 +` the stroke half-width; under a transform
+`half + 0.5·max(F, 1)`, `F` the inverse matrix's Frobenius norm, which bounds the
+gradient the coverage divides by) has its coverage decided by its sign, so its four
+neighbour samples are not taken. A clip's centre sample takes the same shortcut at
+`0.5·max(F, 1)`.
 
-The emitters decide whether a blended item that fills and strokes becomes two records
-on the stroke half-width's word and residual, which is exactly the header's `half > 0`
-that `__canvas_blockInstances` counts on: a half-width under 2^-48 px, which would
-otherwise narrow to zero, is given a residual of 1.
-[[src/codegen/runtime/canvas/scene_layout.rs:EDGE_RESIDUAL_SCALE]]
-[[src/codegen/runtime/canvas/scene_layout.rs:METAL_EDGE_RESIDUAL_BASE_WORDS]]
-[[src/codegen/runtime/canvas/scene_layout.rs:VULKAN_EDGE_RESIDUAL_BASE_WORDS]]
-[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_SHAPE_LO]]
-[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_RESIDUAL_FIELDS]]
+The emitters and the shaders decide whether an item strokes on the stroke half-width's
+float32 bits read as a SIGNED integer, which is positive exactly when the value is above
++0 — exactly the header's `half > 0` that `__canvas_blockInstances` counts two records
+on for a blended item that fills and strokes. A positive half-width that narrows to +0
+is given the bits 1, the smallest float32, and testing bits rather than the value keeps
+it stroking on a GPU that flushes that denormal to zero.
+[[src/codegen/runtime/canvas/scene_layout.rs:emit_f32_bits]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_FLOAT_FIELDS]]
 [[src/codegen/runtime/canvas/scene_layout.rs:ITEM_ARC_REFLEX]]
 [[src/codegen/runtime/canvas/scene_layout.rs:emit_item_polygon_rule]]
 [[src/codegen/runtime/canvas/scene_layout.rs:emit_item_stroke_sign]]
 [[src/codegen/builtins/canvas/helper_render/gpu_draw_list.rs:__canvas_pushOneDraw]]
+[[tests/common/canvas_image.rs:GPU_DEFAULT]]
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/codegen/runtime/canvas/vulkan/edges.rs:emit_edge_upload]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:shapeCoverage]]
-[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dfShapeDistance]]
-[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:farBound]]
-[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeSlack]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:shapeDistance]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeDistance]]
 
 **In a real window a Metal frame goes straight to the window's `CAMetalLayer`.** The
 frame is rendered offscreen, GPU-copied into the layer's next drawable and presented;
@@ -829,12 +822,11 @@ builder writes the same tail bit for bit.
 [[src/codegen/builtins/canvas/func_geo_build/dashes.rs:emit_dash_tail]]
 [[src/codegen/runtime/canvas/scene_layout.rs:HEADER_DASH_COUNT]]
 
-**On the GPUs**, the item block's `strokeStyle` words (at byte 272 of its 368) are the
+**On the GPUs**, the item block's `strokeStyle` words (at byte 208 of its 304) are the
 first join slot, the record count, the first dash word and the dash word count. Each
 dashed item's words — the phase, then its dash tail — ride a frame-wide dash region as
 float32 bit patterns, and each shader evaluates the oracle's dash functions in fp32 at
-offsets from the item's own outline taken in double-float, so the precision is the
-outline's position rather than its coordinates'.
+offsets from the item's own outline.
 [[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_STROKE_STYLE]]
 [[src/target/macos_aarch64/app/metal.rs:emit_dash_buffer]]
 [[src/codegen/runtime/canvas/vulkan/stroke_style.rs:emit_dash_upload]]
@@ -868,8 +860,8 @@ so glyph outlines are always filled even-odd.
 [[src/codegen/builtins/canvas/func_geo_build/fills.rs:fill_polygon]]
 [[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
 [[src/codegen/runtime/canvas/scene_layout.rs:HEADER_POLYGON_RULE]]
-[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeCrossing32]]
-[[src/target/macos_aarch64/app/metal.rs:edgeCrossing32]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeCrossing]]
+[[src/codegen/runtime/canvas/shaders/mfb_canvas.metal:edgeCrossing]]
 
 **A `PolyLine` is the union of its segments' round-capped bands.** Its `points` are
 offsets from `position` (Placement, above). For `n` points it
@@ -1070,9 +1062,9 @@ nothing. The builder takes one of two paths, in header slot 51:
 [[src/codegen/runtime/canvas/scene_layout.rs:HEADER_CLIP_MODE]]
 
 **On the GPUs** the item block carries two `ivec4`s for it: `clipBand` at byte
-288 is a path clip's band header, the same shape as a polygon's in `arcCaps` (its
-recorded norm in `gradFocal.w`, as the polygon's is in `capsLo.w`), and
-`clipPath` at 304 is (first clip edge, clip edge count, mode | rule << 2, a picture's
+224 is a path clip's band header, the same shape as a polygon's in `arcCaps` (its
+recorded norm in `gradFocal.w`, as the polygon's is in `ellipse.x`), and
+`clipPath` at 240 is (first clip edge, clip edge count, mode | rule << 2, a picture's
 `T`). The clip's edges go into the frame buffer's edge region after the item's own and count
 against the same region, one pass's, and they are banded by the same index builder
 with no stroke in the reach — a clip's coverage clamps at `|d| ≥ 0.5`. Each shader
@@ -1172,9 +1164,9 @@ fills the shape — defined, rather than a division by zero.
 [[src/codegen/runtime/canvas/scene_layout.rs:HEADER_GRADIENT_SPREAD]]
 
 **On the GPUs** `surface.w` packs the kind with the spread and the stroke apply, `kind |
-spread << 1 | apply << 3`, and three `ivec4`s grow the item block to 368 bytes:
-`gradInv0`/`gradInv1` at 320/336 carry `G⁻¹` and its flag word for word, and
-`gradFocal` at 352 the focal offset and radius in 16.16. The shaders take `t` in fp32 at
+spread << 1 | apply << 3`, and three `ivec4`s of the item block carry the rest:
+`gradInv0`/`gradInv1` at 256/272 carry `G⁻¹` and its flag word for word, and
+`gradFocal` at 288 the focal offset and radius as float32 bits. The shaders take `t` in fp32 at
 the fp32 inverse-mapped `q`, the same operations in the same order.
 [[src/codegen/runtime/canvas/scene_layout.rs:ITEM_SURFACE_GRADIENT_KIND]]
 [[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_GRADIENT_INV]]
@@ -1425,14 +1417,12 @@ is `arc.z` and whose piece count is `misc.w` is
 
 | Slot | Words |
 |---|---|
-| `arc.z + e` | the chord: `x0, y0, x2, y2`, each a 16.16 word with its residual |
-| `arc.z + misc.w + e` | `x1, y1` as 16.16 words with residuals, then the fp32 bits of `w1`, then 0 |
+| `arc.z + e` | the chord: `x0, y0, x2, y2`, as float32 bits |
+| `arc.z + misc.w + e` | `x1, y1` and `w1` as float32 bits, then 0 |
 
 The chords come first, as one run, because a chord IS an edge to the band index: a
 y-monotone piece's two ends are its whole y-range, so `emit_band_index` bands a curve
-shape as it bands a polygon and neither it nor the item block changed. The weight is
-fp32 bits because the shader's arithmetic on it is fp32 either way and a weight has no
-32,767 to stay under. Join records and dash words go where a polygon's go. A
+shape as it bands a polygon and neither it nor the item block changed. Join records and dash words go where a polygon's go. A
 block's cost counts `2 × pieces` against the edge region, with every other item's
 edges; a pass ends before the region is passed, and a shape of more pieces than half
 the region is the software renderer's, with its frame.
@@ -1449,15 +1439,10 @@ GLSL file by `tools/canvas-curve-shader`; a test holds the GLSL copy equal to th
 expansion. [[src/codegen/runtime/canvas/curve_shader.rs:curve_shader]]
 [[src/codegen/runtime/canvas/shaders/curves.tpl:curveWalk]]
 
-Unlike every other kind, a piece is evaluated in **fp32**: its three points are taken
-relative to the pixel in double-float first (`curvePiece`), so what single precision
-holds is no larger than the piece, and the root search runs on that. The distance is
-good to about 1e-4 px, which now and then rounds to the coverage step beside the
-oracle's. A frame that draws a curve is therefore compared under `Tolerance::GPU_CURVE`
-— 4 levels a channel, 2% of pixels — not `GPU_DEFAULT`'s 2. That is the measured worst
-case: one pixel at 4 levels, the same pixel on Metal, on Mesa's lavapipe and on Intel's
-Windows driver, over scenes covering every cap, join, dash, fill rule and placement.
-[[tests/common/canvas_image.rs:GPU_CURVE]]
+A piece's three points are taken relative to the pixel first (`curvePiece`), so what
+the root search works on is no larger than the piece. Like every other kind's, its
+distance is fp32 and held to `Tolerance::GPU_DEFAULT` (*Rendering conventions*).
+[[src/codegen/runtime/canvas/shaders/curves.tpl:curvePiece]]
 
 A `Picture` inside a `CurvePolygon` spends both kinds of slot: its image's clip is the
 outline flattened to straight edges, one slot each, and its outline is the curve, two a
@@ -1588,10 +1573,9 @@ out of existence through several nodes) draws nothing: the node and everything u
 is skipped.
 
 **A GPU draw entry is sixteen 64-bit words.** Base and count, the translation as two
-16.16 words, the blend mode and the translation's two residual words are words 0–6, as
-they were when the entry was eight words. Word 7 is 1 when the entry has a matrix, words
-8–11 are the inverse linear part as float32 bit patterns, and words 12–15 are zero. A
-translate-only entry is therefore its old eight words followed by zeros.
+float32 bit patterns and the blend mode are words 0–4; words 5–6 are reserved and zero.
+Word 7 is 1 when the entry has a matrix, words 8–11 are the inverse linear part as
+float32 bit patterns, word 12 is the pass word and words 13–15 are zero.
 [[src/codegen/runtime/canvas/scene_layout.rs:CANVAS_DRAW_ENTRY_WORDS]]
 
 **Both GPU backends bind 32 bytes per draw, to both stages.** The entry's four
@@ -1609,7 +1593,7 @@ With a matrix:
 * the **vertex** stage carries the item's box through the forward linear part — the
   inverse of the 2×2 it was given, taken in the shader — so the quad is a parallelogram.
   The box's rim is first replaced as the software bounds replace it, by the same two
-  expressions; the rim reaches the stage as two 16.16 words of the item block, the
+  expressions; the rim reaches the stage as two float32 words of the item block, the
   fourth words of `xform1` (x sides) and `gradInv1` (y sides), which nothing else
   reads. The box is then grown on every side by the inverse's Frobenius norm, which is
   at least one surface pixel: the stage's pixel is added before the map, where the

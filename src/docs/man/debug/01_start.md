@@ -31,9 +31,9 @@ The program must be an MFBASIC executable built for the computer you are on.
 When a file exists with a name made only of digits, `mfb dbg 1234` starts that
 file. Name it `./1234` either way to be clear.
 
-`mfb dbg` runs on macOS, and on Linux on Arm (AArch64) computers. On Linux on
-x86-64 or RISC-V, and on Windows, it says `mfb dbg is not supported` and stops;
-`mfb man debug-external` shows how to use gdb there.
+`mfb dbg` runs on macOS, and on Linux on Arm (AArch64) or RISC-V (riscv64)
+computers. On Linux on x86-64, and on Windows, it says `mfb dbg is not
+supported` and stops; `mfb man debug-external` shows how to use gdb there.
 
 On Linux, `mfb build` writes the example as `examples/debug/build/debug-glibc.out`
 and `debug-musl.out`, one for each C library Linux systems use. Debug the one

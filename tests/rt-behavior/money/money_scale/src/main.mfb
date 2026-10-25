@@ -1,0 +1,32 @@
+' plan-181-B3: money::scale(m, r) = R(m * r), one exact 128-bit calculation and
+' one rounding under the thread's mode.
+IMPORT io
+IMPORT money
+
+FUNC show(value AS Money, rate AS money::Rate) AS Nothing
+  LET result AS Money = money::scale(value, rate) TRAP(err)
+    io::print(toString(value, toByte(5)) & " error " & toString(err.code))
+    RETURN
+  END TRAP
+  io::print(toString(result, toByte(5)))
+END FUNC
+
+FUNC main() AS Integer
+  show(100m, money::toRate("0.07"))
+  show(1.5m, money::toRate("0.333"))
+  show(-1.5m, money::toRate("0.333"))
+  ' The tie 0.000005: Commercial rounds away, Banker to even.
+  show(0.00001m, money::toRate("0.5"))
+  money::setRounding(money::Rounding.Banker)
+  show(0.00001m, money::toRate("0.5"))
+  show(-0.00001m, money::toRate("0.5"))
+  money::setRounding(money::Rounding.Commercial)
+  show(-0.00001m, money::toRate("0.5"))
+  show(92233720368547.75807m, money::toRate("1"))
+  show(1m, money::toRate("0.000000000001"))
+  ' A Rate built by hand with scaled at or below zero is ErrInvalidArgument (77050002).
+  show(1m, money::Rate[scaled := 0])
+  ' A result outside the Money range is ErrOverflow (77050010).
+  show(92233720368547.75807m, money::toRate("2"))
+  RETURN 0
+END FUNC

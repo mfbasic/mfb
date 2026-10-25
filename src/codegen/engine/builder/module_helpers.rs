@@ -238,7 +238,15 @@ pub(super) fn lower_core_runtime_helpers(
     // section is active for this module.
     let debug_arena =
         crate::codegen::debug::feature_active(module, crate::codegen::debug::ARENA_SECTION);
-    code_functions.push(lower_arena_alloc(platform, perf_arena, debug_arena)?);
+    // plan-179-C: the arena memory cap's accounting rides the map and unmap sites.
+    let arena_cap = crate::codegen::runtime::arena_cap::arena_cap_enabled(module);
+    code_functions.push(lower_arena_alloc(
+        platform,
+        perf_arena,
+        debug_arena,
+        arena_cap,
+        platform_imports,
+    )?);
     code_functions.push(lower_build_error_loc());
     code_functions.push(lower_make_error_result());
     code_functions.push(lower_simd_alloc_list());
@@ -247,7 +255,12 @@ pub(super) fn lower_core_runtime_helpers(
     code_functions.push(lower_arena_free(perf_arena, debug_arena));
     // The arena's zero fill is always on: it scrubs freed chunks and fills fresh blocks.
     code_functions.push(lower_arena_fill_zero());
-    code_functions.push(lower_arena_destroy(platform, debug_arena)?);
+    code_functions.push(lower_arena_destroy(
+        platform,
+        debug_arena,
+        arena_cap,
+        platform_imports,
+    )?);
     // Opt-in stdout buffering (plan-14-A): the shared `_mfb_rt_io_stdout_drain`
     // helper is emitted whenever any stdout writer, stdin reader, or buffering
     // control is present — every point that references the drain. App mode has no
@@ -383,6 +396,15 @@ pub(super) fn lower_core_runtime_helpers(
             )?,
         );
     }
+    // plan-179-B: the arena memory cap's startup check, which the program entry
+    // calls before the first allocation.
+    if crate::codegen::runtime::arena_cap::arena_cap_enabled(module) {
+        code_functions.push(crate::codegen::runtime::arena_cap::lower_arena_cap_init(
+            &module.arena_memory,
+            platform_imports,
+            platform,
+        )?);
+    }
     if module.entry.is_some() {
         code_functions.push(lower_shutdown(
             uses_term,
@@ -392,6 +414,7 @@ pub(super) fn lower_core_runtime_helpers(
             platform_imports,
             platform,
             crate::codegen::debug::report_enabled(module),
+            arena_cap,
         )?);
         // plan-130-A: `_mfb_debug_shutdown` and every report section it calls.
         code_functions.extend(crate::codegen::debug::code_functions(
@@ -512,6 +535,7 @@ pub(super) fn lower_runtime_helpers_and_threads(
                             module,
                             crate::codegen::debug::ARENA_SECTION,
                         ),
+                        arena_cap: crate::codegen::runtime::arena_cap::arena_cap_enabled(module),
                     },
                     uses_rng,
                     type_model,

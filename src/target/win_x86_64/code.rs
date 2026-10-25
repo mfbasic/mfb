@@ -1231,6 +1231,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             spec.needs_winsock,
             spec.seed_presentation_mode_offset,
             spec.debug_features,
+            spec.arena_cap_init,
         )
     }
 
@@ -1338,6 +1339,47 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::label("arena_map_succeeded"),
         ]);
         Ok(())
+    }
+
+    /// plan-179-B: `GlobalMemoryStatusEx(&MEMORYSTATUSEX)`, the 64-byte structure
+    /// at +0 with `dwLength` (u32 at +0) set first; `ullTotalPhys` is the u64 at +8.
+    /// A nonzero return is success.
+    fn emit_host_memory_probe(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        ram: Reg,
+        scratch: Reg,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        use crate::target::shared::abi as shared;
+        instructions.extend([
+            shared::move_immediate(scratch.clone(), "Integer", "64"),
+            shared::store_u32(scratch.clone(), shared::stack_pointer(), 0),
+            shared::add_immediate(shared::c_arg(0), shared::stack_pointer(), 0),
+        ]);
+        self.emit_external_call(
+            "GlobalMemoryStatusEx",
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        let done = format!("{from}_host_memory_probe_done");
+        instructions.extend([
+            shared::move_register(scratch.clone(), shared::c_return(0)),
+            shared::move_immediate(ram.clone(), "Integer", "0"),
+            shared::compare_immediate(scratch, "0"),
+            shared::branch_eq(&done),
+            shared::load_u64(ram, shared::stack_pointer(), 8),
+            shared::label(&done),
+        ]);
+        Ok(())
+    }
+
+    fn host_memory_probe_name(&self) -> &'static str {
+        "GlobalMemoryStatusEx"
     }
 
     fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {

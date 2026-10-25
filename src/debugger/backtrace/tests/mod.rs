@@ -1,4 +1,5 @@
 use super::*;
+use crate::debugger::arm64::AARCH64;
 
 mod effects;
 mod walk;
@@ -21,7 +22,11 @@ const MOV_X0_X1: u32 = 0xaa01_03e0;
 const BL: u32 = 0x9400_0005;
 
 fn state(words: &[u32]) -> FrameState {
-    state_at(words, 0x1000, 0x1000, Some(0x2000))
+    let code = words
+        .iter()
+        .flat_map(|word| word.to_le_bytes())
+        .collect::<Vec<_>>();
+    state_at(&AARCH64, &code, 0x1000, 0x1000, Some(0x2000))
 }
 
 #[test]
@@ -186,5 +191,159 @@ fn a_function_nobody_wrote_reads_by_its_symbol() {
             "    frame #0: 0x0000000000001010 debug.out`main + 16",
             "    frame #1: 0x0000000000002000 debug.out`_main",
         ]
+    );
+}
+
+// --- riscv64: real code, through the riscv64 descriptor ---------------------
+
+/// `_mfb_fn_isPrime` of `examples/debug` built for linux-riscv64 (`debug-glibc.out`),
+/// from its start at 0x16b0 through its first `ret` and one instruction past it.
+const IS_PRIME: &[&str] = &[
+    "f3010113", "00113023", "00a13823", "01013e03", "01c13c23", "00200e13", "03c13023", "01813e03",
+    "02013e83", "03c13423", "03d13823", "02813e03", "03013e83", "01de4463", "01c0006f", "00000e13",
+    "000e0593", "00000513", "00013083", "0d010113", "00008067", "00200e13",
+];
+/// A glibc 2.41 `libc.so.6` function at 0x27e36, to 0x27f3c: `c.addi16sp`, `c.sdsp`
+/// saves of `s0` and `ra`, `c.addi4spn s0,sp,144`, an early epilogue, then
+/// `sub sp,sp,a5` (a stack allocation of a size known only at run time).
+const PATH_FUNCTION: &[&str] = &[
+    "7175", "e122", "fca6", "f8ca", "f4ce", "f0d2", "ecd6", "e4de", "e0e2", "e506", "e8da", "fc66",
+    "f86a", "f46e", "0900", "6504", "0012fc17", "032c3c03", "000c3703", "f8e43423", "4701",
+    "0004c783", "01054a03", "01154983", "fd17879b", "00053903", "8bae", "8ab2", "0007869b", "eb81",
+    "0014c783", "fd17879b", "0007869b", "c3e1", "c2f1", "00094783", "fd17879b", "0007869b", "eb81",
+    "00194783", "fd17879b", "0007869b", "cbb1", "cea1", "8756", "85ca", "8526", "f8040693",
+    "f7840613", "4b1000ef", "8aaa", "4b01", "c979", "016bb023", "f8843703", "000c3783", "8fb9",
+    "4701", "1e079d63", "f7040113", "60aa", "8556", "640a", "74e6", "7946", "79a6", "7a06", "6ae6",
+    "6b46", "6ba6", "6c06", "7ce2", "7d42", "7da2", "6149", "8082", "00294683", "f6d5", "0012f797",
+    "0467b783", "9792", "639c", "639c", "0a87bc83", "8566", "557580ef", "01250793", "9bc1",
+    "40f10133", "8b2a", "85e6", "850a", "865a", "fffff097", "5bc080e7",
+];
+/// A glibc function at 0x27c04, to 0x27c74, that saves `ra` after its body began
+/// (`sd ra,72(sp)` at 0x27c1e) and returns early at 0x27c54.
+const LATE_RA: &[&str] = &[
+    "715d", "e0a2", "fc26", "0800", "0012f497", "27c4b483", "862a", "609c", "f43e", "4781", "8522",
+    "e486", "2b9070ef", "57fd", "cd09", "8522", "4601", "002c", "208000ef", "87aa", "8522", "843e",
+    "4a9070ef", "ec09", "67a2", "76a2", "6098", "8f35", "4681", "e715", "60a6", "6406", "74e2",
+    "853e", "6161", "8082", "347d", "4785", "0087f463", "57fd", "b7c5", "0012f797", "1667b783",
+    "4759", "9792", "c398", "57fd", "b7f9",
+];
+
+/// The bytes of instructions as `objdump` prints them: 8 hex digits for a
+/// 4-byte one, 4 for a 2-byte one.
+fn riscv64_code(words: &[&str]) -> Vec<u8> {
+    words
+        .iter()
+        .flat_map(|word| {
+            let value = u32::from_str_radix(word, 16).expect("hex");
+            value.to_le_bytes()[..word.len() / 2].to_vec()
+        })
+        .collect()
+}
+
+/// The frame state at `pc` of the function `words` holds, starting at
+/// `start`, `size` bytes long.
+fn riscv64_state(words: &[&str], start: u64, size: u64, pc: u64) -> FrameState {
+    let code = riscv64_code(words);
+    state_at(
+        &crate::debugger::riscv64::RISCV64,
+        &code[..(pc - start) as usize],
+        start,
+        start,
+        Some(start + size),
+    )
+}
+
+#[test]
+fn a_riscv64_compiled_frame_unwinds() {
+    let at = |pc| riscv64_state(IS_PRIME, 0x16b0, 0x2c4, pc);
+    let body = FrameState {
+        sp: Some(-208),
+        lr: Some(-208),
+        ..FrameState::ENTRY
+    };
+    // After `addi sp,sp,-208` and `sd ra,0(sp)`.
+    assert_eq!(at(0x16b8), body);
+    // The epilogue: `ld ra,0(sp)` gives the return address back to `ra`,
+    // `addi sp,sp,208` the stack.
+    assert_eq!(
+        at(0x16fc),
+        FrameState {
+            sp: Some(-208),
+            ..FrameState::ENTRY
+        }
+    );
+    assert_eq!(at(0x1700), FrameState::ENTRY);
+    // Past the `ret`, the rest of the body runs in the prologue's frame.
+    assert_eq!(at(0x1704), body);
+}
+
+#[test]
+fn a_riscv64_library_frame_with_a_frame_pointer_unwinds() {
+    let at = |pc| riscv64_state(PATH_FUNCTION, 0x27e36, 0x400, pc);
+    // `s0` and `ra` saved, `s0` pointed at the CFA.
+    let framed = FrameState {
+        sp: Some(-144),
+        lr: Some(-8),
+        fp_saved: Some(-16),
+        fp: Some(0),
+    };
+    assert_eq!(at(0x27e54), framed);
+    // `addi sp,s0,-144` then the restores and `c.addi16sp sp,144`.
+    assert_eq!(at(0x27ee4), framed);
+    assert_eq!(at(0x27f02), FrameState::ENTRY);
+    // Past the `ret`, after `sub sp,sp,a5`: only the frame pointer finds the
+    // CFA, and the saves are where the prologue put them.
+    assert_eq!(at(0x27f3c), FrameState { sp: None, ..framed });
+}
+
+#[test]
+fn a_riscv64_save_after_the_body_began_counts_after_an_early_return() {
+    let at = |pc| riscv64_state(LATE_RA, 0x27c04, 0x74, pc);
+    let saved = FrameState {
+        sp: Some(-80),
+        lr: Some(-8),
+        fp_saved: Some(-16),
+        fp: Some(-64),
+    };
+    assert_eq!(at(0x27c20), saved);
+    // Past the early `ret` at 0x27c54, `ra` is still where 0x27c1e put it.
+    assert_eq!(at(0x27c74), saved);
+}
+
+#[test]
+fn a_riscv64_frame_before_its_prologue_ran() {
+    // At the first instruction the return address is still in `ra`.
+    assert_eq!(
+        riscv64_state(LATE_RA, 0x27c04, 0x74, 0x27c04),
+        FrameState::ENTRY
+    );
+    // After `c.addi16sp sp,-80` alone: the stack moved, `ra` not yet saved.
+    assert_eq!(
+        riscv64_state(LATE_RA, 0x27c04, 0x74, 0x27c06),
+        FrameState {
+            sp: Some(-80),
+            ..FrameState::ENTRY
+        }
+    );
+}
+
+/// `_mfb_fn_runRounds` of `debug-glibc.out` from 0x3124 through its `ra` save:
+/// a frame too big for one `addi`, built as `lui t0,0x1; addi t0,t0,-688;
+/// sub sp,sp,t0`.
+const RUN_ROUNDS: &[&str] = &[
+    "000012b7", "d5028293", "40510133", "00913023", "01313423", "01413823", "01513c23", "03613023",
+    "03713423", "03813823", "03913c23", "04813027", "04113423",
+];
+
+#[test]
+fn a_riscv64_frame_too_big_for_addi_unwinds() {
+    let state = riscv64_state(RUN_ROUNDS, 0x3124, 0x3000, 0x3158);
+    assert_eq!(
+        state,
+        FrameState {
+            sp: Some(-3408),
+            lr: Some(-3408 + 72),
+            ..FrameState::ENTRY
+        }
     );
 }

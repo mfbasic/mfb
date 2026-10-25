@@ -31,21 +31,22 @@ use super::*;
 /// `ItemBlock` must report `topLevelArrayStride` equal to this size with one member per
 /// 16 bytes (`glslangValidator -V -q mfb_canvas.vert`; 208 with members at
 /// 0/16/.../192 when plan-116-F added the gradient axis `ivec4`, 272 with the four
-/// residual `ivec4`s at 208/224/240/256 since bug-735, 288 with plan-163-B's
-/// `strokeStyle` at 272; plan-163-C's `clipBand` at 288 and `clipPath` at 304; plan-163-D's
-/// `gradInv0`/`gradInv1` at 320/336 and `gradFocal` at 352), matching the
+/// residual `ivec4`s at 208/224/240/256 from bug-735 until the shaders went to fp32, which
+/// took them out again; plan-163-B's `strokeStyle` at 208; plan-163-C's `clipBand` at 224
+/// and `clipPath` at 240; plan-163-D's `gradInv0`/`gradInv1` at 256/272 and `gradFocal`
+/// at 288), matching the
 /// `ITEM_OFFSET_*` constants below one for one. `the_item_block_matches_the_std430_stride`
 /// in `vulkan/tests/mod.rs` pins it. Widening the block means keeping every member `ivec4`-sized
 /// so std430's stride stays equal to the size, then re-running that reflection.
-pub(crate) const ITEM_BLOCK_SIZE: usize = 368;
-/// Bounds `minX, minY, maxX, maxY`, 16.16 fixed point.
+pub(crate) const ITEM_BLOCK_SIZE: usize = 304;
+/// Bounds `minX, minY, maxX, maxY`, as float32 bit patterns (`emit_f32_bits`).
 pub(crate) const ITEM_OFFSET_QUAD: usize = 0;
-/// The shape parameters `p0..p3`, 16.16.
+/// The shape parameters `p0..p3`, float32 bits.
 pub(crate) const ITEM_OFFSET_SHAPE: usize = 16;
 /// Fill and stroke `RGBA`, whole 0–255 values.
 pub(crate) const ITEM_OFFSET_FILL: usize = 32;
 pub(crate) const ITEM_OFFSET_STROKE: usize = 48;
-/// `kind`, `radius` (16.16), `strokeHalf` (16.16), `edgeCount`.
+/// `kind`, `radius` (float32 bits), `strokeHalf` (float32 bits), `edgeCount`.
 pub(crate) const ITEM_OFFSET_MISC: usize = 64;
 /// A glyph's or picture's bitmap height (`ITEM_ARC_GLYPH_HEIGHT`, 0 otherwise), an
 /// arc's `reflex` flag (`ITEM_ARC_REFLEX`), then the polygon's first-edge index into the
@@ -89,7 +90,7 @@ pub(crate) const ITEM_OFFSET_SURFACE: usize = 96;
 /// full `ivec4` on both sides precisely so trailing padding cannot differ between the
 /// languages. Using the space costs nothing and keeps the block one `ivec4` narrower.
 pub(crate) const ITEM_SURFACE_BLEND: usize = 8;
-/// The item's clip rectangle, resolved to `x0, y0, x1, y1` in 16.16 fixed point
+/// The item's clip rectangle, resolved to `x0, y0, x1, y1` as float32 bits
 /// (plan-116-B).
 ///
 /// The `ivec4` that took the block from 112 to 128 bytes — which the push-constant
@@ -103,17 +104,15 @@ pub(crate) const ITEM_OFFSET_CLIP: usize = 112;
 /// The inverted transform, as **raw IEEE-754 `float32` bits** in two `ivec4`s
 /// (plan-116-C): `ia, ib, ic, id` at 128 and `itx, ity, hasTransform, unused` at 144.
 ///
-/// **Not 16.16, unlike every other geometric field in the block.** An item scaled up
-/// 100× has inverse terms near `0.01`, which 16.16 holds to about four significant
-/// digits — a precision cliff exactly where a transform is doing the most work. Float32
-/// has no such cliff, costs the same four bytes, needs no conversion on the CPU side
-/// (the header slots are already `Float`), and is what the shader arithmetic uses
-/// anyway. The shaders decode with `intBitsToFloat` / `as_type<float>`.
+/// Float32 like every other geometric field in the block, but narrowed in MFBASIC
+/// (`__canvas_float32Bits`) rather than by the emitter: the header slots already hold
+/// the bit patterns, so the emitter copies them as whole numbers. The shaders decode
+/// with `intBitsToFloat` / `as_type<float>`.
 ///
 /// `hasTransform` is a whole 0 or 1, not a float bit pattern: it is compared, never
 /// arithmetic.
 pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
-/// An arc's two sweep endpoints in 16.16 surface pixels — `startX, startY, endX, endY`
+/// An arc's two sweep endpoints as float32 bits — `startX, startY, endX, endY`
 /// (plan-116-D).
 ///
 /// The eleventh `ivec4`, and the one member of the block that had to grow it: the
@@ -127,11 +126,10 @@ pub(crate) const ITEM_OFFSET_TRANSFORM: usize = 128;
 /// multiple of the oracle's Taylor `(cos, sin)`, so the shaders need no trigonometry at
 /// all. Every item pays 16 bytes of buffer for it, which is the trade: the alternative
 /// is a per-pixel `sin`/`cos` pair in three renderers, and the deterministic series the
-/// oracle requires is far more expensive than a fetch. Their residuals are in
-/// `ITEM_OFFSET_CAPS_LO`.
+/// oracle requires is far more expensive than a fetch.
 pub(crate) const ITEM_OFFSET_ARC_CAPS: usize = 160;
 /// A **polygon**'s band-index header in the same `ivec4` (bug-686 on Metal, bug-688 on
-/// Vulkan): `bandTop`, `bandHeight` (16.16, shape space), the band count (0 = loop over
+/// Vulkan): `bandTop`, `bandHeight` (float32 bits, shape space), the band count (0 = loop over
 /// every edge) and its table's word offset in the band region (`METAL_BAND_BASE_WORDS`,
 /// `VULKAN_BAND_BASE_WORDS`).
 ///
@@ -144,7 +142,7 @@ pub(crate) const ITEM_BAND_HEIGHT: usize = 4;
 pub(crate) const ITEM_BAND_COUNT: usize = 8;
 pub(crate) const ITEM_BAND_START: usize = 12;
 /// bug-1085: a band header's fifth word, outside its `ivec4`: `F_built`, the norm its
-/// reach was built for, in 16.16 rounded DOWN. That is `max(F, sqrt 2)`, `F` the
+/// reach was built for, as float32 bits. That is `max(F, sqrt 2)`, `F` the
 /// Frobenius norm of the item's own inverse (0 untransformed) -- the only inverse the
 /// builder can know, since a block is built once a pass and may be drawn under several
 /// group matrices -- floored at the identity's norm, so an identity, rotation or
@@ -153,28 +151,26 @@ pub(crate) const ITEM_BAND_START: usize = 12;
 /// where the five-sample argument needs `1.5 N`), and otherwise walk every edge: only a
 /// group that shrinks past the floor does.
 ///
-/// The polygon's is `capsLo.w`, the residual of `arcCaps.w`, which a band header has
-/// none of and only an arc reads; a path clip's is `gradFocal.w`, which nothing else
-/// writes, because a clip can be on an arc. Written by each backend's `emit_band_index`
-/// with the rest of the header (0 with no bands), and read only beside a band count
-/// above 0.
-pub(crate) const ITEM_BAND_NORM: usize = ITEM_OFFSET_CAPS_LO + 12;
+/// The polygon's is `ellipse.x`, an ellipse's rotation cosine, which only an ellipse
+/// reads, and no ellipse has a band index; a path clip's is `gradFocal.w`, which
+/// nothing else writes, because a clip can be on an ellipse. Written by each backend's
+/// `emit_band_index` with the rest of the header (0 with no bands), after
+/// `emit_item_block` wrote the rotation, and read only beside a band count above 0.
+pub(crate) const ITEM_BAND_NORM: usize = ITEM_OFFSET_ELLIPSE;
 pub(crate) const ITEM_CLIP_BAND_NORM: usize = ITEM_OFFSET_GRADIENT_FOCAL + 12;
-/// An ellipse's rotation, as `cos, sin` in 16.16, then two unused words (plan-116-E).
+/// An ellipse's rotation, as `cos, sin` in float32 bits, then the gradient's stop count
+/// and first-stop index (plan-116-E, plan-116-F).
 ///
 /// The twelfth `ivec4`. Two words would have fit in an existing block's spare, but
 /// std430 rounds the array stride to a multiple of 16 anyway, so a half-used `ivec4`
 /// costs exactly what a full one does and keeps every member `ivec4`-sized — which is
 /// the property `the_item_block_matches_the_std430_stride` exists to hold.
 ///
-/// **16.16 alone was not enough here**, though this said it was: the fixed-point step
-/// is an angular error up to 7.6e-6 rad, which at radius 26 moves the rim by 2e-4 px,
-/// and a pixel within that of a coverage step rounds to the neighbouring step -- 3-9
-/// sRGB levels near black (bug-735). Both words carry a residual in `ITEM_OFFSET_MISC_LO`
-/// since. The CPU still evaluates the deterministic Taylor pair; this is only how the
-/// answer travels.
+/// The CPU evaluates the deterministic Taylor pair; this is only how the answer
+/// travels. A banded polygon's block carries its band norm in the cosine's word
+/// (`ITEM_BAND_NORM`).
 pub(crate) const ITEM_OFFSET_ELLIPSE: usize = 176;
-/// A gradient's axis in 16.16 — `startPoint.x, startPoint.y, endPoint.x, endPoint.y`
+/// A gradient's axis as float32 bits — `startPoint.x, startPoint.y, endPoint.x, endPoint.y`
 /// (plan-116-F).
 ///
 /// The thirteenth `ivec4`, and the block had to grow for it: the `ellipse` block's two
@@ -186,36 +182,11 @@ pub(crate) const ITEM_OFFSET_ELLIPSE: usize = 176;
 /// `.ai/canvas-threading.md` lists the five things that move and which three are
 /// silent.
 pub(crate) const ITEM_OFFSET_GRADIENT: usize = 192;
-/// bug-735: the **residual words** of the fields a distance reads, one `ivec4` per
-/// 16.16 `ivec4` they refine, each `round((v * 65536 - word) * 2^31)` in units of
-/// 2^-47 px (`EDGE_RESIDUAL_SCALE`, the encoding bug-687 gave the polygon edges).
-///
-/// A field narrowed to 16.16 alone moves a distance by up to ~1.5e-5 px, and where the
-/// oracle's f64 distance lies closer than that to a coverage quantisation step the GPU
-/// rounds to the neighbouring one -- near black, 3-12 sRGB levels, past `GPU_DEFAULT`.
-/// bug-735's C model showed the narrowing alone does it for rectangles and clips whose
-/// edges sit near a step (the arithmetic there is nearly exact in fp32), so every field
-/// a distance reads carries its residual and both shaders add it back in double-float:
-///
-/// * `shapeLo` (208) -- `shape.xyzw`: centres, half-extents, radii, line endpoints,
-///   ellipse axes;
-/// * `capsLo` (224) -- `arcCaps.xyzw`, an arc's sweep endpoints (a polygon's band
-///   header there has none: its header slots are zero, so these are too);
-/// * `clipLo` (240) -- `clip.xyzw`;
-/// * `miscLo` (256) -- the residuals of `misc.y` (radius) and `misc.z` (stroke
-///   half-width), then of `ellipse.x`/`.y` (the rotation's cosine and sine).
-///
-/// Four `ivec4`s at the block's end rather than a parallel region like the edges':
-/// every item has these fields, so a per-item index would cost as much as the words.
-pub(crate) const ITEM_OFFSET_SHAPE_LO: usize = 208;
-pub(crate) const ITEM_OFFSET_CAPS_LO: usize = 224;
-pub(crate) const ITEM_OFFSET_CLIP_LO: usize = 240;
-pub(crate) const ITEM_OFFSET_MISC_LO: usize = 256;
 /// plan-163-B: the stroke's style words -- the first edge slot of the item's join
 /// records in the frame's edge region and how many records there are (each takes two
 /// slots), then the first entry of its dash pattern in the frame's dash region and how
 /// many entries. All four are 0 for an item that draws no join record and no dash.
-pub(crate) const ITEM_OFFSET_STROKE_STYLE: usize = 272;
+pub(crate) const ITEM_OFFSET_STROKE_STYLE: usize = 208;
 pub(crate) const ITEM_STROKE_JOIN_BASE: usize = 0;
 pub(crate) const ITEM_STROKE_JOIN_COUNT: usize = 4;
 pub(crate) const ITEM_STROKE_DASH_BASE: usize = 8;
@@ -223,11 +194,11 @@ pub(crate) const ITEM_STROKE_DASH_COUNT: usize = 12;
 /// plan-163-C: a path clip's band header -- top, height, band count, table offset, the
 /// shape of `arcCaps`'s polygon band header -- for the clip's own edges; band count 0
 /// walks every clip edge.
-pub(crate) const ITEM_OFFSET_CLIP_BAND: usize = 288;
+pub(crate) const ITEM_OFFSET_CLIP_BAND: usize = 224;
 /// plan-163-C: the clip's words -- its first edge in the frame's edge region and its edge
 /// count (a path clip), its mode (0 none, 1 rectangle, 2 path) with its FillRule ordinal
 /// shifted left 2, and a picture's transparency step T.
-pub(crate) const ITEM_OFFSET_CLIP_PATH: usize = 304;
+pub(crate) const ITEM_OFFSET_CLIP_PATH: usize = 240;
 pub(crate) const ITEM_CLIP_PATH_BASE: usize = 0;
 pub(crate) const ITEM_CLIP_PATH_COUNT: usize = 4;
 pub(crate) const ITEM_CLIP_PATH_MODE: usize = 8;
@@ -235,10 +206,10 @@ pub(crate) const ITEM_CLIP_PATH_PICTURE_T: usize = 12;
 /// plan-163-D: a radial gradient's own inverse transform -- `ia, ib, ic, id` then `itx,
 /// ity` as float32 BIT PATTERNS and its flag (0 or 1), the `xform0`/`xform1` layout --
 /// copied word for word from header slots 57-63 into `gradInv0` and `gradInv1`.
-pub(crate) const ITEM_OFFSET_GRADIENT_INV: usize = 320;
-/// plan-163-D: a radial gradient's focal offset from its centre and focal radius, 16.16
-/// (`gradFocal`), already clamped by the builder.
-pub(crate) const ITEM_OFFSET_GRADIENT_FOCAL: usize = 352;
+pub(crate) const ITEM_OFFSET_GRADIENT_INV: usize = 256;
+/// plan-163-D: a radial gradient's focal offset from its centre and focal radius, float32
+/// bits (`gradFocal`), already clamped by the builder.
+pub(crate) const ITEM_OFFSET_GRADIENT_FOCAL: usize = 288;
 /// The word inside `ITEM_OFFSET_ARC` holding an arc's sweep TURN (bug-735, widened by
 /// bug-1088): 0 when `endAngle - startAngle <= PI`, 1 when it is past `PI` (reflex), 2
 /// when it is a whole turn or more (`>= 2 PI`, the whole ring, which two sweep vectors
@@ -254,79 +225,28 @@ pub(crate) const ITEM_OFFSET_GRADIENT_FOCAL: usize = 352;
 /// NonZero (plan-163-A, [`emit_item_polygon_rule`]): only an arc reads it as the flag.
 pub(crate) const ITEM_ARC_REFLEX: usize = 4;
 
-/// bug-735: every item-block field a distance reads, as `(header slot, word offset,
-/// residual offset)` -- offsets into the block. Both emitters narrow each one with
-/// [`emit_item_residual_field`], so the Metal and Vulkan blocks carry the same residuals
-/// by construction.
-pub(crate) const ITEM_RESIDUAL_FIELDS: [(usize, usize, usize); 16] = [
-    (HEADER_SHAPE, ITEM_OFFSET_SHAPE, ITEM_OFFSET_SHAPE_LO),
-    (
-        HEADER_SHAPE + 1,
-        ITEM_OFFSET_SHAPE + 4,
-        ITEM_OFFSET_SHAPE_LO + 4,
-    ),
-    (
-        HEADER_SHAPE + 2,
-        ITEM_OFFSET_SHAPE + 8,
-        ITEM_OFFSET_SHAPE_LO + 8,
-    ),
-    (
-        HEADER_SHAPE + 3,
-        ITEM_OFFSET_SHAPE + 12,
-        ITEM_OFFSET_SHAPE_LO + 12,
-    ),
-    (
-        HEADER_CAP_START_X,
-        ITEM_OFFSET_ARC_CAPS,
-        ITEM_OFFSET_CAPS_LO,
-    ),
-    (
-        HEADER_CAP_START_X + 1,
-        ITEM_OFFSET_ARC_CAPS + 4,
-        ITEM_OFFSET_CAPS_LO + 4,
-    ),
-    (
-        HEADER_CAP_END_X,
-        ITEM_OFFSET_ARC_CAPS + 8,
-        ITEM_OFFSET_CAPS_LO + 8,
-    ),
-    (
-        HEADER_CAP_END_X + 1,
-        ITEM_OFFSET_ARC_CAPS + 12,
-        ITEM_OFFSET_CAPS_LO + 12,
-    ),
-    (HEADER_CLIP_X0, ITEM_OFFSET_CLIP, ITEM_OFFSET_CLIP_LO),
-    (
-        HEADER_CLIP_Y0,
-        ITEM_OFFSET_CLIP + 4,
-        ITEM_OFFSET_CLIP_LO + 4,
-    ),
-    (
-        HEADER_CLIP_X1,
-        ITEM_OFFSET_CLIP + 8,
-        ITEM_OFFSET_CLIP_LO + 8,
-    ),
-    (
-        HEADER_CLIP_Y1,
-        ITEM_OFFSET_CLIP + 12,
-        ITEM_OFFSET_CLIP_LO + 12,
-    ),
-    (HEADER_RADIUS, ITEM_OFFSET_MISC + 4, ITEM_OFFSET_MISC_LO),
-    (
-        HEADER_STROKE_HALF,
-        ITEM_OFFSET_MISC + 8,
-        ITEM_OFFSET_MISC_LO + 4,
-    ),
-    (
-        HEADER_ELLIPSE_COS,
-        ITEM_OFFSET_ELLIPSE,
-        ITEM_OFFSET_MISC_LO + 8,
-    ),
-    (
-        HEADER_ELLIPSE_SIN,
-        ITEM_OFFSET_ELLIPSE + 4,
-        ITEM_OFFSET_MISC_LO + 12,
-    ),
+/// Every item-block field a distance reads, as `(header slot, word offset)` -- offsets
+/// into the block: the shape parameters, an arc's sweep endpoints, the clip, the radius,
+/// the stroke half-width and an ellipse's rotation. Both emitters narrow each one to
+/// float32 with [`emit_item_float_field`], so the Metal and Vulkan blocks carry the same
+/// words by construction.
+pub(crate) const ITEM_FLOAT_FIELDS: [(usize, usize); 16] = [
+    (HEADER_SHAPE, ITEM_OFFSET_SHAPE),
+    (HEADER_SHAPE + 1, ITEM_OFFSET_SHAPE + 4),
+    (HEADER_SHAPE + 2, ITEM_OFFSET_SHAPE + 8),
+    (HEADER_SHAPE + 3, ITEM_OFFSET_SHAPE + 12),
+    (HEADER_CAP_START_X, ITEM_OFFSET_ARC_CAPS),
+    (HEADER_CAP_START_X + 1, ITEM_OFFSET_ARC_CAPS + 4),
+    (HEADER_CAP_END_X, ITEM_OFFSET_ARC_CAPS + 8),
+    (HEADER_CAP_END_X + 1, ITEM_OFFSET_ARC_CAPS + 12),
+    (HEADER_CLIP_X0, ITEM_OFFSET_CLIP),
+    (HEADER_CLIP_Y0, ITEM_OFFSET_CLIP + 4),
+    (HEADER_CLIP_X1, ITEM_OFFSET_CLIP + 8),
+    (HEADER_CLIP_Y1, ITEM_OFFSET_CLIP + 12),
+    (HEADER_RADIUS, ITEM_OFFSET_MISC + 4),
+    (HEADER_STROKE_HALF, ITEM_OFFSET_MISC + 8),
+    (HEADER_ELLIPSE_COS, ITEM_OFFSET_ELLIPSE),
+    (HEADER_ELLIPSE_SIN, ITEM_OFFSET_ELLIPSE + 4),
 ];
 
 /// `PI` (`3.141592653589793`, the constant `__canvas_arcTurn` compares an arc's sweep
@@ -335,50 +255,113 @@ const PI_F64_BITS: &str = "4614256656552045848";
 /// `2 PI` (`6.283185307179586`, `__canvas_arcTurn`'s whole turn), likewise (bug-1088).
 const TWO_PI_F64_BITS: &str = "4618760256179416344";
 
-/// bug-735: narrow one header slot to its 16.16 word at `block + word_at` and its
-/// residual `round((v * 65536 - word) * 2^31)` at `block + residual_at` (both offsets
-/// from the stack pointer) -- the encoding bug-687 gave the polygon edges, for a field
-/// of the item block. `v * 65536 - word` is exact: the two are within half a step.
-///
-/// Expects `FP_SCRATCH[0]` to hold 65536.0 (`FIXED_POINT_SCALE`) and `FP_SCRATCH[3]`
-/// 2^31 (`EDGE_RESIDUAL_SCALE`); clobbers `FP_SCRATCH[1..=2]` and `SCRATCH[1]`. Plain
-/// instructions, so the Metal `Asm` and the Vulkan `CodeBuilder` emit the same ones.
-pub(crate) fn emit_item_residual_field(
-    header: abi::Reg,
-    slot: usize,
-    word_at: usize,
-    residual_at: usize,
-) -> Vec<CodeInstruction> {
+/// Narrow the double in `fp` to binary32 (nearest, ties to even) and leave its bit
+/// pattern in the low 32 bits of `bits`, ready for a `store_u32`. This is how every
+/// geometric value reaches either GPU: the shaders read it back with `intBitsToFloat` /
+/// `as_type<float>`. `fp` is clobbered. Plain instructions, so the Metal `Asm` and the
+/// Vulkan `CodeBuilder` emit the same ones.
+pub(crate) fn emit_f32_bits(bits: abi::Reg, fp: abi::Reg) -> Vec<CodeInstruction> {
     vec![
-        abi::load_double(abi::FP_SCRATCH[1], header, slot * 8),
-        abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[0]),
-        abi::float_round_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
-        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), word_at),
-        abi::signed_convert_to_float_d(abi::FP_SCRATCH[2], abi::SCRATCH[1]),
-        abi::float_subtract_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]),
-        abi::float_multiply_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[3]),
-        abi::float_round_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
-        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), residual_at),
+        abi::float_convert_s_from_d(fp, fp),
+        abi::float_move_x_from_d(bits, fp),
     ]
 }
 
-/// bug-735: make the stroke half-width's `(misc.z, miscLo.y)` pair positive exactly when
-/// the header's f64 half-width is -- the test the software rasteriser strokes on
-/// (`half > 0.0`) and `__canvas_blockInstances` splits a blended item on.
+/// 65536: the scale of the 16.16 integers the band builders (`emit_band_index`, both
+/// backends) do their band arithmetic in. Nothing the GPU reads is 16.16: positions
+/// reach the shaders as float32 (`emit_f32_bits`), and the builders convert at the edges
+/// of their work (`emit_f32_word_to_fixed`, `emit_fixed_to_f32_bits`).
+pub(crate) const FIXED_POINT_SCALE: &str = "65536";
+
+/// `0xFFFF_FFFF_0000_0000`: OR'd into a register holding a float32 bit pattern in its low
+/// half before it moves to an FP register, so a RISC-V `fcvt.d.s` reads a NaN-boxed
+/// single (AArch64 and x86-64 read only the low half and ignore it).
+const NAN_BOX_HIGH: &str = "18446744069414584320";
+
+/// The band builders' bridge from the float32 words the GPU reads to the 16.16 integers
+/// they do their band arithmetic in: load the float32 at `base + offset`, widen it
+/// (exact), and leave `round(v * 65536)` in `dst`. The rounding moves a value by at most
+/// 2^-17 of a unit, well inside the builders' 1-unit guard. Clobbers `tmp`, `fp` and
+/// `fp_scale`.
+pub(crate) fn emit_f32_word_to_fixed(
+    dst: abi::Reg,
+    base: abi::Reg,
+    offset: usize,
+    tmp: abi::Reg,
+    fp: abi::Reg,
+    fp_scale: abi::Reg,
+) -> Vec<CodeInstruction> {
+    vec![
+        abi::load_u32(dst, base, offset),
+        abi::move_immediate(tmp, "Integer", NAN_BOX_HIGH),
+        abi::or_registers(dst, dst, tmp),
+        abi::float_move_d_from_x(fp, dst),
+        abi::float_convert_d_from_s(fp, fp),
+        abi::move_immediate(tmp, "Integer", FIXED_POINT_SCALE),
+        abi::signed_convert_to_float_d(fp_scale, tmp),
+        abi::float_multiply_d(fp, fp, fp_scale),
+        abi::float_round_to_signed_x(dst, fp),
+    ]
+}
+
+/// The way back: the 16.16 integer in `src` as float32 bits in `bits` (`src / 65536` is
+/// exact in a double, then narrowed like every other value). `src` may be `bits`.
+/// Clobbers `tmp`, `fp` and `fp_scale`.
+pub(crate) fn emit_fixed_to_f32_bits(
+    bits: abi::Reg,
+    src: abi::Reg,
+    tmp: abi::Reg,
+    fp: abi::Reg,
+    fp_scale: abi::Reg,
+) -> Vec<CodeInstruction> {
+    let mut out = vec![
+        abi::signed_convert_to_float_d(fp, src),
+        abi::move_immediate(tmp, "Integer", FIXED_POINT_SCALE),
+        abi::signed_convert_to_float_d(fp_scale, tmp),
+        abi::float_divide_d(fp, fp, fp_scale),
+    ];
+    out.extend(emit_f32_bits(bits, fp));
+    out
+}
+
+/// Narrow one header slot to float32 at `block + word_at` (an offset from the stack
+/// pointer) -- one field of the item block. Clobbers `FP_SCRATCH[1]` and `SCRATCH[1]`.
+pub(crate) fn emit_item_float_field(
+    header: abi::Reg,
+    slot: usize,
+    word_at: usize,
+) -> Vec<CodeInstruction> {
+    let mut out = vec![abi::load_double(abi::FP_SCRATCH[1], header, slot * 8)];
+    out.extend(emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]));
+    out.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        word_at,
+    ));
+    out
+}
+
+/// bug-735: make the stroke half-width's word (`misc.z`) positive exactly when the
+/// header's f64 half-width is -- the test the software rasteriser strokes on
+/// (`half > 0.0`), and the one the shaders (`misc.z > 0`) and the emitters' split test
+/// (`__canvas_blockInstances`' twin) take on the word as a SIGNED integer: a float32's
+/// bits are positive exactly when it is above +0.
 ///
-/// `__canvas_strokeHalf` answers -1 or `strokeWidth / 2`, so only a half-width under
-/// 2^-48 px can narrow to a zero word AND a zero residual; this makes its residual 1
-/// (2^-47 px). Without it the shaders and the emitters' split test would read it as "does
-/// not stroke" while the oracle strokes it and the draw list counts two records for it.
-/// `positive` and `done` are two fresh labels; clobbers `FP_SCRATCH[1..=2]` and
-/// `SCRATCH[1]`. Runs after [`emit_item_residual_field`] wrote the pair.
+/// `__canvas_strokeHalf` answers -1 or `strokeWidth / 2`, so only a half-width under the
+/// smallest float32 (~1.4e-45 px) can narrow to +0; this makes its bits 1, the smallest
+/// positive float32. Comparing the bits rather than the value is what keeps that
+/// stroking on a GPU that flushes denormals to zero. Without it the shaders and the
+/// emitters' split test would read it as "does not stroke" while the oracle strokes it
+/// and the draw list counts two records for it. `positive` and `done` are two fresh
+/// labels; clobbers `FP_SCRATCH[1..=2]` and `SCRATCH[1]`. Runs after the word is
+/// written.
 pub(crate) fn emit_item_stroke_sign(
     header: abi::Reg,
     block_at: usize,
     positive: &str,
     done: &str,
 ) -> Vec<CodeInstruction> {
-    let residual_at = block_at + ITEM_OFFSET_MISC_LO + 4;
+    let word_at = block_at + ITEM_OFFSET_MISC + 8;
     vec![
         abi::load_double(abi::FP_SCRATCH[1], header, HEADER_STROKE_HALF * 8),
         abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),
@@ -387,18 +370,11 @@ pub(crate) fn emit_item_stroke_sign(
         abi::branch_gt(positive),
         abi::branch(done),
         abi::label(positive),
-        abi::load_u32(
-            abi::SCRATCH[1],
-            abi::stack_pointer(),
-            block_at + ITEM_OFFSET_MISC + 8,
-        ),
-        abi::compare_immediate(abi::SCRATCH[1], "0"),
-        abi::branch_ne(done),
-        abi::load_u32(abi::SCRATCH[1], abi::stack_pointer(), residual_at),
+        abi::load_u32(abi::SCRATCH[1], abi::stack_pointer(), word_at),
         abi::compare_immediate(abi::SCRATCH[1], "0"),
         abi::branch_ne(done),
         abi::move_immediate(abi::SCRATCH[1], "Integer", "1"),
-        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), residual_at),
+        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), word_at),
         abi::label(done),
     ]
 }
@@ -546,7 +522,7 @@ pub(crate) const ITEM_ELLIPSE_GRADIENT_BASE: usize = 12;
 pub(crate) const HEADER_ELLIPSE_COS: usize = 39;
 pub(crate) const HEADER_ELLIPSE_SIN: usize = 40;
 /// bug-1083: the two words of the item block that carry the box's rim (`HEADER_RIM`),
-/// 16.16 like the box itself: the x sides' in `xform1.w` and the y sides' in
+/// float32 bits like the box itself: the x sides' in `xform1.w` and the y sides' in
 /// `gradInv1.w`. Only the vertex stage reads them, and only under a group matrix.
 ///
 /// They are the fourth word of each inverse's second `ivec4`, which nothing wrote: an
@@ -628,7 +604,7 @@ pub(crate) const GEO_KIND_CURVEPOLYGON: &str = "12";
 ///
 /// Like `Picture`, its texels ride the glyph region. Its four source-rectangle values
 /// follow the fixed geometry header and are copied into the otherwise-unused
-/// `ITEM_OFFSET_GRADIENT` words as 16.16 values for both GPU shaders.
+/// `ITEM_OFFSET_GRADIENT` words as float32 bits for both GPU shaders.
 pub(crate) const GEO_KIND_TILE: &str = "13";
 /// The doubles one piece of a curve record's tail occupies: `x0, y0, x1, y1, x2, y2,
 /// w1` (`__CANVAS_CURVE_PIECE` in `builtins/canvas/helper_curves/pieces.rs`, which
@@ -643,8 +619,8 @@ pub(crate) const CURVE_PIECE_SLOTS: usize = 7;
 /// use.
 ///
 /// The emitters copy them into the item block's `gradient.x`/`.y` as **whole numbers**,
-/// not the 16.16 the axis is written as: 16.16 holds a segment index only up to 32,767,
-/// and a plotted path can have more segments than that. The butt planes cut only these
+/// not the float32 bits the axis is written as: the shaders compare them with segment
+/// indices, which are integers. The butt planes cut only these
 /// two segments, each on its outer end.
 pub(crate) const HEADER_POLYLINE_FIRST: usize = 43;
 pub(crate) const HEADER_POLYLINE_LAST: usize = 44;
@@ -669,30 +645,6 @@ pub(crate) const GLYPH_META_Y0: usize = 1;
 pub(crate) const GLYPH_META_W: usize = 2;
 pub(crate) const GLYPH_META_H: usize = 3;
 pub(crate) const GLYPH_META_START: usize = 4;
-
-/// 16.16 fixed point: the scale both shaders divide positions by.
-///
-/// Positions narrow to fixed point on the CPU because the geometry header is
-/// `Float` (IEEE double), neither shading language has a double, and the AArch64
-/// assembler has no double→single convert and no 32-bit FP store. 16.16 covers
-/// ±32768 px at 1/65536 px — finer than `float`'s own resolution above 512 px, over
-/// a coordinate space a few thousand pixels wide.
-pub(crate) const FIXED_POINT_SCALE: &str = "65536";
-
-/// The scale of a polygon vertex's **residual word** (bug-687): `2^31` units of the
-/// 16.16 step, so the residual is in units of `2^-47` px.
-///
-/// 16.16 alone is not the oracle's polygon. Rounding each vertex to 1/65536 px moves a
-/// distance by up to ~1e-5 px, and where the oracle's distance lies closer than that to
-/// a coverage quantisation boundary the GPU rounds to the neighbouring step — near
-/// black, 3-4 sRGB levels, past `GPU_DEFAULT` (bug-687's {301/97} star: 2.07e-6 px of
-/// narrowing against a boundary 1.24e-6 px away). So every polygon edge endpoint also
-/// carries `round((x * 65536 - word) * 2^31)`, which the shaders add back in
-/// double-float: `x = word / 2^16 + residual / 2^47`, good to ~2^-41 px after the
-/// shader's float conversion. The residual is at most half a 16.16 step, `2^30`
-/// units, so it fits an `int` with room; it is computed with double multiplies,
-/// subtracts and a round, the only float operations every assembler has.
-pub(crate) const EDGE_RESIDUAL_SCALE: &str = "2147483648";
 
 /// Slots of `__canvas_headerFor`'s fixed 51-float geometry header that the GPU
 /// backends read. The software rasteriser indexes the same layout.
@@ -836,11 +788,8 @@ pub(crate) const EDGE_SLOTS: usize = 5;
 /// longer costs every edge per covered pixel — the band index (`VULKAN_BAND_BASE_WORDS`)
 /// has the shader walk only its own band's edges.
 pub(crate) const VULKAN_MAX_FRAME_EDGES: usize = 262_144;
-/// Four 16.16 words per edge — the two endpoints.
+/// Four float32 words per edge — the two endpoints.
 pub(crate) const VULKAN_EDGE_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
-/// Four residual words per edge (bug-687, `EDGE_RESIDUAL_SCALE`), one per endpoint
-/// coordinate, at the same edge index as its 16.16 words in the region after them.
-pub(crate) const VULKAN_EDGE_RESIDUAL_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16;
 
 /// The most **item blocks** one Vulkan frame may carry — the capacity of the item
 /// buffer.
@@ -891,9 +840,10 @@ pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 /// That does not fail as a wrong picture: it SIGSEGVs inside the driver's JIT-compiled
 /// code, with no MFBASIC frame anywhere in the backtrace.
 ///
-/// plan-172-G: sixteen words. The first seven are what an entry always was — block base
-/// and count, the translation as 16.16, the blend mode, the translation's residuals —
-/// so a translate-only entry is its old eight words followed by zeros. Word 7 says
+/// plan-172-G: sixteen words. The first five are what an entry always was — block base
+/// and count, the translation as float32 bits, the blend mode — and words 5–6, which
+/// held the translation's 16.16 residuals until the shaders went to fp32, are reserved
+/// and zero, so a translate-only entry is its first five words followed by zeros. Word 7 says
 /// whether the entry carries a matrix, and words 8–11 are that matrix: the linear part
 /// of the INVERSE of the enclosing groups' composed affine, as float32 bit patterns.
 /// Word 12 is the pass word ([`CANVAS_DRAW_PASS_WORD`]); words 13–15 are reserved and
@@ -969,12 +919,6 @@ pub(crate) const METAL_MAX_FRAME_EDGES: usize = 262_144;
 /// offset. `the_metal_shader_region_bases_match_the_buffer_layout` pins the number
 /// against the copy inside the MSL string.
 pub(crate) const METAL_EDGE_BASE_WORDS: usize = METAL_ITEM_BUFFER_BYTES / 4;
-/// Where Metal's **edge residual** region starts, in 32-bit words — right after the
-/// edges (bug-687). Edge `e`'s four residual words (`EDGE_RESIDUAL_SCALE`) sit at
-/// `METAL_EDGE_RESIDUAL_BASE + e * 4`, parallel to its 16.16 words, so everything that
-/// reads only the 16.16 words (the band builder, a polyline) is untouched.
-pub(crate) const METAL_EDGE_RESIDUAL_BASE_WORDS: usize =
-    METAL_EDGE_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
 
 /// A polygon's **band index** (bug-686): which of its edges a pixel at a given height
 /// has to visit, so the fragment shader's `edgeDistance` stops looping over every edge
@@ -992,7 +936,7 @@ pub(crate) const METAL_EDGE_RESIDUAL_BASE_WORDS: usize =
 ///   list that follows;
 /// * the list — edge numbers, `0..edgeCount`, band after band.
 ///
-/// The polygon's block carries `bandTop`, `bandHeight` (16.16, shape space), the band
+/// The polygon's block carries `bandTop`, `bandHeight` (float32 bits, shape space), the band
 /// count and that offset in its `arcCaps` `ivec4`, which only an arc reads
 /// (`ITEM_BAND_*`). A band count
 /// of 0 means "loop over every edge": what a polygon under `BAND_MIN_EDGES` gets,
@@ -1016,10 +960,8 @@ pub(crate) const BAND_MAX: usize = 1024;
 /// Polygons with fewer edges than this loop over all of them (band count 0): the full
 /// loop over a handful of edges costs less than finding the band.
 pub(crate) const BAND_MIN_EDGES: usize = 32;
-/// Where Metal's band region starts, in 32-bit words — right after the edges it indexes
-/// and their residuals (bug-687).
-pub(crate) const METAL_BAND_BASE_WORDS: usize =
-    METAL_EDGE_RESIDUAL_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
+/// Where Metal's band region starts, in 32-bit words — right after the edges it indexes.
+pub(crate) const METAL_BAND_BASE_WORDS: usize = METAL_EDGE_BASE_WORDS + METAL_MAX_FRAME_EDGES * 4;
 /// The most gradient stops one **Vulkan** frame may carry (plan-116-F; bug-688).
 ///
 /// Two stops per quad of `VULKAN_MAX_FRAME_ITEMS`, as Metal's is per quad of its own:
@@ -1066,8 +1008,8 @@ pub(crate) const METAL_DASH_BASE_WORDS: usize =
     METAL_GRADIENT_BASE_WORDS + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS;
 /// Where Metal's glyph region starts, in 32-bit words — after the dash words.
 pub(crate) const METAL_GLYPH_BASE_WORDS: usize = METAL_DASH_BASE_WORDS + METAL_MAX_FRAME_DASH_WORDS;
-/// The whole Metal frame buffer: item blocks, then edges (four 16.16 words each), then
-/// their residuals (four words each, bug-687), then the band index (bug-686), then gradient stops (five each), then dash words (one
+/// The whole Metal frame buffer: item blocks, then edges (four float32 words each), then
+/// the band index (bug-686), then gradient stops (five each), then dash words (one
 /// float32 each, plan-163-B), then glyph coverage (one sample a word), then the picture
 /// table (bug-686, `METAL_PICTURE_TABLE_BYTES`).
 ///
@@ -1075,7 +1017,6 @@ pub(crate) const METAL_GLYPH_BASE_WORDS: usize = METAL_DASH_BASE_WORDS + METAL_M
 /// `the_metal_shader_region_bases_match_the_buffer_layout` compares two independent
 /// computations and a region left out of the chain shows up there.
 pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
-    + METAL_MAX_FRAME_EDGES * 16
     + METAL_MAX_FRAME_EDGES * 16
     + METAL_MAX_FRAME_BAND_WORDS * 4
     + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
@@ -1151,9 +1092,9 @@ pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
 
 // --- the Vulkan shared buffer (binding 0) ------------------------------------------
 //
-// Edges from word 0, then their residuals (bug-687), then the band index, the gradient
-// stops, the glyph/picture texels and the picture table. The shader reaches the
-// residual, band, gradient and glyph regions through BASES THAT ARE SPECIALIZATION
+// Edges from word 0, then the band index, the gradient stops, the dash words, the
+// glyph/picture texels and the picture table. The shader reaches the band, gradient,
+// dash and glyph regions through BASES THAT ARE SPECIALIZATION
 // CONSTANTS (bug-688): the fragment shader declares them `layout(constant_id = N) const int`, and the pipeline feeds the
 // values below through `VkSpecializationInfo` (`VULKAN_SPEC_CONSTANTS`). Until then
 // `GRADIENT_BASE` and `GLYPH_BASE` were literals in the checked-in GLSL, kept equal to
@@ -1163,15 +1104,8 @@ pub(crate) const VULKAN_MAX_FRAME_GLYPH_SAMPLES: usize = 1 << 23;
 /// The band region's size in 32-bit words — `BAND_WORDS_PER_EDGE` per edge of
 /// `VULKAN_MAX_FRAME_EDGES`, the budget `emit_band_index` holds every polygon to.
 pub(crate) const VULKAN_MAX_FRAME_BAND_WORDS: usize = BAND_WORDS_PER_EDGE * VULKAN_MAX_FRAME_EDGES;
-/// Where the edge residual region starts, in 32-bit words — right after the edges
-/// (bug-687). Edge `e`'s four residual words sit at `EDGE_RESIDUAL_BASE + e * 4`,
-/// parallel to its 16.16 words, so the band builder and a polyline, which read only the
-/// 16.16 words, are untouched.
-pub(crate) const VULKAN_EDGE_RESIDUAL_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
-/// Where the band region starts, in 32-bit words — right after the edges it indexes and
-/// their residuals.
-pub(crate) const VULKAN_BAND_BASE_WORDS: usize =
-    (VULKAN_EDGE_BYTES + VULKAN_EDGE_RESIDUAL_BYTES) / 4;
+/// Where the band region starts, in 32-bit words — right after the edges it indexes.
+pub(crate) const VULKAN_BAND_BASE_WORDS: usize = VULKAN_EDGE_BYTES / 4;
 /// Where the gradient region starts, in 32-bit words — after the band index.
 pub(crate) const VULKAN_GRADIENT_BASE_WORDS: usize =
     VULKAN_BAND_BASE_WORDS + VULKAN_MAX_FRAME_BAND_WORDS;
@@ -1205,14 +1139,13 @@ pub(crate) const VULKAN_PICTURE_INDEX_OFFSET: usize =
 /// The picture table's whole size: records, then index slots.
 pub(crate) const VULKAN_PICTURE_TABLE_BYTES: usize =
     VULKAN_PICTURE_RECORDS * PICTURE_RECORD_BYTES + VULKAN_PICTURE_INDEX_SLOTS * 4;
-/// The whole shared buffer: edges, edge residuals (bug-687), band index, gradient stops,
+/// The whole shared buffer: edges, band index, gradient stops,
 /// dash words (plan-163-B), glyph/picture texels, picture table.
 ///
 /// A sum of the regions' sizes rather than "the last base plus the last size", so
 /// `the_shared_buffer_holds_every_region` compares two independent computations and a
 /// region left out of the chain shows up there.
 pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
-    + VULKAN_EDGE_RESIDUAL_BYTES
     + VULKAN_MAX_FRAME_BAND_WORDS * 4
     + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
     + VULKAN_MAX_FRAME_DASH_WORDS * 4
@@ -1220,12 +1153,12 @@ pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
     + VULKAN_PICTURE_TABLE_BYTES;
 /// The fragment shader's specialization constants, as `(constant_id, value)`: the
 /// region bases it reads, in words. The ids are the `layout(constant_id = N)` numbers in
-/// `shaders/mfb_canvas.frag`; `the_fragment_shader_declares_every_spec_constant` pins
-/// the two lists to each other.
-pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 5] = [
+/// `shaders/mfb_canvas.frag`; `the_pipeline_specializes_every_region_base` pins the two
+/// lists to each other. Id 3 was the edge residual region's base until the shaders went
+/// to fp32; the dash base keeps id 4 rather than renumbering.
+pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 4] = [
     (0, VULKAN_GLYPH_BASE_WORDS),
     (1, VULKAN_GRADIENT_BASE_WORDS),
     (2, VULKAN_BAND_BASE_WORDS),
-    (3, VULKAN_EDGE_RESIDUAL_BASE_WORDS),
     (4, VULKAN_DASH_BASE_WORDS),
 ];

@@ -8,25 +8,37 @@
 //! platform produced it. A platform joins by implementing [`Backend`] and
 //! answering it from [`host_backend`]; the prompt and the CLI need no change.
 
-#[cfg(any(
-    target_os = "macos",
-    all(target_os = "linux", target_arch = "aarch64"),
-    test
-))]
+pub(crate) mod arch;
+// AArch64's descriptor: read by the macOS and Linux AArch64 backends, and by
+// `arch::host` where there is no backend; a riscv64 Linux host reads riscv64's.
+#[cfg(any(not(all(target_os = "linux", target_arch = "riscv64")), test))]
 mod arm64;
 pub(crate) mod backtrace;
 pub(crate) mod breakpoints;
 pub(crate) mod disassemble;
-#[cfg(any(all(target_os = "linux", target_arch = "aarch64"), test))]
+#[cfg(any(
+    all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "riscv64")
+    ),
+    test
+))]
 mod elf;
 pub(crate) mod environment;
 pub(crate) mod location;
 pub(crate) mod names;
 pub(crate) mod prompt;
+// riscv64's registers and rules are read on a riscv64 Linux host, and by the
+// tests on every host.
+#[cfg(any(all(target_os = "linux", target_arch = "riscv64"), test))]
+mod riscv64;
 pub(crate) mod runtime;
 pub(crate) mod values;
 
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "aarch64", target_arch = "riscv64")
+))]
 mod linux;
 #[cfg(any(target_os = "macos", test))]
 mod macho;
@@ -63,6 +75,9 @@ pub(crate) trait Backend {
 /// A paused debuggee the session owns.
 pub(crate) trait Inferior {
     fn pid(&self) -> u32;
+    /// The processor the debuggee runs on: its registers' names, its
+    /// instructions' sizes, its decoder and its unwinder's rules.
+    fn arch(&self) -> &'static arch::Arch;
     /// End the session the way it began: kill a program the debugger launched,
     /// or let an attached program run on and detach from it. Called once; an
     /// implementation also ends an unended session when it is dropped.
@@ -118,7 +133,7 @@ pub(crate) trait Inferior {
     fn remove_breakpoint(&mut self, address: u64) -> Result<(), String>;
     /// Make every thread, and every thread the program starts later, stop
     /// before it writes any of the `size` bytes at `address`: 1 to 8 bytes
-    /// that do not cross a multiple of 8 ([`breakpoints::watchable`]). A
+    /// that do not cross a multiple of 8 on AArch64 ([`breakpoints::watchable`]). A
     /// `step` runs with the watchpoints off.
     fn insert_watchpoint(&mut self, address: u64, size: u64) -> Result<(), String>;
     /// Take away the watchpoint at `address`.
@@ -283,6 +298,11 @@ pub(crate) enum RegisterGroup {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RegisterValue {
     Bits64(u64),
+    /// An AArch64 vector register; riscv64's registers are all 64 bits.
+    #[cfg_attr(
+        all(target_os = "linux", target_arch = "riscv64", not(test)),
+        allow(dead_code)
+    )]
     Bits128(u128),
 }
 
@@ -296,17 +316,27 @@ pub(crate) enum Ending {
 }
 
 /// The debugger for the platform this `mfb` was built for, or `None` where
-/// `mfb dbg` is not supported: it runs on macOS and on Linux on AArch64.
+/// `mfb dbg` is not supported: it runs on macOS, and on Linux on AArch64 and
+/// riscv64.
 pub(crate) fn host_backend() -> Option<&'static dyn Backend> {
     #[cfg(target_os = "macos")]
     {
         Some(&macos::MacOs)
     }
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "riscv64")
+    ))]
     {
-        Some(&linux::LinuxAarch64)
+        Some(&linux::Linux)
     }
-    #[cfg(not(any(target_os = "macos", all(target_os = "linux", target_arch = "aarch64"))))]
+    #[cfg(not(any(
+        target_os = "macos",
+        all(
+            target_os = "linux",
+            any(target_arch = "aarch64", target_arch = "riscv64")
+        )
+    )))]
     {
         None
     }

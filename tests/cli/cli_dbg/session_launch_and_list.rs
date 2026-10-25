@@ -138,6 +138,8 @@ pub(super) fn image() -> String {
 fn host_image() -> &'static str {
     if cfg!(target_os = "macos") {
         "Mach-O aarch64"
+    } else if cfg!(target_arch = "riscv64") {
+        "ELF riscv64"
     } else {
         "ELF aarch64"
     }
@@ -254,14 +256,24 @@ fn a_launched_program_does_not_run_and_is_killed_on_quit() {
             .strip_prefix(&format!("Launched {}", binary.display()))
             .unwrap(),
     );
-    let args = Command::new("ps")
-        .args(["-o", "args=", "-p", &pid.to_string()])
-        .output()
-        .unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&args.stdout).trim(),
-        format!("{} alpha -b", binary.display())
-    );
+    // Linux's own record of the command line: Alpine's busybox `ps` takes no
+    // `-p`.
+    let args = if cfg!(target_os = "linux") {
+        std::fs::read(format!("/proc/{pid}/cmdline"))
+            .unwrap()
+            .split(|byte| *byte == 0)
+            .filter(|word| !word.is_empty())
+            .map(|word| String::from_utf8_lossy(word).into_owned())
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        let output = Command::new("ps")
+            .args(["-o", "args=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    assert_eq!(args, format!("{} alpha -b", binary.display()));
 
     session.send("help\n");
     let help = session.until_prompt();
@@ -457,13 +469,10 @@ fn list_shows_a_launched_debug_build_s_functions_and_registers() {
         .iter()
         .map(|words| words[0].to_string())
         .collect::<Vec<_>>();
-    let mut expected = (0..29).map(|index| format!("x{index}")).collect::<Vec<_>>();
-    expected.extend(["fp", "lr", "sp", "pc", "nzcv", "fpsr", "fpcr"].map(String::from));
-    expected.extend((0..32).map(|index| format!("v{index}")));
-    assert_eq!(names, expected, "{registers:?}");
-    // General registers print 16 hex digits, vector registers 32.
+    assert_eq!(names, super::cpu::names(), "{registers:?}");
+    // General registers print 16 hex digits, AArch64's vector registers 32.
     for words in &lines {
-        let digits = if words[0].starts_with('v') { 32 } else { 16 };
+        let digits = super::cpu::digits(words[0]);
         let value = words[1].strip_prefix("0x").expect("a hex value");
         assert_eq!(value.len(), digits, "{words:?}");
         assert!(
@@ -483,23 +492,7 @@ fn list_shows_a_launched_debug_build_s_functions_and_registers() {
             (cells.len() == 4 && cells[0] != "Register").then(|| (cells[0], cells[3]))
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        roles,
-        [
-            ("x0", "MFB arg, MFB result, C arg, C result"),
-            ("x1", "MFB arg, MFB result, C arg, C result"),
-            ("x2", "MFB arg, MFB result, C arg"),
-            ("x3", "MFB arg, MFB result, C arg"),
-            ("x4", "MFB arg, C arg"),
-            ("x5", "MFB arg, C arg"),
-            ("x6", "MFB arg, C arg"),
-            ("x7", "MFB arg, C arg"),
-            ("x19", "Arena"),
-            ("x20", "Current Thread"),
-            ("x28", "Closure"),
-        ],
-        "{common}"
-    );
+    assert_eq!(roles, super::cpu::ROLES, "{common}");
     assert!(
         common.contains("\n\nUsage: list reg [<id>] [<what>...]\n"),
         "{common}"

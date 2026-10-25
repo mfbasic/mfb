@@ -51,18 +51,24 @@ renderer.[[src/cli/mod.rs:dispatch_command_error]]
 ## Host support
 
 `host_backend` answers the platform backend compiled into this `mfb`, or none.
-macOS has one, and Linux on AArch64; on every other host, after argument
-parsing succeeds, `mfb dbg` fails with `mfb dbg is not supported on <os>
-<arch>; it runs on macOS and on Linux on AArch64` (`std::env::consts`). The
-disassembler and the unwinder read AArch64 code, so another architecture has
-no backend. [[src/cli/dbg.rs:run_dbg_command]]
+macOS has one, and Linux on AArch64 and on riscv64 (one backend, `linux::Linux`,
+with a per-processor part); on every other host, after argument parsing
+succeeds, `mfb dbg` fails with `mfb dbg is not supported on <os> <arch>; it runs
+on macOS, and on Linux on AArch64 and riscv64` (`std::env::consts`). Each
+processor with a backend has a descriptor, `arm64::AARCH64` and
+`riscv64::RISCV64`, compiled where a backend reads it and for the tests on every
+host. [[src/cli/dbg.rs:run_dbg_command]]
 [[src/debugger/mod.rs:host_backend]] A new platform implements the `Backend`
-trait (`executable_of`, `launch`, `attach`) and an `Inferior` (`pid`, `end`,
-`functions`, `data_symbol`, `read_u64`, `read_bytes`, `threads`, `registers`,
-`set_registers`, `step`,
+trait (`executable_of`, `launch`, `attach`) and an `Inferior` (`pid`, `arch`,
+`end`, `functions`, `data_symbol`, `read_u64`, `read_bytes`, `threads`,
+`registers`, `set_registers`, `step`,
 `restart`, `entry`, `insert_breakpoint`, `remove_breakpoint`,
 `insert_watchpoint`, `remove_watchpoint`, `run`, `read_code`, `function_at`,
 `library_functions`, `data_symbol_at`) and is returned from `host_backend`.
+`arch` answers the processor's descriptor: the register names, the instruction
+sizes, the decoder, the unwinder's reading of an instruction, the watchpoint
+span and the ELF identity the platform-neutral code uses, which names no
+processor itself. [[src/debugger/arch.rs:Arch]]
 Symbol classification, the reading of the runtime's thread table and arena
 registry (`src/debugger/runtime.rs`), breakpoint resolution, pending
 placement and tests, the watchpoints' change test and commands at a stop
@@ -164,7 +170,7 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   `mach_vm_region` holding `sp`.
 - **Registers.** `registers` reads one thread with `thread_get_state` flavors
   `ARM_THREAD_STATE64` and `ARM_NEON_STATE64`.
-  [[src/debugger/arm64.rs:registers]] `set_registers` reads
+  [[src/debugger/arm64/registers.rs:registers]] `set_registers` reads
   `ARM_THREAD_STATE64`, replaces the words it names (`x0`–`x28`, `fp`, `lr`,
   `sp`, `pc`; for `nzcv`, CPSR's bits 31–28, `arm64::NZCV_BITS`, the rest of the word
   kept), and writes it back with `thread_set_state`; `fpsr` and `fpcr` are read,
@@ -282,10 +288,14 @@ build relinks `mfb` and drops the signature, so it is re-run after each build.
 
 ## Linux backend
 
-[[src/debugger/linux/mod.rs:LinuxAarch64]] Linux on AArch64, the `ET_DYN`
-executables of `./mfb spec linker linux-aarch64` in either libc world. Linux
-needs no signing: a process may trace its own children, and others as
-`kernel.yama.ptrace_scope` allows.
+[[src/debugger/linux/mod.rs:Linux]] Linux on AArch64 and on riscv64, the
+`ET_DYN` executables of `./mfb spec linker linux-aarch64` and of the riscv64
+target, in either libc world. One backend serves both; what differs by
+processor is in `linux/aarch64.rs` and `linux/riscv64.rs`, which the shared
+code reads as `cpu::` (the register sets and where `pc`, `sp` and the arena
+state are in them, the thread pointer, the breakpoint instruction, how a
+thread is stepped, the watchpoints). Linux needs no signing: a process may
+trace its own children, and others as `kernel.yama.ptrace_scope` allows.
 
 - **Launch.** `fork`; the child puts itself in a process group of its own
   (`setpgid(0, 0)`), stops itself (`SIGSTOP`), and `execve`s the program with
@@ -307,42 +317,58 @@ needs no signing: a process may trace its own children, and others as
 - **Threads.** The session holds every traced thread, leader first. A thread
   the program starts is traced from its first instruction and appended when
   its first stop, or its parent's `PTRACE_EVENT_CLONE`, is seen; one that ends
-  is dropped. `threads` reads `pc`, `sp` and `x19` from `NT_PRSTATUS`, the stack
-  from the `/proc/<pid>/maps` region holding `sp`, and the name from
-  `/proc/<pid>/task/<tid>/comm` — none for the leader, or for a thread whose
-  `comm` is still the program's. The `pthread_t` is the thread pointer
-  (`NT_ARM_TLS`) less glibc's `struct pthread` size, which the loaded libc
-  exports as `_thread_db_sizeof_pthread`, or, for musl (an interpreter path
-  naming `musl`), less the gap at which the descriptor's first word, `self`,
-  holds its own address, tried in steps of 8 up to 4096 (`MAX_PTHREAD_SIZE`);
-  0 when neither is found, as before libc has set the thread pointer.
-  [[src/debugger/linux/mod.rs:GLIBC_PTHREAD_SIZE]] [[src/debugger/linux/mod.rs:Tracee]]
+  is dropped. `threads` reads `pc`, `sp` and the arena state (`x19` on AArch64,
+  `s11` on riscv64) from `NT_PRSTATUS`, the stack from the `/proc/<pid>/maps`
+  region holding `sp`, and the name from `/proc/<pid>/task/<tid>/comm` — none
+  for the leader, or for a thread whose `comm` is still the program's. The
+  `pthread_t` is the thread pointer (AArch64: `NT_ARM_TLS`; riscv64: `tp`, the
+  general register, there being no TLS register set) less a gap: for glibc,
+  the `struct pthread` size the loaded libc exports as
+  `_thread_db_sizeof_pthread`, on riscv64 plus 32 (glibc's riscv64
+  `TLS_PRE_TCB_SIZE` adds the 16-byte `tcbhead_t` rounded up to `struct
+  pthread`'s 32-byte alignment; measured with glibc 2.41: gap 1856, size 1824);
+  for musl (an interpreter path naming `musl`), the gap at which the
+  descriptor's first word, `self`, holds its own address, tried in steps of 8
+  up to 4096 (`MAX_PTHREAD_SIZE`); 0 when neither is found, as before libc has
+  set the thread pointer. [[src/debugger/linux/mod.rs:GLIBC_PTHREAD_SIZE]]
+  [[src/debugger/linux/mod.rs:Tracee]] [[src/debugger/linux/riscv64.rs:glibc_gap]]
 - **Memory.** `/proc/<pid>/mem`, read and written at an offset; a breakpoint's
-  `brk #0` is written over read-only code through it, and the kernel makes the
-  page a private copy. [[src/debugger/linux/mod.rs:BREAKPOINT_INSTRUCTION]]
-- **Symbols.** The executable is read by `super::elf`: `.symtab`'s functions
-  and objects (a `--debug` build); each undefined dynamic symbol, an import,
-  with the GOT slot an `R_AARCH64_JUMP_SLOT` or `R_AARCH64_GLOB_DAT` relocation
-  names, the dynamic table reached through `PT_DYNAMIC` (a build without
-  `--debug` has no section table); and the import stubs at the end of the
-  code (`adrp x16` / `ldr x17, [x16]` / `br x17`), each named by the GOT slot it
-  loads. A slot holding 0 is unbound. The load bias is where
-  `/proc/<pid>/maps` maps the executable's first page, less that page's
-  link-time address; `entry` is `e_entry` plus it. [[src/debugger/elf.rs:executable]]
+  instruction is written over read-only code through it, and the kernel makes
+  the page a private copy. On AArch64 it is `brk #0`; on riscv64 `c.ebreak`
+  over a 2-byte instruction and `ebreak` over a 4-byte one (the size read from
+  the instruction's first two bytes), either stopping the thread with `pc` on
+  it. A breakpoint keeps the bytes it replaced, however many.
+  [[src/debugger/linux/aarch64.rs:breakpoint]] [[src/debugger/linux/riscv64.rs:breakpoint]]
+- **Symbols.** The executable is read by `super::elf`, with the processor's
+  `ElfArch` (its `e_machine`, 183 or 243, and relocation types): `.symtab`'s
+  functions and objects (a `--debug` build); each undefined dynamic symbol, an
+  import, with the GOT slot a jump-slot or data-slot relocation names
+  (`R_AARCH64_JUMP_SLOT`/`R_AARCH64_GLOB_DAT`, `R_RISCV_JUMP_SLOT`/`R_RISCV_64`),
+  the dynamic table reached through `PT_DYNAMIC` (a build without `--debug` has
+  no section table); and the 12-byte import stubs at the end of the code
+  (`adrp x16` / `ldr x17, [x16]` / `br x17`; `auipc t3` / `ld t3, lo(t3)` /
+  `jr t3`), each named by the GOT slot it loads. A slot holding 0 is unbound.
+  The load bias is where `/proc/<pid>/maps` maps the executable's first page,
+  less that page's link-time address; `entry` is `e_entry` plus it.
+  [[src/debugger/elf/mod.rs:executable]] [[src/debugger/riscv64/mod.rs:stub_slot]]
 - **Libraries.** Each file `/proc/<pid>/maps` maps at offset 0, but the
   executable, is read from its file (through `/proc/<pid>/root` when the path
   does not resolve here). Its functions are the defined `STT_FUNC` and
   `STT_GNU_IFUNC` entries of its dynamic symbol table and of `.symtab` when it
   has one, with their sizes; an address in its `.plt` is `symbol stub for:
-  <symbol>`, by the entry's `R_AARCH64_JUMP_SLOT`. A library was loaded while
+  <symbol>`, by the entry's jump-slot relocation (glibc's `.plt` is a 32-byte
+  header and 16-byte entries on both processors). A library was loaded while
   the program ran (`SD`) when the executable's `DT_NEEDED` closure, through
   each library's `DT_SONAME` and `DT_NEEDED`, does not reach it and it is not
   the loader. The list is read again when the maps change.
-  [[src/debugger/elf.rs:read]]
-- **Registers.** `NT_PRSTATUS` (`user_pt_regs`) and `NT_FPREGSET`
-  (`user_fpsimd_state`), laid out as macOS's thread and NEON states;
-  `set_registers` writes them back with `PTRACE_SETREGSET`.
-  [[src/debugger/arm64.rs:registers]]
+  [[src/debugger/elf/mod.rs:read]]
+- **Registers.** AArch64: `NT_PRSTATUS` (`user_pt_regs`) and `NT_FPREGSET`
+  (`user_fpsimd_state`), laid out as macOS's thread and NEON states. riscv64:
+  `NT_PRSTATUS` (`user_regs_struct`, `pc` then `x1`–`x31`, 256 bytes) and
+  `NT_PRFPREG` (`__riscv_d_ext_state`, `f0`–`f31` and `fcsr`, 264 bytes); there
+  is no vector state to read. `set_registers` writes them back with
+  `PTRACE_SETREGSET`. [[src/debugger/arm64/registers.rs:registers]]
+  [[src/debugger/riscv64/registers.rs:registers]]
 - **Run.** A thread paused on a breakpoint steps over it first, as on macOS;
   then every stopped thread is continued (`PTRACE_CONT`) with any signal held
   for it, and the session waits (`waitpid(-1, __WALL)`). A `SIGTRAP` with
@@ -353,8 +379,9 @@ needs no signing: a process may trace its own children, and others as
   exception`. On any of these every other thread is interrupted and waited
   for, and what they stopped for joins it, classified as macOS's are. The
   kernel's own traps — a single step's (`TRAP_TRACE`, or `SI_USER` from pid 0
-  for a step over a system call) and a removed watchpoint's — are dropped; so
-  is a `SIGSTOP`. Any other signal (`SIGCHLD`, `SIGPIPE`, a timer, a `SIGTRAP`
+  for a step over a system call) and a removed watchpoint's — are dropped, as
+  is a stop on one of a riscv64 step's own breakpoints (below); so is a
+  `SIGSTOP`. Any other signal (`SIGCHLD`, `SIGPIPE`, a timer, a `SIGTRAP`
   a process sent) is passed on at once and the program runs on, unseen. An
   exception's signal is held and delivered when the program next runs, so its
   handler — or the default action, which ends it — runs then; macOS retries
@@ -363,19 +390,44 @@ needs no signing: a process may trace its own children, and others as
   exit status or signal, for an attached program too.
   [[src/debugger/linux/threads.rs:signal_stop]]
 - **Step.** Every breakpoint is lifted and the stepping threads' watchpoints
-  turned off, as on macOS. Each round, every stepping thread gets
-  `PTRACE_SINGLESTEP` and the session polls (`waitpid(WNOHANG)`) in 2000 ms
-  slices (`STEP_SLICE`) for each to stop. Threads still running after a slice
-  are given up when each is blocked in the kernel (`S` or `D` in
+  turned off, as on macOS. On AArch64 each round every stepping thread gets
+  `PTRACE_SINGLESTEP` together; the session polls (`waitpid(WNOHANG)`) in 2000
+  ms slices (`STEP_SLICE`) for each to stop. Threads still running after a
+  slice are given up when each is blocked in the kernel (`S` or `D` in
   `/proc/<pid>/task/<tid>/stat`) or 30 s (`STEP_LIMIT`) have passed: they are
   interrupted and are `Waiting`. A signal that stops a stepping thread is held
-  and the instruction tried again; a clone event lets the step finish.
-  [[src/debugger/linux/threads.rs:step_rounds]]
-- **Watchpoints.** The processor's watchpoint register pairs (`dbg_info`'s
-  count, from `NT_ARM_HW_WATCH`), encoded as on macOS and written into every
-  thread with `PTRACE_SETREGSET`; the kernel does not copy them into a new
-  thread, so each gets them at its first stop.
-  [[src/debugger/linux/threads.rs:set_thread_watchpoints]]
+  for the next run and the instruction tried again; a clone event lets the step
+  finish. [[src/debugger/linux/threads.rs:step_rounds]]
+  The riscv64 kernel has no single step (`PTRACE_SINGLESTEP` fails with `EIO`),
+  so there a step decodes the instruction at `pc`, plants a breakpoint at every
+  address it can go to, and continues the thread (`PTRACE_CONT`, no signal: a
+  held signal stays held, as on AArch64); a stop on one of them is the
+  instruction done, and they are put back however the step ends:
+  [[src/debugger/linux/riscv64.rs:start_step]] [[src/debugger/riscv64/step.rs:next_addresses]]
+
+  | Instruction | Where the thread can be after it |
+  | --- | --- |
+  | most, and one the decoder does not know | the next instruction |
+  | a conditional branch | the next instruction and the target |
+  | `j`, `jal` | the target |
+  | `jr`, `jalr`, `ret` (and their compressed forms) | `(register + offset) & !1` |
+  | `ecall` | the next instruction; for `rt_sigreturn` (`a7` = 139), the `pc` the signal frame saved at `sp + 304` |
+  | `lr.w`, `lr.d` | after the first `sc` within 16 instructions, and the target of any branch between that leaves the sequence; with no `sc` that close, the next instruction |
+  | `ebreak`, `c.ebreak` | none: the step reports `a breakpoint instruction` without running it |
+
+  A breakpoint between `lr` and `sc` would make every `sc` fail, so the sequence
+  runs as one step. Since a planted breakpoint is in memory every thread
+  shares, a riscv64 round steps its threads one after another, the others
+  stopped, so only the thread whose breakpoints they are runs.
+  [[src/debugger/linux/threads.rs:step_group]]
+- **Watchpoints.** AArch64: the processor's watchpoint register pairs
+  (`dbg_info`'s count, from `NT_ARM_HW_WATCH`), encoded as on macOS and written
+  into every thread with `PTRACE_SETREGSET`; the kernel does not copy them into
+  a new thread, so each gets them at its first stop.
+  [[src/debugger/linux/aarch64.rs:set_thread_watchpoints]] riscv64: none — the
+  kernels have no breakpoint performance event and no watch register set — so
+  `riscv64::RISCV64` has no watch span and `wp` is refused (see Watchpoints).
+  [[src/debugger/linux/riscv64.rs:NO_WATCHPOINTS]]
 - **Ending.** A launched program is killed (`SIGKILL`; `PTRACE_O_EXITKILL`
   kills it too if `mfb` dies) and every thread reaped until the leader is. An
   attached one has its breakpoints lifted and watchpoints cleared, and every
@@ -711,7 +763,7 @@ block alone. [[src/debugger/prompt/render.rs:common_register_lines]]
 On AArch64 the roles are the compiler's own register assignments
 (`./mfb spec memory native-calling-convention`), and a role is a fixed label
 for the register, not a reading of what it holds at the stop:
-[[src/debugger/arm64.rs:role]]
+[[src/debugger/arm64/registers.rs:role]]
 
 | Register | Role |
 | --- | --- |
@@ -729,7 +781,7 @@ register (as MFBASIC's `Integer`) and unsigned for a 128-bit one.
 [[src/debugger/prompt/render.rs:register_lines]]
 
 On AArch64 every register of the thread state is read
-(`src/debugger/arm64.rs:registers`), the same on macOS and Linux:
+(`src/debugger/arm64/registers.rs:registers`), the same on macOS and Linux:
 
 | Group | Registers |
 | --- | --- |
@@ -739,6 +791,29 @@ On AArch64 every register of the thread state is read
 
 `nzcv` is CPSR with every bit but 31–28 cleared, as the `NZCV` system register
 reads; `fpsr` and `fpcr` are the 32-bit words of `ARM_NEON_STATE64`.
+
+On riscv64 registers are named by their ABI names only (`x10` and `fp` name
+nothing), the roles in the same words as AArch64's:
+[[src/debugger/riscv64/registers.rs:role]]
+
+| Register | Role |
+| --- | --- |
+| `a0`, `a1` | `MFB arg, MFB result, C arg, C result` |
+| `a2`, `a3` | `MFB arg, MFB result, C arg` |
+| `a4`–`a7` | `MFB arg, C arg` |
+| `s11` | `Arena` |
+| `s2` | `Current Thread` |
+| `s10` | `Closure` |
+
+| Group | Registers |
+| --- | --- |
+| `gpr` (`General`) | `ra`, `gp`, `tp`, `t0`–`t2`, `s0`, `s1`, `a0`–`a7`, `s2`–`s11`, `t3`–`t6` (`x1`–`x31` without `sp`) |
+| `sys` (`System`) | `sp`, `pc`, `fcsr` |
+| `simd` (`Simd`) | `ft0`–`ft7`, `fs0`, `fs1`, `fa0`–`fa7`, `fs2`–`fs11`, `ft8`–`ft11`, 64 bits each |
+
+`zero` is not listed. The `LIST_REG_USAGE` block's group lines are the
+processor's (`arch.help.groups`).
+[[src/debugger/riscv64/registers.rs:registers]]
 
 ### `list arena`
 
@@ -802,6 +877,8 @@ A program that ended prints only `The program exited after <r> round(s) of
 stepping.`, `<r>` being the most instructions any thread took, and then `step`'s
 second line when the session holds its debug report. A thread the
 program starts during the step is not stepped and runs until the round ends.
+On riscv64 a round's threads step one after another rather than together (see
+Linux backend, Step).
 
 `<exception>` is `a bad memory access at 0x<address>`, `an illegal
 instruction`, `an arithmetic exception`, `a breakpoint instruction`, or
@@ -824,7 +901,10 @@ term and an optional offset, `+<n>` or `-<n>` (decimal, or hex after `0x`):
   <n> functions, at 0x…, 0x…; give one by its address`; one that names none
   (and no register) with `no register or function is named '<name>'; type
   'list reg' or 'list func' for them`.
-  [[src/debugger/location.rs:is_register]] [[src/debugger/prompt/actions.rs:function_start]]
+  Which words name registers is the processor's (`arch.is_register`: on
+  AArch64 `x0`–`x30`, `fp`, `lr`, `sp`, `pc`; on riscv64 the integer ABI names
+  but `zero`, and `pc`). [[src/debugger/arch.rs:Arch]]
+  [[src/debugger/prompt/actions.rs:function_start]]
 - `[<location>]`, nested to any depth: the 8 bytes, little-endian, in memory at
   the inner location's value.
 
@@ -1168,8 +1248,11 @@ resolved once, now, as `show mem` resolves one (`0x…`, a register of the
 current thread, a function, `[…]`, each `±<offset>`); `<size>` is the word after it
 when that starts with a digit (decimal, or hex after `0x`), else 8 (an
 `Integer`). The bytes must be 1 to 8 that do not cross an address that is a
-multiple of 8 (`breakpoints::watchable`) and readable; the processor holds a
-fixed number of watchpoints (the backend refuses one more). Setting one prints
+multiple of 8 (`breakpoints::watchable`, the processor's watch span) and
+readable; the processor holds a fixed number of watchpoints (the backend
+refuses one more). On riscv64, which has no watch span, every `wp` is refused
+with `this system has no watchpoints: the riscv64 kernel does not provide
+them`. [[src/debugger/breakpoints/mod.rs:watchable]] Setting one prints
 `Set a watchpoint at 0x<address> (<size> byte[s]): <value>.`, with ` Each stop
 runs '<commands>'.` when it has commands. `<value>` is the bytes
 read little-endian as `0x` and two hex digits per byte, and for 8 bytes the
@@ -1289,12 +1372,14 @@ program stops the process for the comparison, watched or not.
 [[src/debugger/prompt/actions.rs:jump]] `jump <where> [<register>=<value>]...` (`j`)
 moves the current thread — at a stop, the stopped one — to the value of
 `<where>` worked out for it, and gives up to 8 registers (`MAX_JUMP_REGISTERS`)
-new values: `x0`–`x28`, `fp`, `lr`, `sp`, `nzcv`, `fpsr`, `fpcr`
-(`prompt::settable`). A value is a number as a `breakpointif` value is, else a
+new values: on AArch64 `x0`–`x28`, `fp`, `lr`, `sp`, `nzcv`, `fpsr`, `fpcr`; on
+riscv64 every integer register but `zero`, and `fcsr` (`arch.settable`). A
+value is a number as a `breakpointif` value is, else a
 location's value for the thread (`x0=x1`, `sp=[sp+8]`). Every value is worked out
 before any register is set, so `j lr x0=0` goes to the `lr` the thread had.
-The place must be a multiple of 4 holding readable code; `nzcv` takes only bits
-31–28 (`NZCV_FLAGS`); `fpsr` and `fpcr` take 32 bits. The registers and the
+The place must be a multiple of the processor's instruction alignment (4 on
+AArch64, 2 on riscv64) holding readable code; `nzcv` takes only bits 31–28
+(`arm64::NZCV_BITS`); `fpsr`, `fpcr` and `fcsr` take 32 bits (`arch.holds`). The registers and the
 `pc` are written with `Inferior::set_registers`, and the thread stays paused;
 `run` and `step` carry on from there. It prints `Moved thread <t> to
 <place>.`, `<place>` as `step` prints one, or with registers `Moved thread <t>
@@ -1366,8 +1451,10 @@ or the last `step` ran; thread 0 before either, or when it has ended.
   `dis -6 8` shows the six before it, the `pc`'s own and one after. Wherever a
   count is taken below, these two counts may stand for it.
 - `dis <where> [<count>]`, `<where>` starting `0x` or `[`, holding `+` or `-`,
-  or a register name (`x0`–`x30`, `fp`, `lr`, `sp`, `pc`): the address it
-  resolves to as `show mem` resolves one (so `dis main+0x110` is a place in `main`), which must be a multiple of 4. With no count, the
+  or a register name (as Locations says): the address it
+  resolves to as `show mem` resolves one (so `dis main+0x110` is a place in
+  `main`), which must be a multiple of the instruction alignment (4 on
+  AArch64, 2 on riscv64). With no count, the
   listing runs from there to the end of the function holding it (or to the first
   `ret` or 64 instructions when its extent is unknown); with one, as for
   `dis <count>`. The header names the function holding that address.
@@ -1383,9 +1470,15 @@ or the last `step` ran; thread 0 before either, or when it has ended.
 
 A function's extent is the first known of: the executable's symbol size
 (`--debug` builds), its import stub's size, the library's function starts.
-With none, the listing runs to the first return (`ret`, `retaa`, `retab`) or 64
-instructions (`UNSIZED_LIMIT`). Code is read with `read_code`, which puts each
-breakpoint's saved instruction back, so a listing never shows the `brk`.
+With none, the listing runs to the first return (AArch64 `ret`, `retaa`,
+`retab`; riscv64 `ret`, `jalr zero, 0(ra)` or `c.jr ra`) or 64 instructions
+(`UNSIZED_LIMIT`). Code is read with `read_code`, which puts each breakpoint's
+saved instruction back, so a listing never shows a breakpoint instruction.
+Instructions are walked by the processor's `arch.length`, 4 bytes each on
+AArch64, 2 or 4 on riscv64; a negative count there is counted back by decoding
+forward from the start of the function holding the place (and of the ones
+before it while that is not far enough back), since a byte count cannot tell
+instructions of two sizes apart. [[src/debugger/disassemble.rs:start_before]]
 
 The listing is lldb's: a header `<image>`<name>:` (`<image>`0x<start>:` when
 unnamed; `0x<start>:` when no image holds it), where the name is the written
@@ -1408,9 +1501,10 @@ call, `adr` or literal load (`ldr x0, 0x…`), `<+<offset>>` inside this
 function, else the function at the address it names (`<name>` or
 `<name> + <offset>`); for an `add #imm` whose register an earlier
 `adrp` in the listing set, the data symbol at the address the pair forms, else
-the function there.
+the function there. On riscv64 the page pairs are `auipc` and the `addi`,
+load, store or `jalr` through the register it set.
 
-Instructions are decoded by `crate::arch::aarch64::decode`, which knows every
+On AArch64 instructions are decoded by `crate::arch::aarch64::decode`, which knows every
 form `crate::arch::aarch64::encode` emits and, so that code in dyld and the
 system libraries reads too, the A64 base instruction set: integer, loads and
 stores in every addressing mode (pairs, exclusive, ordered, LSE atomics,
@@ -1428,11 +1522,24 @@ and an ignored test compares a whole corpus against lldb
 (`tools/oracles/aarch64-decode`).
 [[src/arch/aarch64/decode/mod.rs:decode]]
 
+On riscv64 they are decoded by `crate::arch::riscv64::decode`: RV64I, `M`, `A`,
+`F`, `D`, `C`, `Zicsr`, `Zifencei`, and the vector forms the compiler emits.
+Text is spelled as GNU `objdump` prints it, with its default aliases (`li`,
+`mv`, `ret`, `j`, `beqz`, `sext.w`, `frflags`, …) and ABI register names; a
+compressed instruction prints as the base instruction it expands to
+(`c.addi16sp` is `addi sp,sp,-16`), and a vector form as `objdump -M max`
+prints it. The listing pads the mnemonic to the column AArch64 listings use. A
+4-byte instruction it does not know prints as `.word  0x<word>`, a 2-byte one
+as `.short 0x<parcel>`. A test holds sampled words to `objdump`'s text, another
+encodes every emitter form and decodes it back, and an ignored test compares a
+whole corpus (`tools/oracles/riscv64-decode`).
+[[src/arch/riscv64/decode/mod.rs:decode]] [[src/debugger/riscv64/mod.rs:decoded]]
+
 ### `finish`
 
 [[src/debugger/breakpoints/mod.rs:Breakpoints]] `finish` runs the current thread
 until the function holding its `pc` returns. It finds every return
-instruction (`ret`, `retaa`, `retab`) in the function (through its extent, or
+instruction (as `dis` reads one) in the function (through its extent, or
 the first within 64 instructions as `dis` does, `disassemble::returns`), writes a breakpoint of its own on each that
 holds none, and runs as `run` does; a `ret` that holds one of the user's is
 waited on all the same (`Breakpoints::finishing`), so a stop there that runs on
@@ -1441,8 +1548,9 @@ thread with its stack pointer at or above the one it had (so a deeper,
 recursive call's return does not count) removes them and steps the `ret`,
 then prints
 `Thread <t> returned from <function> to <place>: x0 = <value>, x1 = <value>.`
-— MFBASIC returns an error code in `x0` and the value in `x1`, each shown as
-`list reg` shows it. A stop at them by another thread or a deeper frame runs
+— MFBASIC returns an error code in the first result register and the value in
+the second (`x0`, `x1` on AArch64; `a0`, `a1` on riscv64, where the line names
+them), each shown as `list reg` shows it. A stop at them by another thread or a deeper frame runs
 on. A stop that runs on for its commands lets the finish go on. Any other
 stop — a user breakpoint, a watched change or error, an exception, Ctrl-C,
 the end — removes them and is reported as `run` reports it, and, unless the
@@ -1455,13 +1563,14 @@ did not complete; …` when the function has no name).
 
 ### `backtrace`
 
-[[src/debugger/backtrace.rs:frames]] Unwinds thread `<id>` (default the
+[[src/debugger/backtrace/mod.rs:frames]] Unwinds thread `<id>` (default the
 current thread, falling back to 0 when it has ended) from its `pc`, `sp`,
-`fp` and `lr`. Executables carry no unwind tables and MFBASIC code keeps no
+frame pointer and link register (AArch64 `fp`, `lr`; riscv64 `s0`, `ra`). Executables carry no unwind tables and MFBASIC code keeps no
 frame-pointer chain (`./mfb spec memory native-calling-convention`), so each
 frame is unwound by reading its function's code from its start to the frame's
-`pc` (`state_at`), as lldb does for code without unwind tables:
-[[src/debugger/backtrace.rs:state_at]]
+`pc` (`state_at`), as lldb does for code without unwind tables, reading each
+instruction through the processor's `arch.effect`:
+[[src/debugger/backtrace/mod.rs:state_at]]
 
 - The state tracked is `sp - CFA` (the CFA is the `sp` on entry), where `lr`
   and the caller's `fp` are saved (offsets from the CFA), and `fp - CFA` once
@@ -1474,18 +1583,35 @@ frame is unwound by reading its function's code from its start to the frame's
   `sp` makes it unknown, and the CFA then comes from `fp`. A pre- or
   post-index `stp`/`ldp` of SIMD registers through `sp` moves it by its
   immediate scaled by the register size: 8 bytes for `d`, 16 for `q`.
+- On riscv64 (each compressed form read as the base instruction it expands
+  to): `addi sp, sp, imm` moves `sp`; `sd` through `sp`, `s0` or a register set
+  by `addi <r>, sp, imm` records where `ra`/`s0` went (other stores, and `fsd`,
+  are saves the walk does not follow); `ld` of `ra`/`s0` puts them back;
+  `addi s0, sp, imm` sets the frame pointer; `addi sp, s0, imm` sets `sp` from
+  it; `ret`, `jr` and `j` outside the function leave; `nop` is a hint. A frame
+  too big for one `addi` is built in a register first (`lui t0, 0x1; addi t0,
+  t0, -688; sub sp, sp, t0`): the walk follows the constants `lui`, `li` and
+  `addi`/`addiw` put in registers, so `sub`/`add sp, sp, <register>` moves `sp`
+  by a known value; with an unknown one, and on any other write to `sp`
+  (`andi sp, sp, -16`, `sub sp, sp, a5`), `sp` becomes unknown.
+  [[src/debugger/riscv64/mod.rs:effect]]
 - The prologue is the leading run of `sp` decrements, stores through `sp` (or a
   register set from it), `add x<n>, sp, #imm` and hints. The state it leaves is
   the body's: `ret`, `br`, or `b` outside the function's extent restores it, so
   an epilogue in the middle of a function does not leak into the code after it.
+  A save of the link register or frame pointer, or the setting of the frame
+  pointer, that comes after the body began but before control first leaves is
+  the body's too: a compiler may schedule a prologue's saves among the first
+  body instructions (glibc's riscv64 code saves `ra` after several).
 
 A frame's caller resumes at the saved `lr` (the thread's `lr` for the
 innermost frame while it is unsaved), with `sp` the CFA and `fp` the saved one
-(else unchanged); the address has every bit above the host's user addresses
-cleared — bits 63–47 on macOS, 63–48 on Linux, which also strips
-pointer-authentication bits (`ADDRESS_MASK`). The function for a frame
-after the first is looked up at its return address less 4, so a call that is a
-function's last instruction is attributed to it. The walk ends after the
+(else unchanged); on AArch64 the address has every bit above the host's user
+addresses cleared — bits 63–47 on macOS, 63–48 on Linux, which also strips
+pointer-authentication bits — and on riscv64 none (`arch.address_mask`). The
+function for a frame after the first is looked up at its return address less
+the instruction alignment (4, or 2 on riscv64), so a call that is a function's
+last instruction is attributed to it. The walk ends after the
 program entry `_main` (whose caller's return address is gone once it calls),
 at a frame no function holds (the innermost one is unwound as a function that
 has not touched the stack), when the next return address is 0, when the next
@@ -1500,7 +1626,7 @@ current thread, else a space; `<name>` only for a thread that named itself;
 the current thread's frame 0, `<function>` named as `dis` names it
 (`disassemble::display_name`), else `0x<start>`; the offset is decimal and
 omitted when 0; a frame no image names prints only its address.
-[[src/debugger/backtrace.rs:lines]]
+[[src/debugger/backtrace/mod.rs:lines]]
 
 ### `restart`
 

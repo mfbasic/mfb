@@ -1,0 +1,37 @@
+' plan-181-B2: money::convert(m, from, to) = R(m * from / to), one exact
+' 128-bit calculation and one rounding under the thread's mode.
+IMPORT io
+IMPORT money
+
+FUNC show(value AS Money, source AS money::Rate, target AS money::Rate) AS Nothing
+  LET result AS Money = money::convert(value, source, target) TRAP(err)
+    io::print(toString(value, toByte(5)) & " error " & toString(err.code))
+    RETURN
+  END TRAP
+  io::print(toString(result, toByte(5)))
+END FUNC
+
+FUNC main() AS Integer
+  LET usd AS money::Rate = money::toRate("1")
+  show(1000000m, money::toRate("1.0842"), usd)
+  ' 10^10 / 0.0067 = 1492537313432.835820895..., which the Fixed form overflowed.
+  show(10000000000m, usd, money::toRate("0.0067"))
+  show(1m, usd, usd)
+  show(-1000000m, money::toRate("1.0842"), usd)
+  ' Tie 0.000005 settles under the mode: 0.00001 (Commercial) / 0.00000 (Banker).
+  show(0.00001m, money::toRate("0.5"), usd)
+  money::setRounding(money::Rounding.Banker)
+  show(0.00001m, money::toRate("0.5"), usd)
+  show(0.00003m, money::toRate("0.5"), usd)
+  money::setRounding(money::Rounding.Commercial)
+  ' The largest rate against the smallest: the intermediate needs 126 bits.
+  show(1m, money::toRate("9223372.036854775807"), money::toRate("9223372.036854775807"))
+  show(-92233720368547.75808m, usd, usd)
+  ' Invalid rates are refused on use (ErrInvalidArgument 77050002).
+  show(1m, usd, money::Rate[scaled := 0])
+  show(1m, money::Rate[scaled := -1], usd)
+  ' A result outside the Money range is ErrOverflow (77050010).
+  show(92233720368547.75807m, usd, money::toRate("0.5"))
+  show(1m, money::toRate("9223372"), money::toRate("0.000000000001"))
+  RETURN 0
+END FUNC

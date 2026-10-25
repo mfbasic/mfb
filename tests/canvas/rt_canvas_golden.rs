@@ -241,7 +241,7 @@ fn too_many_small_differences_fail_tolerance() {
     let reference = Frame::load_png(&golden_path("smiley"));
     let mut perturbed = reference.clone();
     // Nudge a tenth of the frame by one step — five times the 2% budget, with every
-    // individual difference inside the 2-step channel epsilon.
+    // individual difference inside the 13-step channel epsilon.
     let nudge = (WIDTH as usize * HEIGHT as usize) / 10;
     for pixel in 0..nudge {
         let index = pixel * 4;

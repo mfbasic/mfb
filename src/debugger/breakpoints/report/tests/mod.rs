@@ -112,6 +112,9 @@ impl Inferior for Exiting {
     fn pid(&self) -> u32 {
         42
     }
+    fn arch(&self) -> &'static crate::debugger::arch::Arch {
+        &crate::debugger::arm64::AARCH64
+    }
     fn end(&mut self) -> Result<Ending, String> {
         Ok(Ending::AlreadyExited)
     }

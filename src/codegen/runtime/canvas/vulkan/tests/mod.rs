@@ -1,6 +1,6 @@
 use super::*;
+use crate::codegen::runtime::canvas::VULKAN_EDGE_BYTES;
 use crate::codegen::runtime::canvas::{GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_STATE_SIZE};
-use crate::codegen::runtime::canvas::{VULKAN_EDGE_BYTES, VULKAN_EDGE_RESIDUAL_BYTES};
 
 /// Check one hand-transcribed C layout: every `(member, offset, width)` lies inside
 /// the struct at its natural alignment, no two members overlap, and the size is a
@@ -729,8 +729,6 @@ fn the_pipeline_specializes_every_region_base() {
         ("GLYPH_BASE", VULKAN_GLYPH_BASE_WORDS),
         ("GRADIENT_BASE", VULKAN_GRADIENT_BASE_WORDS),
         ("BAND_BASE", VULKAN_BAND_BASE_WORDS),
-        // bug-687: the polygon vertices' residual words.
-        ("EDGE_RESIDUAL_BASE", VULKAN_EDGE_RESIDUAL_BASE_WORDS),
         // plan-163-B: the dash words.
         ("DASH_BASE", VULKAN_DASH_BASE_WORDS),
     ];
@@ -795,17 +793,10 @@ fn the_pipeline_specializes_every_region_base() {
 #[test]
 fn the_shared_buffer_holds_every_region() {
     let mut end = VULKAN_EDGE_BYTES;
-    // bug-687 put the edge residuals between the edges and the band index.
-    assert_eq!(
-        VULKAN_EDGE_RESIDUAL_BASE_WORDS * 4,
-        end,
-        "the edge-residual region must start where the edge region ends",
-    );
-    end += VULKAN_EDGE_RESIDUAL_BYTES;
     assert_eq!(
         VULKAN_BAND_BASE_WORDS * 4,
         end,
-        "the band region must start where the edge-residual region ends",
+        "the band region must start where the edge region ends",
     );
     end += VULKAN_MAX_FRAME_BAND_WORDS * 4;
     assert_eq!(

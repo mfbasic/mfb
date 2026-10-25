@@ -1,0 +1,71 @@
+{
+  "project": "money_rate_string_bad",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 3 },
+    { "module": "money", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 6,
+      "params": [
+      { "name": "text", "type": "String", "default": null, "line": 6 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": "money.Rate", "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 7,
+        "expression": { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "identifier", "value": "text" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "text" } }, "right": { "kind": "string", "value": "] " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 8 },
+        { "kind": "return", "value": null, "line": 9 }
+        ]
+      }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "text" } }, "right": { "kind": "string", "value": "] accepted " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "scaled" }] } }] }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "0.0000000000001" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "0.8420000000000" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": " 1" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "1 " }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "+1" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "1e3" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": ".5" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "1." }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "-" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "1.2.3" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "0" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "0.000" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "-1" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "-99999999999999999999" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "9223373" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "99999999999999999999999" }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "money.Rate", "value": { "kind": "call", "callee": "money.toRate", "arguments": [{ "kind": "string", "value": "9223372.036854775808" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "scaled" }] }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
+      ]
+    }
+    ]
+  }
+  ]
+}

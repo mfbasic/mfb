@@ -6,7 +6,7 @@ use super::*;
 
 impl Tracee {
     /// One register set of thread `tid`.
-    fn regset<T: Copy>(&self, tid: c_int, kind: usize, empty: T) -> Result<T, String> {
+    pub(super) fn regset<T: Copy>(&self, tid: c_int, kind: usize, empty: T) -> Result<T, String> {
         let mut value = empty;
         let mut vector = IoVec {
             base: ptr::addr_of_mut!(value).cast(),
@@ -55,7 +55,7 @@ impl Tracee {
     }
 
     pub(super) fn general(&self, tid: c_int) -> Result<General, String> {
-        self.regset(tid, NT_PRSTATUS, [0u64; 34])
+        self.regset(tid, NT_PRSTATUS, cpu::NO_GENERAL)
     }
 
     pub(super) fn float(&self, tid: c_int) -> Result<Float, String> {
@@ -71,49 +71,6 @@ impl Tracee {
             Ok(_) => ((info[1] & 0xffff_ffff) as u32 as c_int, info[2]),
             Err(_) => (0, 0),
         }
-    }
-
-    /// How many watchpoint register pairs the processor has.
-    pub(super) fn watch_slots(&self, tid: c_int) -> Result<usize, String> {
-        let state = self.regset(
-            tid,
-            NT_ARM_HW_WATCH,
-            [0u8; HW_DEBUG_HEADER + HW_DEBUG_SLOT * HW_DEBUG_SLOTS],
-        )?;
-        Ok(usize::from(state[0]).min(HW_DEBUG_SLOTS))
-    }
-
-    /// Write the watchpoints into thread `tid`, enabled or all off.
-    pub(super) fn set_thread_watchpoints(&self, tid: c_int, on: bool) -> Result<(), String> {
-        let mut state = [0u8; HW_DEBUG_HEADER + HW_DEBUG_SLOT * HW_DEBUG_SLOTS];
-        for (slot, &(address, size)) in self.watchpoints.iter().enumerate().take(HW_DEBUG_SLOTS) {
-            let select = ((1u64 << size) - 1) << (address & 7);
-            let control = WCR_STORE_EL0 | (select << WCR_BAS_SHIFT);
-            let at = HW_DEBUG_HEADER + slot * HW_DEBUG_SLOT;
-            state[at..at + 8].copy_from_slice(&(address & !7).to_le_bytes());
-            let control = if on { control } else { control & !1 } as u32;
-            state[at + 8..at + 12].copy_from_slice(&control.to_le_bytes());
-        }
-        // Every slot the processor has is written, so a removed watchpoint's
-        // slot is cleared.
-        let slots = self.watch_slots(tid)?;
-        let mut vector = IoVec {
-            base: state.as_mut_ptr().cast(),
-            len: HW_DEBUG_HEADER + HW_DEBUG_SLOT * slots,
-        };
-        trace(
-            PTRACE_SETREGSET,
-            tid,
-            NT_ARM_HW_WATCH,
-            ptr::addr_of_mut!(vector) as usize,
-        )
-        .map(|_| ())
-        .map_err(|error| {
-            format!(
-                "cannot set the program's watchpoints: ptrace: {}",
-                os_error(error)
-            )
-        })
     }
 
     /// Write the watchpoints into every thread.
@@ -136,8 +93,8 @@ impl Tracee {
     }
 
     pub(super) fn reinsert(&self) -> Result<(), String> {
-        for address in self.breakpoints.keys() {
-            self.write(*address, &BREAKPOINT_INSTRUCTION)?;
+        for (address, original) in &self.breakpoints {
+            self.write(*address, cpu::breakpoint(original))?;
         }
         Ok(())
     }
@@ -246,9 +203,13 @@ impl Tracee {
         let report = match signal {
             SIGTRAP if code == TRAP_HWBKPT && !self.watchpoints.is_empty() => Some(Report::Watch),
             SIGTRAP if code == TRAP_BRKPT => {
-                let pc = self.general(tid)?[32];
+                let pc = cpu::pc(&self.general(tid)?);
                 if self.breakpoints.contains_key(&pc) {
                     Some(Report::Breakpoint(pc))
+                } else if !cpu::HARDWARE_STEP && self.on_step_trap(tid)? {
+                    // A step's own breakpoint, reached as the step was given
+                    // up on: the step is over, and nothing is the program's.
+                    None
                 } else {
                     self.threads[index].pending = SIGTRAP;
                     Some(Report::Fault("a breakpoint instruction".to_string()))
@@ -412,7 +373,10 @@ impl Tracee {
     }
 
     /// Run `stepping` (thread indices) for up to `count` rounds of one
-    /// instruction each; breakpoints are lifted and watchpoints off.
+    /// instruction each; breakpoints are lifted and watchpoints off. Where the
+    /// kernel steps a thread the round's threads step together; where a step
+    /// plants breakpoints every thread could reach, they step one after
+    /// another, so only the thread whose breakpoints they are runs.
     pub(super) fn step_rounds(
         &mut self,
         stepping: &[usize],
@@ -434,129 +398,177 @@ impl Tracee {
             if active.is_empty() {
                 break;
             }
-            for at in &active {
-                if let Some(index) = self.index_of(tids[*at]) {
-                    self.resume(index, true)?;
-                }
-            }
-            let started = Instant::now();
-            let mut deadline = started + STEP_SLICE;
+            let groups = if cpu::HARDWARE_STEP {
+                vec![active.clone()]
+            } else {
+                active.iter().map(|at| vec![*at]).collect()
+            };
             let mut still = Vec::new();
-            let mut waiting = active.clone();
-            while !waiting.is_empty() {
-                let found = match self.wait_any(false) {
-                    Ok(found) => found,
-                    Err(EINTR) => None,
-                    Err(error) => {
-                        return Err(format!(
-                            "cannot wait for process {}: {}",
-                            self.pid,
-                            os_error(error)
-                        ))
-                    }
-                };
-                let Some((tid, status)) = found else {
-                    if Instant::now() >= deadline {
-                        let blocked = waiting.iter().all(|at| self.blocked(tids[*at]));
-                        if blocked || started.elapsed() >= STEP_LIMIT {
-                            for at in &waiting {
-                                let _ = trace(PTRACE_INTERRUPT, tids[*at], 0, 0);
-                            }
-                            for (tid, report) in self.stop_all()? {
-                                if let (Some(at), Report::Fault(what)) =
-                                    (tids.iter().position(|other| *other == tid), report)
-                                {
-                                    steps[at].stop = StepStop::Exception(what);
-                                }
-                            }
-                            for at in waiting.drain(..) {
-                                if steps[at].stop == StepStop::Finished {
-                                    steps[at].stop = StepStop::Waiting;
-                                }
-                            }
-                            if self.exited.is_some() {
-                                for step in &mut steps {
-                                    step.stop = StepStop::Exited;
-                                }
-                                return Ok(steps);
-                            }
-                            break;
-                        }
-                        deadline = Instant::now() + STEP_SLICE;
-                    }
-                    std::thread::sleep(POLL_PAUSE);
-                    continue;
-                };
-                if !stopped(status) {
-                    if self.thread_ended(tid, status) {
-                        for step in &mut steps {
-                            step.stop = StepStop::Exited;
-                        }
-                        return Ok(steps);
-                    }
-                    if let Some(at) = tids.iter().position(|other| *other == tid) {
-                        steps[at].stop = StepStop::Exited;
-                        waiting.retain(|other| *other != at);
-                    }
-                    continue;
+            for group in groups {
+                let ended = self.step_group(&tids, &group, &mut steps, &mut still);
+                // A step's own breakpoints come out however it ended.
+                let cleared = self.end_step_traps();
+                if ended? {
+                    return Ok(steps);
                 }
-                let known = self.index_of(tid).is_some();
-                let index = self.adopt(tid);
-                self.threads[index].stopped = true;
-                let Some(at) = tids.iter().position(|other| *other == tid) else {
-                    // A new thread's first stop, or a stray one: it stays
-                    // stopped for the rest of the step.
-                    if event(status) == PTRACE_EVENT_STOP && (!known || self.threads[index].fresh) {
-                        self.welcome(index)?;
-                    }
-                    continue;
-                };
-                match event(status) {
-                    PTRACE_EVENT_CLONE => {
-                        let mut child: c_long = 0;
-                        if trace(
-                            PTRACE_GETEVENTMSG,
-                            tid,
-                            0,
-                            ptr::addr_of_mut!(child) as usize,
-                        )
-                        .is_ok()
-                        {
-                            self.adopt(child as c_int);
-                        }
-                        // The system call goes on to finish the instruction.
-                        self.resume(index, true)?;
-                    }
-                    PTRACE_EVENT_STOP => self.resume(index, true)?,
-                    0 => match stop_signal(status) {
-                        SIGTRAP => {
-                            let (code, _) = self.siginfo(tid);
-                            if code == TRAP_BRKPT {
-                                steps[at].stop =
-                                    StepStop::Exception("a breakpoint instruction".to_string());
-                                self.threads[index].pending = SIGTRAP;
-                            } else {
-                                steps[at].taken += 1;
-                                still.push(at);
-                            }
-                            waiting.retain(|other| *other != at);
-                        }
-                        signal => match self.signal_stop(index, signal)? {
-                            Some(Report::Fault(what)) => {
-                                steps[at].stop = StepStop::Exception(what);
-                                waiting.retain(|other| *other != at);
-                            }
-                            // Another signal waits for the next run; the
-                            // instruction is tried again.
-                            _ => self.resume(index, true)?,
-                        },
-                    },
-                    _ => self.resume(index, true)?,
-                }
+                cleared?;
             }
             active = still;
         }
         Ok(steps)
+    }
+
+    /// One instruction of the threads `group` (positions in `tids`):
+    /// start them, then wait until each has stepped, stopped for something
+    /// else, or is found blocked in the kernel. A thread that stepped joins
+    /// `still`. Answers `true` when the program ended.
+    fn step_group(
+        &mut self,
+        tids: &[c_int],
+        group: &[usize],
+        steps: &mut [Step],
+        still: &mut Vec<usize>,
+    ) -> Result<bool, String> {
+        let mut waiting = Vec::new();
+        for at in group {
+            if let Some(index) = self.index_of(tids[*at]) {
+                if self.start_step(index)? {
+                    waiting.push(*at);
+                } else {
+                    steps[*at].stop = StepStop::Exception("a breakpoint instruction".to_string());
+                }
+            }
+        }
+        let started = Instant::now();
+        let mut deadline = started + STEP_SLICE;
+        while !waiting.is_empty() {
+            let found = match self.wait_any(false) {
+                Ok(found) => found,
+                Err(EINTR) => None,
+                Err(error) => {
+                    return Err(format!(
+                        "cannot wait for process {}: {}",
+                        self.pid,
+                        os_error(error)
+                    ))
+                }
+            };
+            let Some((tid, status)) = found else {
+                if Instant::now() >= deadline {
+                    let blocked = waiting.iter().all(|at| self.blocked(tids[*at]));
+                    if blocked || started.elapsed() >= STEP_LIMIT {
+                        for at in &waiting {
+                            let _ = trace(PTRACE_INTERRUPT, tids[*at], 0, 0);
+                        }
+                        for (tid, report) in self.stop_all()? {
+                            if let (Some(at), Report::Fault(what)) =
+                                (tids.iter().position(|other| *other == tid), report)
+                            {
+                                steps[at].stop = StepStop::Exception(what);
+                            }
+                        }
+                        for at in waiting.drain(..) {
+                            if steps[at].stop == StepStop::Finished {
+                                steps[at].stop = StepStop::Waiting;
+                            }
+                        }
+                        if self.exited.is_some() {
+                            for step in steps.iter_mut() {
+                                step.stop = StepStop::Exited;
+                            }
+                            return Ok(true);
+                        }
+                        break;
+                    }
+                    deadline = Instant::now() + STEP_SLICE;
+                }
+                std::thread::sleep(POLL_PAUSE);
+                continue;
+            };
+            if !stopped(status) {
+                if self.thread_ended(tid, status) {
+                    for step in steps.iter_mut() {
+                        step.stop = StepStop::Exited;
+                    }
+                    return Ok(true);
+                }
+                if let Some(at) = tids.iter().position(|other| *other == tid) {
+                    steps[at].stop = StepStop::Exited;
+                    waiting.retain(|other| *other != at);
+                }
+                continue;
+            }
+            let known = self.index_of(tid).is_some();
+            let index = self.adopt(tid);
+            self.threads[index].stopped = true;
+            let Some(at) = tids.iter().position(|other| *other == tid) else {
+                // A new thread's first stop, or a stray one: it stays
+                // stopped for the rest of the step.
+                if event(status) == PTRACE_EVENT_STOP && (!known || self.threads[index].fresh) {
+                    self.welcome(index)?;
+                }
+                continue;
+            };
+            match event(status) {
+                PTRACE_EVENT_CLONE => {
+                    let mut child: c_long = 0;
+                    if trace(
+                        PTRACE_GETEVENTMSG,
+                        tid,
+                        0,
+                        ptr::addr_of_mut!(child) as usize,
+                    )
+                    .is_ok()
+                    {
+                        self.adopt(child as c_int);
+                    }
+                    // The system call goes on to finish the instruction.
+                    self.continue_step(index)?;
+                }
+                PTRACE_EVENT_STOP => self.continue_step(index)?,
+                0 => match stop_signal(status) {
+                    SIGTRAP => {
+                        let (code, _) = self.siginfo(tid);
+                        // The kernel's step reports a trap that is no
+                        // breakpoint; a planted step ends on one of its
+                        // own breakpoints.
+                        let stepped = if cpu::HARDWARE_STEP {
+                            code != TRAP_BRKPT
+                        } else {
+                            code == TRAP_BRKPT && self.on_step_trap(tid)?
+                        };
+                        if stepped {
+                            steps[at].taken += 1;
+                            still.push(at);
+                        } else if code == TRAP_BRKPT {
+                            steps[at].stop =
+                                StepStop::Exception("a breakpoint instruction".to_string());
+                            self.threads[index].pending = SIGTRAP;
+                        } else {
+                            // A trap no step made: as at a run.
+                            if let Some(Report::Fault(what)) = self.signal_stop(index, SIGTRAP)? {
+                                steps[at].stop = StepStop::Exception(what);
+                            } else {
+                                self.continue_step(index)?;
+                                continue;
+                            }
+                        }
+                        waiting.retain(|other| *other != at);
+                    }
+                    signal => match self.signal_stop(index, signal)? {
+                        Some(Report::Fault(what)) => {
+                            steps[at].stop = StepStop::Exception(what);
+                            waiting.retain(|other| *other != at);
+                        }
+                        // Another signal waits for the next run; the
+                        // instruction is tried again.
+                        _ => self.continue_step(index)?,
+                    },
+                },
+                _ => self.continue_step(index)?,
+            }
+        }
+        Ok(false)
     }
 
     /// The thread pointer less `pthread_self`: glibc's from the size its
@@ -596,6 +608,7 @@ impl Tracee {
             });
             size.and_then(|address| self.read(address, 4).ok())
                 .map(|bytes| u64::from(u32::from_le_bytes(bytes[..].try_into().expect("4 bytes"))))
+                .map(cpu::glibc_gap)
         };
         if gap.is_some() {
             self.pthread_gap = Some(gap);
@@ -620,12 +633,9 @@ impl Tracee {
 
     pub(super) fn facts(&mut self, tid: c_int) -> Result<ThreadFacts, String> {
         let general = self.general(tid)?;
-        let tp = self
-            .regset(tid, NT_ARM_TLS, [0u64; 2])
-            .map(|tls| tls[0])
-            .unwrap_or(0);
+        let tp = self.thread_pointer(tid, &general);
         let handle = self.pthread_gap(tp).map_or(0, |gap| tp.wrapping_sub(gap));
-        let sp = general[31];
+        let sp = cpu::sp(&general);
         let stack = self.mappings().ok().and_then(|(_, mappings)| {
             mappings
                 .iter()
@@ -636,9 +646,9 @@ impl Tracee {
             id: tid as u64,
             handle,
             name: self.thread_name(tid),
-            pc: general[32],
+            pc: cpu::pc(&general),
             sp,
-            arena: general[19],
+            arena: cpu::arena(&general),
             stack,
         })
     }

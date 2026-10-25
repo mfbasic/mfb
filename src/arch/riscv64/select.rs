@@ -841,7 +841,7 @@ fn remap_riscv_abi(instructions: &mut [CodeInstruction]) {
 
 /// The RISC-V home for one operand value, or `None` if it is not an AArch64
 /// physical register name (so it passes through unchanged).
-fn remap_register(value: &str) -> Option<String> {
+pub(crate) fn remap_register(value: &str) -> Option<String> {
     match value {
         "sp" | "raw_sp" => return Some("sp".to_string()),
         // Neutral invariant-register tokens (plan-34-A). The legacy AArch64

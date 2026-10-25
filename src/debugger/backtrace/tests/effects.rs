@@ -11,7 +11,11 @@ const STP_FP_LR_PRE: u32 = 0xa9bf_7bfd;
 const MOV_X0_X1: u32 = 0xaa01_03e0;
 
 fn state(words: &[u32]) -> FrameState {
-    state_at(words, 0x1000, 0x1000, Some(0x2000))
+    let code = words
+        .iter()
+        .flat_map(|word| word.to_le_bytes())
+        .collect::<Vec<_>>();
+    state_at(&AARCH64, &code, 0x1000, 0x1000, Some(0x2000))
 }
 
 fn sp(delta: i64) -> FrameState {

@@ -10,11 +10,17 @@ use super::*;
 //
 // The shader and the software oracle quantise coverage identically
 // (`int(clamp(0.5 - d, 0, 1) * 255 + 0.5)`), so they agree on a pixel exactly when they
-// agree on its distance to within the gap to the nearest quantisation boundary. A
-// distance evaluated in fp32 misses that on a few pixels of every long edge, and near
-// black one step of coverage moves a channel by up to 9-13 levels, past `GPU_DEFAULT`'s
-// 2. Every scene here draws on the default opaque-black surface for that reason. Shared
-// with `scripts/test-canvas-gpu-rows.sh`, which draws them on Vulkan.
+// agree on its distance to within the gap to the nearest quantisation boundary. The
+// shaders' fp32 distance misses that on a few pixels of every long edge, and near black
+// one step of coverage moves a channel by up to 13 levels -- exactly the one step
+// `GPU_DEFAULT` allows, so these scenes are where that allowance is spent, and a frame
+// past it is more than one step off. Every scene here draws on the default opaque-black
+// surface for that reason. Shared with `scripts/test-canvas-gpu-rows.sh`, which draws
+// them on Vulkan.
+//
+// The "N pixels past `GPU_DEFAULT` before" notes below are history: they count pixels
+// past the 2-level limit of the double-float shaders (bug-687, bug-735), which the move
+// to fp32 replaced with the one-step limit.
 // ---------------------------------------------------------------------------------------
 
 /// The star polygon {251/97}: 251 long chords (about 300 px each). bug-687 measured

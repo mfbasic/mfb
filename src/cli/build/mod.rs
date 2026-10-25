@@ -761,6 +761,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // plan-172-K: how long a `canvas::AutoPaint` flash lasts — this project's
             // setting, baked into the executable's graphics state.
             ir.canvas_auto_paint_ms = crate::manifest::canvas_auto_paint_ms(&manifest);
+            // plan-179: the arena memory cap — this project's setting, applied to the
+            // whole process.
+            ir.arena_memory = crate::manifest::arena_memory_limits(&manifest);
             // plan-167-B: the config `os::getConfigOr` calls fold from. Like the
             // ceiling above it is this project's, and applies to package code.
             ir.selected_config = selected_config.clone();
@@ -1122,6 +1125,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // said, so `--ncode` disagreed with the program it claims to show.
             lowered.max_buffer_bytes = crate::manifest::max_buffer_bytes(&manifest);
             lowered.canvas_auto_paint_ms = crate::manifest::canvas_auto_paint_ms(&manifest);
+            lowered.arena_memory = crate::manifest::arena_memory_limits(&manifest);
             // plan-167-B: fold `os::getConfigOr` exactly as the executable does,
             // so a native dump shows the values the program will carry.
             lowered.selected_config = selected_config.clone();

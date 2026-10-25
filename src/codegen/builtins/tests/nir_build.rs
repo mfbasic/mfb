@@ -105,6 +105,7 @@ pub(super) fn module(functions: Vec<NirFunction>) -> NirModule {
         native_libraries: crate::binary_repr::NativeLibraryTable { entries: vec![] },
         max_buffer_bytes: 0,
         canvas_auto_paint_ms: crate::manifest::DEFAULT_CANVAS_AUTO_PAINT_MS,
+        arena_memory: crate::ir::ArenaMemoryLimits::default(),
     }
 }
 

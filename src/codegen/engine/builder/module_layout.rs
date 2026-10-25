@@ -68,6 +68,11 @@ pub(super) fn module_data_objects(
     // and each registered section's. Empty unless the report is on, so every
     // normal build keeps its exact data-object set.
     data_objects.extend(crate::codegen::debug::data_objects(module));
+    // plan-179-B: the arena memory cap's limit word and startup-check strings.
+    // Empty with `maxArenaMemoryDisable: true`.
+    data_objects.extend(crate::codegen::runtime::arena_cap::data_objects(
+        module, platform,
+    ));
     // plan-32-A: the RVV runtime-detection flag byte (padded to 8), a writable
     // zeroed global the startup auxv scan sets to 1 on a V-capable chip and the
     // dual-path v128 lowering (plan-32-C) branches on. Emitted only for a
@@ -736,6 +741,7 @@ pub(super) fn emit_program_entries(
                     // `None` static default here.
                     seed_presentation_mode_offset,
                     debug_features: &debug_features,
+                    arena_cap_init: crate::codegen::runtime::arena_cap::arena_cap_enabled(module),
                 },
                 platform_imports,
             )?);
@@ -805,6 +811,7 @@ pub(super) fn emit_program_entries(
                     // so this is always `None` here and the entry is unchanged.
                     seed_presentation_mode_offset,
                     debug_features: &debug_features,
+                    arena_cap_init: crate::codegen::runtime::arena_cap::arena_cap_enabled(module),
                 },
                 platform_imports,
             )?);

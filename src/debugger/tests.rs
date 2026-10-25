@@ -179,7 +179,7 @@ fn the_backend_exists_exactly_where_mfb_dbg_is_supported() {
     let host = (std::env::consts::OS, std::env::consts::ARCH);
     assert_eq!(
         super::host_backend().is_some(),
-        host.0 == "macos" || host == ("linux", "aarch64")
+        host.0 == "macos" || host == ("linux", "aarch64") || host == ("linux", "riscv64")
     );
 }
 

@@ -5,21 +5,21 @@ use super::*;
 #[test]
 fn show_mem_parses_an_address_or_a_register_and_offset() {
     assert_eq!(
-        parse("show mem 0x1000"),
+        parse("show mem 0x1000", &AARCH64),
         Ok(Command::ShowMemory {
             location: Location::number(0x1000),
             size: MEMORY_SIZE
         })
     );
     assert_eq!(
-        parse("show mem sp+0x18 8"),
+        parse("show mem sp+0x18 8", &AARCH64),
         Ok(Command::ShowMemory {
             location: Location::named("sp", 0x18),
             size: 8
         })
     );
     assert_eq!(
-        parse("show mem x19-16"),
+        parse("show mem x19-16", &AARCH64),
         Ok(Command::ShowMemory {
             location: Location::named("x19", -16),
             size: MEMORY_SIZE
@@ -39,7 +39,7 @@ fn show_mem_parses_an_address_or_a_register_and_offset() {
         ("finish now", "'finish' takes no arguments"),
         ("rs again", "'rs' takes no arguments"),
     ] {
-        assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        assert_eq!(parse(line, &AARCH64), Err(message.to_string()), "{line}");
     }
 }
 
@@ -49,21 +49,21 @@ fn show_mem_parses_an_address_or_a_register_and_offset() {
 #[test]
 fn a_function_and_an_offset_name_a_place() {
     assert_eq!(
-        parse("show mem _mfb_fn_f$own4+8"),
+        parse("show mem _mfb_fn_f$own4+8", &AARCH64),
         Ok(Command::ShowMemory {
             location: Location::named("_mfb_fn_f$own4", 8),
             size: MEMORY_SIZE
         })
     );
     assert_eq!(
-        parse("dis datetime::#normInstant+0x10 2"),
+        parse("dis datetime::#normInstant+0x10 2", &AARCH64),
         Ok(Command::Disassemble(Disassembly::At(
             Location::named("datetime::#normInstant", 16),
             Some(Window::count(2))
         )))
     );
     assert_eq!(
-        parse("bp main+272"),
+        parse("bp main+272", &AARCH64),
         Ok(Command::SetBreakpoint {
             target: Target::Offset {
                 name: "main".to_string(),
@@ -91,21 +91,27 @@ fn a_function_and_an_offset_name_a_place() {
 
 #[test]
 fn breakerror_takes_codes_names_any_or_clear() {
-    assert_eq!(parse("be"), Ok(Command::ErrorWatch));
-    assert_eq!(parse("breakerror clear"), Ok(Command::ClearErrors));
+    assert_eq!(parse("be", &AARCH64), Ok(Command::ErrorWatch));
     assert_eq!(
-        parse("be any"),
+        parse("breakerror clear", &AARCH64),
+        Ok(Command::ClearErrors)
+    );
+    assert_eq!(
+        parse("be any", &AARCH64),
         Ok(Command::BreakError(ErrorCodes::Any, Vec::new()))
     );
     assert_eq!(
-        parse("be 77050010 errorCode::ErrNotFound ErrOutOfMemory"),
+        parse(
+            "be 77050010 errorCode::ErrNotFound ErrOutOfMemory",
+            &AARCH64
+        ),
         Ok(Command::BreakError(
             ErrorCodes::Codes(vec![77_050_010, 77_050_004, 77_010_001]),
             Vec::new()
         ))
     );
     assert_eq!(
-        parse("be ErrNothing"),
+        parse("be ErrNothing", &AARCH64),
         Err(
             "'ErrNothing' is not an error code: give its number (77050010) or its \
                  errorCode name (ErrOverflow)"
@@ -125,14 +131,17 @@ fn breakerror_takes_codes_names_any_or_clear() {
 
 #[test]
 fn show_error_takes_a_thread_and_needs_a_debug_build() {
-    assert_eq!(parse("show error"), Ok(Command::ShowError(None)));
-    assert_eq!(parse("show error 2"), Ok(Command::ShowError(Some(2))));
+    assert_eq!(parse("show error", &AARCH64), Ok(Command::ShowError(None)));
     assert_eq!(
-        parse("show error x"),
+        parse("show error 2", &AARCH64),
+        Ok(Command::ShowError(Some(2)))
+    );
+    assert_eq!(
+        parse("show error x", &AARCH64),
         Err("'x' is not a thread id; type 'list thread' for the threads".to_string())
     );
     assert_eq!(
-        parse("show error 1 2"),
+        parse("show error 1 2", &AARCH64),
         Err("too many arguments to 'show error'".to_string())
     );
     let (_, err, _) = session("show error\nshow error 9\nq\n", Ending::Killed, false);
@@ -170,14 +179,14 @@ fn show_type_alone_shows_its_usage() {
 #[test]
 fn show_type_parses_a_type_a_location_and_a_view() {
     assert_eq!(
-        parse("show type string x1"),
+        parse("show type string x1", &AARCH64),
         Ok(Command::ShowType {
             location: Location::named("x1", 0),
             view: View::String
         })
     );
     assert_eq!(
-        parse("show type list 0x1000 resource 2..5"),
+        parse("show type list 0x1000 resource 2..5", &AARCH64),
         Ok(Command::ShowType {
             location: Location::number(0x1000),
             view: View::List {
@@ -190,7 +199,7 @@ fn show_type_parses_a_type_a_location_and_a_view() {
         })
     );
     assert_eq!(
-        parse("show type map x3 get Grace Hopper"),
+        parse("show type map x3 get Grace Hopper", &AARCH64),
         Ok(Command::ShowType {
             location: Location::named("x3", 0),
             view: View::Map(values::MapView::Get("Grace Hopper".to_string()))
@@ -219,7 +228,7 @@ fn show_type_parses_a_type_a_location_and_a_view() {
             "'nope' is not an index, 'keys', 'values' or 'get <key>'",
         ),
     ] {
-        assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        assert_eq!(parse(line, &AARCH64), Err(message.to_string()), "{line}");
     }
 }
 
@@ -278,25 +287,25 @@ fn arena_lines_round_up_to_kilobytes_and_mark_unowned_arenas() {
 fn backtrace_parses_its_forms_in_both_spellings() {
     for name in ["backtrace", "bt"] {
         assert_eq!(
-            parse(name),
+            parse(name, &AARCH64),
             Ok(Command::Backtrace(Backtrace::Thread {
                 count: None,
                 thread: None
             }))
         );
         assert_eq!(
-            parse(&format!("{name} all")),
+            parse(&format!("{name} all"), &AARCH64),
             Ok(Command::Backtrace(Backtrace::All))
         );
         assert_eq!(
-            parse(&format!("{name} 5")),
+            parse(&format!("{name} 5"), &AARCH64),
             Ok(Command::Backtrace(Backtrace::Thread {
                 count: Some(5),
                 thread: None
             }))
         );
         assert_eq!(
-            parse(&format!("{name} 5 2")),
+            parse(&format!("{name} 5 2"), &AARCH64),
             Ok(Command::Backtrace(Backtrace::Thread {
                 count: Some(5),
                 thread: Some(2)
@@ -322,7 +331,7 @@ fn backtrace_parses_its_forms_in_both_spellings() {
         ),
         ("bt 1 2 3", "'bt' takes at most two arguments"),
     ] {
-        assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        assert_eq!(parse(line, &AARCH64), Err(message.to_string()), "{line}");
     }
 }
 
@@ -391,7 +400,11 @@ fn dis_takes_a_count_a_place_or_a_function_and_counts_back_when_negative() {
             Disassembly::Named("isPrime".to_string(), Some(Window { back: 2, length: 3 })),
         ),
     ] {
-        assert_eq!(parse(line), Ok(Command::Disassemble(expected)), "{line}");
+        assert_eq!(
+            parse(line, &AARCH64),
+            Ok(Command::Disassemble(expected)),
+            "{line}"
+        );
     }
     for (line, message) in [
         (
@@ -413,7 +426,7 @@ fn dis_takes_a_count_a_place_or_a_function_and_counts_back_when_negative() {
         ("dis pc -6 8 1", "'dis' takes at most three arguments"),
         ("dis 0xzz", "'0xzz' is not an address"),
     ] {
-        assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        assert_eq!(parse(line, &AARCH64), Err(message.to_string()), "{line}");
     }
 }
 
@@ -523,15 +536,15 @@ fn a_dump_shows_offsets_bytes_and_printable_text() {
 #[test]
 fn show_arena_parses_its_forms() {
     assert_eq!(
-        parse("show arena"),
+        parse("show arena", &AARCH64),
         Ok(Command::ShowArena { id: 0, dump: None })
     );
     assert_eq!(
-        parse("show arena 3"),
+        parse("show arena 3", &AARCH64),
         Ok(Command::ShowArena { id: 3, dump: None })
     );
     assert_eq!(
-        parse("show arena 3 1"),
+        parse("show arena 3 1", &AARCH64),
         Ok(Command::ShowArena {
             id: 3,
             dump: Some(Dump {
@@ -542,7 +555,7 @@ fn show_arena_parses_its_forms() {
         })
     );
     assert_eq!(
-        parse("show arena 3 1 0x40 32"),
+        parse("show arena 3 1 0x40 32", &AARCH64),
         Ok(Command::ShowArena {
             id: 3,
             dump: Some(Dump {
@@ -572,7 +585,7 @@ fn show_arena_parses_its_forms() {
         ("show arena 0 0 zz", "'zz' is not a number"),
         ("show arena 0 0 0 0 0", "too many arguments to 'show arena'"),
     ] {
-        assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        assert_eq!(parse(line, &AARCH64), Err(message.to_string()), "{line}");
     }
 }
 
@@ -606,7 +619,7 @@ Killed process 42.
 "
     );
     assert_eq!(
-        parse("dis [sp+8]"),
+        parse("dis [sp+8]", &AARCH64),
         Ok(Command::Disassemble(Disassembly::At(
             Location::parse("[sp+8]").unwrap(),
             None

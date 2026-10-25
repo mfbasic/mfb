@@ -48,7 +48,7 @@ err=$( { RC_FAIL_TO_STDERR=1; fail "to-stderr"; } 2>&1 >/dev/null )
 check "fail: RC_FAIL_TO_STDERR=1 writes to stderr" $?
 rc_failures=0
 
-# 5. rgba_compare at tolerance (delta 2 on 2% of pixels) is ok; just beyond (delta 3) is not.
+# 5. rgba_compare at tolerance (delta 13 on 2% of pixels) is ok; just beyond (delta 14) is not.
 python3 - "$work" <<'PY'
 import os, sys
 w = sys.argv[1]
@@ -57,20 +57,17 @@ ref = bytearray([10, 20, 30, 255] * n)
 at = bytearray(ref)
 beyond = bytearray(ref)
 for p in range(n // 50):          # exactly 2% of pixels
-    at[p * 4] += 2
-    beyond[p * 4] += 3
+    at[p * 4] += 13
+    beyond[p * 4] += 14
 for name, data in (("ref", ref), ("at", at), ("beyond", beyond)):
     open(os.path.join(w, name + ".rgba"), "wb").write(data)
 PY
 v_at=$(python3 "$DIR/rgba_compare.py" "$work/ref.rgba" "$work/at.rgba" 100)
 v_beyond=$(python3 "$DIR/rgba_compare.py" "$work/ref.rgba" "$work/beyond.rgba" 100)
 case "$v_at" in ok*) true ;; *) false ;; esac
-check "rgba_compare: delta 2 on 2% → ok ($v_at)" $?
+check "rgba_compare: delta 13 on 2% → ok ($v_at)" $?
 case "$v_beyond" in ok*) false ;; *) true ;; esac
-check "rgba_compare: delta 3 → beyond ($v_beyond)" $?
-v_curve=$(python3 "$DIR/rgba_compare.py" "$work/ref.rgba" "$work/beyond.rgba" 100 curve)
-case "$v_curve" in ok*) true ;; *) false ;; esac
-check "rgba_compare: delta 3 under the curve tolerance → ok ($v_curve)" $?
+check "rgba_compare: delta 14 → beyond ($v_beyond)" $?
 
 echo
 if [ "$bad" -ne 0 ]; then

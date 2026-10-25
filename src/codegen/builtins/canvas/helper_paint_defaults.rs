@@ -30,15 +30,13 @@ END FUNC"#;
 /// A `Float` as the bit pattern of the nearest IEEE-754 **binary32**, as a whole
 /// number in `0 .. 2^32`.
 ///
-/// **Why this exists here rather than in either emitter.** The item block carries the
-/// inverse transform as float32 — 16.16 fixed point holds an inverse term near `0.01`
-/// (a 100× scale-up) to about four significant digits, which is roughly ¾ of a pixel of
-/// positional error at the far edge of such an item. But the assemblers this compiler
-/// emits through have **no double→single convert and no 32-bit float store**
-/// (`emit_store_f32_from_integer`'s doc records the same gap), so the narrowing has to
-/// be done by hand somewhere. Doing it *here* means one implementation that an ordinary
-/// test can check against known bit patterns, instead of two hand-rolled ones in
-/// generated machine code where the only symptom of an error is a wrong picture.
+/// **Why this exists in MFBASIC.** Both GPUs read every position as float32. The
+/// emitters narrow the geometry header's doubles themselves (`emit_f32_bits`, an `fcvt`),
+/// but some float32 values are made before any emitter runs and travel in MFBASIC
+/// lists: the inverse transforms in the header (slots 27–33 and the gradient's) and the
+/// group offsets and matrices in the draw list (`__canvas_pushOneDraw`). Those are
+/// narrowed here, in one implementation an ordinary test can check against known bit
+/// patterns.
 ///
 /// Arithmetic, not bit-twiddling: `bits::` takes `Integer` and never `Float`, so there
 /// is no reinterpret to borrow. The three fields are assembled by **addition** rather

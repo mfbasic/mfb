@@ -104,6 +104,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "project-local.json overrides a config value with a different type",
     },
     Rule {
+        code: "2-200-0028",
+        name: "PROJECT_JSON_ARENA_MEMORY_IGNORED",
+        severity: Severity::Warn,
+        message: "project.json `options.maxArenaMemoryDisable` is true, so another `maxArenaMemory*` key is ignored",
+    },
+    Rule {
         code: "2-200-0100",
         name: "BUILD_FAILED",
         severity: Severity::Error,

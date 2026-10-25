@@ -603,6 +603,7 @@ pub(crate) mod tests {
             native_libraries: Default::default(),
             max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
             canvas_auto_paint_ms: crate::manifest::DEFAULT_CANVAS_AUTO_PAINT_MS,
+            arena_memory: crate::ir::ArenaMemoryLimits::default(),
         };
         TypeModel::from_module(&module).expect("the test model builds")
     }

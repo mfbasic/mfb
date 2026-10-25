@@ -212,7 +212,7 @@ Commit: —
       dump, no `b.` inside `math::min` on either; rv64 `slt` present.
 - [ ] `rt_regalloc_levels_agree`: add both fixtures.
 - [ ] Golden re-baseline (all targets).
-- [ ] Runtime: macOS acceptance; 2223, 2227, 2229 `linux-runtime-proof.sh`; 2230 fixtures.
+- [ ] Runtime: macOS acceptance; 2223, 2227, 2229 `linux-runtime-proof.sh`; box 206 fixtures.
 - [ ] Benchmark (macOS host): `run.sh 10`; compare `math`, `float`/`record`,
       `list (Fixed)` sort rows with `rank.py`.
 

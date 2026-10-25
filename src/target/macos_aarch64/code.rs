@@ -161,6 +161,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             spec.needs_winsock,
             spec.seed_presentation_mode_offset,
             spec.debug_features,
+            spec.arena_cap_init,
         )
     }
 
@@ -999,6 +1000,59 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::syscall(),
         ]);
         Ok(())
+    }
+
+    /// plan-179-B: `sysctlbyname("hw.memsize", &u64, &len, NULL, 0)`. The probe
+    /// buffer holds the u64 at +0, `len` at +8 and the name at +16.
+    fn emit_host_memory_probe(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        ram: Reg,
+        scratch: Reg,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        use crate::target::shared::abi as shared;
+        const VALUE: usize = 0;
+        const LEN: usize = 8;
+        const NAME: usize = 16;
+        for (index, byte) in b"hw.memsize\0".iter().enumerate() {
+            instructions.extend([
+                shared::move_immediate(scratch.clone(), "Integer", &byte.to_string()),
+                shared::store_u8(scratch.clone(), shared::stack_pointer(), NAME + index),
+            ]);
+        }
+        instructions.extend([
+            shared::move_immediate(scratch.clone(), "Integer", "8"),
+            shared::store_u64(scratch.clone(), shared::stack_pointer(), LEN),
+            shared::add_immediate(shared::c_arg(0), shared::stack_pointer(), NAME),
+            shared::add_immediate(shared::c_arg(1), shared::stack_pointer(), VALUE),
+            shared::add_immediate(shared::c_arg(2), shared::stack_pointer(), LEN),
+            shared::move_immediate(shared::c_arg(3), "Integer", "0"),
+            shared::move_immediate(shared::c_arg(4), "Integer", "0"),
+        ]);
+        self.emit_external_call(
+            "sysctlbyname",
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        let done = format!("{from}_host_memory_probe_done");
+        instructions.extend([
+            shared::move_register(scratch.clone(), shared::c_return(0)),
+            shared::move_immediate(ram.clone(), "Integer", "0"),
+            shared::compare_immediate(scratch, "0"),
+            shared::branch_ne(&done),
+            shared::load_u64(ram, shared::stack_pointer(), VALUE),
+            shared::label(&done),
+        ]);
+        Ok(())
+    }
+
+    fn host_memory_probe_name(&self) -> &'static str {
+        "sysctlbyname(hw.memsize)"
     }
 
     fn addrinfo_addr_offset(&self) -> usize {

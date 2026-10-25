@@ -579,6 +579,28 @@ impl CodegenPlatform for FailAt<'_> {
         self.tick()?;
         self.inner.emit_arena_unmap(instructions)
     }
+    fn emit_host_memory_probe(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        ram: crate::target::shared::abi::Reg,
+        scratch: crate::target::shared::abi::Reg,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        self.tick()?;
+        self.inner.emit_host_memory_probe(
+            from,
+            platform_imports,
+            ram,
+            scratch,
+            instructions,
+            relocations,
+        )
+    }
+    fn host_memory_probe_name(&self) -> &'static str {
+        self.inner.host_memory_probe_name()
+    }
     fn addrinfo_addr_offset(&self) -> usize {
         self.inner.addrinfo_addr_offset()
     }

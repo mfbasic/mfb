@@ -8,10 +8,11 @@ currencies.
 ```
 IMPORT currency
 IMPORT io
+IMPORT money
 
 FUNC main() AS Nothing
-  currency::setRate("USD", 1F)      ' the base currency
-  currency::setRate("EUR", 1.25F)   ' one euro is worth 1.25 dollars
+  currency::setRate("USD", money::toRate(1))        ' the base currency
+  currency::setRate("EUR", money::toRate("1.25"))   ' one euro is worth 1.25 dollars
 
   LET price AS currency::Amount = currency::amount(5m, "USD")
   LET fee AS currency::Amount = currency::amount(4m, "eur")
@@ -33,18 +34,18 @@ Full API and prose: `mfb pkg doc packages/currency/currency.mfp`, or
 | `currency::isoCodes() AS List OF String` | Every ISO 4217 code the package accepts | — |
 | `currency::isoListDate() AS String` | The publication date of the ISO list it carries | — |
 | `currency::minorUnits(code) AS Integer` | Decimal places the currency is booked to | `ErrorInvalidCode` |
-| `currency::setRate(code, rate)` | Add or replace a rate | `ErrorInvalidCode`, `ErrorInvalidRate` |
+| `currency::setRate(code, rate AS money::Rate)` | Add or replace a rate | `ErrorInvalidCode`, `ErrorInvalidRate` |
 | `currency::removeRate(code)` | Remove a rate; a code with no rate is ignored | `ErrorInvalidCode` |
 | `currency::clearRates()` | Empty the table | — |
 | `currency::hasRate(code) AS Boolean` | Whether the table has a rate for `code` | `ErrorInvalidCode` |
-| `currency::getRate(code) AS Fixed` | The rate for `code` | `ErrorInvalidCode`, `ErrorUnknownCurrency` |
+| `currency::getRate(code) AS money::Rate` | The rate for `code` | `ErrorInvalidCode`, `ErrorUnknownCurrency` |
 | `currency::hasBaseCurrency() AS Boolean` | Whether some code has rate `1` | — |
-| `currency::exportRates() AS Map OF String TO Fixed` | A copy of the table | — |
+| `currency::exportRates() AS Map OF String TO money::Rate` | A copy of the table | — |
 | `currency::importRates(table)` | Check every entry, then replace the whole table | `ErrorInvalidCode`, `ErrorInvalidRate` |
 | `currency::convert(a, code) AS Amount` | `a` expressed in another currency | two-amount rules |
 | `currency::add(a, b)` / `subtract(a, b) AS Amount` | `a ± b`, in `a`'s currency | two-amount rules |
 | `currency::compare(a, b) AS Integer` | -1, 0 or 1 by worth | two-amount rules |
-| `currency::multiply(a, k)` / `divide(a, k) AS Amount` | Scale by an `Integer`, `Fixed` or `Float` | `ErrorInvalidCode` |
+| `currency::multiply(a, k)` / `divide(a, k) AS Amount` | Scale by an `Integer`, `money::Rate` or `Float` | `ErrorInvalidCode` |
 | `currency::negate(a) AS Amount` | `-a` | `ErrorInvalidCode` |
 | `currency::round(a)` / `round(a, decimals) AS Amount` | Round to the currency's minor units, or to `decimals` | `ErrorInvalidCode` |
 | `currency::format(a) AS String` | Text such as `12.50 USD` | `ErrorInvalidCode` |
@@ -84,26 +85,28 @@ base currency is any code with rate exactly `1`; there is no separate setting fo
 With `USD` as the base:
 
 ```
-currency::setRate("USD", 1F)        ' base
-currency::setRate("EUR", 1.25F)     ' 1 EUR = 1.25 USD
-currency::setRate("JPY", 0.0067F)   ' 1 JPY = 0.0067 USD
-currency::setRate("_GOLD", 64F)     ' 1 _GOLD = 64 USD
+currency::setRate("USD", money::toRate(1))          ' base
+currency::setRate("EUR", money::toRate("1.25"))     ' 1 EUR = 1.25 USD
+currency::setRate("JPY", money::toRate("0.0067"))   ' 1 JPY = 0.0067 USD
+currency::setRate("_GOLD", money::toRate(64))       ' 1 _GOLD = 64 USD
 ```
 
 Converting an amount from currency F to currency T computes
-`value * rate(F) / rate(T)`. The base currency's name is never needed, so changing
-which code is the base only means rescaling every rate. Multiplying first keeps the
-precision of a small rate; the cost is that the amount's worth in the base currency
-must itself fit in `Money`, or the conversion fails with `errorCode::ErrOverflow`.
+`value * rate(F) / rate(T)` with `money::convert`. The base currency's name is never
+needed, so changing which code is the base only means rescaling every rate. The
+calculation is exact and rounds once, at `Money`'s five places, so the amount's worth
+in the base currency never has to fit in `Money`; only a result outside `Money`'s range
+fails, with `errorCode::ErrOverflow`.
 
 `setRate` replaces a code's existing rate. A rate must be greater than zero
 (`ErrorInvalidRate`). `removeRate` on a code with no rate does nothing.
 
-Rates are `Fixed`, which is binary fixed-point with a resolution of 1/2^32 (about
-0.00000000023), not decimal. `1.25F` and `64F` are stored exactly, but most decimal
-rates such as `1.0842F` are stored as the nearest binary value. For small rates that
-costs relative precision: a rate near `0.00002` keeps only about five significant
-digits.
+Rates are `money::Rate` values: exact decimals, the rate times 10^12 held in one
+`Integer`. A rate has up to 12 decimal places and is at most `9223372.036854775807`.
+`money::toRate("1.0842")` is exactly 1.0842, and `money::toRate` rejects text with
+more than 12 places rather than rounding it. A `money::Rate` built by hand with
+`scaled` at or below zero is refused by `setRate` and `importRates`
+(`ErrorInvalidRate`).
 
 ### Rules for two amounts
 
@@ -134,14 +137,14 @@ table: every started thread gets its own fresh copy of its project's module stat
 `currency::exportRates()` and call `currency::importRates` there:
 
 ```
-ISOLATED FUNC worker(self AS ThreadWorker OF String TO String, saved AS Map OF String TO Fixed) AS String
+ISOLATED FUNC worker(self AS ThreadWorker OF String TO String, saved AS Map OF String TO money::Rate) AS String
   currency::importRates(saved)
   RETURN currency::format(currency::convert(currency::amount(10m, "EUR"), "USD"))
 END FUNC
 
 FUNC main() AS Nothing
-  currency::setRate("USD", 1F)
-  currency::setRate("EUR", 1.25F)
+  currency::setRate("USD", money::toRate(1))
+  currency::setRate("EUR", money::toRate("1.25"))
   RES t AS Thread OF String TO String = thread::start(worker, currency::exportRates())
   io::print(thread::waitFor(t))   ' 12.50 USD
 END FUNC
@@ -205,5 +208,5 @@ sh scripts/check-generated.sh                # data.mfb matches the vendored ISO
 ```
 
 `check-doc-examples.sh` compares each example's output with the trailing comments on its
-`io::print` lines. Every rate in the suite is exact in binary `Fixed`, so each expected
+`io::print` lines. Every rate in the suite is an exact `money::Rate`, so each expected
 value is an exact decimal worked out by hand next to its test.

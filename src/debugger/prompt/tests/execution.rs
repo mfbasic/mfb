@@ -112,7 +112,7 @@ fn env_s_takes_the_rest_of_the_line_as_the_value() {
     assert_eq!(after_words("env s A  b c \r\n", 3), "b c ");
     assert_eq!(after_words("  env\tset A\n", 3), "");
     assert_eq!(
-        parse("env set A x=1 y\n"),
+        parse("env set A x=1 y\n", &AARCH64),
         Ok(Command::Env(environment::Change::Set {
             name: "A".to_string(),
             value: "x=1 y".to_string(),
@@ -323,7 +323,7 @@ fn run_reports_each_kind_of_stop() {
 fn watchpoint_breakpoint_and_breakerror_take_commands_after_a_semicolon() {
     let commands = |list: &[&str]| list.iter().map(|word| word.to_string()).collect::<Vec<_>>();
     assert_eq!(
-        parse("bp fib bt 1; list reg x0 ;"),
+        parse("bp fib bt 1; list reg x0 ;", &AARCH64),
         Ok(Command::SetBreakpoint {
             target: Target::Name("fib".to_string()),
             condition: None,
@@ -332,7 +332,7 @@ fn watchpoint_breakpoint_and_breakerror_take_commands_after_a_semicolon() {
     );
     // `finish` may be anywhere among a stop's commands, `run` only last.
     assert_eq!(
-        parse("bp fib bt 1; f; list reg x0; r"),
+        parse("bp fib bt 1; f; list reg x0; r", &AARCH64),
         Ok(Command::SetBreakpoint {
             target: Target::Name("fib".to_string()),
             condition: None,
@@ -340,7 +340,7 @@ fn watchpoint_breakpoint_and_breakerror_take_commands_after_a_semicolon() {
         })
     );
     assert_eq!(
-        parse("wp sp+0x10"),
+        parse("wp sp+0x10", &AARCH64),
         Ok(Command::SetWatchpoint {
             location: Location::named("sp", 16),
             size: 8,
@@ -348,7 +348,7 @@ fn watchpoint_breakpoint_and_breakerror_take_commands_after_a_semicolon() {
         })
     );
     assert_eq!(
-        parse("watchpoint 0x1000 0x4 show mem 0x1000 4;be"),
+        parse("watchpoint 0x1000 0x4 show mem 0x1000 4;be", &AARCH64),
         Ok(Command::SetWatchpoint {
             location: Location::number(0x1000),
             size: 4,
@@ -356,22 +356,22 @@ fn watchpoint_breakpoint_and_breakerror_take_commands_after_a_semicolon() {
         })
     );
     assert_eq!(
-        parse("wp r x19+8"),
+        parse("wp r x19+8", &AARCH64),
         Ok(Command::RemoveWatchpoint(Location::named("x19", 8)))
     );
     assert_eq!(
-        parse("be ErrOverflow 42 show error; bt"),
+        parse("be ErrOverflow 42 show error; bt", &AARCH64),
         Ok(Command::BreakError(
             ErrorCodes::Codes(vec![77_050_010, 42]),
             commands(&["show error", "bt"])
         ))
     );
     assert_eq!(
-        parse("be any dis 4"),
+        parse("be any dis 4", &AARCH64),
         Ok(Command::BreakError(ErrorCodes::Any, commands(&["dis 4"])))
     );
     assert_eq!(
-        parse("list watchpoint"),
+        parse("list watchpoint", &AARCH64),
         Ok(Command::List(Some(Listing::Watchpoints)))
     );
     for (line, message) in [
@@ -413,7 +413,7 @@ fn watchpoint_breakpoint_and_breakerror_take_commands_after_a_semicolon() {
             "too many arguments to 'list watchpoint'",
         ),
     ] {
-        assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        assert_eq!(parse(line, &AARCH64), Err(message.to_string()), "{line}");
     }
 }
 
@@ -541,7 +541,7 @@ fn run_reports_an_exit_status() {
 fn breakpointif_takes_a_test_a_place_and_commands() {
     let condition = |location, test, value| Some(Condition::parse(location, test, value).unwrap());
     assert_eq!(
-        parse("bpi x0 eq 5 at logPath bt"),
+        parse("bpi x0 eq 5 at logPath bt", &AARCH64),
         Ok(Command::SetBreakpoint {
             target: Target::Name("logPath".to_string()),
             condition: condition("x0", "eq", Some("5")),
@@ -549,7 +549,7 @@ fn breakpointif_takes_a_test_a_place_and_commands() {
         })
     );
     assert_eq!(
-        parse("breakpointif [sp+0x18] in at 0x1000+4"),
+        parse("breakpointif [sp+0x18] in at 0x1000+4", &AARCH64),
         Ok(Command::SetBreakpoint {
             target: Target::Address(0x1004),
             condition: condition("[sp+0x18]", "in", None),
@@ -557,7 +557,7 @@ fn breakpointif_takes_a_test_a_place_and_commands() {
         })
     );
     assert_eq!(
-        parse("bpi r [x0]-8 lt -1 at main+0x10"),
+        parse("bpi r [x0]-8 lt -1 at main+0x10", &AARCH64),
         Ok(Command::RemoveBreakpoint {
             target: Target::Offset {
                 name: "main".to_string(),
@@ -609,7 +609,7 @@ fn breakpointif_takes_a_test_a_place_and_commands() {
                  disassemble, jump, finish, a bare breakerror and, last, run",
         ),
     ] {
-        assert_eq!(parse(line), Err(message.to_string()), "{line}");
+        assert_eq!(parse(line, &AARCH64), Err(message.to_string()), "{line}");
     }
 }
 
@@ -665,7 +665,7 @@ Removed the breakpoint at 0x0000000000001004 in next_seed if [0x0000000012348593
 #[test]
 fn jump_moves_the_current_thread_and_sets_its_registers() {
     assert_eq!(
-        parse("j lr x0=0 x1=-1 sp=[sp+8]"),
+        parse("j lr x0=0 x1=-1 sp=[sp+8]", &AARCH64),
         Ok(Command::Jump {
             to: Location::named("lr", 0),
             registers: vec![
@@ -761,7 +761,7 @@ fn jump_refuses_a_bad_place_register_or_value() {
             "'j' sets at most 8 registers".to_string(),
         ),
     ] {
-        assert_eq!(parse(&line), Err(message), "{line}");
+        assert_eq!(parse(&line, &AARCH64), Err(message), "{line}");
     }
     let mut inferior = Recorder::new(Ending::Killed);
     let (_, err) = drive(

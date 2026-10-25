@@ -103,11 +103,31 @@ fn a_module_without_an_entry_declares_no_entry_imports() {
         module.entry = None;
         let plan = plan_of(&module, target).expect("an entry-less module still plans");
         if target == CodeTarget::WindowsX86_64 {
+            // plan-179: the arena memory cap is carried only by an executable
+            // (`arena_cap_enabled`), so its RAM probe and map-lock imports ride
+            // `_start` only with an entry; compare against the capless plan.
+            let mut capless = module_for(HELLO, target, NativeBuildMode::Console);
+            capless.arena_memory.disable = true;
+            let capless = plan_of(&capless, target).expect("the capless plan lowers");
             assert_eq!(
                 symbols(&plan.platform_imports, "_start"),
-                symbols(&with_entry.platform_imports, "_start"),
+                symbols(&capless.platform_imports, "_start"),
                 "windows imports its `_start` set whether or not the module has an entry"
             );
+            for cap_import in [
+                "GlobalMemoryStatusEx",
+                "AcquireSRWLockExclusive",
+                "ReleaseSRWLockExclusive",
+            ] {
+                assert!(
+                    symbols(&with_entry.platform_imports, "_start").contains(&cap_import),
+                    "control: an executable carries the cap and imports {cap_import}"
+                );
+                assert!(
+                    !symbols(&plan.platform_imports, "_start").contains(&cap_import),
+                    "an entry-less module carries no arena cap, so no {cap_import}"
+                );
+            }
             continue;
         }
         assert!(

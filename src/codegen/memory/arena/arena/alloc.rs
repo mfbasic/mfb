@@ -11,6 +11,10 @@ pub(crate) fn lower_arena_alloc(
     platform: &dyn CodegenPlatform,
     perf: bool,
     debug_arena: bool,
+    // plan-179-C: charge each mapped block against the arena memory cap. The lock
+    // calls need the platform's imports.
+    arena_cap: bool,
+    platform_imports: &std::collections::HashMap<String, String>,
 ) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2): the body names virtual registers and the
     // shared allocator places them per-ISA; `finalize_vreg_helper` runs the
@@ -729,6 +733,24 @@ pub(crate) fn lower_arena_alloc(
         abi::and_registers(&map_size, &map_size, &page_mask),
         abi::label("arena_alloc_map_size_ready"),
     ]);
+    // plan-179-C: charge the block to the arena memory cap before mapping it; a
+    // charge past the limit is `ErrOutOfMemory` without a map.
+    let cap_charged = vregs.next();
+    if arena_cap {
+        crate::codegen::runtime::arena_cap::emit_map_charge(
+            &mut crate::codegen::runtime::arena_cap::CapSite {
+                symbol: ARENA_ALLOC_SYMBOL,
+                platform,
+                platform_imports,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            &map_size,
+            &cap_charged,
+            "arena_alloc_oom",
+            &mut vregs,
+        )?;
+    }
     // mmap `map_size` bytes; the result is left in the return register. `map_size`
     // is live across the syscall (read again below for the block header), so the
     // allocator keeps it in a callee-saved register or spills it.
@@ -741,6 +763,23 @@ pub(crate) fn lower_arena_alloc(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge("arena_alloc_mapped"),
+    ]);
+    // A failed map gives its charge back.
+    if arena_cap {
+        crate::codegen::runtime::arena_cap::emit_map_refund(
+            &mut crate::codegen::runtime::arena_cap::CapSite {
+                symbol: ARENA_ALLOC_SYMBOL,
+                platform,
+                platform_imports,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            &map_size,
+            &cap_charged,
+            &mut vregs,
+        )?;
+    }
+    instructions.extend([
         abi::branch("arena_alloc_oom"),
         abi::label("arena_alloc_mapped"),
     ]);

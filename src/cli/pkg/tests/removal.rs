@@ -61,6 +61,7 @@ pub(super) fn package(dir: &Path, ident: &str, imports: &[(&str, &str, &Path)]) 
         native_libraries: Default::default(),
         max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
         canvas_auto_paint_ms: crate::manifest::DEFAULT_CANVAS_AUTO_PAINT_MS,
+        arena_memory: crate::ir::ArenaMemoryLimits::default(),
         selected_config: Default::default(),
     };
     let mut metadata = BinaryReprMetadata::new(name.to_string(), "1.0.0".to_string());

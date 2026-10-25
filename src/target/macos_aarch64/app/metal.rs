@@ -59,19 +59,19 @@ use crate::codegen::runtime::canvas::metal::{
     METAL_FAILED, METAL_UNTRIED, MTL_CREATE_DEVICE,
 };
 use crate::codegen::runtime::canvas::{
-    emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
-    emit_square_cap_reach, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT,
-    ITEM_BAND_HEIGHT, ITEM_BAND_NORM, ITEM_BAND_START, ITEM_BAND_TOP, ITEM_CLIP_BAND_NORM,
-    ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
+    emit_f32_bits, emit_f32_word_to_fixed, emit_fixed_to_f32_bits, emit_item_arc_flags,
+    emit_item_float_field, emit_item_polygon_rule, emit_item_stroke_sign, emit_square_cap_reach,
+    BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT,
+    ITEM_BAND_NORM, ITEM_BAND_START, ITEM_BAND_TOP, ITEM_CLIP_BAND_NORM, ITEM_FLOAT_FIELDS,
+    METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
 };
 use crate::codegen::runtime::canvas::{
-    BLEND_MODE_COUNT, EDGE_RESIDUAL_SCALE, GRAPHICS_OFFSET_ATTR, GRAPHICS_OFFSET_MTL_DEVICE,
+    BLEND_MODE_COUNT, GRAPHICS_OFFSET_ATTR, GRAPHICS_OFFSET_MTL_DEVICE,
     GRAPHICS_OFFSET_MTL_ITEM_BUFFER, GRAPHICS_OFFSET_MTL_ITEM_CONTENTS,
     GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE,
     GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
     GRAPHICS_OFFSET_MTL_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, ITEM_ARC_EDGE_BASE, METAL_BUFFER_BYTES,
-    METAL_EDGE_BASE_WORDS, METAL_EDGE_RESIDUAL_BASE_WORDS, METAL_MAX_FRAME_EDGES,
-    METAL_MAX_FRAME_ITEMS,
+    METAL_EDGE_BASE_WORDS, METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_ITEMS,
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
@@ -172,10 +172,8 @@ pub(super) static METAL_SHADER_SOURCE: LazyLock<String> = LazyLock::new(|| {
     format!(
         "#include <metal_stdlib>\n\
          using namespace metal;\n\
-         constant float FIXED = 65536.0;\n\
          constant float PI = 3.141592653589793;\n\
          constant int METAL_EDGE_BASE = {METAL_EDGE_BASE_WORDS};\n\
-         constant int METAL_EDGE_RESIDUAL_BASE = {METAL_EDGE_RESIDUAL_BASE_WORDS};\n\
          constant int METAL_BAND_BASE = {METAL_BAND_BASE_WORDS};\n\
          constant int METAL_GRADIENT_BASE = {METAL_GRADIENT_BASE_WORDS};\n\
          constant int METAL_DASH_BASE = {METAL_DASH_BASE_WORDS};\n\
@@ -185,2005 +183,10 @@ pub(super) static METAL_SHADER_SOURCE: LazyLock<String> = LazyLock::new(|| {
     .replace(CURVE_SHADER_MARK, &curve_shader(ShaderLanguage::Msl))
 });
 
-/// Everything in the MSL after the region bases — the part with no layout number in it.
-const METAL_SHADER_BODY: &str = concat!(
-    "struct MfbItem {\n",
-    "  int4 quad;\n",     // bounds minX, minY, maxX, maxY (16.16 px)
-    "  int4 shape;\n",    // p0..p3 (16.16 px)
-    "  int4 fill;\n",     // RGBA 0..255
-    "  int4 stroke;\n",   // RGBA 0..255
-    "  int4 misc;\n",     // kind, radius (16.16), strokeHalf (16.16), edgeCount
-    // glyph/picture height, arc sweep turn (bug-735, bug-1088) / polygon fill rule (plan-163-A),
-    // edgeBase, capStyle
-    "  int4 arc;\n",
-    "  int2 surface;\n",  // width, height (px)
-    "  int blendMode;\n", // the BlendMode tag 0..3 (plan-116-B)
-    // 0 linear, 1 radial (plan-116-F); was the block's pad. plan-163-D: `kind | spread
-    // << 1 | apply << 3`.
-    "  int gradientKind;\n",
-    "  int4 clip;\n",   // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
-    "  int4 xform0;\n", // inverse transform ia,ib,ic,id as float32 BITS
-    // itx, ity (float32 bits), hasTransform (0 or 1); then (bug-1083) how much of the
-    // quad's x sides is rim, 16.16, which only the vertex stage reads
-    "  int4 xform1;\n",
-    "  int4 arcCaps;\n", // an arc's two sweep endpoints startX,startY,endX,endY (16.16)
-    "  int4 ellipse;\n", // ellipse cos, sin (16.16); gradient stop count and base
-    "  int4 gradient;\n", // a gradient's axis startX,startY,endX,endY (16.16)
-    // bug-735: the residual words (units of 2^-47 px) of every field a distance reads.
-    "  int4 shapeLo;\n", // of shape.xyzw
-    "  int4 capsLo;\n",  // of arcCaps.xyzw
-    "  int4 clipLo;\n",  // of clip.xyzw
-    "  int4 miscLo;\n",  // of misc.y (radius), misc.z (strokeHalf), ellipse.x, ellipse.y
-    // plan-163-B: join records' first edge slot and count, dash pattern's first entry
-    // and count.
-    "  int4 strokeStyle;\n",
-    // plan-163-C: a path clip's band header, then its edge base, edge count, mode | rule
-    // << 2 and a picture's transparency step.
-    "  int4 clipBand;\n",
-    "  int4 clipPath;\n",
-    // plan-163-D: a radial gradient's own inverse transform (float32 bits) and flag, then
-    // its focal offset and focal radius (16.16). bug-1083: `gradInv1.w` is how much of
-    // the quad's y sides is rim, 16.16 (`xform1.w` has the x sides').
-    "  int4 gradInv0;\n",
-    "  int4 gradInv1;\n",
-    "  int4 gradFocal;\n",
-    "};\n",
-    // plan-116-A: the index travels to the fragment stage as a flat varying, because
-    // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
-    // is an index, and interpolating an index across a quad produces a *plausible*
-    // picture drawn from the wrong blocks rather than a failure.
-    "struct VOut { float4 pos [[position]]; uint item [[flat]]; };\n",
-    "static float fx(int v) { return float(v) / FIXED; }\n",
-    // plan-172-H: what one draw binds, to both stages -- 32 bytes. `offset` is the
-    // translation of the enclosing groups' composed affine: two 16.16 words, then
-    // (bug-735) their residual words. `inverse` is the linear part of that affine's
-    // INVERSE as four float32 bit patterns -- `ia`, `ib`, `ic`, `id`, so a point maps as
-    // `(ia * x + ic * y, ib * x + id * y)` -- and all-zero bits when the groups only
-    // translate, the convention every `canvas::Transform` has. An inverse is never all
-    // zero, so the test cannot mistake one.
-    "struct MfbDraw { int4 offset; int4 inverse; };\n",
-    "static bool drawGrouped(constant MfbDraw &draw) {\n",
-    "  return (draw.inverse.x | draw.inverse.y | draw.inverse.z | draw.inverse.w) != 0;\n",
-    "}\n",
-    "static float4 drawInverse(constant MfbDraw &draw) {\n",
-    "  return float4(as_type<float>(draw.inverse.x), as_type<float>(draw.inverse.y),\n",
-    "                as_type<float>(draw.inverse.z), as_type<float>(draw.inverse.w));\n",
-    "}\n",
-    // `[[instance_id]]` **already includes `baseInstance`**, so a run that begins partway
-    // through the item buffer indexes it directly and needs no other arithmetic — the
-    // same property Vulkan's `gl_InstanceIndex` has. That is measured, not assumed, and
-    // it is the opposite of what plan-116-A predicted: adding a separate
-    // `[[base_instance]]` on top of it double-counted, so `baseInstance = 0` drew
-    // correctly and every non-zero base indexed past the end of the scene's blocks and
-    // drew nothing at all (plan-116-A Correction C5).
-    //
-    // Indexing here rather than binding the buffer at `base * ITEM_BLOCK_SIZE` also
-    // sidesteps `MTLBuffer` offset alignment, which the item stride does not satisfy
-    // (`ITEM_BLOCK_SIZE`, 272 since bug-735; 112 when this was written).
-    // plan-116-H: the group offset moves the QUAD, and the fragment stage moves the
-    // query point the other way. Same split the software renderer makes (plan-116-G
-    // section 4.5) and the same one `mfb_canvas.vert` makes -- bounds by +offset,
-    // distance evaluated at p - offset -- so one rule covers all three renderers.
-    //
-    // No clamp to the surface. The quad may extend past it and the rasteriser discards
-    // what falls outside clip space; clamping would shrink a quad the fragment stage
-    // still expects to span the item's full extent.
-    //
-    // `buffer(1)` and not a bigger `MfbItem`: the offset varies per DRAW while the item
-    // varies per instance, so putting it in the item block would mean rewriting every
-    // block whenever a group moved.
-    "vertex VOut mfbVertex(uint vid [[vertex_id]],\n",
-    "                      uint iid [[instance_id]],\n",
-    "                      constant MfbItem *items [[buffer(0)]],\n",
-    "                      constant MfbDraw &draw [[buffer(1)]]) {\n",
-    "  uint index = iid;\n",
-    "  constant MfbItem &item = items[index];\n",
-    "  float2 corner = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z),\n",
-    "                         fx((vid & 2) == 0 ? item.quad.y : item.quad.w))\n",
-    "                + float2(fx(draw.offset.x), fx(draw.offset.y));\n",
-    // plan-172-H: under a group matrix the quad is the item's box carried through the
-    // FORWARD linear part -- the inverse of the 2x2 the draw carries -- which makes it
-    // a parallelogram, and four mapped corners of a triangle strip are exactly that.
-    //
-    // bug-1083: the box carried is not the block's as it stands. Its rim -- `xform1.w`
-    // on the x sides, `gradInv1.w` on the y sides, zero for a box that is not an extent
-    // and a rim -- was sized for the item drawn with no group, and a pixel takes
-    // coverage only within half the COMPOSED inverse's norm of the item, which is at
-    // most the product of the item's norm and the groups'. So the rim is replaced by
-    // itself scaled by the groups' norm `|M|`: the lower sides are `(bound + rim) - rim
-    // * |M|`, the upper `(bound - rim) + rim * |M|`. `__canvas_drawBound` has the
-    // derivation, kind of rim by kind of rim, and takes the same two lines.
-    //
-    // Then the pixel: the box is grown by `|M|` once more on every side. That is at
-    // least one pixel on the surface, because the forward map shrinks nothing by more
-    // than `1 / |M|`, and it is added here, before the map, because the quad is the
-    // mapped parallelogram and not its hull (the oracle pads its hull by a pixel
-    // instead). The fragment stage decides coverage; a quad can only be too small.
-    "  if (drawGrouped(draw)) {\n",
-    "    float4 gi = drawInverse(draw);\n",
-    "    float pad = length(gi);\n",
-    "    float2 rim = float2(fx(item.xform1.w), fx(item.gradInv1.w));\n",
-    "    float2 grow = rim * pad - rim + pad;\n",
-    "    float2 local = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z) + ((vid & 1) == 0 ? -grow.x : grow.x),\n",
-    "                          fx((vid & 2) == 0 ? item.quad.y : item.quad.w) + ((vid & 2) == 0 ? -grow.y : grow.y));\n",
-    "    float det = gi.x * gi.w - gi.y * gi.z;\n",
-    "    corner = float2((gi.w * local.x - gi.z * local.y) / det, (gi.x * local.y - gi.y * local.x) / det)\n",
-    "             + float2(fx(draw.offset.x), fx(draw.offset.y));\n",
-    "  }\n",
-    "  VOut o;\n",
-    "  o.item = index;\n",
-    "  o.pos = float4(corner.x / float(item.surface.x) * 2.0 - 1.0,\n",
-    "                 1.0 - corner.y / float(item.surface.y) * 2.0, 0.0, 1.0);\n",
-    "  return o;\n",
-    "}\n",
-    "static float rectDistance(float2 p, float2 c, float2 h) {\n",
-    "  float2 d = abs(p - c) - h;\n",
-    "  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);\n",
-    "}\n",
-    "static float segmentDistance(float2 p, float2 a, float2 b) {\n",
-    "  float2 v = b - a, w = p - a;\n",
-    "  float len2 = dot(v, v);\n",
-    "  float t = len2 > 0.0 ? clamp(dot(w, v) / len2, 0.0, 1.0) : 0.0;\n",
-    "  return length(w - v * t);\n",
-    "}\n",
-    // plan-116-D: the butt-capped twin, and the twin of `segmentDistanceButt` in
-    // `runtime/canvas/shaders/mfb_canvas.frag`. `half` comes off BEFORE the two `max`es
-    // because a butt stroke is the round band intersected with the slab between the end
-    // planes — subtracting after would compare each plane against the half-width rather
-    // than against zero, so the cap would not bite until a pixel was more than `half`
-    // past the endpoint.
-    "static float segmentDistanceButt(float2 p, float2 a, float2 b, float halfW) {\n",
-    "  float2 v = b - a, w = p - a;\n",
-    "  float len2 = dot(v, v);\n",
-    "  if (len2 <= 0.0) { return 1.0e6; }\n",
-    "  float len = sqrt(len2);\n",
-    "  float t = dot(w, v) / len2;\n",
-    "  float d = length(w - v * clamp(t, 0.0, 1.0)) - halfW;\n",
-    "  d = max(d, -t * len);\n",
-    "  return max(d, (t - 1.0) * len);\n",
-    "}\n",
-    // plan-163-B: the SQUARE-ended twin (`__canvas_segmentDistanceSquare`, and
-    // `segmentDistanceSquare` in `mfb_canvas.frag`): the rectangle `half` wider than the
-    // segment on every side; a zero-length one is the axis-aligned square.
-    "static float segmentDistanceSquare(float2 p, float2 a, float2 b, float halfW) {\n",
-    "  float2 v = b - a, w = p - a;\n",
-    "  float len2 = dot(v, v);\n",
-    "  if (len2 <= 0.0) { return max(abs(w.x), abs(w.y)) - halfW; }\n",
-    "  float len = sqrt(len2);\n",
-    "  float t = dot(w, v) / len2;\n",
-    "  float d = abs(w.x * v.y - w.y * v.x) / len - halfW;\n",
-    "  d = max(d, -t * len - halfW);\n",
-    "  return max(d, (t - 1.0) * len - halfW);\n",
-    "}\n",
-    // bug-687: double-float arithmetic -- a value as an unevaluated sum `hi + lo` of two
-    // floats, about 48 bits. A polygon's distance is evaluated in it because fp32 is not
-    // the oracle's f64: where the exact distance lies within ~1e-5 px of a coverage
-    // quantisation boundary the two round to neighbouring steps, and near black one step
-    // is 3-4 sRGB levels, past GPU_DEFAULT.
-    //
-    // The error terms only exist if the compiler keeps the operations in the order written.
-    // Metal compiles with fast math, which may reassociate `(a - (s - v)) + (b - v)` to 0
-    // (measured: every TwoSum error term came back wrong), so each helper turns
-    // reassociation off for its own body. `fma` is exact by the MSL specification, which is
-    // what makes TwoProd one instruction.
-    "static float2 dfTwoSum(float a, float b) {\n",
-    "#pragma clang fp reassociate(off)\n",
-    "  float s = a + b;\n",
-    "  float v = s - a;\n",
-    "  return float2(s, (a - (s - v)) + (b - v));\n",
-    "}\n",
-    "static float2 dfQuickSum(float a, float b) {\n",
-    "#pragma clang fp reassociate(off)\n",
-    "  float s = a + b;\n",
-    "  return float2(s, b - (s - a));\n",
-    "}\n",
-    "static float2 dfTwoProd(float a, float b) {\n",
-    "#pragma clang fp reassociate(off)\n",
-    "  float p = a * b;\n",
-    "  return float2(p, fma(a, b, -p));\n",
-    "}\n",
-    "static float2 dfAdd(float2 a, float2 b) {\n",
-    "#pragma clang fp reassociate(off)\n",
-    "  float2 s = dfTwoSum(a.x, b.x);\n",
-    "  float2 t = dfTwoSum(a.y, b.y);\n",
-    "  s = dfQuickSum(s.x, s.y + t.x);\n",
-    "  return dfQuickSum(s.x, s.y + t.y);\n",
-    "}\n",
-    "static float2 dfSub(float2 a, float2 b) { return dfAdd(a, -b); }\n",
-    "static float2 dfMul(float2 a, float2 b) {\n",
-    "#pragma clang fp reassociate(off)\n",
-    "  float2 p = dfTwoProd(a.x, b.x);\n",
-    "  return dfQuickSum(p.x, p.y + (a.x * b.y + a.y * b.x));\n",
-    "}\n",
-    "static float2 dfMulF(float2 a, float b) {\n",
-    "#pragma clang fp reassociate(off)\n",
-    "  float2 p = dfTwoProd(a.x, b);\n",
-    "  return dfQuickSum(p.x, p.y + a.y * b);\n",
-    "}\n",
-    "static float2 dfDiv(float2 a, float2 b) {\n",
-    "#pragma clang fp reassociate(off)\n",
-    "  float q1 = a.x / b.x;\n",
-    "  float2 r = dfSub(a, dfMulF(b, q1));\n",
-    "  float q2 = r.x / b.x;\n",
-    "  r = dfSub(r, dfMulF(b, q2));\n",
-    "  float q3 = r.x / b.x;\n",
-    "  return dfAdd(dfQuickSum(q1, q2), float2(q3, 0.0));\n",
-    "}\n",
-    "static float2 dfSqrt(float2 a) {\n",
-    "#pragma clang fp reassociate(off)\n",
-    "  if (a.x <= 0.0) { return float2(0.0, 0.0); }\n",
-    "  float x = rsqrt(a.x);\n",
-    "  float y = a.x * x;\n",
-    "  float2 d = dfSub(a, dfTwoProd(y, y));\n",
-    "  return dfTwoSum(y, d.x * (x * 0.5));\n",
-    "}\n",
-    "static bool dfLess(float2 a, float2 b) { return a.x < b.x || (a.x == b.x && a.y < b.y); }\n",
-    // A 16.16 word as a double-float, exactly: the two halves are exact floats (at most 23
-    // and 8 significant bits) and the scale is a power of two.
-    "static float2 dfWord(int v) { return dfTwoSum(float(v & ~255) / FIXED, float(v & 255) / FIXED); }\n",
-    // A residual word (bug-687, `EDGE_RESIDUAL_SCALE`) in px: units of 2^-47.
-    "static float residualPx(int r) { return float(r) * (1.0 / 140737488355328.0); }\n",
-    // bug-735: the residual encoding for every item-block field a distance reads -- the
-    // 16.16 word and its residual word in the block's `*Lo` `int4`s -- as a double-float,
-    // and the few double-float helpers every shape kind shares.
-    "static float2 dfFixed(int word, int residual) { return dfAdd(dfWord(word), float2(residualPx(residual), 0.0)); }\n",
-    "static float2 dfAbs(float2 a) { return a.x < 0.0 ? -a : a; }\n",
-    "static float2 dfMax(float2 a, float2 b) { return dfLess(a, b) ? b : a; }\n",
-    "static float2 dfMin(float2 a, float2 b) { return dfLess(b, a) ? b : a; }\n",
-    "static float2 dfLength(float2 x, float2 y) { return dfSqrt(dfAdd(dfMul(x, x), dfMul(y, y))); }\n",
-    // `a < b` for two (word, residual) pairs, exactly: the pair is order-preserving, since
-    // a residual is at most half a 16.16 step.
-    "static bool fixedLess(int wa, int ra, int wb, int rb) { return wa < wb || (wa == wb && ra < rb); }\n",
-    // One vertex coordinate as the CPU had it: the 16.16 word plus its residual.
-    "static float2 edgeCoord(constant int *edges, int i, int r) { return dfFixed(edges[i], edges[r]); }\n",
-    // `int(clamp(0.5 - d, 0, 1) * 255 + 0.5)` -- the quantisation every shape uses -- for a
-    // double-float `d`, rounded exactly.
-    "static int dfCoverage(float2 d) {\n",
-    "  float2 c = dfSub(float2(0.5, 0.0), d);\n",
-    "  if (!dfLess(float2(0.0, 0.0), c)) { return 0; }\n",
-    "  if (!dfLess(c, float2(1.0, 0.0))) { return 255; }\n",
-    "  float2 x = dfAdd(dfMulF(c, 255.0), float2(0.5, 0.0));\n",
-    "  float k = floor(x.x);\n",
-    "  if (x.x == k && x.y < 0.0) { k -= 1.0; }\n",
-    "  return int(k);\n",
-    "}\n",
-    // plan-116-A: `base` is the polygon's first-edge index into the frame buffer's edge
-    // region. bug-686: `list` is where this pixel's band's edge numbers start in `edges`,
-    // and `count` how many there are -- or `list` is -1 and `count` the polygon's edge
-    // count, the loop over every edge (`polygonBand`). An edge left out of a band is one
-    // whose y-span misses the pixel's row (so it cannot toggle `inside`) and that is
-    // further than the band's reach from it (so it cannot change the clamped coverage
-    // `best` feeds); `min` and a parity toggle are both order-independent.
-    //
-    // bug-687: the twin of `__canvas_edgeDistance`, in double-float, at the shape-space
-    // point (`x`, `y`). Each endpoint is its 16.16 word plus its residual, so the polygon
-    // is the oracle's to ~2^-41 px; the edge vector is the integer difference of the
-    // words plus the residuals' difference. The crossing test is the oracle's
-    // `px < ax + (py - ay) / dy * dx`, multiplied out by `dy` so it needs no division.
-    //
-    // Double-float is spent only where fp32 cannot decide, and that is NOT a tolerance:
-    // the value returned is the double-float value, pixel for pixel. `edgeSlack` is an
-    // ERROR BOUND on evaluating one edge in fp32 -- the 16.16 words' conversion, the
-    // dropped residual (at most 2^-17 px), and the subtractions, products, division and
-    // square root, each a few ulps of the largest coordinate involved (a segment's
-    // distance is 1-Lipschitz in its endpoints). It is 2^-18 of the six coordinates'
-    // magnitudes, 64 ulps of each, plus 2^-12 px. So each edge's double-float distance
-    // lies in [d32 - slack, d32 + slack], and pass 1, in fp32 over the band, gives:
-    // * `bound`, the least `d32 + slack`, at least the true minimum: in pass 2 an edge
-    //   whose `d32 - slack` exceeds it cannot be the nearest, so only the rest -- one or
-    //   two -- are evaluated in double-float (a box test skips far ones without a root);
-    // * `low`, the least `d32 - slack`, at most the true minimum: if it is past `reach`
-    //   (0.5 + the stroke's half-width; unbounded under a transform, whose gradient uses
-    //   all five values) the coverage is 0 or 255 whatever the distance, so pass 2 is
-    //   skipped and `low` is returned in its place;
-    // * the parity: a row test is exact in fp32 unless an endpoint is within the slack
-    //   of the row, and the side of a crossing unless `|cross|` is within the slack
-    //   times `|v|1 + 2|w|1` (its sensitivity to moved endpoints; the L1 norm only
-    //   overstates it). Those `edgeUnsure` edges are left out of pass 1's parity and
-    //   decided in pass 2, in double-float.
-    // Each double-float helper is inlined at ONE call site: lavapipe (Mesa, LLVM)
-    // compiles the whole fragment shader at pipeline creation, and a version with four
-    // sites per call and six calls did not finish compiling in 16 minutes on box 2226.
-    "static float edgeSlack(float2 p, float2 a, float2 b) {\n",
-    "  return (abs(p.x) + abs(p.y) + abs(a.x) + abs(a.y) + abs(b.x) + abs(b.y)) * (1.0 / 262144.0) + (1.0 / 4096.0);\n",
-    "}\n",
-    "static bool edgeUnsure(float2 p, float2 a, float2 b, float slack) {\n",
-    "  if (abs(a.y - p.y) <= slack || abs(b.y - p.y) <= slack) { return true; }\n",
-    "  if ((a.y > p.y) == (b.y > p.y)) { return false; }\n",
-    "  float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);\n",
-    "  return abs(cross) <= slack * (abs(b.x - a.x) + abs(b.y - a.y) + 2.0 * (abs(p.x - a.x) + abs(p.y - a.y)));\n",
-    "}\n",
-    // plan-163-A: an edge's signed crossing -- 0 when it does not cross the pixel's row
-    // left of the pixel, else +1 for an edge running down the screen (`b.y > a.y`) and -1
-    // for one running up: `__canvas_edgeDistance`'s winding convention.
-    "static int edgeCrossing32(float2 p, float2 a, float2 b) {\n",
-    "  if ((a.y > p.y) == (b.y > p.y)) { return 0; }\n",
-    "  float cross = (p.x - a.x) * (b.y - a.y) - (p.y - a.y) * (b.x - a.x);\n",
-    "  if (b.y > a.y) { return cross < 0.0 ? 1 : 0; }\n",
-    "  return cross > 0.0 ? -1 : 0;\n",
-    "}\n",
-    // bug-735: `__canvas_rectDistance` in double-float, from the point's offset to the centre
-    // and the half-extents: a shape's rectangle (less its corner radius) and the clip's.
-    "static float2 dfRectDistance(float2 dx, float2 dy, float2 hx, float2 hy) {\n",
-    "  float2 ox = dfSub(dfAbs(dx), hx);\n",
-    "  float2 oy = dfSub(dfAbs(dy), hy);\n",
-    "  float2 outside = dfLength(dfMax(ox, float2(0.0, 0.0)), dfMax(oy, float2(0.0, 0.0)));\n",
-    "  return dfAdd(outside, dfMin(dfMax(ox, oy), float2(0.0, 0.0)));\n",
-    "}\n",
-    // bug-735: a segment's distance, its UNCLAMPED parameter `t` and `len2`, from `w = p - a`
-    // and `v = b - a` -- `__canvas_segmentDistance`'s arithmetic (and the butt twin's `t`),
-    // so a polygon edge, a line and a polyline segment share it. `t` stays 0 for a
-    // zero-length segment, whose distance is to its point.
-    "struct DfSegment { float2 d; float2 t; float2 len2; };\n",
-    "static DfSegment dfSegment(float2 wx, float2 wy, float2 vx, float2 vy) {\n",
-    "  DfSegment s;\n",
-    "  s.len2 = dfAdd(dfMul(vx, vx), dfMul(vy, vy));\n",
-    "  s.t = float2(0.0, 0.0);\n",
-    "  float2 c = float2(0.0, 0.0);\n",
-    "  if (s.len2.x > 0.0) {\n",
-    "    s.t = dfDiv(dfAdd(dfMul(wx, vx), dfMul(wy, vy)), s.len2);\n",
-    "    c = s.t;\n",
-    "    if (dfLess(c, float2(0.0, 0.0))) { c = float2(0.0, 0.0); }\n",
-    "    if (dfLess(float2(1.0, 0.0), c)) { c = float2(1.0, 0.0); }\n",
-    "  }\n",
-    "  s.d = dfLength(dfSub(wx, dfMul(vx, c)), dfSub(wy, dfMul(vy, c)));\n",
-    "  return s;\n",
-    "}\n",
-    "struct DfEdge { float2 ax; float2 ay; float2 vx; float2 vy; float2 by; };\n",
-    "static DfEdge dfEdge(constant int *edges, int base, int e) {\n",
-    "  int i = (base + e) * 4 + METAL_EDGE_BASE;\n",
-    "  int r = (base + e) * 4 + METAL_EDGE_RESIDUAL_BASE;\n",
-    "  DfEdge g;\n",
-    "  g.ax = edgeCoord(edges, i, r);\n",
-    "  g.ay = edgeCoord(edges, i + 1, r + 1);\n",
-    // The end itself, not `ay + vy`: two edges that share a vertex must read ONE value
-    // for it, or a pixel row through that vertex counts the corner twice (`dfCrossing`).
-    "  g.by = edgeCoord(edges, i + 3, r + 3);\n",
-    "  g.vx = dfAdd(dfWord(edges[i + 2] - edges[i]),\n",
-    "               dfTwoSum(residualPx(edges[r + 2]), -residualPx(edges[r])));\n",
-    "  g.vy = dfAdd(dfWord(edges[i + 3] - edges[i + 1]),\n",
-    "               dfTwoSum(residualPx(edges[r + 3]), -residualPx(edges[r + 1])));\n",
-    "  return g;\n",
-    "}\n",
-    "static float2 dfSegmentDistance(DfEdge g, float2 x, float2 y) {\n",
-    "  return dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy).d;\n",
-    "}\n",
-    "static int dfCrossing(DfEdge g, float2 x, float2 y) {\n",
-    "  if (dfLess(y, g.ay) == dfLess(y, g.by)) { return 0; }\n",
-    "  float2 lhs = dfMul(dfSub(x, g.ax), g.vy);\n",
-    "  float2 rhs = dfMul(dfSub(y, g.ay), g.vx);\n",
-    "  if (g.vy.x > 0.0) { return dfLess(lhs, rhs) ? 1 : 0; }\n",
-    "  return dfLess(rhs, lhs) ? -1 : 0;\n",
-    "}\n",
-    // plan-163-A: `nonZero` is the polygon's fill rule (`arc.y`). The crossings are summed
-    // as a winding number; NonZero is inside when it is not zero, EvenOdd when it is odd,
-    // which is the parity the toggles it replaced computed.
-    "static float2 edgeDistance(constant int *edges, int base, int count, int list, float2 x, float2 y, float reach, int nonZero) {\n",
-    "  float2 p = float2(x.x, y.x);\n",
-    "  float bound = 1.0e6;\n",
-    "  float low = 1.0e6;\n",
-    "  bool unsure = false;\n",
-    "  int winding = 0;\n",
-    "  for (int j = 0; j < count; ++j) {\n",
-    "    int i = (base + (list < 0 ? j : edges[list + j])) * 4 + METAL_EDGE_BASE;\n",
-    "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
-    "    float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
-    "    float slack = edgeSlack(p, a, b);\n",
-    "    float d32 = segmentDistance(p, a, b);\n",
-    "    bound = min(bound, d32 + slack);\n",
-    "    low = min(low, d32 - slack);\n",
-    "    if (edgeUnsure(p, a, b, slack)) {\n",
-    "      unsure = true;\n",
-    "    } else {\n",
-    "      winding += edgeCrossing32(p, a, b);\n",
-    "    }\n",
-    "  }\n",
-    "  bool distant = low > reach;\n",
-    "  float2 best = distant ? float2(low, 0.0) : float2(1.0e6, 0.0);\n",
-    "  for (int j = 0; j < count && (!distant || unsure); ++j) {\n",
-    "    int e = list < 0 ? j : edges[list + j];\n",
-    "    int i = (base + e) * 4 + METAL_EDGE_BASE;\n",
-    "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
-    "    float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
-    "    float slack = edgeSlack(p, a, b);\n",
-    "    float2 gap = max(max(min(a, b) - p, p - max(a, b)), float2(0.0, 0.0));\n",
-    "    float within = bound + slack;\n",
-    "    bool candidate = !distant && dot(gap, gap) <= within * within && segmentDistance(p, a, b) - slack <= bound;\n",
-    "    bool unsureEdge = unsure && edgeUnsure(p, a, b, slack);\n",
-    "    if (!candidate && !unsureEdge) { continue; }\n",
-    "    DfEdge g = dfEdge(edges, base, e);\n",
-    "    if (candidate) {\n",
-    "      float2 d = dfSegmentDistance(g, x, y);\n",
-    "      if (dfLess(d, best)) { best = d; }\n",
-    "    }\n",
-    "    if (unsureEdge) { winding += dfCrossing(g, x, y); }\n",
-    "  }\n",
-    "  bool inside = nonZero != 0 ? winding != 0 : (winding & 1) != 0;\n",
-    "  return inside ? -best : best;\n",
-    "}\n",
-    // plan-163-B: join records (`helper_joins.rs`), riding the edge region after the item's
-    // own edges -- one record per outline edge, the corner at its START, as two edge slots
-    // (`strokeStyle.x` the first, `strokeStyle.y` the count): four points V, A, P, B as
-    // eight 16.16 words with their residuals. Its corner PIECE, from exact equalities:
-    // none when A = V, the disc of radius |A - V| about V when A = B, that disc cut by the
-    // chord A-B on V's side when P = V (a bevel), the disc with the polygon V, A, P, B
-    // otherwise (a miter). The twins of `mfb_canvas.frag`'s, line for line.
-    "static int joinWord(constant MfbItem &item, int r, int w) { return (item.strokeStyle.x + r * 2) * 4 + w; }\n",
-    "static bool joinSame(constant MfbItem &item, constant int *edges, int r, int a, int b) {\n",
-    "  int i = joinWord(item, r, a * 2) + METAL_EDGE_BASE;\n",
-    "  int j = joinWord(item, r, b * 2) + METAL_EDGE_BASE;\n",
-    "  int ri = joinWord(item, r, a * 2) + METAL_EDGE_RESIDUAL_BASE;\n",
-    "  int rj = joinWord(item, r, b * 2) + METAL_EDGE_RESIDUAL_BASE;\n",
-    "  return edges[i] == edges[j] && edges[i + 1] == edges[j + 1]\n",
-    "      && edges[ri] == edges[rj] && edges[ri + 1] == edges[rj + 1];\n",
-    "}\n",
-    "static int joinKind(constant MfbItem &item, constant int *edges, int r) {\n",
-    "  if (joinSame(item, edges, r, 1, 0)) { return 0; }\n",
-    "  if (joinSame(item, edges, r, 1, 3)) { return 1; }\n",
-    "  return joinSame(item, edges, r, 2, 0) ? 2 : 3;\n",
-    "}\n",
-    "static float2 joinPoint32(constant MfbItem &item, constant int *edges, int r, int k) {\n",
-    "  int i = joinWord(item, r, k * 2) + METAL_EDGE_BASE;\n",
-    "  return float2(fx(edges[i]), fx(edges[i + 1]));\n",
-    "}\n",
-    "static float2 joinCoord(constant MfbItem &item, constant int *edges, int r, int w) {\n",
-    "  int i = joinWord(item, r, w);\n",
-    "  return edgeCoord(edges, i + METAL_EDGE_BASE, i + METAL_EDGE_RESIDUAL_BASE);\n",
-    "}\n",
-    // A record's piece distance in fp32 as (least, most) the double-float one can be,
-    // widened by `edgeSlack`'s bound.
-    "static float2 joinBounds32(constant MfbItem &item, constant int *edges, int r, int kind, float2 p) {\n",
-    "  float2 v = joinPoint32(item, edges, r, 0);\n",
-    "  float2 a = joinPoint32(item, edges, r, 1);\n",
-    "  float ds = 2.0 * edgeSlack(p, v, a);\n",
-    "  float disc = length(p - v) - length(a - v);\n",
-    "  float2 piece = float2(disc - ds, disc + ds);\n",
-    "  if (kind == 1) { return piece; }\n",
-    "  float2 b = joinPoint32(item, edges, r, 3);\n",
-    "  if (kind == 2) {\n",
-    "    float2 c = b - a;\n",
-    "    float cs = 2.0 * edgeSlack(p, a, b);\n",
-    "    float o = (c.x * (p.y - a.y) - c.y * (p.x - a.x)) / length(c);\n",
-    "    if (c.x * (v.y - a.y) - c.y * (v.x - a.x) > 0.0) { o = -o; }\n",
-    "    return float2(max(piece.x, o - cs), max(piece.y, o + cs));\n",
-    "  }\n",
-    "  float d = 1.0e6;\n",
-    "  float slack = 0.0;\n",
-    "  bool unsure = false;\n",
-    "  int winding = 0;\n",
-    "  for (int k = 0; k < 4; ++k) {\n",
-    "    float2 s0 = joinPoint32(item, edges, r, k);\n",
-    "    float2 s1 = joinPoint32(item, edges, r, (k + 1) & 3);\n",
-    "    float sl = edgeSlack(p, s0, s1);\n",
-    "    slack = max(slack, sl);\n",
-    "    d = min(d, segmentDistance(p, s0, s1));\n",
-    "    if (edgeUnsure(p, s0, s1, sl)) { unsure = true; } else { winding += edgeCrossing32(p, s0, s1); }\n",
-    "  }\n",
-    "  float2 quad = unsure ? float2(-d - slack, d + slack)\n",
-    "      : ((winding & 1) != 0 ? float2(-d - slack, -d + slack) : float2(d - slack, d + slack));\n",
-    "  return float2(min(piece.x, quad.x), min(piece.y, quad.y));\n",
-    "}\n",
-    // The piece in double-float, for the disc and the chord; the polygon's distance `quad`
-    // (negative inside) comes from the caller's shared `dfSegment` loop.
-    "static float2 dfJoinPiece(constant MfbItem &item, constant int *edges, int r, int kind, float2 x, float2 y, float2 quad) {\n",
-    "  float2 vx = joinCoord(item, edges, r, 0);\n",
-    "  float2 vy = joinCoord(item, edges, r, 1);\n",
-    "  float2 ax = joinCoord(item, edges, r, 2);\n",
-    "  float2 ay = joinCoord(item, edges, r, 3);\n",
-    "  float2 disc = dfSub(dfLength(dfSub(x, vx), dfSub(y, vy)), dfLength(dfSub(ax, vx), dfSub(ay, vy)));\n",
-    "  if (kind == 1) { return disc; }\n",
-    "  if (kind == 3) { return dfMin(disc, quad); }\n",
-    "  float2 cx = dfSub(joinCoord(item, edges, r, 6), ax);\n",
-    "  float2 cy = dfSub(joinCoord(item, edges, r, 7), ay);\n",
-    "  float2 o = dfDiv(dfSub(dfMul(cx, dfSub(y, ay)), dfMul(cy, dfSub(x, ax))), dfLength(cx, cy));\n",
-    "  float2 ov = dfSub(dfMul(cx, dfSub(vy, ay)), dfMul(cy, dfSub(vx, ax)));\n",
-    "  if (dfLess(float2(0.0, 0.0), ov)) { o = -o; }\n",
-    "  return dfMax(disc, o);\n",
-    "}\n",
-    // One outline edge of a joined stroke, in fp32: a polygon's band edge `e`, or a
-    // rectangle's side `e` from its centre and half-extents (`__canvas_rectSides`).
-    "static void joinedEdge32(constant MfbItem &item, constant int *edges, bool poly, int e, thread float2 &a, thread float2 &b) {\n",
-    "  if (poly) {\n",
-    "    int i = (item.arc.z + e) * 4 + METAL_EDGE_BASE;\n",
-    "    a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
-    "    b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
-    "    return;\n",
-    "  }\n",
-    "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
-    "  float2 h = float2(fx(item.shape.z), fx(item.shape.w));\n",
-    "  float2 corner[4] = { c - h, float2(c.x + h.x, c.y - h.y), c + h, float2(c.x - h.x, c.y + h.y) };\n",
-    "  a = corner[e];\n",
-    "  b = corner[(e + 1) & 3];\n",
-    "}\n",
-    // The stroke distance of a polygon (its band's edges) or a rectangle or picture (its
-    // four sides) with join records -- `__canvas_joinedStroke`: the min of each outline
-    // edge's BUTT band and the record at its start, with bug-687's two passes. Every
-    // double-float segment goes through ONE `dfSegment` call, `k` 0 the outline edge and
-    // 1..4 the record's edges.
-    "static float2 joinedStroke(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float2 half2, float reach) {\n",
-    "  bool poly = item.misc.x == 4;\n",
-    "  int count = poly ? band.y : 4;\n",
-    "  float2 p = float2(x.x, y.x);\n",
-    "  float halfW = half2.x;\n",
-    "  float bound = 1.0e6;\n",
-    "  float low = 1.0e6;\n",
-    "  for (int j = 0; j < count; ++j) {\n",
-    "    int e = poly ? (band.x < 0 ? j : edges[band.x + j]) : j;\n",
-    "    float2 a;\n",
-    "    float2 b;\n",
-    "    joinedEdge32(item, edges, poly, e, a, b);\n",
-    "    float slack = edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0);\n",
-    "    float d32 = segmentDistanceButt(p, a, b, halfW);\n",
-    "    bound = min(bound, d32 + slack);\n",
-    "    low = min(low, d32 - slack);\n",
-    "    int kind = joinKind(item, edges, e);\n",
-    "    if (kind != 0) {\n",
-    "      float2 jb = joinBounds32(item, edges, e, kind, p);\n",
-    "      bound = min(bound, jb.y);\n",
-    "      low = min(low, jb.x);\n",
-    "    }\n",
-    "  }\n",
-    "  if (low > reach) { return float2(low, 0.0); }\n",
-    "  float2 cx = dfFixed(item.shape.x, item.shapeLo.x);\n",
-    "  float2 cy = dfFixed(item.shape.y, item.shapeLo.y);\n",
-    "  float2 hx = dfFixed(item.shape.z, item.shapeLo.z);\n",
-    "  float2 hy = dfFixed(item.shape.w, item.shapeLo.w);\n",
-    "  float2 best = float2(1.0e6, 0.0);\n",
-    "  for (int j = 0; j < count; ++j) {\n",
-    "    int e = poly ? (band.x < 0 ? j : edges[band.x + j]) : j;\n",
-    "    float2 a;\n",
-    "    float2 b;\n",
-    "    joinedEdge32(item, edges, poly, e, a, b);\n",
-    "    float slack = edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0);\n",
-    "    bool edgeNear = segmentDistanceButt(p, a, b, halfW) - slack <= bound;\n",
-    "    int kind = joinKind(item, edges, e);\n",
-    "    bool joinNear = kind != 0 && joinBounds32(item, edges, e, kind, p).x <= bound;\n",
-    "    if (!edgeNear && !joinNear) { continue; }\n",
-    "    float2 jd = float2(1.0e6, 0.0);\n",
-    "    int winding = 0;\n",
-    "    for (int k = edgeNear ? 0 : 1; k < (joinNear && kind == 3 ? 5 : 1); ++k) {\n",
-    "      DfEdge g;\n",
-    "      if (k == 0 && poly) {\n",
-    "        g = dfEdge(edges, item.arc.z, e);\n",
-    "      } else if (k == 0) {\n",
-    "        int s0 = e;\n",
-    "        int s1 = (e + 1) & 3;\n",
-    "        float2 ax = (s0 == 0 || s0 == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);\n",
-    "        float2 ay = (s0 < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);\n",
-    "        float2 bx = (s1 == 0 || s1 == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);\n",
-    "        float2 by = (s1 < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);\n",
-    "        g.ax = ax;\n",
-    "        g.ay = ay;\n",
-    "        g.vx = dfSub(bx, ax);\n",
-    "        g.vy = dfSub(by, ay);\n",
-    "        g.by = by;\n",
-    "      } else {\n",
-    "        g.ax = joinCoord(item, edges, e, (k - 1) * 2);\n",
-    "        g.ay = joinCoord(item, edges, e, (k - 1) * 2 + 1);\n",
-    "        g.vx = dfSub(joinCoord(item, edges, e, (k & 3) * 2), g.ax);\n",
-    "        g.by = joinCoord(item, edges, e, (k & 3) * 2 + 1);\n",
-    "        g.vy = dfSub(g.by, g.ay);\n",
-    "      }\n",
-    "      DfSegment s = dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy);\n",
-    "      if (k == 0) {\n",
-    "        if (s.len2.x > 0.0) {\n",
-    "          float2 len = dfSqrt(s.len2);\n",
-    "          float2 d = dfMax(dfSub(s.d, half2), -dfMul(s.t, len));\n",
-    "          d = dfMax(d, dfMul(dfSub(s.t, float2(1.0, 0.0)), len));\n",
-    "          if (dfLess(d, best)) { best = d; }\n",
-    "        }\n",
-    "      } else {\n",
-    "        if (dfLess(s.d, jd)) { jd = s.d; }\n",
-    "        winding += dfCrossing(g, x, y);\n",
-    "      }\n",
-    "    }\n",
-    "    if (joinNear) {\n",
-    "      if ((winding & 1) != 0) { jd = -jd; }\n",
-    "      float2 piece = dfJoinPiece(item, edges, e, kind, x, y, jd);\n",
-    "      if (dfLess(piece, best)) { best = piece; }\n",
-    "    }\n",
-    "  }\n",
-    "  return best;\n",
-    "}\n",
-    // plan-116-C: the inverse transform, decoded from the float32 bits the item block
-    // carries. `as_type<float>` is a reinterpret, not a conversion -- the CPU already
-    // did the narrowing (`__canvas_float32Bits`), because this compiler's assemblers
-    // have no double->single convert.
-    "static bool hasTransform(constant MfbItem &item) { return item.xform1.z != 0; }\n",
-    // bug-686: the edge list a polygon's shape-space point at height `y` visits, as
-    // (first word in `edges`, length), or (-1, edgeCount) for "every edge" -- any other
-    // kind, or a polygon the emitter gave no band index (`arcCaps.z` = 0). The band
-    // header is `arcCaps` = (top, height in 16.16, band count, table offset), written by
-    // `emit_band_index`; the table is (first, count) per band and the list follows it.
-    // A point above the first band or below the last uses the end band, which the
-    // emitter built to hold every edge that can matter there.
-    //
-    // bug-1085: `norm` is the pixel's composed inverse norm (0 for a pixel that takes
-    // its centre sample alone), and the band is taken only when its reach covers it:
-    // `0.75 norm <= F`, `F` the norm the reach was built for (`capsLo.w`,
-    // `ITEM_BAND_NORM`). A block is built once a pass and drawn under any group's
-    // matrix, so past that the edges a neighbour sample needs may be in no band of it,
-    // and every edge is walked instead -- exact, as with no index.
-    "static int2 polygonBand(constant MfbItem &item, constant int *edges, float y, float norm) {\n",
-    "  int nb = item.arcCaps.z;\n",
-    // plan-164-C: kinds 11 and 12 too -- their pieces are banded as edges.
-    "  int bk = item.misc.x;\n",
-    "  if ((bk != 4 && bk != 10 && bk != 11 && bk != 12) || nb <= 0) { return int2(-1, item.misc.w); }\n",
-    "  if (!(norm * 0.75 <= fx(item.capsLo.w))) { return int2(-1, item.misc.w); }\n",
-    "  float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));\n",
-    "  int band = int(clamp(k, 0.0, float(nb - 1)));\n",
-    "  int t = METAL_BAND_BASE + item.arcCaps.w;\n",
-    "  return int2(t + nb * 2 + edges[t + band * 2], edges[t + band * 2 + 1]);\n",
-    "}\n",
-    // plan-154-B: a PolyLine's distance and path parameter, as (d, t) -- the twin of
-    // `__canvas_polylineScan` in the oracle and of `polylineScan` in
-    // `runtime/canvas/shaders/mfb_canvas.frag`. The minimum over the segments' round
-    // bands is the union that makes every corner round; only the first and last LIVE
-    // segments (`gradient.x`/`.y`, whole numbers) take a butt plane, each on its outer
-    // end. A zero-length segment is skipped unless it is the whole path (first == last),
-    // where it is the round dot. `t` is (segment + clamped t) / segments, continuous at a
-    // corner, and the same walk sets both, so the colour's segment is the distance's.
-    // plan-163-C: a path clip's band, the clip's twin of `polygonBand`: its band header
-    // in `clipBand`, or every clip edge (band count 0) -- and, bug-1085, every clip edge
-    // for a pixel whose composed norm the band's reach does not cover (`gradFocal.w`,
-    // `ITEM_CLIP_BAND_NORM`).
-    "static int2 clipBandAt(constant MfbItem &item, constant int *edges, float y, float norm) {\n",
-    "  int nb = item.clipBand.z;\n",
-    "  if (nb <= 0) { return int2(-1, item.clipPath.y); }\n",
-    "  if (!(norm * 0.75 <= fx(item.gradFocal.w))) { return int2(-1, item.clipPath.y); }\n",
-    "  float k = floor((y - fx(item.clipBand.x)) / fx(item.clipBand.y));\n",
-    "  int band = int(clamp(k, 0.0, float(nb - 1)));\n",
-    "  int t = METAL_BAND_BASE + item.clipBand.w;\n",
-    "  return int2(t + nb * 2 + edges[t + band * 2], edges[t + band * 2 + 1]);\n",
-    "}\n",
-    "static float2 polylineScan(constant MfbItem &item, constant int *edges, int2 band, float2 p) {\n",
-    "  int first = item.gradient.x;\n",
-    "  int last = item.gradient.y;\n",
-    "  float halfW = fx(item.misc.y);\n",
-    "  bool butt = item.arc.w == 0;\n",
-    "  bool square = item.arc.w == 2;\n",
-    "  float best = 1.0e6;\n",
-    "  float param = 0.0;\n",
-    "  for (int j = 0; j < band.y; ++j) {\n",
-    "    int e = band.x < 0 ? j : edges[band.x + j];\n",
-    "    if (e < first || e > last) { continue; }\n",
-    "    int i = (item.arc.z + e) * 4 + METAL_EDGE_BASE;\n",
-    "    float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
-    "    float2 v = float2(fx(edges[i + 2]), fx(edges[i + 3])) - a;\n",
-    "    float len2 = dot(v, v);\n",
-    "    if (!(len2 > 0.0) && first != last) { continue; }\n",
-    "    float2 w = p - a;\n",
-    "    float t = len2 > 0.0 ? dot(w, v) / len2 : 0.0;\n",
-    "    float c = clamp(t, 0.0, 1.0);\n",
-    "    float at = c;\n",
-    "    if (square && ((e == first && t < 0.0) || (e == last && t > 1.0))) { at = t; }\n",
-    "    float d = length(w - v * at) - halfW;\n",
-    "    if (butt) {\n",
-    "      float len = sqrt(len2);\n",
-    "      if (e == first) { d = max(d, -t * len); }\n",
-    "      if (e == last) { d = max(d, (t - 1.0) * len); }\n",
-    "    }\n",
-    "    if (square) {\n",
-    "      if (len2 > 0.0) {\n",
-    "        float len = sqrt(len2);\n",
-    "        if (e == first) { d = max(d, -t * len - halfW); }\n",
-    "        if (e == last) { d = max(d, (t - 1.0) * len - halfW); }\n",
-    "      } else {\n",
-    "        d = max(abs(w.x), abs(w.y)) - halfW;\n",
-    "      }\n",
-    "    }\n",
-    "    if (d < best) { best = d; param = (float(e) + c) / float(item.misc.w); }\n",
-    "  }\n",
-    "  return float2(best, param);\n",
-    "}\n",
-    "static float2 inverseMap(constant MfbItem &item, float2 p) {\n",
-    "  return float2(as_type<float>(item.xform0.x) * p.x + as_type<float>(item.xform0.z) * p.y + as_type<float>(item.xform1.x),\n",
-    "                as_type<float>(item.xform0.y) * p.x + as_type<float>(item.xform0.w) * p.y + as_type<float>(item.xform1.y));\n",
-    "}\n",
-    // bug-735: every shape kind but the polygon and the glyph, in double-float -- the twin of
-    // `__canvas_geoDistance` in the oracle, operation for operation, on inputs carried as
-    // their 16.16 words plus residuals (`ITEM_OFFSET_SHAPE_LO` and the rest), so each input
-    // is the oracle's to ~2^-41 px and the arithmetic to ~2^-44 of its magnitude. fp32 from
-    // 16.16 missed the oracle by up to ~1e-4 px and so rounded a pixel near a coverage step to
-    // the neighbouring step: 3-12 sRGB levels near black.
-    //
-    // * rectangle (0), picture (9): the rectangle distance minus the corner radius;
-    // * circle (1): the centre distance minus the radius and the stroke radius;
-    // * line (2): the segment distance, Round (1) minus the half-width, Butt (0) cut by the two
-    //   end planes -- the half-width off BEFORE the planes (`__canvas_segmentDistanceButt`);
-    // * arc (3): the ring band cut by the sweep -- `max` with the two end radii's signed
-    //   cone distance (the reflex complement of the gap's) -- and a Round cap's two discs
-    //   or a Square cap's two boxes (bug-1088). The planes are the oracle's two cross
-    //   products, against `arcCaps - centre`, the radius times the oracle's Taylor
-    //   `(cos, sin)`, divided by the radius, so no GPU trigonometry is involved; `arc.y` is
-    //   the oracle's `turn` (`__canvas_arcTurn`), decided in f64 by the emitter;
-    // * ellipse (7): the oracle's 24-step bisection, every step in double-float. In fp32 a
-    //   step's sign test took the other branch wherever `g` was within fp32's error of zero
-    //   -- every late step, on every pixel -- which is what put the ellipse 8 pixels past
-    //   GPU_DEFAULT. The circle case (equal radii) is the oracle's too.
-    "static float2 dfShapeDistance(constant MfbItem &item, float2 x, float2 y) {\n",
-    "  int kind = item.misc.x;\n",
-    "  float2 cx = dfFixed(item.shape.x, item.shapeLo.x);\n",
-    "  float2 cy = dfFixed(item.shape.y, item.shapeLo.y);\n",
-    "  float2 ex = dfFixed(item.shape.z, item.shapeLo.z);\n",
-    "  float2 ey = dfFixed(item.shape.w, item.shapeLo.w);\n",
-    "  float2 radius = dfFixed(item.misc.y, item.miscLo.x);\n",
-    "  float2 dx = dfSub(x, cx);\n",
-    "  float2 dy = dfSub(y, cy);\n",
-    "  if (kind == 0 || kind == 9 || kind == 13) {\n",
-    "    return dfSub(dfRectDistance(dx, dy, ex, ey), radius);\n",
-    "  }\n",
-    "  if (kind == 1) { return dfSub(dfSub(dfLength(dx, dy), ex), radius); }\n",
-    "  if (kind == 2) {\n",
-    "    DfSegment s = dfSegment(dx, dy, dfSub(ex, cx), dfSub(ey, cy));\n",
-    // plan-163-B: Square -- `__canvas_segmentDistanceSquare`.
-    "    if (item.arc.w == 1) { return dfSub(s.d, radius); }\n",
-    "    if (item.arc.w == 2) {\n",
-    "      if (!(s.len2.x > 0.0)) { return dfSub(dfMax(dfAbs(dx), dfAbs(dy)), radius); }\n",
-    "      float2 sl = dfSqrt(s.len2);\n",
-    "      float2 perp = dfDiv(dfAbs(dfSub(dfMul(dx, dfSub(ey, cy)), dfMul(dy, dfSub(ex, cx)))), sl);\n",
-    "      float2 sd = dfMax(dfSub(perp, radius), dfSub(-dfMul(s.t, sl), radius));\n",
-    "      return dfMax(sd, dfSub(dfMul(dfSub(s.t, float2(1.0, 0.0)), sl), radius));\n",
-    "    }\n",
-    "    if (!(s.len2.x > 0.0)) { return float2(1.0e6, 0.0); }\n",
-    "    float2 len = dfSqrt(s.len2);\n",
-    "    float2 d = dfMax(dfSub(s.d, radius), -dfMul(s.t, len));\n",
-    "    return dfMax(d, dfMul(dfSub(s.t, float2(1.0, 0.0)), len));\n",
-    "  }\n",
-    "  if (kind == 3) {\n",
-    "    float2 sx = dfSub(dfFixed(item.arcCaps.x, item.capsLo.x), cx);\n",
-    "    float2 sy = dfSub(dfFixed(item.arcCaps.y, item.capsLo.y), cy);\n",
-    "    float2 tx = dfSub(dfFixed(item.arcCaps.z, item.capsLo.z), cx);\n",
-    "    float2 ty = dfSub(dfFixed(item.arcCaps.w, item.capsLo.w), cy);\n",
-    // bug-1088: the band cut by the sweep's wedge, the oracle's exact cone distance:
-    // inside both end half-planes and ahead of the centre along a radius, the nearer end
-    // line's distance, else the nearer end ray's; the reflex complement of the gap's cone;
-    // a whole turn (`arc.y` 2) the band alone. `s`, `t` are the radius times the oracle's
-    // unit vectors, so they are divided by it first.
-    "    float2 band = dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius);\n",
-    "    if (item.arc.y != 2) {\n",
-    "      float2 ux = dfDiv(sx, ex);\n",
-    "      float2 uy = dfDiv(sy, ex);\n",
-    "      float2 vx = dfDiv(tx, ex);\n",
-    "      float2 vy = dfDiv(ty, ex);\n",
-    "      float2 startPlane = dfSub(dfMul(uy, dx), dfMul(ux, dy));\n",
-    "      float2 endPlane = dfSub(dfMul(vx, dy), dfMul(vy, dx));\n",
-    "      float2 alongS = dfAdd(dfMul(dx, ux), dfMul(dy, uy));\n",
-    "      float2 alongE = dfAdd(dfMul(dx, vx), dfMul(dy, vy));\n",
-    "      float2 onS = dfMax(alongS, float2(0.0, 0.0));\n",
-    "      float2 onE = dfMax(alongE, float2(0.0, 0.0));\n",
-    "      float2 rays = dfMin(dfLength(dfSub(dx, dfMul(onS, ux)), dfSub(dy, dfMul(onS, uy))),\n",
-    "                          dfLength(dfSub(dx, dfMul(onE, vx)), dfSub(dy, dfMul(onE, vy))));\n",
-    "      bool ahead = !dfLess(alongS, float2(0.0, 0.0)) || !dfLess(alongE, float2(0.0, 0.0));\n",
-    "      float2 sweep = rays;\n",
-    "      if (item.arc.y == 1) {\n",
-    "        sweep = -rays;\n",
-    "        if (!dfLess(startPlane, float2(0.0, 0.0)) && !dfLess(endPlane, float2(0.0, 0.0)) && ahead) { sweep = dfMin(startPlane, endPlane); }\n",
-    "      } else if (!dfLess(float2(0.0, 0.0), startPlane) && !dfLess(float2(0.0, 0.0), endPlane) && ahead) {\n",
-    "        sweep = dfMax(startPlane, endPlane);\n",
-    "      }\n",
-    "      band = dfMax(band, sweep);\n",
-    "    }\n",
-    // plan-163-B: a Square end is `__canvas_arcSquareCap` -- the half-width box past the
-    // end along the tangent, `along` measured outward from the end.
-    "    if (item.arc.w == 0) { return band; }\n",
-    "    for (int k = 0; k < 2; ++k) {\n",
-    "      float2 rx = k == 0 ? sx : tx;\n",
-    "      float2 ry = k == 0 ? sy : ty;\n",
-    "      float2 ox = dfSub(dx, rx);\n",
-    "      float2 oy = dfSub(dy, ry);\n",
-    "      if (item.arc.w == 2) {\n",
-    "        float2 rl = dfLength(rx, ry);\n",
-    "        if (!(rl.x > 0.0)) { continue; }\n",
-    "        float2 ux = dfDiv(rx, rl);\n",
-    "        float2 uy = dfDiv(ry, rl);\n",
-    "        float2 along = dfSub(dfMul(ox, uy), dfMul(oy, ux));\n",
-    "        if (k == 1) { along = -along; }\n",
-    "        float2 across = dfAdd(dfMul(ox, ux), dfMul(oy, uy));\n",
-    "        float2 box = dfMax(dfMax(dfSub(dfAbs(across), radius), dfSub(along, radius)), -along);\n",
-    "        band = dfMin(band, box);\n",
-    "      } else {\n",
-    "        band = dfMin(band, dfSub(dfLength(ox, oy), radius));\n",
-    "      }\n",
-    "    }\n",
-    "    return band;\n",
-    "  }\n",
-    "  if (kind == 7) {\n",
-    "    float2 ca = dfFixed(item.ellipse.x, item.miscLo.z);\n",
-    "    float2 sa = dfFixed(item.ellipse.y, item.miscLo.w);\n",
-    "    float2 qx = dfAbs(dfAdd(dfMul(dx, ca), dfMul(dy, sa)));\n",
-    "    float2 qy = dfAbs(dfSub(dfMul(dy, ca), dfMul(dx, sa)));\n",
-    "    if (item.shape.z == item.shape.w && item.shapeLo.z == item.shapeLo.w) {\n",
-    "      return dfSub(dfSub(dfLength(qx, qy), ex), radius);\n",
-    "    }\n",
-    "    float2 c0 = float2(1.0, 0.0);\n",
-    "    float2 s0 = float2(0.0, 0.0);\n",
-    "    float2 c1 = float2(0.0, 0.0);\n",
-    "    float2 s1 = float2(1.0, 0.0);\n",
-    "    float2 cm = c0;\n",
-    "    float2 sm = s0;\n",
-    "    for (int k = 0; k < 24; ++k) {\n",
-    "      float2 cs = dfAdd(c0, c1);\n",
-    "      float2 ss = dfAdd(s0, s1);\n",
-    "      float2 nn = dfLength(cs, ss);\n",
-    "      cm = dfDiv(cs, nn);\n",
-    "      sm = dfDiv(ss, nn);\n",
-    "      float2 g = dfAdd(dfMul(dfSub(qx, dfMul(ex, cm)), -dfMul(ex, sm)),\n",
-    "                       dfMul(dfSub(qy, dfMul(ey, sm)), dfMul(ey, cm)));\n",
-    "      if (dfLess(float2(0.0, 0.0), g)) { c0 = cm; s0 = sm; } else { c1 = cm; s1 = sm; }\n",
-    "    }\n",
-    "    float2 d = dfLength(dfSub(qx, dfMul(ex, cm)), dfSub(qy, dfMul(ey, sm)));\n",
-    "    float2 ux = dfDiv(qx, ex);\n",
-    "    float2 uy = dfDiv(qy, ey);\n",
-    "    if (dfLess(dfAdd(dfMul(ux, ux), dfMul(uy, uy)), float2(1.0, 0.0))) { d = -d; }\n",
-    "    return dfSub(d, radius);\n",
-    "  }\n",
-    "  return float2(1.0e6, 0.0);\n",
-    "}\n",
-    // bug-735: the fp32 pre-pass for the same kinds -- a value `v` such that, whenever
-    // `|v| > reach`, the distance has `v`'s sign and at least its magnitude, so its fill and
-    // stroke coverage are `v`'s and double-float is not needed. Like `edgeSlack`, an ERROR
-    // BOUND, not a tolerance: the value returned for a far pixel is past the clamp either
-    // way, and every other pixel gets the double-float value.
-    //
-    // * rectangle, circle, line: the fp32 distance, moved toward zero by `slack` -- 2^-18 of
-    //   the coordinates' magnitudes plus 2^-12 px, the bound `edgeSlack` uses (each is
-    //   1-Lipschitz in its inputs, which the 16.16 words and the residual move by <= 2^-17);
-    // * arc: a lower bound only, `min(ring band, cap discs)` with the sweep ignored -- the
-    //   oracle's band is `max(ring band, sweep planes)` (bug-1088), never less than the ring;
-    // * ellipse: `rmin * |s - 1|` for `s = |(qx / rx, qy / ry)|`, a RIGOROUS bound on the
-    //   distance to the ellipse (the ellipse and its scale by `s` are `rmin * |s - 1|` apart:
-    //   map by `diag(1 / rx, 1 / ry)`, whose inverse stretches no vector by more than
-    //   `rmin`), with a slack of 2^-14 of the magnitudes for the 16.16 inputs; the oracle's
-    //   bisection lands on the ellipse, so its distance is never below the true one;
-    // * a butt line shorter than fp32 resolves, and any other kind: no shortcut or 1e6.
-    "static float farBound(constant MfbItem &item, float2 p) {\n",
-    "  int kind = item.misc.x;\n",
-    "  float2 c = float2(fx(item.shape.x), fx(item.shape.y));\n",
-    "  float2 e = float2(fx(item.shape.z), fx(item.shape.w));\n",
-    "  float r = fx(item.misc.y);\n",
-    "  float slack = (abs(p.x) + abs(p.y) + abs(c.x) + abs(c.y) + abs(e.x) + abs(e.y) + abs(r)) * (1.0 / 262144.0) + (1.0 / 4096.0);\n",
-    "  if (kind == 7) {\n",
-    "    float2 d = p - c;\n",
-    "    float ca = fx(item.ellipse.x);\n",
-    "    float sa = fx(item.ellipse.y);\n",
-    "    float s = length(abs(float2(d.x * ca + d.y * sa, -d.x * sa + d.y * ca)) / e);\n",
-    "    float rmin = min(e.x, e.y);\n",
-    "    float sl = (abs(d.x) + abs(d.y) + e.x + e.y + 1.0) * (1.0 / 16384.0) + (1.0 / 4096.0);\n",
-    "    return s >= 1.0 ? rmin * (s - 1.0) - r - sl : rmin * (s - 1.0) - r + sl;\n",
-    "  }\n",
-    "  if (kind == 3) {\n",
-    "    float2 cs = float2(fx(item.arcCaps.x), fx(item.arcCaps.y));\n",
-    "    float2 ce = float2(fx(item.arcCaps.z), fx(item.arcCaps.w));\n",
-    "    float m = abs(length(p - c) - e.x) - r;\n",
-    // plan-163-B: a Square end lies within `r * sqrt(2)` of its endpoint (1.4143 > sqrt 2,
-    // so this stays a lower bound).
-    "    float capR = item.arc.w == 2 ? r * 1.4143 : r;\n",
-    "    if (item.arc.w != 0) { m = min(m, min(length(p - cs), length(p - ce)) - capR); }\n",
-    "    slack += (abs(cs.x) + abs(cs.y) + abs(ce.x) + abs(ce.y)) * (1.0 / 262144.0);\n",
-    "    return max(m - slack, 0.0);\n",
-    "  }\n",
-    "  float d;\n",
-    "  if (kind == 0 || kind == 9 || kind == 13) {\n",
-    "    d = rectDistance(p, c, e) - r;\n",
-    "  } else if (kind == 1) {\n",
-    "    d = length(p - c) - e.x - r;\n",
-    "  } else if (kind == 2) {\n",
-    "    if (item.arc.w != 1 && !(dot(e - c, e - c) > 0.0)) { return 0.0; }\n",
-    "    d = item.arc.w == 1 ? segmentDistance(p, c, e) - r\n",
-    "      : (item.arc.w == 2 ? segmentDistanceSquare(p, c, e, r) : segmentDistanceButt(p, c, e, r));\n",
-    "  } else {\n",
-    "    return 1.0e6;\n",
-    "  }\n",
-    "  return d > 0.0 ? max(d - slack, 0.0) : min(d + slack, 0.0);\n",
-    "}\n",
-    // bug-735: a PolyLine's distance in double-float -- `__canvas_polylineScan`'s, with
-    // bug-687's two passes. Pass 1 is fp32 over the band: `bound` (the least `d32 + slack`)
-    // and `low` (the least `d32 - slack`). Past `reach` it returns `low`; otherwise pass 2
-    // evaluates in double-float only the segments that can be the nearest
-    // (`d32 - slack <= bound`), each endpoint its 16.16 word plus its residual. A segment is
-    // live when its endpoints' words or residuals differ -- the oracle's `len2 > 0`, exactly
-    // -- or it is the whole path (`first == last`); one shorter than fp32 resolves gets an
-    // unbounded slack, so it is always a candidate and never tightens `bound`.
-    "static float polylineSegment32(constant MfbItem &item, constant int *edges, int e, float2 p, float halfW, thread float &slack) {\n",
-    "  int first = item.gradient.x;\n",
-    "  int last = item.gradient.y;\n",
-    "  int i = (item.arc.z + e) * 4 + METAL_EDGE_BASE;\n",
-    "  int ri = (item.arc.z + e) * 4 + METAL_EDGE_RESIDUAL_BASE;\n",
-    "  bool live = first == last || edges[i] != edges[i + 2] || edges[i + 1] != edges[i + 3]\n",
-    "      || edges[ri] != edges[ri + 2] || edges[ri + 1] != edges[ri + 3];\n",
-    "  if (!live) { slack = -1.0; return 1.0e6; }\n",
-    "  float2 a = float2(fx(edges[i]), fx(edges[i + 1]));\n",
-    "  float2 b = float2(fx(edges[i + 2]), fx(edges[i + 3]));\n",
-    "  float2 v = b - a;\n",
-    "  float len2 = dot(v, v);\n",
-    "  float2 w = p - a;\n",
-    "  float t = len2 > 0.0 ? dot(w, v) / len2 : 0.0;\n",
-    "  float at = clamp(t, 0.0, 1.0);\n",
-    "  bool square = item.arc.w == 2;\n",
-    "  if (square && ((e == first && t < 0.0) || (e == last && t > 1.0))) { at = t; }\n",
-    "  float d = length(w - v * at) - halfW;\n",
-    "  if (item.arc.w == 0 && len2 > 0.0) {\n",
-    "    float len = sqrt(len2);\n",
-    "    if (e == first) { d = max(d, -t * len); }\n",
-    "    if (e == last) { d = max(d, (t - 1.0) * len); }\n",
-    "  }\n",
-    "  if (square) {\n",
-    "    if (len2 > 0.0) {\n",
-    "      float len = sqrt(len2);\n",
-    "      if (e == first) { d = max(d, -t * len - halfW); }\n",
-    "      if (e == last) { d = max(d, (t - 1.0) * len - halfW); }\n",
-    "    } else {\n",
-    "      d = max(abs(w.x), abs(w.y)) - halfW;\n",
-    "    }\n",
-    "  }\n",
-    // plan-163-B: with join records the inner ends are cut butt; the corners are the
-    // records.
-    "  if (item.strokeStyle.y > 0 && len2 > 0.0) {\n",
-    "    float len = sqrt(len2);\n",
-    "    if (e != first) { d = max(d, -t * len); }\n",
-    "    if (e != last) { d = max(d, (t - 1.0) * len); }\n",
-    "  }\n",
-    "  slack = len2 > 0.0 ? edgeSlack(p, a, b) + abs(halfW) * (1.0 / 262144.0) : 1.0e30;\n",
-    "  return d;\n",
-    "}\n",
-    "static float2 polylineDistance(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float reach) {\n",
-    "  int first = item.gradient.x;\n",
-    "  int last = item.gradient.y;\n",
-    "  bool joined = item.strokeStyle.y > 0;\n",
-    "  float halfW = fx(item.misc.y);\n",
-    "  float2 p = float2(x.x, y.x);\n",
-    "  float bound = 1.0e6;\n",
-    "  float low = 1.0e6;\n",
-    "  for (int j = 0; j < band.y; ++j) {\n",
-    "    int e = band.x < 0 ? j : edges[band.x + j];\n",
-    "    if (e < first || e > last) { continue; }\n",
-    "    float slack;\n",
-    "    float d32 = polylineSegment32(item, edges, e, p, halfW, slack);\n",
-    "    int kind = joined ? joinKind(item, edges, e) : 0;\n",
-    "    if (kind != 0) {\n",
-    "      float2 jb = joinBounds32(item, edges, e, kind, p);\n",
-    "      bound = min(bound, jb.y);\n",
-    "      low = min(low, jb.x);\n",
-    "    }\n",
-    "    if (slack < 0.0) { continue; }\n",
-    "    bound = min(bound, d32 + slack);\n",
-    "    low = min(low, d32 - slack);\n",
-    "  }\n",
-    "  if (low > reach) { return float2(low, 0.0); }\n",
-    "  float2 half2 = dfFixed(item.misc.y, item.miscLo.x);\n",
-    "  float2 best = float2(1.0e6, 0.0);\n",
-    "  for (int j = 0; j < band.y; ++j) {\n",
-    "    int e = band.x < 0 ? j : edges[band.x + j];\n",
-    "    if (e < first || e > last) { continue; }\n",
-    "    float slack;\n",
-    "    float d32 = polylineSegment32(item, edges, e, p, halfW, slack);\n",
-    "    bool segNear = slack >= 0.0 && d32 - slack <= bound;\n",
-    "    int kind = joined ? joinKind(item, edges, e) : 0;\n",
-    "    bool joinNear = kind != 0 && joinBounds32(item, edges, e, kind, p).x <= bound;\n",
-    "    if (!segNear && !joinNear) { continue; }\n",
-    // plan-163-B: `k` 0 the segment, 1..4 the edges of the join record at its start,
-    // through one `dfSegment` call.
-    "    float2 jd = float2(1.0e6, 0.0);\n",
-    "    int winding = 0;\n",
-    "    for (int k = segNear ? 0 : 1; k < (joinNear && kind == 3 ? 5 : 1); ++k) {\n",
-    "    DfEdge g;\n",
-    "    if (k == 0) {\n",
-    "      g = dfEdge(edges, item.arc.z, e);\n",
-    "    } else {\n",
-    "      g.ax = joinCoord(item, edges, e, (k - 1) * 2);\n",
-    "      g.ay = joinCoord(item, edges, e, (k - 1) * 2 + 1);\n",
-    "      g.vx = dfSub(joinCoord(item, edges, e, (k & 3) * 2), g.ax);\n",
-    "      g.by = joinCoord(item, edges, e, (k & 3) * 2 + 1);\n",
-    "      g.vy = dfSub(g.by, g.ay);\n",
-    "    }\n",
-    "    float2 wx = dfSub(x, g.ax);\n",
-    "    float2 wy = dfSub(y, g.ay);\n",
-    "    DfSegment s = dfSegment(wx, wy, g.vx, g.vy);\n",
-    "    if (k > 0) {\n",
-    "      if (dfLess(s.d, jd)) { jd = s.d; }\n",
-    "      winding += dfCrossing(g, x, y);\n",
-    "      continue;\n",
-    "    }\n",
-    "    float2 d = dfSub(s.d, half2);\n",
-    "    if (item.arc.w == 0 && s.len2.x > 0.0) {\n",
-    "      float2 len = dfSqrt(s.len2);\n",
-    "      if (e == first) { d = dfMax(d, -dfMul(s.t, len)); }\n",
-    "      if (e == last) { d = dfMax(d, dfMul(dfSub(s.t, float2(1.0, 0.0)), len)); }\n",
-    "    }\n",
-    // plan-163-B: a square OUTER end -- to the line past the endpoint, then the end plane
-    // moved out by the half-width; a lone zero-length segment is the square.
-    "    if (item.arc.w == 2) {\n",
-    "      if (s.len2.x > 0.0) {\n",
-    "        float2 len = dfSqrt(s.len2);\n",
-    "        bool before = e == first && dfLess(s.t, float2(0.0, 0.0));\n",
-    "        bool after = e == last && dfLess(float2(1.0, 0.0), s.t);\n",
-    "        if (before || after) {\n",
-    "          d = dfSub(dfDiv(dfAbs(dfSub(dfMul(wx, g.vy), dfMul(wy, g.vx))), len), half2);\n",
-    "        }\n",
-    "        if (e == first) { d = dfMax(d, dfSub(-dfMul(s.t, len), half2)); }\n",
-    "        if (e == last) { d = dfMax(d, dfSub(dfMul(dfSub(s.t, float2(1.0, 0.0)), len), half2)); }\n",
-    "      } else {\n",
-    "        d = dfSub(dfMax(dfAbs(wx), dfAbs(wy)), half2);\n",
-    "      }\n",
-    "    }\n",
-    "    if (joined && s.len2.x > 0.0) {\n",
-    "      float2 len = dfSqrt(s.len2);\n",
-    "      if (e != first) { d = dfMax(d, -dfMul(s.t, len)); }\n",
-    "      if (e != last) { d = dfMax(d, dfMul(dfSub(s.t, float2(1.0, 0.0)), len)); }\n",
-    "    }\n",
-    "    if (dfLess(d, best)) { best = d; }\n",
-    "    }\n",
-    "    if (joinNear) {\n",
-    "      if ((winding & 1) != 0) { jd = -jd; }\n",
-    "      float2 piece = dfJoinPiece(item, edges, e, kind, x, y, jd);\n",
-    "      if (dfLess(piece, best)) { best = piece; }\n",
-    "    }\n",
-    "  }\n",
-    "  return best;\n",
-    "}\n",
-    // bug-735: one sample's distance at the double-float shape-space point, for every kind a
-    // distance draws: the polygon's edge walk (bug-687), the polyline's, or the pre-pass and
-    // then `dfShapeDistance`. One call site each; `shapeCoverage` calls this from two.
-    // plan-163-B: dashes (`helper_dashes.rs`). An item's dash words ride the dash region from
-    // `strokeStyle.z`, `strokeStyle.w` of them (0 for a solid stroke), as float32 bit
-    // patterns: the phase, the entry count, the period, each entry's END along the period,
-    // then the kind's perimeter data -- three words per outline edge (its start and end
-    // position and its ring's length, negative for an open path), an ellipse's arc-length
-    // table, an arc's start angle and sweep. Each function is the oracle's in fp32, at
-    // offsets from the item's own outline taken in double-float, so the precision is the
-    // outline's, not the coordinates'. Metal's twins, line for line.
-    "static float dashWord(constant MfbItem &item, constant int *edges, int k) { return as_type<float>(edges[METAL_DASH_BASE + item.strokeStyle.z + k]); }\n",
-    "static float dfF(float2 v) { return v.x + v.y; }\n",
-    "static float dashWrap(constant MfbItem &item, constant int *edges, float x) {\n",
-    "  float period = dashWord(item, edges, 2);\n",
-    "  return x - floor(x / period) * period;\n",
-    "}\n",
-    "static bool dashOnAt(constant MfbItem &item, constant int *edges, float x) {\n",
-    "  float w = dashWrap(item, edges, x);\n",
-    "  int n = int(dashWord(item, edges, 1));\n",
-    "  for (int j = 0; j < n; ++j) {\n",
-    "    if (w < dashWord(item, edges, 3 + j)) { return (j & 1) == 0; }\n",
-    "  }\n",
-    "  return true;\n",
-    "}\n",
-    "static bool dashOnBefore(constant MfbItem &item, constant int *edges, float x) {\n",
-    "  float w = dashWrap(item, edges, x);\n",
-    "  if (w <= 0.0) { w = dashWord(item, edges, 2); }\n",
-    "  int n = int(dashWord(item, edges, 1));\n",
-    "  for (int j = 0; j < n; ++j) {\n",
-    "    if (w <= dashWord(item, edges, 3 + j)) { return (j & 1) == 0; }\n",
-    "  }\n",
-    "  return false;\n",
-    "}\n",
-    // `__canvas_dashLocate` then `__canvas_dashAlongPiece`: the signed distance along the
-    // outline from `u` to the dashes on the piece [s0, s1] (negative inside one), a dash
-    // extended by `ext` past a TRUE end; those ends near `u` into `ends`, flagged by `has`.
-    "static float dashAlong(constant MfbItem &item, constant int *edges, float u, float s0, float s1, float len_, bool closed, float ext, thread float2 &ends, thread bool2 &has) {\n",
-    "  float at = min(max(u, s0), s1);\n",
-    "  float phase = dashWord(item, edges, 0);\n",
-    "  float period = dashWord(item, edges, 2);\n",
-    "  int n = int(dashWord(item, edges, 1));\n",
-    "  float w = dashWrap(item, edges, at + phase);\n",
-    "  float lowW = 0.0;\n",
-    "  float highW = period;\n",
-    "  int j = 0;\n",
-    "  bool found = false;\n",
-    "  for (; j < n; ++j) {\n",
-    "    float c = dashWord(item, edges, 3 + j);\n",
-    "    if (w < c) { highW = c; found = true; break; }\n",
-    "    lowW = c;\n",
-    "  }\n",
-    "  bool on = (j & 1) == 0;\n",
-    "  if (!found) { on = true; lowW = period; highW = period + dashWord(item, edges, 3); }\n",
-    "  float lo = at - (w - lowW);\n",
-    "  float hi = at + (highW - w);\n",
-    "  if (closed) {\n",
-    "    bool onStart = dashOnAt(item, edges, phase);\n",
-    "    bool onEnd = dashOnBefore(item, edges, len_ + phase);\n",
-    "    if (lo < 0.0) { lo = on == onEnd ? -1.0e9 : 0.0; }\n",
-    "    if (hi > len_) { hi = on == onStart ? 1.0e9 : len_; }\n",
-    "  } else {\n",
-    "    if (lo < 0.0) { lo = on ? 0.0 : -1.0e9; }\n",
-    "    if (hi > len_) { hi = on ? len_ : 1.0e9; }\n",
-    "  }\n",
-    "  ends = float2(0.0);\n",
-    "  has = bool2(false);\n",
-    "  if (on) {\n",
-    "    float left = s0;\n",
-    "    float right = s1;\n",
-    "    if (lo >= s0) { left = lo - ext; has.x = true; ends.x = lo; }\n",
-    "    if (hi <= s1) { right = hi + ext; has.y = true; ends.y = hi; }\n",
-    "    return max(left - u, u - right);\n",
-    "  }\n",
-    "  float d = 1.0e6;\n",
-    "  if (lo > s0) { d = u - lo - ext; has.x = true; ends.x = lo; }\n",
-    "  if (hi < s1) { d = min(d, hi - ext - u); has.y = true; ends.y = hi; }\n",
-    "  return d;\n",
-    "}\n",
-    // The oracle's trigonometry (`__canvas_atan2`, `__canvas_sin`, `__canvas_cos`) as series in
-    // `+ - * / sqrt`, not the driver's `atan`/`sin`/`cos`: Vulkan leaves `atan` at 4096 ULP and
-    // `sin`/`cos` at 2^-11 absolute, which on a real driver moves a dash end on a 60 px circle
-    // by a coverage step (measured on box 206's Intel UHD 630). Each is folded first, so the
-    // series runs where it converges: the arctangent's ratio into [0, 1] and halved twice, the
-    // sine's and cosine's angle into [-pi/2, pi/2].
-    "static float dashAtan(float y, float x) {\n",
-    "  float ax = abs(x);\n",
-    "  float ay = abs(y);\n",
-    "  if (ax == 0.0 && ay == 0.0) { return 0.0; }\n",
-    "  bool swapped = ay > ax;\n",
-    "  float z = swapped ? ax / ay : ay / ax;\n",
-    "  z = z / (1.0 + sqrt(1.0 + z * z));\n",
-    "  z = z / (1.0 + sqrt(1.0 + z * z));\n",
-    "  float w = z * z;\n",
-    "  float p = 1.0 / 21.0;\n",
-    "  p = w * p - 1.0 / 19.0;\n",
-    "  p = w * p + 1.0 / 17.0;\n",
-    "  p = w * p - 1.0 / 15.0;\n",
-    "  p = w * p + 1.0 / 13.0;\n",
-    "  p = w * p - 1.0 / 11.0;\n",
-    "  p = w * p + 1.0 / 9.0;\n",
-    "  p = w * p - 1.0 / 7.0;\n",
-    "  p = w * p + 1.0 / 5.0;\n",
-    "  p = w * p - 1.0 / 3.0;\n",
-    "  p = w * p + 1.0;\n",
-    "  float a = 4.0 * z * p;\n",
-    "  if (swapped) { a = PI / 2.0 - a; }\n",
-    "  if (x < 0.0) { a = PI - a; }\n",
-    "  if (y < 0.0) { a = 2.0 * PI - a; }\n",
-    "  return a >= 2.0 * PI ? 0.0 : a;\n",
-    "}\n",
-    "static float dashWrapAngle(float a) { return a - 2.0 * PI * floor((a + PI) / (2.0 * PI)); }\n",
-    "static float dashFold(float a) {\n",
-    "  float x = dashWrapAngle(a);\n",
-    "  if (x > PI / 2.0) { return PI - x; }\n",
-    "  if (x < -PI / 2.0) { return -PI - x; }\n",
-    "  return x;\n",
-    "}\n",
-    "static float dashSin(float a) {\n",
-    "  float x = dashFold(a);\n",
-    "  float x2 = x * x;\n",
-    "  return x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0 * (1.0 - x2 / 110.0)))));\n",
-    "}\n",
-    "static float dashCos(float a) {\n",
-    "  float x = dashFold(a);\n",
-    "  float x2 = x * x;\n",
-    "  float m = 1.0 - x2 / 2.0 * (1.0 - x2 / 12.0 * (1.0 - x2 / 30.0 * (1.0 - x2 / 56.0 * (1.0 - x2 / 90.0))));\n",
-    "  return abs(dashWrapAngle(a)) > PI / 2.0 ? -m : m;\n",
-    "}\n",
-    // The direction of `q` in [0, 2pi), from +X towards +Y.
-    "static float dashAngle(float2 q) { return dashAtan(q.y, q.x); }\n",
-    // A join record's corner piece at `w`, the pixel less its vertex V, from its points
-    // relative to V (`__canvas_joinPieceDistance`).
-    "static float2 joinRel(constant MfbItem &item, constant int *edges, int r, int k) {\n",
-    "  return float2(dfF(dfSub(joinCoord(item, edges, r, k * 2), joinCoord(item, edges, r, 0))),\n",
-    "        dfF(dfSub(joinCoord(item, edges, r, k * 2 + 1), joinCoord(item, edges, r, 1))));\n",
-    "}\n",
-    "static float joinPieceAt(constant MfbItem &item, constant int *edges, int r, int kind, float2 w) {\n",
-    "  float2 a = joinRel(item, edges, r, 1);\n",
-    "  float disc = length(w) - length(a);\n",
-    "  if (kind == 1) { return disc; }\n",
-    "  float2 b = joinRel(item, edges, r, 3);\n",
-    "  if (kind == 2) {\n",
-    "    float2 c = b - a;\n",
-    "    float o = (c.x * (w.y - a.y) - c.y * (w.x - a.x)) / length(c);\n",
-    "    if (c.x * (-a.y) - c.y * (-a.x) > 0.0) { o = -o; }\n",
-    "    return max(disc, o);\n",
-    "  }\n",
-    "  float2 pts[4] = { float2(0.0), a, joinRel(item, edges, r, 2), b };\n",
-    "  float d = 1.0e6;\n",
-    "  bool inside = false;\n",
-    "  for (int k = 0; k < 4; ++k) {\n",
-    "    float2 s0 = pts[k];\n",
-    "    float2 s1 = pts[(k + 1) & 3];\n",
-    "    d = min(d, segmentDistance(w, s0, s1));\n",
-    "    if ((s0.y > w.y) != (s1.y > w.y) && w.x < s0.x + (w.y - s0.y) / (s1.y - s0.y) * (s1.x - s0.x)) {\n",
-    "      inside = !inside;\n",
-    "    }\n",
-    "  }\n",
-    "  return min(disc, inside ? -d : d);\n",
-    "}\n",
-    // plan-164-C: the curve shapes' functions, generated from `shaders/curves.tpl`
-    // (`runtime/canvas/curve_shader.rs`) and spliced in here when the source is built.
-    "@CURVE_SHADER@\n",
-    // `__canvas_dashedEdges`: a polygon's or polyline's band edges, a line's one edge, or a
-    // rectangle's or picture's four sides, each band cut by the dashes on its own [s0, s1],
-    // with the corner piece wherever a dash runs through a vertex. An open path with no
-    // length is the dot its cap draws (`__canvas_dashDot`).
-    "static float dashedEdges(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float halfW, int cap) {\n",
-    "  int kind = item.misc.x;\n",
-    "  bool poly = kind == 4 || kind == 10;\n",
-    "  int count = poly ? band.y : (kind == 2 ? 1 : 4);\n",
-    "  int data = 3 + int(dashWord(item, edges, 1));\n",
-    "  float phase = dashWord(item, edges, 0);\n",
-    "  float ext = cap == 2 ? halfW : 0.0;\n",
-    "  float2 cx = dfFixed(item.shape.x, item.shapeLo.x);\n",
-    "  float2 cy = dfFixed(item.shape.y, item.shapeLo.y);\n",
-    "  float2 hx = dfFixed(item.shape.z, item.shapeLo.z);\n",
-    "  float2 hy = dfFixed(item.shape.w, item.shapeLo.w);\n",
-    "  if ((kind == 2 || kind == 10) && dashWord(item, edges, data + 2) == 0.0) {\n",
-    "    float2 ox = cx;\n",
-    "    float2 oy = cy;\n",
-    "    if (kind == 10) {\n",
-    "      DfEdge g0 = dfEdge(edges, item.arc.z, 0);\n",
-    "      ox = g0.ax;\n",
-    "      oy = g0.ay;\n",
-    "    }\n",
-    "    float2 w0 = float2(dfF(dfSub(x, ox)), dfF(dfSub(y, oy)));\n",
-    "    if (cap == 0 || !dashOnAt(item, edges, phase)) { return 1.0e6; }\n",
-    "    if (cap == 2) { return max(abs(w0.x), abs(w0.y)) - halfW; }\n",
-    "    return length(w0) - halfW;\n",
-    "  }\n",
-    "  float best = 1.0e6;\n",
-    "  for (int j = 0; j < count; ++j) {\n",
-    "    int e = poly ? (band.x < 0 ? j : edges[band.x + j]) : j;\n",
-    "    float2 ax;\n",
-    "    float2 ay;\n",
-    "    float2 v;\n",
-    "    if (poly) {\n",
-    "      DfEdge g = dfEdge(edges, item.arc.z, e);\n",
-    "      ax = g.ax;\n",
-    "      ay = g.ay;\n",
-    "      v = float2(dfF(g.vx), dfF(g.vy));\n",
-    "    } else if (kind == 2) {\n",
-    "      ax = cx;\n",
-    "      ay = cy;\n",
-    "      v = float2(dfF(dfSub(hx, cx)), dfF(dfSub(hy, cy)));\n",
-    "    } else {\n",
-    "      int f = (e + 1) & 3;\n",
-    "      ax = (e == 0 || e == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);\n",
-    "      ay = (e < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);\n",
-    "      float2 bx = (f == 0 || f == 3) ? dfSub(cx, hx) : dfAdd(cx, hx);\n",
-    "      float2 by = (f < 2) ? dfSub(cy, hy) : dfAdd(cy, hy);\n",
-    "      v = float2(dfF(dfSub(bx, ax)), dfF(dfSub(by, ay)));\n",
-    "    }\n",
-    "    float len2 = dot(v, v);\n",
-    "    if (!(len2 > 0.0)) { continue; }\n",
-    "    float2 w = float2(dfF(dfSub(x, ax)), dfF(dfSub(y, ay)));\n",
-    "    float s0 = dashWord(item, edges, data + e * 3);\n",
-    "    float s1 = dashWord(item, edges, data + e * 3 + 1);\n",
-    "    float ring = dashWord(item, edges, data + e * 3 + 2);\n",
-    "    float el = sqrt(len2);\n",
-    "    float u = s0 + dot(w, v) / el;\n",
-    "    float bandD = abs(w.x * v.y - w.y * v.x) / el - halfW;\n",
-    "    if (max(bandD, max(s0 - u, u - s1) - halfW) < best) {\n",
-    "      float2 ends;\n",
-    "      bool2 has;\n",
-    "      float piece = max(bandD, dashAlong(item, edges, u, s0, s1, abs(ring), ring > 0.0, ext, ends, has));\n",
-    "      if (cap == 1) {\n",
-    "        if (has.x) { piece = min(piece, length(w - v * ((ends.x - s0) / el)) - halfW); }\n",
-    "        if (has.y) { piece = min(piece, length(w - v * ((ends.y - s0) / el)) - halfW); }\n",
-    "      }\n",
-    "      best = min(best, piece);\n",
-    "    }\n",
-    "    if (item.strokeStyle.y > 0) {\n",
-    "      int jk = joinKind(item, edges, e);\n",
-    "      if (jk != 0) {\n",
-    "        float before = (ring > 0.0 && s0 == 0.0) ? abs(ring) : s0;\n",
-    "        if (dashOnBefore(item, edges, before + phase) && dashOnAt(item, edges, s0 + phase)) {\n",
-    "          float2 wv = float2(dfF(dfSub(x, joinCoord(item, edges, e, 0))), dfF(dfSub(y, joinCoord(item, edges, e, 1))));\n",
-    "          best = min(best, joinPieceAt(item, edges, e, jk, wv));\n",
-    "        }\n",
-    "      }\n",
-    "    }\n",
-    "  }\n",
-    "  return best;\n",
-    "}\n",
-    // `__canvas_rrectPosition`: a rounded rectangle's perimeter position of the outline point
-    // nearest `q` (from its centre), from the top side's left end, clockwise.
-    "static float rrectPosition(float2 q, float iw, float ih, float r) {\n",
-    "  float qr = r * (PI / 2.0);\n",
-    "  float ax = abs(q.x) - iw;\n",
-    "  float ay = abs(q.y) - ih;\n",
-    "  if (ax > 0.0 && ay > 0.0) {\n",
-    "    if (q.x > 0.0 && q.y < 0.0) {\n",
-    "      return 2.0 * iw + r * min(max(dashAngle(float2(q.x - iw, q.y + ih)) - 1.5 * PI, 0.0), PI / 2.0);\n",
-    "    }\n",
-    "    if (q.x > 0.0) {\n",
-    "      return 2.0 * iw + qr + 2.0 * ih + r * min(dashAngle(float2(q.x - iw, q.y - ih)), PI / 2.0);\n",
-    "    }\n",
-    "    if (q.y > 0.0) {\n",
-    "      return 4.0 * iw + 2.0 * qr + 2.0 * ih + r * min(max(dashAngle(float2(q.x + iw, q.y - ih)) - PI / 2.0, 0.0), PI / 2.0);\n",
-    "    }\n",
-    "    return 4.0 * iw + 3.0 * qr + 4.0 * ih + r * min(max(dashAngle(float2(q.x + iw, q.y + ih)) - PI, 0.0), PI / 2.0);\n",
-    "  }\n",
-    "  if (ay >= ax) {\n",
-    "    if (q.y < 0.0) { return q.x + iw; }\n",
-    "    return 2.0 * iw + 2.0 * qr + 2.0 * ih + (iw - q.x);\n",
-    "  }\n",
-    "  if (q.x > 0.0) { return 2.0 * iw + qr + (q.y + ih); }\n",
-    "  return 4.0 * iw + 3.0 * qr + 2.0 * ih + (ih - q.y);\n",
-    "}\n",
-    // The outline point at perimeter position `s` of a curve, from its centre
-    // (`__canvas_dashCurveX`).
-    "static float2 dashCurvePoint(constant MfbItem &item, constant int *edges, int kind, int data, float s) {\n",
-    "  if (kind == 1 || kind == 3) {\n",
-    "    float r = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
-    "    float a = s / r + (kind == 3 ? dashWord(item, edges, data) : 0.0);\n",
-    "    return r * float2(dashCos(a), dashSin(a));\n",
-    "  }\n",
-    "  if (kind == 7) {\n",
-    "    float rx = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
-    "    float ry = dfF(dfFixed(item.shape.w, item.shapeLo.w));\n",
-    "    float ca = dfF(dfFixed(item.ellipse.x, item.miscLo.z));\n",
-    "    float sa = dfF(dfFixed(item.ellipse.y, item.miscLo.w));\n",
-    "    int steps = item.strokeStyle.w - data - 1;\n",
-    "    int lo = 0;\n",
-    "    int hi = steps;\n",
-    "    while (hi - lo > 1) {\n",
-    "      int mid = (lo + hi) / 2;\n",
-    "      if (dashWord(item, edges, data + mid) <= s) { lo = mid; } else { hi = mid; }\n",
-    "    }\n",
-    "    float t0 = dashWord(item, edges, data + lo);\n",
-    "    float t1 = dashWord(item, edges, data + lo + 1);\n",
-    "    float t = (float(lo) + (s - t0) / (t1 - t0)) * (2.0 * PI / float(steps));\n",
-    "    float ox = rx * dashCos(t);\n",
-    "    float oy = ry * dashSin(t);\n",
-    "    return float2(ox * ca - oy * sa, ox * sa + oy * ca);\n",
-    "  }\n",
-    "  float iw = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
-    "  float ih = dfF(dfFixed(item.shape.w, item.shapeLo.w));\n",
-    "  float r = dfF(dfFixed(item.misc.y, item.miscLo.x));\n",
-    "  float qr = r * (PI / 2.0);\n",
-    "  float right = 2.0 * iw + qr;\n",
-    "  float bottomRight = right + 2.0 * ih;\n",
-    "  float bottom = bottomRight + qr;\n",
-    "  float bottomLeft = bottom + 2.0 * iw;\n",
-    "  float left = bottomLeft + qr;\n",
-    "  float topLeft = left + 2.0 * ih;\n",
-    "  if (s < 2.0 * iw) { return float2(-iw + s, -ih - r); }\n",
-    "  if (s < right) {\n",
-    "    float a = 1.5 * PI + (s - 2.0 * iw) / r;\n",
-    "    return float2(iw, -ih) + r * float2(dashCos(a), dashSin(a));\n",
-    "  }\n",
-    "  if (s < bottomRight) { return float2(iw + r, -ih + (s - right)); }\n",
-    "  if (s < bottom) {\n",
-    "    float a = (s - bottomRight) / r;\n",
-    "    return float2(iw, ih) + r * float2(dashCos(a), dashSin(a));\n",
-    "  }\n",
-    "  if (s < bottomLeft) { return float2(iw - (s - bottom), ih + r); }\n",
-    "  if (s < left) {\n",
-    "    float a = PI / 2.0 + (s - bottomLeft) / r;\n",
-    "    return float2(-iw, ih) + r * float2(dashCos(a), dashSin(a));\n",
-    "  }\n",
-    "  if (s < topLeft) { return float2(-iw - r, ih - (s - left)); }\n",
-    "  float a = PI + (s - topLeft) / r;\n",
-    "  return float2(-iw, -ih) + r * float2(dashCos(a), dashSin(a));\n",
-    "}\n",
-    // `__canvas_dashedCurve`: a circle, arc, ellipse or rounded rectangle, cut at the
-    // perimeter position of the pixel's nearest outline point.
-    "static float dashedCurve(constant MfbItem &item, constant int *edges, float2 x, float2 y, float halfW, int cap) {\n",
-    "  int kind = item.misc.x;\n",
-    "  float2 q = float2(dfF(dfSub(x, dfFixed(item.shape.x, item.shapeLo.x))),\n",
-    "         dfF(dfSub(y, dfFixed(item.shape.y, item.shapeLo.y))));\n",
-    "  int data = 3 + int(dashWord(item, edges, 1));\n",
-    "  float bandD;\n",
-    "  float u;\n",
-    "  float len_;\n",
-    "  bool closed = true;\n",
-    "  if (kind == 1 || kind == 3) {\n",
-    "    float r = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
-    "    bandD = abs(length(q) - r) - halfW;\n",
-    "    float a = dashAngle(q);\n",
-    "    if (kind == 1) {\n",
-    "      u = r * a;\n",
-    "      len_ = 2.0 * PI * r;\n",
-    "    } else {\n",
-    "      float start = dashWord(item, edges, data);\n",
-    "      float sweep = dashWord(item, edges, data + 1);\n",
-    "      float rel = a - start;\n",
-    "      rel -= floor(rel / (2.0 * PI)) * (2.0 * PI);\n",
-    "      if (rel > sweep && rel - sweep >= 2.0 * PI - rel) { rel -= 2.0 * PI; }\n",
-    "      u = r * rel;\n",
-    "      len_ = r * sweep;\n",
-    "      closed = false;\n",
-    "    }\n",
-    "  } else if (kind == 7) {\n",
-    "    float rx = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
-    "    float ry = dfF(dfFixed(item.shape.w, item.shapeLo.w));\n",
-    "    float ca = dfF(dfFixed(item.ellipse.x, item.miscLo.z));\n",
-    "    float sa = dfF(dfFixed(item.ellipse.y, item.miscLo.w));\n",
-    "    float2 o = float2(q.x * ca + q.y * sa, q.y * ca - q.x * sa);\n",
-    "    float t;\n",
-    "    if (rx == ry) {\n",
-    "      t = dashAngle(o);\n",
-    "      bandD = abs(length(o) - rx) - halfW;\n",
-    "    } else {\n",
-    "      float2 a = abs(o);\n",
-    "      float2 c0 = float2(1.0, 0.0);\n",
-    "      float2 c1 = float2(0.0, 1.0);\n",
-    "      float2 m = c0;\n",
-    "      for (int k = 0; k < 24; ++k) {\n",
-    "        m = normalize(c0 + c1);\n",
-    "        float g = (a.x - rx * m.x) * (-rx * m.y) + (a.y - ry * m.y) * (ry * m.x);\n",
-    "        if (g > 0.0) { c0 = m; } else { c1 = m; }\n",
-    "      }\n",
-    "      float dist = length(a - float2(rx, ry) * m);\n",
-    "      if (dot(a / float2(rx, ry), a / float2(rx, ry)) < 1.0) { dist = -dist; }\n",
-    "      bandD = abs(dist) - halfW;\n",
-    "      t = dashAngle(float2(o.x < 0.0 ? -m.x : m.x, o.y < 0.0 ? -m.y : m.y));\n",
-    "    }\n",
-    "    int steps = item.strokeStyle.w - data - 1;\n",
-    "    float f = t / (2.0 * PI / float(steps));\n",
-    "    int k = clamp(int(f), 0, steps - 1);\n",
-    "    float t0 = dashWord(item, edges, data + k);\n",
-    "    float t1 = dashWord(item, edges, data + k + 1);\n",
-    "    u = t0 + (t1 - t0) * (f - float(k));\n",
-    "    len_ = dashWord(item, edges, data + steps);\n",
-    "  } else {\n",
-    "    float iw = dfF(dfFixed(item.shape.z, item.shapeLo.z));\n",
-    "    float ih = dfF(dfFixed(item.shape.w, item.shapeLo.w));\n",
-    "    float r = dfF(dfFixed(item.misc.y, item.miscLo.x));\n",
-    "    bandD = abs(rectDistance(q, float2(0.0), float2(iw, ih)) - r) - halfW;\n",
-    "    u = rrectPosition(q, iw, ih, r);\n",
-    "    len_ = 4.0 * iw + 4.0 * ih + 4.0 * (r * (PI / 2.0));\n",
-    "  }\n",
-    "  float2 ends;\n",
-    "  bool2 has;\n",
-    "  float d = max(bandD, dashAlong(item, edges, u, 0.0, len_, len_, closed, cap == 2 ? halfW : 0.0, ends, has));\n",
-    "  if (cap == 1) {\n",
-    "    if (has.x) { d = min(d, length(q - dashCurvePoint(item, edges, kind, data, ends.x)) - halfW); }\n",
-    "    if (has.y) { d = min(d, length(q - dashCurvePoint(item, edges, kind, data, ends.y)) - halfW); }\n",
-    "  }\n",
-    "  return d;\n",
-    "}\n",
-    // `__canvas_dashedStroke`: a dashed item's stroke distance at the shape-space point --
-    // for a Line, Arc or PolyLine its whole distance, for every other kind its band's.
-    "static float2 dashedStroke(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float halfW) {\n",
-    "  int kind = item.misc.x;\n",
-    "  bool rounded = kind == 0 && (item.misc.y != 0 || item.miscLo.x != 0);\n",
-    "  bool curve = kind == 1 || kind == 3 || kind == 7 || rounded;\n",
-    "  return float2(curve ? dashedCurve(item, edges, x, y, halfW, item.arc.w) : dashedEdges(item, edges, band, x, y, halfW, item.arc.w), 0.0);\n",
-    "}\n",
-    "static float2 sampleDistance(constant MfbItem &item, constant int *edges, int2 band, float2 x, float2 y, float reach, bool clip) {\n",
-    "  int kind = item.misc.x;\n",
-    // plan-163-C: a path clip's edges under its own rule, through the polygon's walk -- one
-    // `edgeDistance` call site, for the shader compilers' sake.
-    "  if (clip || kind == 4) {\n",
-    "    return edgeDistance(edges, clip ? item.clipPath.x : item.arc.z, band.y, band.x, x, y, reach,\n",
-    "                        clip ? (item.clipPath.z >> 2) : item.arc.y);\n",
-    "  }\n",
-    // plan-164-C: a CurvePolygon's signed distance, or a PolyCurve's stroke -- dashed or
-    // not -- from its pieces. A PolyCurve is stroke-as-fill, its half-width the radius.
-    "  if (kind == 11 || kind == 12) {\n",
-    "    return float2(curveWalk(item, edges, band, x, y, kind == 12 ? 0 : (item.strokeStyle.w > 0 ? 3 : 1),\n",
-    "                            dfF(dfFixed(item.misc.y, item.miscLo.x)), item.arc.w), 0.0);\n",
-    "  }\n",
-    // plan-163-B: a dashed Line, Arc or PolyLine is its dashed stroke.
-    "  if (item.strokeStyle.w > 0 && (kind == 2 || kind == 3 || kind == 10)) {\n",
-    "    return dashedStroke(item, edges, band, x, y, dfF(dfFixed(item.misc.y, item.miscLo.x)));\n",
-    "  }\n",
-    "  if (kind == 10) { return polylineDistance(item, edges, band, x, y, reach); }\n",
-    "  float v = farBound(item, float2(x.x, y.x));\n",
-    "  if (abs(v) > reach) { return float2(v, 0.0); }\n",
-    "  return dfShapeDistance(item, x, y);\n",
-    "}\n",
-    "static float2 dfMapX(constant MfbItem &item, float2 x, float2 y) {\n",
-    "  return dfAdd(dfAdd(dfMulF(x, as_type<float>(item.xform0.x)), dfMulF(y, as_type<float>(item.xform0.z))),\n",
-    "               float2(as_type<float>(item.xform1.x), 0.0));\n",
-    "}\n",
-    "static float2 dfMapY(constant MfbItem &item, float2 x, float2 y) {\n",
-    "  return dfAdd(dfAdd(dfMulF(x, as_type<float>(item.xform0.y)), dfMulF(y, as_type<float>(item.xform0.w))),\n",
-    "               float2(as_type<float>(item.xform1.y), 0.0));\n",
-    "}\n",
-    // The double-float shape-space point: the surface point with the group offset -- its
-    // 16.16 word plus, since bug-735, its residual -- taken off exactly.
-    "static float4 dfShapePoint(float2 surface, int4 offset) {\n",
-    "  return float4(dfSub(float2(surface.x, 0.0), dfFixed(offset.x, offset.z)), dfSub(float2(surface.y, 0.0), dfFixed(offset.y, offset.w)));\n",
-    "}\n",
-    // The clip rectangle's own antialiased coverage, 0..255 (plan-116-B): the same
-    // rectangle SDF and the same quantization the shape edges use, so a fractional clip
-    // edge is antialiased identically to a shape edge. plan-163-C: at the SHAPE-space
-    // point (`x`, `y`, the group offset taken off), because the clip is in the item's own
-    // coordinates, and only for a mode-1 clip, whose zero-area rectangle encloses nothing
-    // and hides the item. `__canvas_clipCoverage` and `mfb_canvas.frag`'s `clipRect` are
-    // the same lines.
-    //
-    // bug-735: in double-float, from the clip's words plus residuals, wherever the fp32
-    // rectangle distance (with `edgeSlack`'s bound) cannot say the pixel is wholly in or
-    // out.
-    "static int clipRect(constant MfbItem &item, float2 x, float2 y) {\n",
-    "  if (!fixedLess(item.clip.x, item.clipLo.x, item.clip.z, item.clipLo.z)\n",
-    "      || !fixedLess(item.clip.y, item.clipLo.y, item.clip.w, item.clipLo.w)) { return 0; }\n",
-    "  float2 p = float2(x.x, y.x);\n",
-    "  float2 lo = float2(fx(item.clip.x), fx(item.clip.y));\n",
-    "  float2 hi = float2(fx(item.clip.z), fx(item.clip.w));\n",
-    "  float d = rectDistance(p, (lo + hi) * 0.5, (hi - lo) * 0.5);\n",
-    "  float slack = edgeSlack(p, lo, hi);\n",
-    "  if (d - slack > 0.5) { return 0; }\n",
-    "  if (d + slack < -0.5) { return 255; }\n",
-    "  float2 x0 = dfFixed(item.clip.x, item.clipLo.x);\n",
-    "  float2 y0 = dfFixed(item.clip.y, item.clipLo.y);\n",
-    "  float2 x1 = dfFixed(item.clip.z, item.clipLo.z);\n",
-    "  float2 y1 = dfFixed(item.clip.w, item.clipLo.w);\n",
-    "  float2 dx = dfSub(x, dfMulF(dfAdd(x0, x1), 0.5));\n",
-    "  float2 dy = dfSub(y, dfMulF(dfAdd(y0, y1), 0.5));\n",
-    "  return dfCoverage(dfRectDistance(dx, dy, dfMulF(dfSub(x1, x0), 0.5), dfMulF(dfSub(y1, y0), 0.5)));\n",
-    "}\n",
-    // bug-687, extended to every kind by bug-735: an item's fill and stroke coverage, 0..255
-    // each, and whether it strokes, from its distance in double-float at the double-float
-    // shape-space point `pt` = (x.hi, x.lo, y.hi, y.lo). The oracle's
-    // `__canvas_drawGeometry`, operation for operation: the inverse map with the float32
-    // terms, the central differences at 0.5 (all five on the centre's band), `d / ||grad
-    // d||`, and the stroke's half-width -- its word plus its residual, stroking exactly when
-    // the oracle's `half > 0` -- taken off in shape space before the scale. The CENTRE
-    // sample is straight-line code and every other sample sits behind one branch
-    // (bug-688, at the samples below), so `sampleDistance` has two call sites.
-    //
-    // A sample past `reach` has its coverage decided by its sign (the pre-passes return a
-    // bound there, not the distance). Untransformed that is `0.5 + half`. Transformed,
-    // the CENTRE sample may take it too: the scale `g` the coverage divides by is a
-    // central difference of a 1-Lipschitz distance, so it is at most the inverse
-    // matrix's Frobenius norm `F` (or the fallback 1.0), and a centre past
-    // `half + 0.5 * max(F, 1)` is past the clamp whatever the four neighbours say --
-    // they are then not evaluated. `F` is widened by 2^-8 for the ellipse's bisection,
-    // which is Lipschitz only to its own ~1e-4 px. An arc is 1-Lipschitz since bug-1088
-    // (its sweep is two signed half-planes, not a jump to 1e6), so it takes the shortcut
-    // like every other kind. No neighbour sample does, whose exact value the gradient
-    // needs. The clip's centre
-    // sample takes the same shortcut at `0.5 * max(F, 1)` (bug-995, argued at
-    // `clipReach` in `shapeCoverage` below).
-    // plan-172-H: a rectangle clip's signed distance in double-float at the item's own
-    // point. `clipRect` above answers coverage and is right while the rectangle is
-    // axis-aligned on the surface; under a group matrix it is not, so its distance is
-    // sampled like a path clip's and divided by its own gradient
-    // (`__canvas_clipRectSurface`). A rectangle with no area encloses nothing.
-    "static float2 clipRectDistance(constant MfbItem &item, float2 x, float2 y) {\n",
-    "  if (!fixedLess(item.clip.x, item.clipLo.x, item.clip.z, item.clipLo.z)\n",
-    "      || !fixedLess(item.clip.y, item.clipLo.y, item.clip.w, item.clipLo.w)) { return float2(1.0e6, 0.0); }\n",
-    "  float2 x0 = dfFixed(item.clip.x, item.clipLo.x);\n",
-    "  float2 y0 = dfFixed(item.clip.y, item.clipLo.y);\n",
-    "  float2 x1 = dfFixed(item.clip.z, item.clipLo.z);\n",
-    "  float2 y1 = dfFixed(item.clip.w, item.clipLo.w);\n",
-    "  float2 dx = dfSub(x, dfMulF(dfAdd(x0, x1), 0.5));\n",
-    "  float2 dy = dfSub(y, dfMulF(dfAdd(y0, y1), 0.5));\n",
-    "  return dfRectDistance(dx, dy, dfMulF(dfSub(x1, x0), 0.5), dfMulF(dfSub(y1, y0), 0.5));\n",
-    "}\n",
-    // plan-172-H: `pt` arrives already through the groups' inverse linear part when
-    // `grouped`, and `gi` is that part: the four neighbour samples are half a SURFACE
-    // pixel away, which in the group's space is `gi` times that. An item inside a group
-    // with a matrix takes the transformed path whether or not it has a transform of its
-    // own -- `mapped` -- while `itemMapped` alone says whether its own inverse applies.
-    "static int4 shapeCoverage(constant MfbItem &item, constant int *edges, float4 pt, float4 gi, bool grouped) {\n",
-    "  float2 x = pt.xy;\n",
-    "  float2 y = pt.zw;\n",
-    "  bool itemMapped = hasTransform(item);\n",
-    "  bool mapped = itemMapped || grouped;\n",
-    "  float2 half2 = dfFixed(item.misc.z, item.miscLo.y);\n",
-    "  bool stroked = dfLess(float2(0.0, 0.0), half2);\n",
-    "  float reach = 0.5 + max(half2.x, 0.0);\n",
-    // bug-995: the clip's reach -- the shape's without the stroke half, and for any kind
-    // (a clip's distance is 1-Lipschitz whatever the item is, an arc's too).
-    "  float clipReach = 0.5;\n",
-    // bug-1085: the composed inverse's norm, which the band lookups hold to the norm the
-    // band's reach was built for; 0 for a pixel that takes its centre sample alone.
-    "  float norm = 0.0;\n",
-    "  if (mapped) {\n",
-    "    float2 c0 = itemMapped ? float2(as_type<float>(item.xform0.x), as_type<float>(item.xform0.y)) : float2(1.0, 0.0);\n",
-    "    float2 c1 = itemMapped ? float2(as_type<float>(item.xform0.z), as_type<float>(item.xform0.w)) : float2(0.0, 1.0);\n",
-    // The composed inverse's norm is at most the product of the two norms.
-    "    norm = sqrt(dot(c0, c0) + dot(c1, c1));\n",
-    "    if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }\n",
-    "    float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;\n",
-    "    reach = max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
-    "    clipReach = 0.5 * max(frob, 1.0);\n",
-    "  }\n",
-    "  int2 band = polygonBand(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x, norm);\n",
-    // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
-    // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
-    // so the centre's shape distance cannot decide the neighbours there.
-    // plan-163-B: so can a dashed one, which strokes from `dashedStroke`.
-    "  bool dashed = item.strokeStyle.w > 0;\n",
-    // plan-164-C: nor a PolyCurve, stroke-as-fill like a PolyLine: `sampleDistance` is
-    // its whole stroke.
-    "  bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10 && item.misc.x != 11;\n",
-    "  float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;\n",
-    // plan-163-C: samples 5..9 are a path clip's distance at the same five points, so the
-    // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's.
-    //
-    // bug-995: the clip's CENTRE sample (5) takes the shape's shortcut. Its coverage is
-    // `dfCoverage(d5 / cg)`, `cg` the central difference `|(d6 - d7, d8 - d9)|` of the
-    // clip's distance, or the fallback 1.0 when that is under 1e-6. The bound:
-    //
-    // * A clip's distance is 1-Lipschitz in shape space: a path's is the distance to its
-    //   edges with a sign that changes only where an edge is crossed (where it is 0), a
-    //   rectangle's the box distance. The neighbours are `q +- M (0.5, 0)` and
-    //   `q +- M (0, 0.5)`, `M` the composed inverse (the item's, after the groups'), so
-    //   `|d6 - d7| <= |M e1|` and `|d8 - d9| <= |M e2|`, hence `cg <= ||M||_F`. The norm
-    //   of a composition is at most the product of the norms, which is `norm`, and
-    //   `frob` widens it by 2^-8 for the float32 it is computed in.
-    // * A path clip's samples walk the centre's band, which holds every edge within its
-    //   reach of the band (`emit_band_index`, `r >= 0.5 + 1.5 F`), or every clip edge
-    //   when that reach does not cover the composed `norm` (`clipBandAt`, bug-1085):
-    //   the neighbours' crossings and nearest edges are in it, so what is sampled is
-    //   Lipschitz too. This is the shape's premise as well (`polygonBand`).
-    // * So with `clipReach = 0.5 * max(frob, 1)`, `|d5| > clipReach` gives
-    //   `|d5 / cg| > 0.5 * max(frob, 1) / cg >= 0.5` when `cg` is the difference, and
-    //   `|d5| > 0.5` when it is the fallback. Past 0.5 `dfCoverage` has clamped: 0
-    //   outside, 255 inside, which is `dfCoverage(d5)` -- the four neighbours cannot
-    //   change it and are not evaluated (`clipMapped` goes false, as `mapped` does).
-    // * Sample 5 is therefore asked with reach `clipReach`, not an unbounded one: where
-    //   `edgeDistance`'s fp32 pass proves the distance past it, it returns that bound
-    //   with the exact sign, which is past `clipReach` and takes the same branch.
-    //
-    // Untransformed and ungrouped `clipReach` is 0.5, the one sample there always was.
-    "  int clipMode = item.clipPath.z & 3;\n",
-    "  bool clipMapped = itemMapped || grouped;\n",
-    // plan-172-H: a rectangle clip is sampled too, under a group matrix.
-    "  bool clipSampled = clipMode == 2 || (clipMode == 1 && grouped);\n",
-    "  int2 cband = clipMode == 2 ? clipBandAt(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x, norm) : int2(-1, 0);\n",
-    "  float2 d[10];\n",
-    // bug-688: the shape's centre sample is taken here, outside the loop, and the loop is
-    // entered only by a pixel that needs another sample -- the shape's four neighbours
-    // (`mapped`, once the centre has not decided it) or the clip's (`clipSampled`). An
-    // untransformed, unclipped pixel therefore runs one sample and no loop. It did in the
-    // one ten-pass loop this replaces too, as nine `continue`s, and a driver that does
-    // not turn a skipped pass into skipped work charged it for all ten (box 206's Intel
-    // Vulkan driver, on the GLSL twin: 10,000 16 px squares rendered in 106 ms a frame,
-    // and in 58 this way). The samples and their order are unchanged; the centre point
-    // is `x`, `y` itself where the loop added a zero offset to it, which a double-float
-    // sum returns unchanged.
-    "  float2 cqx = itemMapped ? dfMapX(item, x, y) : x;\n",
-    "  float2 cqy = itemMapped ? dfMapY(item, x, y) : y;\n",
-    "  d[0] = sampleDistance(item, edges, band, cqx, cqy, reach, false);\n",
-    "  if (!joined && abs(d[0].x) > reach) { mapped = false; }\n",
-    "  if (mapped || clipSampled) {\n",
-    "    for (int k = 1; k < 10; ++k) {\n",
-    "      bool clipK = k >= 5;\n",
-    "      int j = clipK ? k - 5 : k;\n",
-    "      if (clipK ? (!clipSampled || j >= (clipMapped ? 5 : 1)) : !mapped) { continue; }\n",
-    "      float ox = j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0);\n",
-    "      float oy = j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0);\n",
-    "      float2 sx = dfAdd(x, float2(grouped ? gi.x * ox + gi.z * oy : ox, 0.0));\n",
-    "      float2 sy = dfAdd(y, float2(grouped ? gi.y * ox + gi.w * oy : oy, 0.0));\n",
-    "      float2 qx = itemMapped ? dfMapX(item, sx, sy) : sx;\n",
-    "      float2 qy = itemMapped ? dfMapY(item, sx, sy) : sy;\n",
-    "      if (clipK && clipMode == 1) {\n",
-    "        d[k] = clipRectDistance(item, qx, qy);\n",
-    "      } else {\n",
-    "        d[k] = sampleDistance(item, edges, clipK ? cband : band, qx, qy, k == 5 ? clipReach : 1.0e30, clipK);\n",
-    "      }\n",
-    "      if (k == 5 && abs(d[5].x) > clipReach) { clipMapped = false; }\n",
-    "    }\n",
-    "  }\n",
-    "  float2 dRaw = d[0];\n",
-    "  float2 g = float2(1.0, 0.0);\n",
-    "  if (mapped) {\n",
-    "    float2 gx = dfSub(d[1], d[2]);\n",
-    "    float2 gy = dfSub(d[3], d[4]);\n",
-    "    g = dfLength(gx, gy);\n",
-    "    if (!(g.x > 0.000001)) { g = float2(1.0, 0.0); }\n",
-    "  }\n",
-    "  int fill = dfCoverage(mapped ? dfDiv(dRaw, g) : dRaw);\n",
-    "  int stroke = 0;\n",
-    "  if (stroked) {\n",
-    // plan-164-C: a CurvePolygon's joined or dashed stroke is its pieces' (`curveWalk`).
-    "    float2 s = (item.misc.x == 12 && joined)\n",
-    "        ? float2(curveWalk(item, edges, band, cqx, cqy, dashed ? 3 : 2, dfF(half2), item.arc.w), 0.0)\n",
-    "        : (dashed ? dashedStroke(item, edges, band, cqx, cqy, dfF(half2))\n",
-    "        : (joined ? joinedStroke(item, edges, band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2)));\n",
-    "    stroke = dfCoverage(mapped ? dfDiv(s, g) : s);\n",
-    "  }\n",
-    "  int clipCov = 255;\n",
-    "  if (clipMode == 1 && !grouped) { clipCov = clipRect(item, x, y); }\n",
-    "  if (clipSampled) {\n",
-    "    float2 cg = float2(1.0, 0.0);\n",
-    "    if (clipMapped) {\n",
-    "      cg = dfLength(dfSub(d[6], d[7]), dfSub(d[8], d[9]));\n",
-    "      if (!(cg.x > 0.000001)) { cg = float2(1.0, 0.0); }\n",
-    "    }\n",
-    "    clipCov = dfCoverage(clipMapped ? dfDiv(d[5], cg) : d[5]);\n",
-    "  }\n",
-    "  return int4(fill, stroke, stroked ? 1 : 0, clipCov);\n",
-    "}\n",
-    "static float srgbToLinear(float c) {\n",
-    "  c = c / 255.0;\n",
-    "  return c <= 0.04045 ? (c / 12.92) : pow((c + 0.055) / 1.055, 2.4);\n",
-    "}\n",
-    // plan-116-F: the colour a gradient shows at `p`, as 0..255 — the twin of
-    // `gradientColour` in `runtime/canvas/shaders/mfb_canvas.frag` and of
-    // `__canvas_gradientColor` in the oracle. The lerp is in LINEAR light, which is the
-    // one property that must match; the result is returned encoded so it drops straight
-    // into `covered`, which is what decodes.
-    // One entry of the oracle's forward table, recomputed rather than uploaded: the
-    // curve ROUNDED to integers on a 0..65535 scale, which is the space its lerp
-    // happens in. The oracle's table is `__color_srgbTable`, in the `color` package
-    // since plan-122-B. This reproduction spells neither its name nor its constant,
-    // so a grep for the table will not find it; if the quantisation ever changes,
-    // `the_gpu_draws_the_gradient_scene_the_reference_shows` is what catches it.
-    "static float srgbTable(int i) {\n",
-    "  return floor(srgbToLinear(float(i)) * 65535.0 + 0.5);\n",
-    "}\n",
-    // One channel, reproducing `__canvas_gradientChannel` exactly. `num` is already
-    // quantised to 1/4096 by TRUNCATION because the oracle quantises there; a
-    // continuous fraction here biases the whole ramp by up to a step. The answer is the
-    // byte nearest in LINEAR value, the rule the oracle's binary search applies.
-    "static int gradientChannel(int loSrgb, int hiSrgb, int num) {\n",
-    "  float loLin = srgbTable(loSrgb);\n",
-    "  float hiLin = srgbTable(hiSrgb);\n",
-    "  float lin = loLin + trunc((hiLin - loLin) * float(num) / 4096.0);\n",
-    "  float e = lin <= 205.4 ? (lin / 65535.0 * 12.92)\n",
-    "                         : (1.055 * pow(lin / 65535.0, 1.0 / 2.4) - 0.055);\n",
-    "  int c = int(clamp(e * 255.0, 0.0, 255.0));\n",
-    "  if (c > 0 && lin <= floor((srgbTable(c - 1) + srgbTable(c)) * 0.5)) {\n",
-    "    return c - 1;\n",
-    "  }\n",
-    "  if (c < 255 && lin > floor((srgbTable(c) + srgbTable(c + 1)) * 0.5)) {\n",
-    "    return c + 1;\n",
-    "  }\n",
-    "  return c;\n",
-    "}\n",
-    // plan-154-B: the stop lookup at a ramp parameter `t`, split from the axis that
-    // computes `t` so a PolyLine can ask it at its path parameter instead.
-    "static int4 gradientAt(float t, constant int *edges, constant MfbItem &item) {\n",
-    "  int count = item.ellipse.z;\n",
-    "  int base = METAL_GRADIENT_BASE + item.ellipse.w * 5;\n",
-    "  t = clamp(t, 0.0, 1.0);\n",
-    "  int idx = count;\n",
-    "  for (int i = 0; i < count; ++i) {\n",
-    "    if (idx == count && fx(edges[base + i * 5]) >= t) { idx = i; }\n",
-    "  }\n",
-    "  if (idx >= count) {\n",
-    "    int last = base + (count - 1) * 5;\n",
-    "    return int4(edges[last + 1], edges[last + 2], edges[last + 3], edges[last + 4]);\n",
-    "  }\n",
-    "  if (idx <= 0) {\n",
-    "    return int4(edges[base + 1], edges[base + 2], edges[base + 3], edges[base + 4]);\n",
-    "  }\n",
-    "  int lo = base + (idx - 1) * 5;\n",
-    "  int hi = base + idx * 5;\n",
-    "  float loOff = fx(edges[lo]);\n",
-    "  float hiOff = fx(edges[hi]);\n",
-    // Quantised to 1/4096 by truncation, exactly as `__canvas_gradientColor` does.
-    "  int num = hiOff > loOff ? int((t - loOff) / (hiOff - loOff) * 4096.0) : 0;\n",
-    "  num = clamp(num, 0, 4096);\n",
-    "  int loA = edges[lo + 4];\n",
-    "  int hiA = edges[hi + 4];\n",
-    "  return int4(gradientChannel(edges[lo + 1], edges[hi + 1], num),\n",
-    "              gradientChannel(edges[lo + 2], edges[hi + 2], num),\n",
-    "              gradientChannel(edges[lo + 3], edges[hi + 3], num),\n",
-    "              loA + int(trunc(float(hiA - loA) * float(num) / 4096.0)));\n",
-    "}\n",
-    // plan-163-D: the spread past the ramp's ends, the focal radial's position, the ramp
-    // at the SHAPE-space point `q` (radial through its own inverse; `gradientKind` packs
-    // `kind | spread << 1 | apply << 3`), and the stroke tint -- `mfb_canvas.frag`'s
-    // `gradientSpread`, `focalT`, `gradientColour` and `tintRamp`, line for line.
-    "static float gradientSpread(float t, int spread) {\n",
-    "  if (spread == 0) { return t; }\n",
-    "  float tt = clamp(t, -1.0e9, 1.0e9);\n",
-    "  if (spread == 2) { return tt - floor(tt); }\n",
-    "  float u = tt - 2.0 * floor(tt / 2.0);\n",
-    "  return u > 1.0 ? 2.0 - u : u;\n",
-    "}\n",
-    "static float focalT(float2 p, float2 c, float r, float2 o, float fr) {\n",
-    "  if (!(r > 0.0)) { return 0.0; }\n",
-    "  float2 f = c + o;\n",
-    "  float2 e = p - f;\n",
-    "  float2 w = c - f;\n",
-    "  float dr = r - fr;\n",
-    "  float a = w.x * w.x + w.y * w.y - dr * dr;\n",
-    "  float b = e.x * w.x + e.y * w.y + fr * dr;\n",
-    "  float cc = e.x * e.x + e.y * e.y - fr * fr;\n",
-    "  float disc = max(b * b - a * cc, 0.0);\n",
-    "  return (b - sqrt(disc)) / a;\n",
-    "}\n",
-    "static int4 gradientColour(float2 q, constant int *edges, constant MfbItem &item) {\n",
-    "  float2 gfrom = float2(fx(item.gradient.x), fx(item.gradient.y));\n",
-    "  float2 gto = float2(fx(item.gradient.z), fx(item.gradient.w));\n",
-    "  float2 axis = gto - gfrom;\n",
-    "  float len2 = dot(axis, axis);\n",
-    "  float t = 0.0;\n",
-    "  if ((item.gradientKind & 1) == 1) {\n",
-    "    float2 g = q;\n",
-    "    if (item.gradInv1.z != 0) {\n",
-    "      g = float2(as_type<float>(item.gradInv0.x) * q.x + as_type<float>(item.gradInv0.z) * q.y\n",
-    "                     + as_type<float>(item.gradInv1.x),\n",
-    "                 as_type<float>(item.gradInv0.y) * q.x + as_type<float>(item.gradInv0.w) * q.y\n",
-    "                     + as_type<float>(item.gradInv1.y));\n",
-    "    }\n",
-    "    float2 o = float2(fx(item.gradFocal.x), fx(item.gradFocal.y));\n",
-    "    float fr = fx(item.gradFocal.z);\n",
-    "    float len = sqrt(len2);\n",
-    "    if (o.x != 0.0 || o.y != 0.0 || fr != 0.0) {\n",
-    "      t = focalT(g, gfrom, len, o, fr);\n",
-    "    } else if (len > 0.0) {\n",
-    "      t = length(g - gfrom) / len;\n",
-    "    }\n",
-    "  } else {\n",
-    "    if (len2 > 0.0) { t = dot(q - gfrom, axis) / len2; }\n",
-    "  }\n",
-    "  return gradientAt(gradientSpread(t, (item.gradientKind >> 1) & 3), edges, item);\n",
-    "}\n",
-    "static int4 tintRamp(int4 ramp, int4 by) {\n",
-    "  int4 tint = (ramp * by) / 255;\n",
-    "  int4 out = ramp;\n",
-    "  for (int c = 0; c < 3; ++c) {\n",
-    "    int dc = (tint[c] - ramp[c]) * by.w;\n",
-    "    out[c] = ramp[c] + (dc >= 0 ? (dc + 127) / 255 : -((127 - dc) / 255));\n",
-    "  }\n",
-    "  return out;\n",
-    "}\n",
-    // bug-1079: which of `n` texels holds `t`, the texels `d` apart -- `floor(t / d)`
-    // corrected by at most one from the exact products, so the index does not hang on
-    // the last bit of the quotient (Vulkan allows `/` 2.5 ULP and one driver takes it;
-    // Apple's GPUs divide exactly, and this is the same rule so the copies stay one).
-    // The GLSL's `pictureTexel`, line for line, and the oracle's picture arm.
-    "static int pictureTexel(float t, float d, int n) {\n",
-    "  float u = floor(t / d);\n",
-    "  if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }\n",
-    "  return clamp(int(u), 0, n - 1);\n",
-    "}\n",
-    "static int tileTexel(float t, float d) {\n",
-    "  float u = floor(t / d);\n",
-    "  if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }\n",
-    "  return int(u);\n",
-    "}\n",
-    // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
-    // NEAREST and tinted by the fill (plan-163-C: towards `texel * fill / 255` by
-    // `fill.a / 255`, rounded half away from zero, and its alpha faded by the transparency
-    // step in `clipPath.w` -- `__canvas_tintChannel`), the twin of the `isPicture` arm of
-    // `__canvas_drawGeometry`. Same operation order as the oracle, `(q - x0) * iw / dw`,
-    // through `pictureTexel`, so all renderers pick the same texel; the index is
-    // CLAMPED because the antialiased pixels just outside the destination belong to the
-    // border texel. The texels ride the glyph region one packed `r | g<<8 | b<<16 | a<<24`
-    // word each, and the block names its slice as a glyph's does: width in `misc.w`,
-    // height in `arc.x`, base in `arc.z`. A zero width is an image the emitter could not
-    // upload (destroyed, or over the frame's cap): transparent, like the oracle's
-    // `shadowTexel` answer for a missing block.
-    "static int4 pictureColour(constant MfbItem &item, constant int *edges, float2 q) {\n",
-    "  int iw = item.misc.w;\n",
-    "  int ih = item.arc.x;\n",
-    "  if (iw <= 0 || ih <= 0) { return int4(0); }\n",
-    "  float hw = fx(item.shape.z), hh = fx(item.shape.w);\n",
-    "  float x0 = fx(item.shape.x) - hw, y0 = fx(item.shape.y) - hh;\n",
-    "  float dw = hw * 2.0, dh = hh * 2.0;\n",
-    "  int u = pictureTexel((q.x - x0) * float(iw), dw, iw);\n",
-    "  int v = pictureTexel((q.y - y0) * float(ih), dh, ih);\n",
-    "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
-    "  int4 tex = int4(int(word & 255u), int((word >> 8) & 255u),\n",
-    "                  int((word >> 16) & 255u), int((word >> 24) & 255u));\n",
-    "  int4 tint = (tex * item.fill) / 255;\n",
-    "  int a = item.fill.w;\n",
-    "  int4 out = tex;\n",
-    "  for (int c = 0; c < 3; ++c) {\n",
-    "    int dc = (tint[c] - tex[c]) * a;\n",
-    "    out[c] = tex[c] + (dc >= 0 ? (dc + 127) / 255 : -((127 - dc) / 255));\n",
-    "  }\n",
-    "  out.w = (tex.w * (255 - item.clipPath.w) + 127) / 255;\n",
-    "  return out;\n",
-    "}\n",
-    // plan-173: the requested source rectangle maps directly; samples outside the image
-    // are transparent instead of clamped or remapped.
-    "static int4 tileColour(constant MfbItem &item, constant int *edges, float2 q) {\n",
-    "  int iw = item.misc.w, ih = item.arc.x;\n",
-    "  if (iw <= 0 || ih <= 0) { return int4(0); }\n",
-    "  float hw = fx(item.shape.z), hh = fx(item.shape.w);\n",
-    "  float x0 = fx(item.shape.x) - hw, y0 = fx(item.shape.y) - hh;\n",
-    "  float dw = hw * 2.0, dh = hh * 2.0;\n",
-    "  float sx = fx(item.gradient.x), sy = fx(item.gradient.y);\n",
-    "  float sw = fx(item.gradient.z), sh = fx(item.gradient.w);\n",
-    "  int u = tileTexel(sx * dw + (q.x - x0) * sw, dw);\n",
-    "  int v = tileTexel(sy * dh + (q.y - y0) * sh, dh);\n",
-    // bug-1093: clamp to the texels the source rectangle touches, before the image test.
-    "  u = clamp(u, int(floor(sx)), int(ceil(sx + sw)) - 1);\n",
-    "  v = clamp(v, int(floor(sy)), int(ceil(sy + sh)) - 1);\n",
-    "  if (u < 0 || v < 0 || u >= iw || v >= ih) { return int4(0); }\n",
-    "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
-    "  return int4(int(word & 255u), int((word >> 8) & 255u),\n",
-    "              int((word >> 16) & 255u), int((word >> 24) & 255u));\n",
-    "}\n",
-    // The oracle quantizes coverage to a whole 0..255 and then takes an integer
-    // `(colourAlpha * coverage) / 255`. Matching that here rather than blending in
-    // float is not pedantry: near full coverage the sRGB encode is so steep that ONE
-    // step of coverage moves a dark channel by up to 13 output steps, so a float
-    // coverage that merely rounds differently produces a visible disagreement on
-    // every antialiased edge. Quantizing the same way leaves only the pixels within
-    // a rounding boundary of each other.
-    "static float4 covered(int4 rgba, int coverage) {\n",
-    "  float a = float((rgba.w * coverage) / 255) / 255.0;\n",
-    "  return float4(srgbToLinear(float(rgba.x)) * a,\n",
-    "                srgbToLinear(float(rgba.y)) * a,\n",
-    "                srgbToLinear(float(rgba.z)) * a, a);\n",
-    "}\n",
-    // `items` and `edges` are the SAME buffer bound twice, at offset zero both times:
-    // one view typed as blocks, one as raw words. Two bindings rather than one pointer
-    // cast because the edge region is reached by a word index and the block region by a
-    // struct index, and letting each keep its own element type is what stops a packing
-    // mistake -- the class of bug that yields a plausible wrong picture, not a fault.
-    // Glyph coverage is the fourth region of the same buffer (bug-670): a text item is
-    // ONE instanced draw, so a per-glyph payload bound before it would be overwritten
-    // by the next glyph's; each glyph's block names its own slice instead.
-    "fragment float4 mfbFragment(VOut in [[stage_in]],\n",
-    "                            constant MfbItem *items [[buffer(0)]],\n",
-    "                            constant int *edges [[buffer(1)]],\n",
-    "                            constant MfbDraw &draw [[buffer(3)]]) {\n",
-    "  constant MfbItem &item = items[in.item];\n",
-    // plan-116-H: `p` is the SHAPE-space point -- the surface point with the group's
-    // offset taken back off -- and every distance, gradient, glyph lookup and (since
-    // plan-163-C) the clip below uses it.
-    "  float2 p = in.pos.xy - float2(fx(draw.offset.x), fx(draw.offset.y));\n",
-    // plan-172-H: and, under a group matrix, through the groups' inverse linear part --
-    // so `p` is the point in the GROUP's space, where an item's own placement lives, and
-    // every consumer below (the item's own inverse map included) is unchanged.
-    "  bool grouped = drawGrouped(draw);\n",
-    "  float4 gi = drawInverse(draw);\n",
-    "  if (grouped) { p = float2(gi.x * p.x + gi.z * p.y, gi.y * p.x + gi.w * p.y); }\n",
-    // A glyph has coverage, not a distance: the CPU rasterised its outline once and
-    // cached the bitmap (plan-98-G Phase 2), so the GPU's job here is a lookup. It
-    // returns before `geoDistance` for that reason, and it is fill-only — a stroked
-    // text item became an outline polygon in the geometry builder.
-    //
-    // Outside the bitmap is zero rather than clamped: the quad can cover a pixel the
-    // bitmap does not, and clamping would smear the border row outward.
-    // The clip multiplies the shape's own coverage, exactly as the oracle's
-    // `(coverage * clipCov) / 255` does. Integer, and by 255 rather than a shift, so
-    // the two quantize identically -- a float multiply here would disagree on the
-    // boundary pixels, which are the only ones a clip can affect.
-    // plan-163-C: the clip is evaluated in `shapeCoverage` at the SHAPE-space point -- it
-    // travels with the item's transform and its group -- for every kind, glyphs included.
-    "  float4 pt = dfShapePoint(in.pos.xy, draw.offset);\n",
-    "  if (grouped) {\n",
-    "    pt = float4(dfAdd(dfMulF(pt.xy, gi.x), dfMulF(pt.zw, gi.z)), dfAdd(dfMulF(pt.xy, gi.y), dfMulF(pt.zw, gi.w)));\n",
-    "  }\n",
-    "  int4 cov = shapeCoverage(item, edges, pt, gi, grouped);\n",
-    "  int clipCov = cov.w;\n",
-    // plan-116-C section 4.5: a transformed glyph samples its bitmap at the
-    // inverse-mapped point, nearest. The index arithmetic is already whole-pixel, so
-    // mapping the query point is the whole change -- the cache stays untransformed and
-    // one entry serves every transform.
-    "  if (item.misc.x == 6) {\n",
-    "    float2 gp = hasTransform(item) ? inverseMap(item, p) : p;\n",
-    // `floor`, not a cast: a cast truncates toward zero, and a transformed glyph maps
-    // to NEGATIVE shape-space coordinates (ink runs up from the pen), where truncation
-    // picks the texel on the wrong side. Untransformed, `gp` is a surface pixel centre
-    // and always positive, so this is the same value the cast gave.
-    "    int ix = int(floor(gp.x)) - item.shape.x;\n",
-    "    int iy = int(floor(gp.y)) - item.shape.y;\n",
-    "    int cov = (ix < 0 || iy < 0 || ix >= item.misc.w || iy >= item.arc.x)\n",
-    "      ? 0 : edges[METAL_GLYPH_BASE + item.arc.z + iy * item.misc.w + ix];\n",
-    "    return covered(item.fill, (cov * clipCov) / 255);\n",
-    "  }\n",
-    // Both coverages come from `shapeCoverage` in double-float at the double-float twin
-    // of `p` -- the surface point with the group offset (word and residual) taken off,
-    // exactly: a polygon since bug-687, every other kind since bug-735. The fill uses
-    // the surface distance and the stroke subtracts `half` BEFORE converting, so the
-    // outline scales with the shape (section 4.3).
-    // plan-116-F: the gradient replaces the fill COLOUR and nothing else.
-    // plan-163-D: at the shape-space point `q`, so the transform carries the ramp; and
-    // with `FillAndStroke` the stroke -- a Line's or Arc's fill -- is the ramp tinted by
-    // its colour.
-    "  float2 q = hasTransform(item) ? inverseMap(item, p) : p;\n",
-    "  int4 ramp = item.ellipse.z >= 2 ? gradientColour(q, edges, item) : item.fill;\n",
-    "  bool rampStroke = item.ellipse.z >= 2 && (item.gradientKind & 8) != 0;\n",
-    "  int4 fillRgba = ramp;\n",
-    "  if (rampStroke && (item.misc.x == 2 || item.misc.x == 3 || item.misc.x == 11)) { fillRgba = tintRamp(ramp, item.fill); }\n",
-    // plan-154-B: a PolyLine's stops are its per-point colours, and its ramp runs along
-    // the path -- the parameter of the nearest point, in shape space, from the same band
-    // the distance used.
-    "  if (item.misc.x == 10 && item.ellipse.z >= 2) {\n",
-    "    fillRgba = gradientAt(polylineScan(item, edges, polygonBand(item, edges, q.y, 0.0), q).y, edges, item);\n",
-    "  }\n",
-    // bug-484: a picture's image replaces the fill COLOUR the same way, sampled at the
-    // inverse-mapped point under a transform (plan-116-C section 4.5, as a glyph is).
-    "  if (item.misc.x == 9) {\n",
-    "    fillRgba = pictureColour(item, edges, q);\n",
-    "  }\n",
-    "  if (item.misc.x == 13) {\n",
-    "    fillRgba = tileColour(item, edges, q);\n",
-    "  }\n",
-    // plan-163-D: a fill alpha of -1 is the stroke record of a split blended item.
-    "  float4 colour = item.fill.w < 0 ? float4(0.0) : covered(fillRgba, (cov.x * clipCov) / 255);\n",
-    "  if (cov.z != 0) {\n",
-    // plan-116-B: this stroke-over-fill composition equals the oracle's two sequential
-    // blends only under `Normal`, which is why a non-`Normal` item that both fills and
-    // strokes is emitted as two adjacent instances (`emit_split_or_publish`). By the
-    // time such an item reaches here it is fill-only or stroke-only.
-    "    float4 s = covered(rampStroke ? tintRamp(ramp, item.stroke) : item.stroke, (cov.y * clipCov) / 255);\n",
-    "    colour = s + colour * (1.0 - s.w);\n",
-    "  }\n",
-    "  return colour;\n",
-    "}\n",
-);
+/// Everything in the MSL after the region bases — the part with no layout number in it:
+/// `shaders/mfb_canvas.metal`, the twin of the Vulkan `mfb_canvas.vert` and `mfb_canvas.frag`.
+const METAL_SHADER_BODY: &str =
+    include_str!("../../../codegen/runtime/canvas/shaders/mfb_canvas.metal");
 
 /// The MSL source's C string data object symbol. The text is `METAL_SHADER_SOURCE`,
 /// paired with this in `metal_data_objects`.
@@ -5192,7 +3195,7 @@ fn emit_glyph_publish(asm: &mut Asm) {
     }
 
     // --- the glyph's own item block ------------------------------------------------
-    // quad is 16.16 like every other kind's; shape.x/.y are WHOLE pixels, because the
+    // quad is float32 like every other kind's; shape.x/.y are WHOLE pixels, because the
     // shader indexes the bitmap with them.
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
@@ -5254,7 +3257,10 @@ fn emit_glyph_publish(asm: &mut Asm) {
             (abi::SCRATCH[4], 2),
             (abi::SCRATCH[5], 3),
         ] {
-            asm.push(abi::shift_left_immediate(abi::SCRATCH[6], register, 16));
+            asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[1], register));
+            for instruction in emit_f32_bits(abi::SCRATCH[6], abi::FP_SCRATCH[1]) {
+                asm.push(instruction);
+            }
             asm.push(abi::store_u32(
                 abi::SCRATCH[6],
                 abi::stack_pointer(),
@@ -5348,15 +3354,8 @@ fn emit_glyph_publish(asm: &mut Asm) {
 /// the glyph loop, one per glyph.
 fn emit_item_block(asm: &mut Asm, tag: &str) {
     let header = abi::SCRATCH[0];
-    let scale = abi::FP_SCRATCH[0];
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[1]));
 
-    // The 16.16 fields no distance reads: the bounds and the gradient axis.
+    // The float32 fields no distance reads: the bounds and the gradient axis.
     for (item_offset, slots) in [
         (
             ITEM_OFFSET_QUAD,
@@ -5368,7 +3367,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
             ],
         ),
         // plan-116-F: the gradient's axis, four consecutive header slots narrowing to
-        // 16.16 exactly like the bounds and the arc caps.
+        // float32 exactly like the bounds and the arc caps.
         (
             ITEM_OFFSET_GRADIENT,
             [
@@ -5381,15 +3380,9 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     ] {
         for (index, slot) in slots.into_iter().enumerate() {
             asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-            asm.push(abi::float_multiply_d(
-                abi::FP_SCRATCH[1],
-                abi::FP_SCRATCH[1],
-                scale,
-            ));
-            asm.push(abi::float_round_to_signed_x(
-                abi::SCRATCH[1],
-                abi::FP_SCRATCH[1],
-            ));
+            for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+                asm.push(instruction);
+            }
             asm.push(abi::store_u32(
                 abi::SCRATCH[1],
                 abi::stack_pointer(),
@@ -5397,7 +3390,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
             ));
         }
     }
-    // bug-1083: how much of that box is rim, 16.16 like the box, in the two words the
+    // bug-1083: how much of that box is rim, float32 like the box, in the two words the
     // vertex stage reads it from under a group matrix (`ITEM_RIM_WORDS`).
     for (index, word) in crate::codegen::runtime::canvas::ITEM_RIM_WORDS
         .into_iter()
@@ -5405,15 +3398,9 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     {
         let slot = crate::codegen::runtime::canvas::HEADER_RIM + index;
         asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[1],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
@@ -5421,23 +3408,12 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
         ));
     }
 
-    // bug-735: every field a distance reads -- the shape parameters, the radius and
-    // stroke half-width, an arc's sweep endpoints, an ellipse's rotation and the clip --
-    // as its 16.16 word and, in the block's residual `ivec4`s, its residual. The twin of
-    // the `ITEM_RESIDUAL_FIELDS` loop in `runtime/canvas/vulkan/item_block.rs`, from the same table.
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        abi::FP_SCRATCH[3],
-        abi::SCRATCH[1],
-    ));
-    for (slot, word, residual) in ITEM_RESIDUAL_FIELDS {
-        for instruction in
-            emit_item_residual_field(header, slot, OFF_ITEM + word, OFF_ITEM + residual)
-        {
+    // Every field a distance reads -- the shape parameters, the radius and stroke
+    // half-width, an arc's sweep endpoints, an ellipse's rotation and the clip -- as
+    // float32. The twin of the `ITEM_FLOAT_FIELDS` loop in
+    // `runtime/canvas/vulkan/item_block.rs`, from the same table.
+    for (slot, word) in ITEM_FLOAT_FIELDS {
+        for instruction in emit_item_float_field(header, slot, OFF_ITEM + word) {
             asm.push(instruction);
         }
     }
@@ -5491,7 +3467,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     }
 
     // misc = { kind, radius, strokeHalf, edgeCount }: the two whole numbers here, the
-    // two 16.16 ones with their residuals above.
+    // two float32 ones above.
     for (index, slot) in [(0usize, HEADER_KIND), (3, HEADER_AUX0)] {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
         asm.push(abi::float_convert_to_signed_x(
@@ -5562,30 +3538,15 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
         ));
     }
     debug_assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[1],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        abi::FP_SCRATCH[2],
-        abi::SCRATCH[1],
-    ));
     for index in 0..3 {
         asm.push(abi::load_double(
             abi::FP_SCRATCH[1],
             header,
             (HEADER_GRADIENT_FOCAL_X + index) * 8,
         ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[1],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[1], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(
             abi::SCRATCH[1],
             abi::stack_pointer(),
@@ -5776,18 +3737,18 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq(&single));
-    // ...and the item actually strokes: `strokeHalf` > 0, which since bug-735 is its
-    // 16.16 word > 0 or, for a word of 0, its residual > 0 -- `emit_item_stroke_sign`
-    // makes that exactly the header's f64 `half > 0.0`, the test
-    // `__canvas_blockInstances` counts two records on. Before it this read the word
-    // alone, so a blended filled item stroked thinner than 2^-16 px was counted as two
-    // records and published as one, and every later draw named the wrong blocks.
+    // ...and the item actually strokes: `strokeHalf` > 0, its float32 bits read as a
+    // SIGNED integer -- positive exactly when the value is above +0, which
+    // `emit_item_stroke_sign` makes exactly the header's f64 `half > 0.0`, the test
+    // `__canvas_blockInstances` counts two records on. A mismatch publishes a different
+    // number of records than the draw list counts, and every later draw names the wrong
+    // blocks.
     //
     // SIGNED, for the reason the Vulkan twin records (plan-116-H **H15**):
-    // `__canvas_strokeHalf` reports "does not stroke" as **-1.0**, which is
-    // `0xFFFF0000` in 16.16, and `load_u32` zero-extends -- so without the `sxtw` the
-    // 64-bit compare sees 4294901760 and every blended fill-only item is published as
-    // TWO records. The comment below already claims such an item takes the single path.
+    // `__canvas_strokeHalf` reports "does not stroke" as **-1.0**, whose bits have the
+    // top bit set, and `load_u32` zero-extends -- so without the `sxtw` the 64-bit
+    // compare would see a large positive number and every blended fill-only item would
+    // be published as TWO records. The comment below already claims such an item takes the single path.
     //
     // It was latent while the draw came from `emit_run_flush`, whose instance count was
     // `cursor - run_start` -- whatever had actually been published, so the spurious
@@ -5798,15 +3759,6 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
         abi::SCRATCH[0],
         abi::stack_pointer(),
         OFF_ITEM + ITEM_OFFSET_MISC + 8,
-    ));
-    asm.push(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
-    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
-    asm.push(abi::branch_gt(&strokes));
-    asm.push(abi::branch_lt(&single));
-    asm.push(abi::load_u32(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        OFF_ITEM + ITEM_OFFSET_MISC_LO + 4,
     ));
     asm.push(abi::sign_extend_word(abi::SCRATCH[0], abi::SCRATCH[0]));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
@@ -5850,10 +3802,9 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
 
     // Record one: the fill, with the stroke switched off. `strokeHalf` is parked on the
     // STACK — `emit_item_publish` owns the low scratch registers, so a register saved
-    // across it comes back holding a mapped address. Off is -1.0 (`0xFFFF0000`), the
-    // value `__canvas_strokeHalf` reports for a paint that does not stroke: since
-    // bug-735 the shader strokes on the word PLUS its residual, and a zero word under a
-    // positive residual would still stroke.
+    // across it comes back holding a mapped address. Off is -1.0 (float32
+    // `0xBF800000`), the value `__canvas_strokeHalf` reports for a paint that does not
+    // stroke.
     asm.push(abi::load_u32(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -5864,12 +3815,11 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
         abi::stack_pointer(),
         OFF_SAVED_STROKE,
     ));
-    // -1.0 in 16.16, spelled unsigned: the immediate is never negative, and the store
-    // keeps the low 32 bits.
+    // -1.0 as float32 bits, spelled unsigned: the immediate is never negative.
     asm.push(abi::move_immediate(
         abi::SCRATCH[0],
         "Integer",
-        "4294901760",
+        "3212836864",
     ));
     asm.push(abi::store_u32(
         abi::SCRATCH[0],
@@ -5994,16 +3944,21 @@ fn emit_draw_list_pass(asm: &mut Asm) {
         abi::stack_pointer(),
         OFF_DRAW_COUNT,
     ));
-    // The two 16.16 offsets and (bug-735) their residual words, then (plan-172-H) the
+    // The two offsets (float32 bits), two reserved zero words, then (plan-172-H) the
     // inverse linear part, written as 32-bit words side by side so the thirty-two bytes
     // at `OFF_DRAW_PAIR` are exactly the `MfbDraw` both shader stages declare. Entry
-    // words 2, 3, 5, 6 and 8-11 (`__canvas_pushOneDraw`); the last four are zero in an
-    // entry with no matrix, which is how the shader knows.
+    // words 2, 3 and 8-11 (`__canvas_pushOneDraw`); the last four are zero in an entry
+    // with no matrix, which is how the shader knows.
+    for at in [8usize, 12] {
+        asm.push(abi::store_u32(
+            abi::ZERO,
+            abi::stack_pointer(),
+            OFF_DRAW_PAIR + at,
+        ));
+    }
     for (word, at) in [
         (2usize, 0usize),
         (3, 4),
-        (5, 8),
-        (6, 12),
         (8, 16),
         (9, 20),
         (10, 24),
@@ -6157,7 +4112,6 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
-    let scale = abi::FP_SCRATCH[0];
 
     asm.push(abi::load_u64(
         header,
@@ -6269,13 +4223,6 @@ fn emit_gradient_buffer(asm: &mut Asm) {
         abi::SCRATCH[6],
         abi::SCRATCH[5],
     ));
-
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     asm.push(abi::move_immediate(index, "Integer", "0"));
 
     asm.push(abi::label(&head));
@@ -6283,15 +4230,9 @@ fn emit_gradient_buffer(asm: &mut Asm) {
     asm.push(abi::branch_ge(&done));
     // The offset in 16.16, then four whole 0..255 channels.
     asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 0));
-    asm.push(abi::float_multiply_d(
-        abi::FP_SCRATCH[1],
-        abi::FP_SCRATCH[1],
-        scale,
-    ));
-    asm.push(abi::float_round_to_signed_x(
-        abi::SCRATCH[5],
-        abi::FP_SCRATCH[1],
-    ));
+    for instruction in emit_f32_bits(abi::SCRATCH[5], abi::FP_SCRATCH[1]) {
+        asm.push(instruction);
+    }
     asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
     asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
     for channel in 1..=4usize {
@@ -6328,9 +4269,6 @@ fn emit_clip_buffer(asm: &mut Asm) {
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
     let target = abi::SCRATCH[6];
-    let residual_target = abi::SCRATCH[1];
-    let scale = abi::FP_SCRATCH[0];
-    let residual_scale = abi::FP_SCRATCH[3];
     let clip = OFF_ITEM + ITEM_OFFSET_CLIP_PATH;
     let band = OFF_ITEM + ITEM_OFFSET_CLIP_BAND;
 
@@ -6456,27 +4394,6 @@ fn emit_clip_buffer(asm: &mut Asm) {
         &(METAL_EDGE_BASE_WORDS * 4).to_string(),
     ));
     asm.push(abi::add_registers(target, target, abi::SCRATCH[7]));
-    asm.push(abi::move_immediate(
-        residual_target,
-        "Integer",
-        &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
-    ));
-    asm.push(abi::add_registers(residual_target, residual_target, target));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        residual_scale,
-        abi::SCRATCH[5],
-    ));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     // source = header + (slot1 - stops * 5 - count * 5) * 8.
     asm.push(abi::load_u64(
         header,
@@ -6518,37 +4435,11 @@ fn emit_clip_buffer(asm: &mut Asm) {
                 abi::FP_SCRATCH[2],
             ));
         }
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[5], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(abi::SCRATCH[5], target, 0));
         asm.push(abi::add_immediate(target, target, 4));
-        asm.push(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[5],
-        ));
-        asm.push(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
-        asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
-        asm.push(abi::add_immediate(residual_target, residual_target, 4));
     }
     asm.push(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     asm.push(abi::add_immediate(index, index, 1));
@@ -6779,19 +4670,14 @@ fn emit_picture_buffer(asm: &mut Asm) {
     let source_done = format!("{METAL_DRAW_SYMBOL}_tile_source_done");
     asm.push(abi::compare_immediate(kind, GEO_KIND_TILE));
     asm.push(abi::branch_ne(&source_done));
-    asm.push(abi::move_immediate(temp, "Integer", FIXED_POINT_SCALE));
-    asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], temp));
     for (index, slot) in [TILE_SOURCE_X, TILE_SOURCE_Y, TILE_SOURCE_W, TILE_SOURCE_H]
         .into_iter()
         .enumerate()
     {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[0],
-        ));
-        asm.push(abi::float_round_to_signed_x(temp, abi::FP_SCRATCH[1]));
+        for instruction in emit_f32_bits(temp, abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(
             temp,
             abi::stack_pointer(),
@@ -7100,9 +4986,6 @@ fn emit_join_buffer(asm: &mut Asm) {
     let source = abi::SCRATCH[4];
     let target = abi::SCRATCH[5];
     let slots = abi::SCRATCH[6];
-    let residual_target = abi::SCRATCH[1];
-    let scale = abi::FP_SCRATCH[0];
-    let residual_scale = abi::FP_SCRATCH[3];
     let style = OFF_ITEM + ITEM_OFFSET_STROKE_STYLE;
 
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
@@ -7175,27 +5058,6 @@ fn emit_join_buffer(asm: &mut Asm) {
         &(METAL_EDGE_BASE_WORDS * 4).to_string(),
     ));
     asm.push(abi::add_registers(target, target, abi::SCRATCH[0]));
-    asm.push(abi::move_immediate(
-        residual_target,
-        "Integer",
-        &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
-    ));
-    asm.push(abi::add_registers(residual_target, residual_target, target));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        residual_scale,
-        abi::SCRATCH[0],
-    ));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[0],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[0]));
     // source = header + (slot1 - stops * 5 - dashes - records * 8) * 8: the dash tail
     // (plan-163-B) sits between the records and the stops.
     asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 8));
@@ -7254,37 +5116,11 @@ fn emit_join_buffer(asm: &mut Asm) {
     asm.push(abi::branch_ge(&done));
     for word in 0..4usize {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, word * 8));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[0], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(abi::SCRATCH[0], target, 0));
         asm.push(abi::add_immediate(target, target, 4));
-        asm.push(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[0],
-        ));
-        asm.push(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[0],
-            abi::FP_SCRATCH[1],
-        ));
-        asm.push(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
-        asm.push(abi::add_immediate(residual_target, residual_target, 4));
     }
     asm.push(abi::add_immediate(source, source, 32));
     asm.push(abi::add_immediate(index, index, 1));
@@ -7317,9 +5153,6 @@ fn emit_edge_buffer(asm: &mut Asm) {
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
     let source = abi::SCRATCH[4];
-    let residual_target = abi::SCRATCH[1];
-    let scale = abi::FP_SCRATCH[0];
-    let residual_scale = abi::FP_SCRATCH[3];
 
     asm.push(abi::load_u64(
         header,
@@ -7470,34 +5303,6 @@ fn emit_edge_buffer(asm: &mut Asm) {
         abi::SCRATCH[5],
     ));
 
-    // bug-687: each word's residual goes to the same edge's slot in the residual
-    // region, a fixed distance past its 16.16 word (`METAL_EDGE_RESIDUAL_BASE_WORDS`).
-    // Through a register for the same reason as the region offset above.
-    asm.push(abi::move_immediate(
-        residual_target,
-        "Integer",
-        &((METAL_EDGE_RESIDUAL_BASE_WORDS - METAL_EDGE_BASE_WORDS) * 4).to_string(),
-    ));
-    asm.push(abi::add_registers(
-        residual_target,
-        residual_target,
-        abi::SCRATCH[6],
-    ));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        EDGE_RESIDUAL_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(
-        residual_scale,
-        abi::SCRATCH[5],
-    ));
-    asm.push(abi::move_immediate(
-        abi::SCRATCH[5],
-        "Integer",
-        FIXED_POINT_SCALE,
-    ));
-    asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     asm.push(abi::add_immediate(source, header, HEADER_SLOTS * 8));
     asm.push(abi::move_immediate(index, "Integer", "0"));
 
@@ -7507,7 +5312,7 @@ fn emit_edge_buffer(asm: &mut Asm) {
     // y-monotone and its two ends are its whole y-range, so `emit_band_index` indexes
     // pieces exactly as it indexes edges. Then each piece's control point and weight,
     // `x1, y1, w1, 0`, in the `count` slots after: piece `e`'s is slot `base + count +
-    // e`. The weight takes the same 16.16 word and residual a coordinate does.
+    // e`. The weight is float32 bits like a coordinate.
     //
     // The kind is read again here because every scratch register the dispatch above
     // held it in has been used since.
@@ -7528,40 +5333,14 @@ fn emit_edge_buffer(asm: &mut Asm) {
     ));
     asm.push(abi::branch_ne(&head));
 
-    // One double of the record as its 16.16 word and its residual, each cursor advanced.
+    // One double of the record as its float32 bits, the cursor advanced.
     let word = |asm: &mut Asm, slot: usize| {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[5], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
         asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
-        asm.push(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[5],
-        ));
-        asm.push(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
-        asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
-        asm.push(abi::add_immediate(residual_target, residual_target, 4));
     };
     asm.push(abi::label(&chords));
     asm.push(abi::compare_registers(index, count));
@@ -7581,24 +5360,11 @@ fn emit_edge_buffer(asm: &mut Asm) {
     for slot in [2usize, 3] {
         word(asm, slot);
     }
-    // The weight as its fp32 BITS, not a 16.16 word: the shader's arithmetic on it is
-    // single precision either way, and a weight has no 32767 to stay under.
-    asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 6 * 8));
-    asm.push(abi::float_convert_s_from_d(
-        abi::FP_SCRATCH[1],
-        abi::FP_SCRATCH[1],
-    ));
-    asm.push(abi::float_move_x_from_d(
-        abi::SCRATCH[5],
-        abi::FP_SCRATCH[1],
-    ));
-    asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
+    // The weight, float32 bits like the coordinates, then a zero word.
+    word(asm, 6);
     asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", "0"));
-    asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 4));
-    asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 8));
-    asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
-    asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 4));
-    asm.push(abi::add_immediate(residual_target, residual_target, 8));
+    asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
+    asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
     asm.push(abi::add_immediate(source, source, CURVE_PIECE_SLOTS * 8));
     asm.push(abi::add_immediate(index, index, 1));
     asm.push(abi::branch(&controls));
@@ -7606,10 +5372,7 @@ fn emit_edge_buffer(asm: &mut Asm) {
     asm.push(abi::label(&head));
     asm.push(abi::compare_registers(index, count));
     asm.push(abi::branch_ge(&band));
-    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy), each as its 16.16 word and,
-    // in the residual region, `round((v * 65536 - word) * 2^31)` (bug-687,
-    // `EDGE_RESIDUAL_SCALE`). `v * 65536 - word` is exact: the two are within half a
-    // step of each other.
+    // out[0..1] = (x0, y0); out[2..3] = (x0 + dx, y0 + dy), each as float32 bits.
     for (slot, delta) in [(0usize, None), (1, None), (0, Some(2usize)), (1, Some(3))] {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
         if let Some(delta) = delta {
@@ -7620,37 +5383,11 @@ fn emit_edge_buffer(asm: &mut Asm) {
                 abi::FP_SCRATCH[2],
             ));
         }
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
+        for instruction in emit_f32_bits(abi::SCRATCH[5], abi::FP_SCRATCH[1]) {
+            asm.push(instruction);
+        }
         asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
         asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
-        asm.push(abi::signed_convert_to_float_d(
-            abi::FP_SCRATCH[2],
-            abi::SCRATCH[5],
-        ));
-        asm.push(abi::float_subtract_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[2],
-        ));
-        asm.push(abi::float_multiply_d(
-            abi::FP_SCRATCH[1],
-            abi::FP_SCRATCH[1],
-            residual_scale,
-        ));
-        asm.push(abi::float_round_to_signed_x(
-            abi::SCRATCH[5],
-            abi::FP_SCRATCH[1],
-        ));
-        asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
-        asm.push(abi::add_immediate(residual_target, residual_target, 4));
     }
     asm.push(abi::add_immediate(source, source, EDGE_SLOTS * 8));
     asm.push(abi::add_immediate(index, index, 1));
@@ -7792,8 +5529,9 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     asm.push(abi::store_u64(s[1], abi::stack_pointer(), OFF_BAND_END));
 
     // --- ymin (s2) and ymax (s3) over both endpoints of every edge ----------------
-    asm.push(abi::load_u32(s[2], s[0], 4));
-    asm.push(abi::sign_extend_word(s[2], s[2]));
+    for instruction in emit_f32_word_to_fixed(s[2], s[0], 4, s[4], f[0], f[7]) {
+        asm.push(instruction);
+    }
     asm.push(abi::move_register(s[3], s[2]));
     asm.push(abi::label(&label("measure_head")));
     asm.push(abi::compare_registers(s[0], s[1]));
@@ -7801,8 +5539,9 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     for (n, offset) in [(0, 4usize), (1, 12)] {
         let not_lower = label(&format!("measure_not_lower_{n}"));
         let not_higher = label(&format!("measure_not_higher_{n}"));
-        asm.push(abi::load_u32(s[4], s[0], offset));
-        asm.push(abi::sign_extend_word(s[4], s[4]));
+        for instruction in emit_f32_word_to_fixed(s[4], s[0], offset, s[5], f[0], f[7]) {
+            asm.push(instruction);
+        }
         asm.push(abi::compare_registers(s[4], s[2]));
         asm.push(abi::branch_ge(&not_lower));
         asm.push(abi::move_register(s[2], s[4]));
@@ -7914,12 +5653,13 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     // --- to 16.16, rounding UP: s4 = r, s5 = the minimum height ---------------------
     asm.push(abi::move_immediate(s[4], "Integer", FIXED_POINT_SCALE));
     asm.push(abi::signed_convert_to_float_d(f[7], s[4]));
-    // bug-1085: and F_built, rounded DOWN (it is positive, so truncation is the floor),
-    // into the header's norm word -- what the shader holds a pixel's composed norm to
-    // before it takes the band. A value too large for the word is a reach past the bound
-    // below, and `none` writes 0 over it.
-    asm.push(abi::float_multiply_d(f[6], f[6], f[7]));
-    asm.push(abi::float_convert_to_signed_x(s[6], f[6]));
+    // bug-1085: and F_built, as float32 bits, into the header's norm word -- what the
+    // shader holds a pixel's composed norm to before it takes the band. A reach past the
+    // bound below sends the builder to `none`, which writes 0 over it.
+    asm.push(abi::float_move_d_from_d(f[0], f[6]));
+    for instruction in emit_f32_bits(s[6], f[0]) {
+        asm.push(instruction);
+    }
     asm.push(abi::store_u32(s[6], abi::stack_pointer(), set.norm));
     asm.push(abi::float_multiply_d(f[1], f[1], f[7]));
     asm.push(abi::float_ceil_to_signed_x(s[4], f[1]));
@@ -8046,6 +5786,9 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
         block(ITEM_BAND_COUNT),
     ));
     asm.push(abi::load_u64(s[4], abi::stack_pointer(), OFF_BAND_HEIGHT));
+    for instruction in emit_fixed_to_f32_bits(s[4], s[4], s[8], f[0], f[7]) {
+        asm.push(instruction);
+    }
     asm.push(abi::store_u32(
         s[4],
         abi::stack_pointer(),
@@ -8055,6 +5798,9 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     asm.push(abi::shift_right_immediate(s[4], s[4], 1));
     asm.push(abi::load_u64(s[7], abi::stack_pointer(), OFF_BAND_YMIN));
     asm.push(abi::subtract_registers(s[7], s[7], s[4]));
+    for instruction in emit_fixed_to_f32_bits(s[7], s[7], s[8], f[0], f[7]) {
+        asm.push(instruction);
+    }
     asm.push(abi::store_u32(
         s[7],
         abi::stack_pointer(),
@@ -8188,7 +5934,7 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
 
 /// The bands the 16.16 edge at `SCRATCH[0]` goes in: first in `SCRATCH[4]`, last in
 /// `SCRATCH[5]` (inclusive), from the working state `emit_band_index` parked. Uses
-/// `SCRATCH[6]` as a temporary.
+/// `SCRATCH[6]`, `FP_SCRATCH[0]` and `FP_SCRATCH[7]` as temporaries.
 ///
 /// With `top = ymin − r`: first = ⌊(ylo − r − top) / h⌋ = ⌊(ylo − ymin) / h⌋ and last =
 /// ⌊(yhi + r − top) / h⌋ = ⌊(yhi − ymin + 2r) / h⌋. Both numerators are non-negative
@@ -8197,10 +5943,13 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
 fn emit_band_range(asm: &mut Asm, tag: &str, site: &str) {
     let s = abi::SCRATCH;
     let ordered = format!("{METAL_DRAW_SYMBOL}_{tag}_{site}_ordered");
-    asm.push(abi::load_u32(s[4], s[0], 4));
-    asm.push(abi::sign_extend_word(s[4], s[4]));
-    asm.push(abi::load_u32(s[5], s[0], 12));
-    asm.push(abi::sign_extend_word(s[5], s[5]));
+    let f = abi::FP_SCRATCH;
+    for instruction in emit_f32_word_to_fixed(s[4], s[0], 4, s[6], f[0], f[7]) {
+        asm.push(instruction);
+    }
+    for instruction in emit_f32_word_to_fixed(s[5], s[0], 12, s[6], f[0], f[7]) {
+        asm.push(instruction);
+    }
     asm.push(abi::compare_registers(s[4], s[5]));
     asm.push(abi::branch_le(&ordered));
     asm.push(abi::move_register(s[6], s[4]));
@@ -8878,26 +6627,14 @@ mod tests {
                  `in.pos.xy` draws a correctly placed shape with the wrong contents",
             );
         }
-        // bug-687 (polygons), bug-735 (every kind): the shape distance is taken at the
-        // double-float twin of `p`, which has to be built from the surface point itself
-        // (`p` has already rounded to fp32). It is the third and last legitimate mention,
-        // and it is held to the same rule: the group offset -- word and residual -- comes
-        // off.
+        // The shape's coverage is taken at `p` itself.
         assert!(
-            body.contains("dfShapePoint(in.pos.xy, draw.offset)"),
-            "the shape's double-float point must be the surface point minus the draw \
-             offset, like `p`",
-        );
-        assert!(
-            METAL_SHADER_SOURCE.contains(
-                "return float4(dfSub(float2(surface.x, 0.0), dfFixed(offset.x, offset.z)), \
-                 dfSub(float2(surface.y, 0.0), dfFixed(offset.y, offset.w)));"
-            ),
-            "`dfShapePoint` must subtract the draw offset from the surface point",
+            body.contains("int4 cov = shapeCoverage(item, edges, p, gi, grouped);"),
+            "the shape's coverage must be taken at the shape-space point `p`",
         );
         // plan-164-C: the curve shapes are drawn from `curveWalk`, which takes the
-        // double-float shape point `sampleDistance` was given and a piece's coordinates
-        // RELATIVE to it (`curvePiece`). The generated block is spliced in ahead of the
+        // shape point `sampleDistance` was given and a piece's coordinates RELATIVE to it
+        // (`curvePiece`). The generated block is spliced in ahead of the
         // fragment entry point, so it is checked on its own: nothing in it may name the
         // surface position.
         let curves = curve_shader(ShaderLanguage::Msl);
@@ -8907,13 +6644,13 @@ mod tests {
              point it is handed",
         );
         assert!(
-            curves.contains("k.p0 = float2(dfF(dfSub(curveCoord(item, edges, s, 0), x)), dfF(dfSub(curveCoord(item, edges, s, 1), y)));"),
-            "a piece's points must be taken relative to the shape-space point, in \
-             double-float, before anything is done in single precision",
+            curves.contains("k.p0 = curvePoint(item, edges, s, 0) - pt;"),
+            "a piece's points must be taken relative to the shape-space point before \
+             anything else is done with them",
         );
         for call in [
-            "curveWalk(item, edges, band, x, y, kind == 12 ? 0 : (item.strokeStyle.w > 0 ? 3 : 1),",
-            "curveWalk(item, edges, band, cqx, cqy, dashed ? 3 : 2, dfF(half2), item.arc.w)",
+            "curveWalk(item, edges, band, p, kind == 12 ? 0 : (item.strokeStyle.w > 0 ? 3 : 1),",
+            "curveWalk(item, edges, band, cq, dashed ? 3 : 2, halfW, item.arc.w)",
         ] {
             assert!(
                 METAL_SHADER_SOURCE.contains(call),
@@ -8922,9 +6659,9 @@ mod tests {
         }
         assert_eq!(
             body.matches("in.pos.xy").count(),
-            2,
-            "only `p`'s own definition and its double-float twin may mention \
-             `in.pos.xy` — another use is a consumer that was not moved into shape space",
+            1,
+            "only `p`'s own definition may mention `in.pos.xy` — another use is a \
+             consumer that was not moved into shape space",
         );
     }
 
@@ -8971,24 +6708,10 @@ mod tests {
              ({METAL_BAND_BASE_WORDS}); every banded polygon would read another region \
              as its edge lists"
         );
-        // bug-687 put the edge residuals between the edges and the band index.
-        assert!(
-            METAL_SHADER_SOURCE.contains(&format!(
-                "constant int METAL_EDGE_RESIDUAL_BASE = {METAL_EDGE_RESIDUAL_BASE_WORDS};"
-            )),
-            "the MSL declares an edge-residual base that is not \
-             METAL_EDGE_RESIDUAL_BASE_WORDS ({METAL_EDGE_RESIDUAL_BASE_WORDS}); every \
-             polygon vertex would be corrected by another region's words"
-        );
-        assert_eq!(
-            METAL_EDGE_RESIDUAL_BASE_WORDS * 4,
-            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
-            "the edge-residual region must start where the edge region ends"
-        );
         assert_eq!(
             METAL_BAND_BASE_WORDS * 4,
-            METAL_EDGE_RESIDUAL_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
-            "the band region must start where the edge-residual region ends"
+            METAL_EDGE_BASE_WORDS * 4 + METAL_MAX_FRAME_EDGES * 16,
+            "the band region must start where the edge region ends"
         );
         assert_eq!(
             METAL_GRADIENT_BASE_WORDS * 4,

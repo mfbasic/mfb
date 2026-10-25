@@ -2,12 +2,18 @@ use super::*;
 
 mod built;
 use crate::arch::image::{EncodedImage, EncodedImport, EncodedSection, EncodedSymbol, ImportKind};
+use crate::debugger::arm64::AARCH64;
+use crate::debugger::riscv64::RISCV64;
 use crate::os::linux::flavor::LinuxFlavor;
 
-/// A two-function image importing `write` and `exit`, linked by the
+/// A two-function AArch64 image importing `write` and `exit`, linked by the
 /// in-tree Linux linker.
 fn linked(debug: bool) -> Vec<u8> {
-    let ret = [0xc0, 0x03, 0x5f, 0xd6];
+    linked_for("aarch64", [0xc0, 0x03, 0x5f, 0xd6], debug)
+}
+
+/// The same image for `arch`, its functions each the 4-byte `ret`.
+fn linked_for(arch: &str, ret: [u8; 4], debug: bool) -> Vec<u8> {
     let image = EncodedImage {
         text: [ret, ret, ret].concat(),
         data: vec![0; 16],
@@ -49,7 +55,7 @@ fn linked(debug: bool) -> Vec<u8> {
     let path = crate::os::linux::write_linked_executable(
         &dir.path().join("probe"),
         "probe",
-        "aarch64",
+        arch,
         LinuxFlavor::Glibc,
         &image,
     )
@@ -60,7 +66,7 @@ fn linked(debug: bool) -> Vec<u8> {
 #[test]
 fn a_debug_build_names_its_functions_data_imports_and_stubs() {
     let bytes = linked(true);
-    let image = executable(&bytes).expect("an ELF the linker wrote");
+    let image = executable(&bytes, &AARCH64.elf).expect("an ELF the linker wrote");
     let elf = &image.elf;
     assert!(elf.position_independent);
     assert_eq!(elf.entry, 0x1000);
@@ -117,7 +123,7 @@ fn a_debug_build_names_its_functions_data_imports_and_stubs() {
 #[test]
 fn a_build_without_debug_still_names_its_imports_through_pt_dynamic() {
     let bytes = linked(false);
-    let image = executable(&bytes).unwrap();
+    let image = executable(&bytes, &AARCH64.elf).unwrap();
     assert!(image.elf.symbols.is_empty());
     assert_eq!(
         image
@@ -133,7 +139,7 @@ fn a_build_without_debug_still_names_its_imports_through_pt_dynamic() {
 
 #[test]
 fn the_code_and_defined_functions_are_listed_and_an_executable_has_no_plt() {
-    let image = executable(&linked(true)).unwrap();
+    let image = executable(&linked(true), &AARCH64.elf).unwrap();
     let elf = &image.elf;
     let code = elf.code();
     assert_eq!(code.len(), 1);
@@ -151,7 +157,7 @@ fn the_code_and_defined_functions_are_listed_and_an_executable_has_no_plt() {
 
 #[test]
 fn a_plt_entry_is_named_by_its_jump_slot_relocation() {
-    let mut elf = read(&linked(false)).unwrap();
+    let mut elf = read(&linked(false), &AARCH64.elf).unwrap();
     // A library's `.plt`: a 32-byte header, then 16 bytes per jump slot,
     // in the order of the `R_AARCH64_JUMP_SLOT` relocations.
     elf.plt = Some((0x2000, PLT_HEADER + 2 * PLT_ENTRY));
@@ -169,10 +175,75 @@ fn a_plt_entry_is_named_by_its_jump_slot_relocation() {
 
 #[test]
 fn a_file_that_is_not_an_aarch64_elf_is_refused() {
-    assert_eq!(read(b"not an elf at all"), None);
+    assert_eq!(read(b"not an elf at all", &AARCH64.elf), None);
     let mut bytes = linked(false);
     bytes[18] = 62; // EM_X86_64
-    assert_eq!(read(&bytes), None);
+    assert_eq!(read(&bytes, &AARCH64.elf), None);
     let truncated = &linked(true)[..200];
-    assert_eq!(read(truncated), None);
+    assert_eq!(read(truncated, &AARCH64.elf), None);
+}
+
+/// `jalr zero, 0(ra)`: riscv64's `ret`.
+const RISCV64_RET: [u8; 4] = [0x67, 0x80, 0x00, 0x00];
+
+/// A riscv64 executable is read as an AArch64 one is: its imports through
+/// `R_RISCV_JUMP_SLOT` relocations, and its 12-byte `auipc t3` / `ld t3` /
+/// `jr t3` stubs.
+#[test]
+fn a_riscv64_executable_reads_its_symbols_and_stubs() {
+    let bytes = linked_for("riscv64", RISCV64_RET, true);
+    let image = executable(&bytes, &RISCV64.elf).expect("an ELF the linker wrote");
+    let elf = &image.elf;
+    assert_eq!(
+        elf.interpreter.as_deref(),
+        Some("/lib/ld-linux-riscv64-lp64d.so.1")
+    );
+    assert_eq!(elf.needed, ["libc.so.6"]);
+    let slot = |name: &str| {
+        elf.slots
+            .iter()
+            .find(|(index, _)| elf.dynamic[*index].name == name)
+            .map(|(_, slot)| *slot)
+    };
+    assert_eq!(
+        image
+            .functions
+            .iter()
+            .map(|function| (function.name.as_str(), function.location.clone()))
+            .collect::<Vec<_>>(),
+        [
+            (
+                "_start",
+                Location::Defined {
+                    address: 0x1000,
+                    size: 4
+                }
+            ),
+            (
+                "_mfb_fn_main",
+                Location::Defined {
+                    address: 0x1004,
+                    size: 8
+                }
+            ),
+            ("write", Location::Import(slot("write"))),
+            ("exit", Location::Import(slot("exit"))),
+        ]
+    );
+    assert!(slot("write").is_some() && slot("exit") == slot("write").map(|at| at + 8));
+    assert_eq!(
+        image.stubs,
+        [
+            ("write".to_string(), 0x100c, 12),
+            ("exit".to_string(), 0x1018, 12)
+        ]
+    );
+}
+
+#[test]
+fn a_riscv64_elf_is_refused_as_aarch64_and_the_reverse() {
+    let riscv64 = linked_for("riscv64", RISCV64_RET, false);
+    assert!(read(&riscv64, &RISCV64.elf).is_some());
+    assert_eq!(read(&riscv64, &AARCH64.elf), None);
+    assert_eq!(read(&linked(false), &RISCV64.elf), None);
 }

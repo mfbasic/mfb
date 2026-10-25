@@ -53,16 +53,6 @@ pub(crate) struct Value {
     pub(crate) register: bool,
 }
 
-/// Whether `word` names an AArch64 register an address can be in: `x0`–`x30`,
-/// `fp`, `lr`, `sp` or `pc`.
-pub(crate) fn is_register(word: &str) -> bool {
-    matches!(word, "fp" | "lr" | "sp" | "pc")
-        || word.strip_prefix('x').is_some_and(|number| {
-            (number == "0" || !number.starts_with('0'))
-                && number.parse::<u8>().is_ok_and(|number| number <= 30)
-        })
-}
-
 /// Whether `byte` can be part of a register's or a function's name: a symbol
 /// (`_mfb_fn_main`) or a written name (`datetime::#normInstant`, `f$own1`).
 fn name_byte(byte: u8) -> bool {
@@ -210,7 +200,7 @@ impl Location {
 /// A name's value: thread `thread`'s register so named (64 bits only), else
 /// the start of the one function the name names.
 fn name_value(inferior: &mut dyn Inferior, thread: usize, name: &str) -> Result<Value, Fault> {
-    let registers = if is_register(name) {
+    let registers = if (inferior.arch().is_register)(name) {
         inferior.registers(thread).map_err(Fault::Unreadable)?
     } else {
         inferior.registers(thread).unwrap_or_default()

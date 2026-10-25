@@ -58,6 +58,8 @@ impl Tracee {
             maps: String::new(),
             files: HashMap::new(),
             pthread_gap: None,
+            #[cfg(target_arch = "riscv64")]
+            step_traps: Vec::new(),
         })
     }
 
@@ -93,7 +95,7 @@ impl Tracee {
             let shown = super::shown(&self.program);
             let bytes = std::fs::read(&self.program)
                 .map_err(|err| format!("cannot read '{shown}': {err}"))?;
-            let image = elf::executable(&bytes)
+            let image = elf::executable(&bytes, &self.arch().elf)
                 .ok_or_else(|| format!("cannot read the symbol table of '{shown}'"))?;
             self.image = Some(image);
         }
@@ -275,7 +277,9 @@ impl Tracee {
             )
             .ok()
         });
-        let elf = bytes.as_deref().and_then(elf::read);
+        let elf = bytes
+            .as_deref()
+            .and_then(|bytes| elf::read(bytes, &self.arch().elf));
         self.files.insert(path.to_path_buf(), elf.clone());
         elf
     }

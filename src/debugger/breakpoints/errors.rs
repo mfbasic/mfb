@@ -87,8 +87,9 @@ impl ErrorCodes {
 
 impl Breakpoints {
     /// Thread `thread` has just entered the park: the error it raises when the
-    /// watch takes its code (from `x1`), with where it returns (`lr`) and the
-    /// error's origin (the `ErrorLoc` in `x3`).
+    /// watch takes its code (its argument 1, `x1` on AArch64), with where it
+    /// returns (the link register) and the error's origin (the `ErrorLoc`, its
+    /// argument 3).
     pub(super) fn watched_raise(
         &self,
         inferior: &mut dyn Inferior,
@@ -105,12 +106,13 @@ impl Breakpoints {
                 })
                 .ok_or_else(|| format!("thread {thread} has no register {name}"))
         };
-        let code = value("x1")? as i64;
+        let arch = inferior.arch();
+        let code = value(arch.arguments[1])? as i64;
         let watch = self.errors.as_ref().expect("a watch holds the park");
         if !watch.codes.matches(code) {
             return Ok(None);
         }
-        let origin = match value("x3")? {
+        let origin = match value(arch.arguments[3])? {
             0 => None,
             location => super::runtime::error_origin(inferior, location).ok(),
         };
@@ -118,7 +120,7 @@ impl Breakpoints {
             thread,
             code,
             origin,
-            back: value("lr")?,
+            back: value(arch.link)?,
         }))
     }
 

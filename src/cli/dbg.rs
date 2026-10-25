@@ -100,7 +100,8 @@ fn run_with(args: &[String], backend: Option<&dyn Backend>) -> Result<(), Comman
     let request = parse(args)?;
     let Some(backend) = backend else {
         return Err(CommandError::Failed(format!(
-            "mfb dbg is not supported on {} {}; it runs on macOS and on Linux on AArch64",
+            "mfb dbg is not supported on {} {}; it runs on macOS, and on Linux on AArch64 \
+             and riscv64",
             std::env::consts::OS,
             std::env::consts::ARCH
         )));

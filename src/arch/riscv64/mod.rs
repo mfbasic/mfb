@@ -14,6 +14,10 @@
 //! dispatch through `mir::Backend`).
 
 pub(crate) mod backend;
+// The decoder serves `mfb dbg`, which reads riscv64 code only on a riscv64
+// Linux host; tests run it on every host.
+#[cfg(any(all(target_os = "linux", target_arch = "riscv64"), test))]
+pub(crate) mod decode;
 pub(crate) mod encode;
 pub(crate) mod regmodel;
 pub(crate) mod reloc;
