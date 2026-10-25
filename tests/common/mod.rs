@@ -116,13 +116,46 @@ fn built_executable(mut command: Command) -> PathBuf {
     // `-musl.out`), and only the host's one can run: taking the first line
     // handed a musl box (Alpine) a glibc binary whose loader does not exist, so
     // every caller failed to spawn it with `NotFound`.
-    let flavored = format!("-{}.out", host_libc_flavor());
     let path = written
         .iter()
-        .find(|path| path.ends_with(&flavored))
+        .find(|path| path.ends_with(host_executable_suffix()))
         .or_else(|| written.first())
         .expect("build output executable path");
     PathBuf::from(path)
+}
+
+/// The host-runnable console executable a plain `mfb build` of project `name`
+/// wrote under `project`, for a test that runs the build command itself (to
+/// pass its own flags and keep its own failure message) instead of going
+/// through [`build_project`].
+///
+/// macOS writes `build/<name>.out` and Windows `build/<name>.exe`, but a Linux
+/// build writes one executable per libc world, `build/<name>-glibc.out` and
+/// `build/<name>-musl.out` (`write_executable` in `src/os/linux/link/mod.rs`),
+/// and no `build/<name>.out` at all: hard-coding the macOS name made every such
+/// test fail on Linux with `NotFound`. Only the host's flavor can run.
+pub fn host_executable(project: &Path, name: &str) -> PathBuf {
+    let file = if cfg!(windows) {
+        format!("{name}.exe")
+    } else if cfg!(target_os = "linux") {
+        format!("{name}{}", host_executable_suffix())
+    } else {
+        format!("{name}.out")
+    };
+    project.join("build").join(file)
+}
+
+/// The file-name ending of the Linux console executable this host can run:
+/// `-glibc.out` or `-musl.out`, after [`host_libc_flavor`]. For picking the
+/// runnable one out of a build's `Wrote executable to` lines; a test that
+/// matched `-glibc.out` literally ran the glibc build on a musl box, whose
+/// loader does not exist there, and failed to spawn it.
+pub fn host_executable_suffix() -> &'static str {
+    if host_libc_flavor() == "musl" {
+        "-musl.out"
+    } else {
+        "-glibc.out"
+    }
 }
 
 /// The `mfb build` flag that puts the build in app mode for the host.
