@@ -10,6 +10,7 @@ mod accounts;
 mod governance_faults;
 mod identity_faults;
 mod transport;
+mod transport_faults;
 mod verification;
 
 struct MetadataFixture {

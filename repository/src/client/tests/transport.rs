@@ -314,7 +314,7 @@ fn register_duplicate_failure_leaves_no_local_keys() {
 /// listening, so any HTTP flow fails fast at the connect step. This lets
 /// us drive the network-bound client functions through their argument
 /// validation and local-key handling up to the first request.
-const DEAD_URL: &str = "http://127.0.0.1:1";
+pub(super) const DEAD_URL: &str = "http://127.0.0.1:1";
 
 #[test]
 fn repo_url_env_defaults_and_overrides() {
