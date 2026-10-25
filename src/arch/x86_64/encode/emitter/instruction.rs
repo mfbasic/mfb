@@ -1115,6 +1115,13 @@ pub(in crate::arch::x86_64::encode) fn encode_instruction(
             b.extend(enc_sse_rr(Some(0x66), 0xEB, dst, 15)); // por dst, sign fill
             Ok(Encoded::plain(b))
         }
+        // plan-171-A: the pair forms exist only on AArch64; their producers are
+        // gated on `Backend::supports_pair_access`, which x86-64 answers `false`.
+        "stp" | "ldp" => Err(format!(
+            "x86 encode: {} is an AArch64-only form (plan-171-A) that no x86-64 \
+             producer emits",
+            instruction.op.mnemonic()
+        )),
         // Still unsupported: fcvtas_v (nearest ties-away), sshl_v, ushl_v.
         other => Err(format!("x86 encode: unsupported op {other}")),
     }

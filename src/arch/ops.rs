@@ -127,6 +127,17 @@ pub(crate) enum CodeOp {
     /// saves and restores the implicit `rdi`/`rcx`/`rax` around it, so the op has no
     /// register effect beyond its two reads. Emitted only by the x86-64 arena zero fill.
     RepStosbZero,
+    /// plan-171-A: AArch64 store/load pair — `stp`/`ldp` of two X registers
+    /// (`width` 8) or two Q registers (`width` 16) at `[base, #offset]`
+    /// (`addressing` `offset`), `[base, #offset]!` (`pre`, base written back
+    /// first) or `[base], #offset` (`post`, base written back after). Fields:
+    /// `src`/`src2` (store) or `dst`/`dst2` (load) — `src`/`dst` at the lower
+    /// address — then `base`, `offset` (signed bytes), `addressing`, `width`.
+    /// Produced only after register allocation, by `finalize_frame`'s save area
+    /// and the Level-1 pairing row, and only when the backend
+    /// `supports_pair_access`. Never emitted for x86-64 or riscv64.
+    Stp,
+    Ldp,
     /// 64-bit FP scalar load/store (`ldr d`/`str d`), used to spill and reload an
     /// FP-class virtual register (plan-03 Stage C).
     LdrD,
@@ -347,6 +358,8 @@ impl CodeOp {
             CodeOp::MrsDczid => "mrs_dczid",
             CodeOp::DcZva => "dc_zva",
             CodeOp::RepStosbZero => "rep_stosb_zero",
+            CodeOp::Stp => "stp",
+            CodeOp::Ldp => "ldp",
             CodeOp::LdrD => "ldr_d",
             CodeOp::StrD => "str_d",
             CodeOp::Adrp => "adrp",
@@ -514,6 +527,8 @@ impl CodeOp {
             "mrs_dczid" => Ok(CodeOp::MrsDczid),
             "dc_zva" => Ok(CodeOp::DcZva),
             "rep_stosb_zero" => Ok(CodeOp::RepStosbZero),
+            "stp" => Ok(CodeOp::Stp),
+            "ldp" => Ok(CodeOp::Ldp),
             "ldr_d" => Ok(CodeOp::LdrD),
             "str_d" => Ok(CodeOp::StrD),
             "adrp" => Ok(CodeOp::Adrp),
@@ -694,6 +709,8 @@ mod tests {
             CodeOp::MrsDczid,
             CodeOp::DcZva,
             CodeOp::RepStosbZero,
+            CodeOp::Stp,
+            CodeOp::Ldp,
             CodeOp::LdrD,
             CodeOp::StrD,
             CodeOp::Adrp,

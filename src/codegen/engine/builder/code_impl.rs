@@ -176,6 +176,8 @@ impl CodeInstruction {
             CodeOp::MrsDczid => &["dst"],
             CodeOp::DcZva => &["base"],
             CodeOp::RepStosbZero => &["base", "src"],
+            CodeOp::Stp => &["src", "src2", "base", "offset", "addressing", "width"],
+            CodeOp::Ldp => &["dst", "dst2", "base", "offset", "addressing", "width"],
             CodeOp::LdrD => &["dst", "base", "offset"],
             CodeOp::StrD => &["src", "base", "offset"],
             CodeOp::Adrp | CodeOp::AddPageOff => &["dst", "symbol"],

@@ -5,6 +5,7 @@ use crate::codegen::engine::types::CodeInstruction;
 
 mod branches_image_operands;
 mod forms;
+mod pairs;
 mod vector_and_relax_edges;
 
 fn fresh_encoder() -> Encoder {

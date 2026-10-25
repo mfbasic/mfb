@@ -368,6 +368,13 @@ impl Encoder {
                         | opcode,
                 )
             }
+            // plan-171-A: RV64GC has no pair access; the producers are gated on
+            // `Backend::supports_pair_access`, which riscv64 answers `false`.
+            "stp" | "ldp" => Err(format!(
+                "rv64 encoder: {} is an AArch64-only form (plan-171-A) that no riscv64 \
+                 producer emits",
+                instruction.op.mnemonic()
+            )),
             other => Err(format!(
                 "rv64 encoder does not yet support instruction '{other}' (deferred to a later phase)"
             )),

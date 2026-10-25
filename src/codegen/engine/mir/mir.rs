@@ -171,6 +171,10 @@ mir_ops!(
         // plan-183-A: the per-target arena zero fill — AArch64 `mrs DCZID_EL0` and
         // `dc zva`, x86-64 `rep stosb`. Each is emitted only for its own target.
         MrsDczid, DcZva, RepStosbZero,
+        // plan-171-A: AArch64 store/load pair, produced after register
+        // allocation only (`finalize_frame` and the pairing row), and only for a
+        // backend that `supports_pair_access`.
+        Stp, Ldp,
         FMovDFromD, FAddD, FSubD, FMulD, FDivD, FMinnmD, FMaxnmD, FNegD, FAbsD, FSqrtD, FCvtSFromD, FCvtDFromS, FCmpD,
         FCmpZeroD, FMaddD, FMsubD, FNmsubD, FNmaddD,
     }

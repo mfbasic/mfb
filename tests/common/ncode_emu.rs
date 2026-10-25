@@ -581,6 +581,39 @@ impl<'a> Machine<'a> {
                     let value = self.reg(field(instruction, "src"));
                     self.write_uint(address, width, value);
                 }
+                // plan-171-A: AArch64 store/load pair of two X registers, in each
+                // addressing mode. `pre` moves the base before the access, `post`
+                // after it; the first register is at the lower address.
+                "stp" | "ldp" => {
+                    assert_eq!(
+                        field(instruction, "width"),
+                        "8",
+                        "{symbol}: only X-register pairs are modelled: {instruction}"
+                    );
+                    let base = field(instruction, "base");
+                    let offset = parse_int(field(instruction, "offset"));
+                    let mode = field(instruction, "addressing");
+                    let address = match mode {
+                        "offset" | "pre" => self.reg(base).wrapping_add(offset),
+                        "post" => self.reg(base),
+                        other => panic!("{symbol}: unknown pair addressing {other}"),
+                    };
+                    if op == "stp" {
+                        let first = self.reg(field(instruction, "src"));
+                        let second = self.reg(field(instruction, "src2"));
+                        self.write_uint(address, 8, first);
+                        self.write_uint(address.wrapping_add(8), 8, second);
+                    } else {
+                        let first = self.read_uint(address, 8);
+                        let second = self.read_uint(address.wrapping_add(8), 8);
+                        self.set_reg(field(instruction, "dst"), first);
+                        self.set_reg(field(instruction, "dst2"), second);
+                    }
+                    if mode != "offset" {
+                        let moved = self.reg(base).wrapping_add(offset);
+                        self.set_reg(base, moved);
+                    }
+                }
                 // AArch64's ordered pair (bug-564): a store-release and a load-acquire
                 // are a store and a load to one thread, which is all this models.
                 "stlr_u64" => {

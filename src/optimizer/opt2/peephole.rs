@@ -53,9 +53,19 @@ enum Effect {
     StoreSp { src: String, offset: String },
     /// Load into `dst` from `[sp + offset]`.
     LoadSp { dst: String, offset: String },
+    /// Store `src` to `[sp + offset]` and `src2` to `[sp + offset + 8]`: a
+    /// non-writeback 64-bit `stp` (plan-171-A) is the two slot stores it pairs.
+    StoreSpPair {
+        src: String,
+        src2: String,
+        offset: i64,
+    },
     /// Defines exactly the single register named by its `dst` field; no other
     /// register or memory effect that matters here.
     DefDst,
+    /// Defines exactly `dst` and `dst2`: a non-writeback 64-bit `ldp`
+    /// (plan-171-A), whose loaded slots this pass does not forward.
+    DefDstPair { dst: String, dst2: String },
     /// Reads/flags only — no register definition, no clobber (compares).
     NoDef,
     /// Anything else: control flow, calls, non-`sp` or sub-word stores, vector
@@ -103,6 +113,39 @@ fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect {
                 Effect::DefDst // non-sp load: just defines dst
             } else {
                 Effect::Barrier
+            }
+        }
+        // plan-171-A: a non-writeback 64-bit pair is its two halves. A write-back
+        // pair moves its base (for `sp`, a frame adjustment) and a 128-bit pair
+        // carries vector values, so both stay barriers like their single forms.
+        CodeOp::Stp | CodeOp::Ldp => {
+            let plain = instruction.get("addressing").as_deref() == Some("offset")
+                && instruction.get("width").as_deref() == Some("8");
+            if !plain {
+                return Effect::Barrier;
+            }
+            if instruction.op == CodeOp::Ldp {
+                return match (instruction.get("dst"), instruction.get("dst2")) {
+                    (Some(dst), Some(dst2)) => Effect::DefDstPair { dst, dst2 },
+                    _ => Effect::Barrier,
+                };
+            }
+            let on_sp = instruction
+                .operand("base")
+                .is_some_and(|b| b.rendered() == "sp");
+            match (
+                on_sp,
+                instruction.get("src"),
+                instruction.get("src2"),
+                instruction
+                    .get("offset")
+                    .and_then(|offset| offset.parse::<i64>().ok()),
+            ) {
+                (true, Some(src), Some(src2), Some(offset)) => {
+                    Effect::StoreSpPair { src, src2, offset }
+                }
+                // A pair through another base may alias a frame slot.
+                _ => Effect::Barrier,
             }
         }
         // Compares write only the flags.
@@ -288,6 +331,19 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
                 } else {
                     slots.clear();
                 }
+            }
+            Effect::StoreSpPair { src, src2, offset } => {
+                for (role, register, at) in [("src", src, offset), ("src2", src2, offset + 8)] {
+                    let operand = instructions[index]
+                        .operand(role)
+                        .cloned()
+                        .expect("a classified sp pair store has both sources");
+                    set_slot(&mut slots, &at.to_string(), &register, operand);
+                }
+            }
+            Effect::DefDstPair { dst, dst2 } => {
+                invalidate_reg(&mut slots, &dst);
+                invalidate_reg(&mut slots, &dst2);
             }
             Effect::NoDef => {}
             Effect::Barrier => slots.clear(),

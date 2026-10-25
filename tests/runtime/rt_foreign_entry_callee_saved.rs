@@ -244,21 +244,44 @@ fn escapes(
         match op {
             "sub_sp" => state.depth += immediate(instruction),
             "add_sp" => state.depth -= immediate(instruction),
-            _ if op.starts_with("st") && is_stack_base(instruction) => {
-                let slot = Loc::Slot(offset(instruction) - state.depth);
-                let src = field(instruction, "src").expect("store src");
-                match state.values.get(&Loc::Reg(src.to_string())).cloned() {
-                    Some(v) => state.values.insert(slot, v),
-                    None => state.values.remove(&slot),
+            // plan-171-A: an AArch64 pair is its two accesses, `width` apart; a
+            // pre-indexed one moves `sp` first and a post-indexed one after.
+            _ if (op.starts_with("st") || op.starts_with("ld")) && is_stack_base(instruction) => {
+                let store = op.starts_with("st");
+                let pair = op == "stp" || op == "ldp";
+                let mode = field(instruction, "addressing").unwrap_or("offset");
+                let mut at = offset(instruction);
+                if mode == "pre" {
+                    state.depth -= at;
+                }
+                if mode != "offset" {
+                    at = 0;
+                }
+                let width = field(instruction, "width").map_or(8, |w| w.parse().expect("width"));
+                let roles: &[&str] = match (store, pair) {
+                    (true, true) => &["src", "src2"],
+                    (true, false) => &["src"],
+                    (false, true) => &["dst", "dst2"],
+                    (false, false) => &["dst"],
                 };
-            }
-            _ if op.starts_with("ld") && is_stack_base(instruction) => {
-                let slot = Loc::Slot(offset(instruction) - state.depth);
-                let dst = field(instruction, "dst").expect("load dst");
-                match state.values.get(&slot).cloned() {
-                    Some(v) => state.values.insert(Loc::Reg(dst.to_string()), v),
-                    None => state.values.remove(&Loc::Reg(dst.to_string())),
-                };
+                for (half, role) in roles.iter().enumerate() {
+                    let slot = Loc::Slot(at + half as i64 * width - state.depth);
+                    let register = field(instruction, role).expect("pair register");
+                    if store {
+                        match state.values.get(&Loc::Reg(register.to_string())).cloned() {
+                            Some(v) => state.values.insert(slot, v),
+                            None => state.values.remove(&slot),
+                        };
+                    } else {
+                        match state.values.get(&slot).cloned() {
+                            Some(v) => state.values.insert(Loc::Reg(register.to_string()), v),
+                            None => state.values.remove(&Loc::Reg(register.to_string())),
+                        };
+                    }
+                }
+                if mode == "post" {
+                    state.depth -= offset(instruction);
+                }
             }
             "mov" | "fmov_d_from_d" => {
                 let dst = field(instruction, "dst").expect("mov dst");
@@ -280,7 +303,7 @@ fn escapes(
                 }
             }
             _ => {
-                for key in ["dst", "carry_out"] {
+                for key in ["dst", "dst2", "carry_out"] {
                     if let Some(register) = field(instruction, key) {
                         clobber(&mut state, register);
                     }

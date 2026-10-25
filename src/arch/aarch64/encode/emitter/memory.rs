@@ -127,6 +127,100 @@ impl Encoder {
         self.emit_word(0x3900_0000 | ((scratch as u32) << 5) | rt as u32)
     }
 
+    /// plan-171-A: `STP`/`LDP` of two X registers (`width` 8) or two Q registers
+    /// (`width` 16) — the load/store register pair class
+    /// `opc(2) 101 V mode(3) L imm7 Rt2 Rn Rt`, `opc` 10 for both, `V` 1 for Q,
+    /// `mode` 010 signed offset, 011 pre-index, 001 post-index. `imm7` is the
+    /// byte offset over the width, so X reaches −512…504 and Q −1024…1008 in
+    /// multiples of the width. Every form the architecture leaves UNPREDICTABLE is
+    /// refused: an `ldp` into one register twice, and a write-back through a base
+    /// the pair also names as a data register. Producers check range and
+    /// alignment before building the op, so an error here is a compiler bug.
+    pub(super) fn emit_pair(
+        &mut self,
+        instruction: &CodeInstruction,
+        load: bool,
+    ) -> Result<(), String> {
+        let mnemonic = if load { "ldp" } else { "stp" };
+        let (first, second) = if load {
+            ("dst", "dst2")
+        } else {
+            ("src", "src2")
+        };
+        let base = field(instruction, "base")?;
+        if matches!(base.as_ref(), "xzr" | "wzr") {
+            return Err(format!("AArch64 {mnemonic} base cannot be the zero register"));
+        }
+        let rn = reg(&base)?;
+        let width = immediate(field(instruction, "width")?)?;
+        let (rt, rt2, simd) = match width {
+            8 => {
+                let gpr = |name: &str| -> Result<u8, String> {
+                    let spelled = field(instruction, name)?;
+                    if is_stack_pointer(&spelled) {
+                        return Err(format!(
+                            "AArch64 {mnemonic} {name} cannot be '{spelled}': register 31 \
+                             encodes XZR there"
+                        ));
+                    }
+                    reg(spelled)
+                };
+                (gpr(first)?, gpr(second)?, false)
+            }
+            16 => (
+                vreg(field(instruction, first)?)?,
+                vreg(field(instruction, second)?)?,
+                true,
+            ),
+            other => return Err(format!("AArch64 {mnemonic} width {other} is not 8 or 16")),
+        };
+        let offset_text = field(instruction, "offset")?;
+        let offset = offset_text
+            .parse::<i64>()
+            .map_err(|_| format!("invalid AArch64 {mnemonic} offset '{offset_text}'"))?;
+        let width = width as i64;
+        if offset % width != 0 {
+            return Err(format!(
+                "unaligned AArch64 {mnemonic} offset {offset} (width {width})"
+            ));
+        }
+        let scaled = offset / width;
+        if !(-64..=63).contains(&scaled) {
+            return Err(format!(
+                "AArch64 {mnemonic} offset {offset} exceeds the imm7 range {}..={}",
+                -64 * width,
+                63 * width
+            ));
+        }
+        let mode: u32 = match field(instruction, "addressing")?.as_ref() {
+            "offset" => 0b010,
+            "pre" => 0b011,
+            "post" => 0b001,
+            other => return Err(format!("unknown AArch64 {mnemonic} addressing '{other}'")),
+        };
+        if load && rt == rt2 {
+            return Err(format!(
+                "AArch64 ldp cannot load one register twice ({})",
+                field(instruction, first)?
+            ));
+        }
+        if mode != 0b010 && !simd && rn != 31 && (rt == rn || rt2 == rn) {
+            return Err(format!(
+                "AArch64 {mnemonic} write-back through '{base}' cannot also name it as data"
+            ));
+        }
+        let word = (0b10 << 30)
+            | (0b101 << 27)
+            | (u32::from(simd) << 26)
+            | (mode << 23)
+            | (u32::from(load) << 22)
+            | (((scaled as u32) & 0x7f) << 15)
+            | (u32::from(rt2) << 10)
+            | (u32::from(rn) << 5)
+            | u32::from(rt);
+        self.emit_word(word)
+    }
+
     pub(super) fn emit_label_branch(&mut self, kind: &str, target: String) -> Result<(), String> {
         let offset = self.text.len();
         self.emit_word(0)?;

@@ -63,13 +63,16 @@ pub(crate) type U32Set = std::collections::HashSet<u32, BuildHasherDefault<U32Ha
 /// Fields that name a register the instruction *writes*. AArch64 is
 /// three-address with no tied operands, so a `dst` field is always a pure
 /// definition. `carry_out`/`borrow_out` are the second result of the
-/// explicit-carry `add_carry`/`sub_borrow` ops (plan-00-G §4).
-const DEF_FIELDS: &[&str] = &["dst", "carry_out", "borrow_out"];
+/// explicit-carry `add_carry`/`sub_borrow` ops (plan-00-G §4). `dst2` is the
+/// second destination of an `ldp` (plan-171-A).
+const DEF_FIELDS: &[&str] = &["dst", "dst2", "carry_out", "borrow_out"];
 
 /// Fields that name a register the instruction *reads*. `carry_in`/`borrow_in`
-/// are the explicit-carry input of `add_carry`/`sub_borrow`.
+/// are the explicit-carry input of `add_carry`/`sub_borrow`; `src2` is the second
+/// source of an `stp` (plan-171-A).
 const USE_FIELDS: &[&str] = &[
     "src",
+    "src2",
     "lhs",
     "rhs",
     "minuend",
@@ -505,6 +508,19 @@ pub(crate) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effec
         if let Some((_, dst)) = instruction.fields.iter().find(|(name, _)| *name == "dst") {
             if let Some(reg) = classify(dst) {
                 uses.push(reg);
+            }
+        }
+    }
+    // A pre-/post-indexed pair (plan-171-A) writes its base back, so the base
+    // is a definition as well as the address it reads.
+    if matches!(instruction.op, CodeOp::Stp | CodeOp::Ldp)
+        && instruction
+            .operand("addressing")
+            .is_some_and(|mode| mode.rendered() != "offset")
+    {
+        if let Some((_, base)) = instruction.fields.iter().find(|(name, _)| *name == "base") {
+            if let Some(reg) = classify(base) {
+                defs.push(reg);
             }
         }
     }
@@ -1086,6 +1102,53 @@ mod tests {
     /// `Raw` string. This is the invariant that makes the typed fast path in
     /// `classify` byte-identical to the pre-typing string path (the whole stream
     /// is `Raw` until plan-82-C, then typed after — both must color identically).
+    #[test]
+    fn a_pair_reads_and_writes_both_registers_and_a_write_back_writes_its_base() {
+        let model = ClassModel {
+            class: RegClass::Int,
+            parse_vreg: super::super::parse_vreg,
+            physical_index: int_physical_index,
+            is_fp: false,
+            caller_saved: 0,
+        };
+        let phys = |refs: &[RegRef]| {
+            let mut numbers: Vec<u32> = refs
+                .iter()
+                .map(|r| match r {
+                    RegRef::Phys(p) => *p,
+                    RegRef::VReg(_) => panic!("physical operands only"),
+                })
+                .collect();
+            numbers.sort_unstable();
+            numbers
+        };
+        let pair = |op: &str, a: &str, b: &str, base: &str, addressing: &str| {
+            let (first, second) = if op == "ldp" {
+                ("dst", "dst2")
+            } else {
+                ("src", "src2")
+            };
+            CodeInstruction::new(op)
+                .physical_field(first, a)
+                .physical_field(second, b)
+                .physical_field("base", base)
+                .field("offset", "16")
+                .field("addressing", addressing)
+                .field("width", "8")
+        };
+        let load = effect(&pair("ldp", "x3", "x4", "x9", "offset"), &model);
+        assert_eq!(phys(&load.defs), [3, 4]);
+        assert_eq!(phys(&load.uses), [9]);
+        let store = effect(&pair("stp", "x3", "x4", "x9", "offset"), &model);
+        assert!(store.defs.is_empty());
+        assert_eq!(phys(&store.uses), [3, 4, 9]);
+        let post = effect(&pair("ldp", "x3", "x4", "x9", "post"), &model);
+        assert_eq!(phys(&post.defs), [3, 4, 9]);
+        let pre = effect(&pair("stp", "x3", "x4", "x9", "pre"), &model);
+        assert_eq!(phys(&pre.defs), [9]);
+        assert_eq!(phys(&pre.uses), [3, 4, 9]);
+    }
+
     #[test]
     fn effect_classifies_typed_and_raw_operands_identically() {
         let model = ClassModel {

@@ -426,39 +426,66 @@ Acceptance: the tool reproduces §2.2's table for the seven committed goldens.
   Result (2026-10-25): the seven rows of the re-measured §2.2 table, and
   `diff <(python3 -I /tmp/171a-proto.py …) <(python3 -I tools/ncode-census/census.py --pairs …)`
   (the prototype above, verbatim) → no output.
-Commit: —
+Commit: 4dcdd0ef5
 
 ### Phase 2 — `stp`/`ldp` primitive (no producer; byte-identical)
 
-- [ ] `src/arch/ops.rs`: add `Stp`, `Ldp` (variant, `mnemonic`, `from_mnemonic`,
-      `ALL`).
-- [ ] `src/codegen/engine/mir/mir.rs`: place both in the mirror group of `mir_ops!`.
-- [ ] `src/codegen/engine/regalloc/analysis.rs`: `dst2` → `DEF_FIELDS`, `src2` →
-      `USE_FIELDS`.
-- [ ] `src/target/shared/abi.rs`: constructors `store_pair_u64`, `load_pair_u64`,
+- [x] `src/arch/ops.rs`: add `Stp`, `Ldp` (variant, `mnemonic`, `from_mnemonic`,
+      `ALL`). (Plus their required fields in `code_impl.rs:CodeInstruction::validate`.)
+- [x] `src/codegen/engine/mir/mir.rs`: place both in the mirror group of `mir_ops!`.
+- [x] `src/codegen/engine/regalloc/analysis.rs`: `dst2` → `DEF_FIELDS`, `src2` →
+      `USE_FIELDS`. Also: a pre-/post-indexed pair's `base` is a definition
+      (`effect`), tested by `a_pair_reads_and_writes_both_registers_…`.
+- [~] `src/target/shared/abi.rs`: constructors `store_pair_u64`, `load_pair_u64`,
       `store_pair_q`, `load_pair_q` taking `(r1, r2, base, offset, addressing)`.
-- [ ] `src/arch/aarch64/encode/emitter.rs` + `sizing.rs`: encode STP/LDP (64-bit
+      Remaining: they land with their first caller in Phase 3 (Correction 4).
+- [x] `src/arch/aarch64/encode/emitter.rs` + `sizing.rs`: encode STP/LDP (64-bit
       GPR and 128-bit SIMD; signed-offset, pre-, post-index) with the range,
-      alignment and register checks of §4.2.
-- [ ] `src/arch/x86_64/encode/emitter.rs`, `src/arch/riscv64/encode/emitter.rs`:
-      explicit "AArch64-only form" error arm; a unit test per backend.
-- [ ] `src/arch/aarch64/backend.rs`: `supports_pair_access() -> true`; trait
-      default `false` in `mir.rs:Backend`.
-- [ ] `src/optimizer/opt2/peephole.rs:classify`: model `stp`/`ldp` (§4.2).
-- [ ] Grep for post-`finalize_frame` consumers that match `str_u64`/`ldr_u64` on
+      alignment and register checks of §4.2. (`emitter/memory.rs:emit_pair`;
+      `sizing.rs:instruction_size` derives the size from the emitter, so it
+      needed no change.)
+- [x] `src/arch/x86_64/encode/emitter.rs`, `src/arch/riscv64/encode/emitter.rs`:
+      explicit "AArch64-only form" error arm; a unit test per backend
+      (`the_aarch64_pair_forms_are_refused` in `x86_64/encode/tests/integer_edges.rs`
+      and `riscv64/encode/tests/encoder.rs`).
+- [~] `src/arch/aarch64/backend.rs`: `supports_pair_access() -> true`; trait
+      default `false` in `mir.rs:Backend`. Remaining: lands with its first
+      reader, `finalize_frame`, in Phase 3 (Correction 4).
+- [x] `src/optimizer/opt2/peephole.rs:classify`: model `stp`/`ldp` (§4.2). A
+      non-writeback X `stp` to `sp` is two slot stores, a non-writeback X `ldp`
+      defines both destinations; write-back and Q pairs flush, as their single
+      forms do. The inline tests moved to `peephole/tests/mod.rs` first
+      (`2306e97d4`, pure motion: they would pass the 250-line inline budget).
+- [x] Grep for post-`finalize_frame` consumers that match `str_u64`/`ldr_u64` on
       `sp` (`rg -n 'StrU64|LdrU64|"str_u64"|"ldr_u64"' src --type rust`), read each
       that runs after the frame, and teach it the pair or record why it cannot
-      meet one (list in this task).
-- [ ] Tests: `src/arch/aarch64/encode/tests.rs` — one case per width × mode ×
+      meet one (list in this task). Result: 366 hits; no non-test `src/` code
+      reads a finalized stream for them — the matches are the encoders, the
+      allocator and opt2 passes (all before `finalize_frame`: `dse`, `sink`,
+      `promote`, `plans/memory`, `stldfwd`, `linear_scan`, `peephole`), and
+      `#[cfg(test)]` modules (`linux_common/code.rs`, `macos_aarch64/app/{mod,
+      mouse_view,metal}.rs`, `linux_gtk/mouse.rs`, `marshal/record.rs`,
+      `canvas/vulkan_handoff.rs`, `arena/arena/mod.rs`), which Phase 3's
+      suite run checks. The `-ncode` readers under `tests/` that do meet a
+      finalized stream were taught the pair: `tests/common/ncode_emu.rs` (runs
+      `stp`/`ldp` X pairs in all three modes), `rt_foreign_entry_callee_saved.rs`
+      (both halves, `sp` moved by pre/post index, `dst2` clobbers) and
+      `rt_runtime_helper_callee_saved.rs` (`dst2` is a write). The debugger
+      already decodes all three modes (§2.5).
+- [x] Tests: `src/arch/aarch64/encode/tests.rs` — one case per width × mode ×
       load/store, boundary offsets (−512, 504, −1024, 1008), and each rejected
       form (misaligned, out of range, `ldp x1,x1`, writeback onto base).
       `src/arch/aarch64/decode/tests.rs` — `table()` rows for `stp`/`ldp` (each
-      addressing mode) so the guard passes.
+      addressing mode) so the guard passes. (`encode/tests/pairs.rs`: 19 forms
+      against Apple clang 17 words, 15 refusals; 10 decoder rows.)
 
 Acceptance: encoder↔decoder round trip holds for every new form, and no emitted
 byte changes (provably neutral — nothing produces the ops yet).
   Check: `cargo test --bin mfb aarch64::encode aarch64::decode ops:: regalloc::analysis` → all pass (est. 3 min);
   `bash scripts/artifact-gate.sh target/release/mfb strings` → `0 diff(s)` (est. 1 min).
+  Result (2026-10-25): `cargo test --bin mfb -- aarch64::encode aarch64::decode ops:: regalloc::analysis opt2::peephole x86_64::encode riscv64::encode`
+  → 344 passed, 0 failed; `artifact-gate.sh … strings` → `7 golden(s) checked, 0 diff(s)`;
+  `cargo test --release --test rt_runtime_helper_callee_saved --test rt_foreign_entry_callee_saved --test app_special_keys --test codegen_canvas_metal_off_frame_path --test codegen_canvas_vulkan_off_frame_path` → all pass.
 Commit: —
 
 ### Phase 3 — frame `stp`/`ldp` (Level 0)
@@ -609,6 +636,13 @@ Commit: —
    concurrent vector slots, exceeding the 126-slot region` — with the release
    `mfb` of `89a4dce2c`, before any plan-171 change. Unrelated to pairing
    (riscv64 never pairs); tracked as its own bug (see the Summary).
+4. **The constructors and `supports_pair_access` land with Phase 3, not Phase 2.**
+   Phase 2 has no producer, so `abi::store_pair_u64`/… and
+   `Backend::supports_pair_access` would have no reader there, and the tree is
+   kept free of dead code (AGENTS.md: no "consumed by a later phase"
+   suppressions). Phase 2 lands the op, its encoding, decoding, roles and the
+   peephole model; Phase 3 lands the constructors and the backend flag with
+   `finalize_frame`, their first caller.
 
 ## Summary
 

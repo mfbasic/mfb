@@ -112,8 +112,9 @@ fn audit(target: &str) {
                     continue;
                 }
                 if register == globals {
+                    // `dst2` is an `ldp`'s second destination (plan-171-A).
                     assert!(
-                        key != "dst",
+                        key != "dst" && key != "dst2",
                         "{target}: `{symbol}` writes the globals base `{register}`: {instruction}"
                     );
                     continue;

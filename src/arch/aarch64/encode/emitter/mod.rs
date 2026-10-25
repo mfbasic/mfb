@@ -297,6 +297,9 @@ impl Encoder {
                     | (u32::from(reg(field(instruction, "base")?)?) << 5)
                     | u32::from(reg(field(instruction, "dst")?)?),
             ),
+            // plan-171-A: the store/load pair, X or Q, all three addressing modes.
+            "stp" => self.emit_pair(instruction, false),
+            "ldp" => self.emit_pair(instruction, true),
             "ldr_d" => self.emit_ldr_d(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "base")?)?,

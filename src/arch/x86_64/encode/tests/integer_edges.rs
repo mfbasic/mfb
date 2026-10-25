@@ -112,3 +112,21 @@ fn sub_borrow_of_a_zero_subtrahend_into_its_own_lhs_only_materializes_the_borrow
         [0x0F, 0x92, 0xC0, 0x48, 0x0F, 0xB6, 0xC0]
     );
 }
+
+/// plan-171-A: `stp`/`ldp` are AArch64-only. x86-64's `supports_pair_access` is
+/// `false`, so nothing builds one for this target; if one ever arrived, the
+/// encoder names the form instead of guessing a byte sequence.
+#[test]
+fn the_aarch64_pair_forms_are_refused() {
+    for (op, first, second) in [("stp", "src", "src2"), ("ldp", "dst", "dst2")] {
+        let ins = CodeInstruction::new(op)
+            .physical_field(first, "r12")
+            .physical_field(second, "r14")
+            .physical_field("base", "rsp")
+            .field("offset", "16")
+            .field("addressing", "offset")
+            .field("width", "8");
+        let err = enc_err(&ins);
+        assert!(err.contains("AArch64-only"), "{op}: {err}");
+    }
+}

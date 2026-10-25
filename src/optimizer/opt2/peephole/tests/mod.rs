@@ -305,3 +305,90 @@ fn does_not_forward_partially_overwritten_slot() {
     assert_eq!(instructions[2].get("dst").as_deref(), Some("x8"));
     assert_eq!(instructions[2].get("offset").as_deref(), Some("8"));
 }
+
+fn pair(
+    op_name: &str,
+    first: &str,
+    second: &str,
+    offset: &str,
+    addressing: &str,
+) -> CodeInstruction {
+    let (a, b) = if op_name == "ldp" {
+        ("dst", "dst2")
+    } else {
+        ("src", "src2")
+    };
+    op(op_name)
+        .physical_field(a, first)
+        .physical_field(b, second)
+        .physical_field("base", "sp")
+        .field("offset", offset)
+        .field("addressing", addressing)
+        .field("width", "8")
+}
+
+fn reload(dst: &str, offset: &str) -> CodeInstruction {
+    op("ldr_u64")
+        .physical_field("dst", dst)
+        .physical_field("base", "sp")
+        .field("offset", offset)
+}
+
+/// plan-171-A: an `stp` to `sp` is its two slot stores, so a reload of either
+/// half forwards from the register that stored it.
+#[test]
+fn an_sp_store_pair_forwards_both_halves() {
+    let mut instructions = vec![
+        pair("stp", "x10", "x11", "16", "offset"),
+        reload("x8", "16"),
+        reload("x9", "24"),
+    ];
+    forward_stores_to_loads(&mut instructions, false);
+    assert_eq!(instructions[1].op, CodeOp::Mov);
+    assert_eq!(instructions[1].get("src").as_deref(), Some("x10"));
+    assert_eq!(instructions[2].op, CodeOp::Mov);
+    assert_eq!(instructions[2].get("src").as_deref(), Some("x11"));
+}
+
+/// An `ldp` defines both its destinations: a slot stored from either one is no
+/// longer forwardable. A write-back pair moves `sp`, so it flushes everything.
+#[test]
+fn a_load_pair_invalidates_both_destinations_and_a_write_back_pair_flushes() {
+    let mut instructions = vec![
+        op("str_u64")
+            .physical_field("src", "x10")
+            .physical_field("base", "sp")
+            .field("offset", "8"),
+        op("str_u64")
+            .physical_field("src", "x11")
+            .physical_field("base", "sp")
+            .field("offset", "32"),
+        op("str_u64")
+            .physical_field("src", "x12")
+            .physical_field("base", "sp")
+            .field("offset", "48"),
+        pair("ldp", "x11", "x10", "64", "offset"),
+        reload("x8", "8"),
+        reload("x9", "32"),
+        reload("x7", "48"),
+        pair("stp", "x21", "x22", "-16", "pre"),
+        reload("x6", "48"),
+    ];
+    forward_stores_to_loads(&mut instructions, false);
+    assert_eq!(
+        instructions[4].op,
+        CodeOp::LdrU64,
+        "x10 was reloaded by the ldp"
+    );
+    assert_eq!(
+        instructions[5].op,
+        CodeOp::LdrU64,
+        "x11 was reloaded by the ldp"
+    );
+    assert_eq!(instructions[6].op, CodeOp::Mov, "x12 still holds slot 48");
+    assert_eq!(
+        instructions[8].op,
+        CodeOp::LdrU64,
+        "the write-back pair flushed"
+    );
+}

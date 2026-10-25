@@ -588,3 +588,25 @@ fn missing_entry_symbol_errors() {
         .unwrap_err()
         .contains("entry symbol"));
 }
+
+/// plan-171-A: `stp`/`ldp` are AArch64-only. riscv64's `supports_pair_access` is
+/// `false`, so nothing builds one for this target; if one ever arrived, the
+/// encoder names the form instead of guessing an instruction.
+#[test]
+fn the_aarch64_pair_forms_are_refused() {
+    for (op, first, second) in [("stp", "src", "src2"), ("ldp", "dst", "dst2")] {
+        let ins = ci(
+            op,
+            &[
+                (first, "s1"),
+                (second, "s2"),
+                ("base", "sp"),
+                ("offset", "16"),
+                ("addressing", "offset"),
+                ("width", "8"),
+            ],
+        );
+        let err = try_encode(vec![ins, ci("ret", &[])]).unwrap_err();
+        assert!(err.contains("AArch64-only"), "{op}: {err}");
+    }
+}

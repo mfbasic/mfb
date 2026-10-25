@@ -51,6 +51,17 @@ fn table() -> Vec<Case> {
     let two = |dst, src| vec![("dst", dst), ("src", src)];
     let load = |dst, base, offset| vec![("dst", dst), ("base", base), ("offset", offset)];
     let store = |src, base, offset| vec![("src", src), ("base", base), ("offset", offset)];
+    let pair = |role: &'static str, first, second, base, offset, addressing, width| {
+        let second_role = if role == "dst" { "dst2" } else { "src2" };
+        vec![
+            (role, first),
+            (second_role, second),
+            ("base", base),
+            ("offset", offset),
+            ("addressing", addressing),
+            ("width", width),
+        ]
+    };
     vec![
         ("mov", two("x0", "x1"), vec!["mov    x0, x1"]),
         ("mov", two("sp", "x9"), vec!["mov    sp, x9"]),
@@ -326,6 +337,57 @@ fn table() -> Vec<Case> {
             "str_q",
             store("q0", "x1", "32"),
             vec!["str    q0, [x1, #0x20]"],
+        ),
+        // plan-171-A: the store/load pairs, X and Q, in each addressing mode.
+        (
+            "stp",
+            pair("src", "x21", "x22", "sp", "16", "offset", "8"),
+            vec!["stp    x21, x22, [sp, #0x10]"],
+        ),
+        (
+            "stp",
+            pair("src", "x21", "x30", "sp", "-32", "pre", "8"),
+            vec!["stp    x21, x30, [sp, #-0x20]!"],
+        ),
+        (
+            "stp",
+            pair("src", "x7", "x8", "x9", "16", "post", "8"),
+            vec!["stp    x7, x8, [x9], #0x10"],
+        ),
+        (
+            "ldp",
+            pair("dst", "x3", "x4", "x5", "-512", "offset", "8"),
+            vec!["ldp    x3, x4, [x5, #-0x200]"],
+        ),
+        (
+            "ldp",
+            pair("dst", "x3", "x4", "x5", "504", "pre", "8"),
+            vec!["ldp    x3, x4, [x5, #0x1f8]!"],
+        ),
+        (
+            "ldp",
+            pair("dst", "x21", "x30", "sp", "32", "post", "8"),
+            vec!["ldp    x21, x30, [sp], #0x20"],
+        ),
+        (
+            "stp",
+            pair("src", "q8", "q9", "sp", "32", "offset", "16"),
+            vec!["stp    q8, q9, [sp, #0x20]"],
+        ),
+        (
+            "stp",
+            pair("src", "q8", "q9", "sp", "-64", "pre", "16"),
+            vec!["stp    q8, q9, [sp, #-0x40]!"],
+        ),
+        (
+            "ldp",
+            pair("dst", "q8", "q9", "sp", "1008", "post", "16"),
+            vec!["ldp    q8, q9, [sp], #0x3f0"],
+        ),
+        (
+            "ldp",
+            pair("dst", "q14", "q15", "x3", "-16", "offset", "16"),
+            vec!["ldp    q14, q15, [x3, #-0x10]"],
         ),
         (
             "fadd_v",
