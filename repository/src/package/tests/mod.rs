@@ -1,6 +1,8 @@
 use super::test_support::{serialize, TestPackage};
 use super::*;
 
+mod framing;
+
 /// A fully signed `alice#toolbox` package with a self-consistent trust
 /// chain: the ident key signs the proof and a throwaway "server" key signs
 /// the attestation. Returns the artifact plus the keys so tests can verify
