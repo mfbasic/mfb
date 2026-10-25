@@ -227,7 +227,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Branch simplification / folding",
-            level: 2,
+            level: 1,
             stage: "NIR + MIR",
             summary: "Folds a branch whose outcome is known at compile time — \
                       `IF TRUE`/`IF FALSE` keeps only its taken arm, \
@@ -454,7 +454,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Unreachable code elimination",
-            level: 2,
+            level: 1,
             stage: "NIR + MIR",
             summary: "Removes *unreachable* code — statements after a RETURN/FAIL \
                       or an always-terminating IF/MATCH, and CFG blocks nothing \
@@ -473,7 +473,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Basic block merging",
-            level: 2,
+            level: 1,
             stage: "MIR",
             summary: "Fuses single-predecessor/single-successor block pairs \
                       back into straight-line code: a branch to the very next \
@@ -491,7 +491,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "CFG simplification (simplifycfg)",
-            level: 2,
+            level: 1,
             stage: "MIR",
             summary: "Structural control-flow tidying: a conditional branch \
                       whose two edges land in the same place, a jump to a \

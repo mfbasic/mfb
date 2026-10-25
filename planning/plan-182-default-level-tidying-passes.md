@@ -83,7 +83,7 @@ are the behavior gate.
 Acceptance: default-level goldens untouched; check fusion fires at `-O2`.
   Check: `scripts/artifact-gate.sh target/release/mfb collections` → 0 diffs (est. 2 s); `mfb build -v -O2 examples/ai_chat` → "Check fusion" count > 0 (est. 10 s). (Fixture corrected from `tests/byte-identity/collections`, see Corrections.)
   Result: gate → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`; `mfb build -v -O2 examples/ai_chat` → `Check fusion with existing comparisons: 8` (the main binary at `-O2` prints no Check fusion line — row not enabled; at `-O3` both print 8).
-Commit: —
+Commit: 6de87d751
 
 ### Phase 2 — NIR DCE to Level 1
 
@@ -98,16 +98,21 @@ Commit: —
 Acceptance: `.run`/`build.log` unchanged; only native-dump kinds moved.
   Check: `git status --porcelain | grep -vE '\.(nir|nplan|nobj|ncode|ncodesum|mir)$'` → only source files of this phase (est. 1 s).
   Result: only the phase's source/doc files remain after the filter; `bash scripts/test-accept.sh target/release/mfb /tmp/p182-ph2-accept` → `acceptance tests passed (1756 test(s) ran)`, exit 0. Default-level fire count: `mfb build -v /tmp/p182-probe` (unused `LET`s + `IF FALSE`/`IF TRUE` + post-RETURN code) → `Dead-code elimination (DCE, NIR): 2` (no line at `-O0`).
-Commit: —
+Commit: 280b3f268
 
 ### Phase 3 — Control-flow tidying rows to Level 1
 
-- [ ] `level_enabled(2)` → `level_enabled(1)` in `opt1/uce.rs`, `opt2/uce.rs`, `opt1/branches.rs`, `opt2/branches.rs`, `opt2/merge.rs`, `opt2/simplifycfg.rs`.
-- [ ] `src/optimizer/catalog.rs`: those four rows `level: 2` → `1`.
-- [ ] Regenerate the codegen goldens the full artifact gate flags.
+- [x] `level_enabled(2)` → `level_enabled(1)` in `opt1/uce.rs`, `opt2/uce.rs`, `opt1/branches.rs`, `opt2/branches.rs`, `opt2/merge.rs`, `opt2/simplifycfg.rs` (module docs and "Self-guarded on … level" lines updated with them).
+- [x] `src/optimizer/catalog.rs`: those four rows `level: 2` → `1`.
+- [x] (added) The six level tests (`opt1/uce.rs` `nested_bodies_truncate_and_level_one_disables`, `opt1/branches/tests`, `opt2/uce.rs`, `opt2/branches.rs`, `opt2/merge.rs`, `opt2/simplifycfg.rs` `level_one_disables_the_row`) now pin "off at `-O0`" (renamed `…level_zero…`). See Corrections.
+- [x] (added) Fix `opt2/simplifycfg.rs:simplify`'s tail assertion, which checked its input rather than its own work: `optimizer::opt2::tests::optimize_mir_is_identity_on_a_constant_free_stream` and `optimize_mir_runs_the_constant_folder` panicked ("simplifycfg left a stream whose last instruction is not a terminator") at `-O1`. See Corrections. `cargo test --release --bin mfb optimizer::` → `369 passed; 0 failed`.
+- [x] (added) Level prose: `src/optimizer/mod.rs` (Level-1/Level-2 summary), `src/optimizer/opt1/mod.rs` (module doc + pipeline comments), the `mfb man optimizations` level table (`src/docs/man/optimizations/package.md`), and the spec `-O` entry's `-O1` row list (`src/docs/spec/tooling/07_cli-reference.md`).
+- [x] (added) `planning/optimizations.md`: UCE, branch simplification, block merging, CFG simplification rows marked "moved to Level 1 by plan-182 (phase 3)".
+- [x] Regenerate the codegen goldens the full artifact gate flags. Gate: `2384 golden(s) checked, 166 diff(s)` — 164 native-code goldens (157 `.ncodesum` + 7 raw `.ncode`) and `app-mouse-surface`'s `.app.nir`/`.app.nplan`. Localized: `parser-hello-world`'s `.ncode` diff is two deleted lines, a `b error_src_fill_done_4` whose target sits right behind another label and that label itself (folded onto `error_src_null_fill_3`); the `.app.nir` diff is `IF TRUE THEN RETURN …` spliced to its `RETURN` with the now-unreachable tail dropped. `bash scripts/regen-native-goldens.sh target/release/mfb` → `179 build(s), 230 golden(s) rewritten, 0 failure(s)`; 166 files changed (`git status --porcelain | grep -cE '\.(nir|nplan|nobj|ncode|ncodesum|mir)$'`), the same 166 the gate flagged.
 
 Acceptance: same as Phase 2.
   Check: same command as Phase 2 (est. 1 s).
+  Result: the filter leaves only this phase's source/doc files; `scripts/artifact-gate.sh target/release/mfb all` → `1721 tests, 1900 build(s), 2384 golden(s) checked, 0 diff(s)`; `bash scripts/test-accept.sh target/release/mfb /tmp/p182-ph3-accept` → `acceptance tests passed (1756 test(s) ran)`. Goal: `mfb build -v /tmp/p182-probe` → `Branch simplification / folding: 2`, `Dead-code elimination (DCE, NIR): 2`, `Unreachable code elimination: 5`, `Basic block merging: 1`, `CFG simplification (simplifycfg): 1` (none at `-O0`); the built program prints `5`.
 Commit: —
 
 ## Validation Plan
@@ -156,6 +161,8 @@ Commit: —
 - **Unit tests pinned each moved row's old level.** Each moved pass has a `level_*_disables_the_row` test asserting the row is off one level below its old gate (`opt2/flags.rs`, `opt1/dce/tests`, `opt1/uce.rs`, `opt1/branches/tests`, `opt2/uce.rs`, `opt2/branches.rs`, `opt2/merge.rs`, `opt2/simplifycfg.rs`). AGENTS.md four questions: (1) written with each row, to pin its catalog gate; (2) protects "the row is off below its catalog level"; (3) nothing else depends (a tree grep of each test name hits only its own file); (4) the catalog level is the owner's decision recorded under Decisions — the old level is what this plan replaces. Each test keeps its intent and moves down one level (off at new level − 1). Tasks added per phase.
 - **The plan missed the spec.** `src/docs/spec/tooling/07_cli-reference.md`'s `-O` entry enumerates the rows `-O1` runs, so moving rows to Level 1 changes that contract (Hard Completion Gate, `.ai/specifications.md`). The list was also already stale: it omitted "Place copy forwarding", a `level: 1` row in `catalog.rs` (`grep -B1 "level: 1," src/optimizer/catalog.rs`). Tasks added to phases 2 and 3.
 - **`examples/ai_chat` fires NIR DCE 0 times at every level** (`mfb build -v -O2 examples/ai_chat` → `Dead-code elimination (DCE, NIR): 0`), so the Goal's "fixture that has dead branches" is a probe project at `/tmp/p182-probe` (unused scalar `LET`s, `IF FALSE`, `IF TRUE … ELSE`, code after `RETURN`). Its source is recorded in the Validation Plan.
+- **simplifycfg's tail assertion was stronger than its comment.** It asserted that the stream ends in a terminator or label after the row ran — a property of the *input*, which a straight-line fragment never has. Two seam tests (`optimizer::opt2::tests::optimize_mir_is_identity_on_a_constant_free_stream`, `…_runs_the_constant_folder`) feed exactly such fragments; before this plan they reached simplifycfg only at `-O2`+, where MIR DCE had already deleted their dead float ops (empty stream passes), so the assertion never fired. At `-O1` it panicked. The tests are right (their contract is "identity at every level"); the assertion now checks what its comment says — the row never *loses* a terminating tail (`!entered_terminated || ends_terminated(after)`). No codegen effect: all 1900 gate builds succeeded with the old assertion.
+- **Golden count prediction held.** §2 listed `.ncode` 7 + `.ncodesum` 157 as movable; phase 3 moved all 164, plus one `.nir`/`.nplan` pair. `.nobj` (18) and `.mir` (2) did not move.
 
 ## Summary
 

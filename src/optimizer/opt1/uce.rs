@@ -1,4 +1,4 @@
-//! Unreachable code elimination — the Opt1 (tree-level) half of the Level-2
+//! Unreachable code elimination — the Opt1 (tree-level) half of the Level-1
 //! catalog row (`planning/optimizations.md`): drop statements that control
 //! flow can never reach. The CFG half lives in `opt2::uce`; both feed one
 //! "Unreachable code elimination" `-v` count.
@@ -27,9 +27,9 @@ use super::plans::loops::{declared_names, value_reads};
 use crate::target::shared::nir::{NirModule, NirOp};
 
 /// Apply the tree-level UCE row to the whole module. Self-guarded on its
-/// catalog level (2); the removal count feeds `optimizer::stats`.
+/// catalog level (1); the removal count feeds `optimizer::stats`.
 pub(crate) fn eliminate(module: &mut NirModule) {
-    if !crate::optimizer::level_enabled(2) {
+    if !crate::optimizer::level_enabled(1) {
         return;
     }
     let mut removed = 0;
@@ -284,9 +284,9 @@ mod tests {
         assert_eq!(body.len(), 3);
     }
 
-    /// Truncation recurses into nested bodies, and the row is off at `-O1`.
+    /// Truncation recurses into nested bodies, and the row is off at `-O0`.
     #[test]
-    fn nested_bodies_truncate_and_level_one_disables() {
+    fn nested_bodies_truncate_and_level_zero_disables() {
         let nested = || {
             vec![
                 NirOp::While {
@@ -303,7 +303,7 @@ mod tests {
                 ret(int_const("0")),
             ]
         };
-        let body = run(nested(), 2);
+        let body = run(nested(), 1);
         let NirOp::While {
             body: loop_body, ..
         } = &body[0]
@@ -312,13 +312,13 @@ mod tests {
         };
         assert_eq!(loop_body.len(), 1, "post-EXIT statement dies");
 
-        let body = run(nested(), 1);
+        let body = run(nested(), 0);
         let NirOp::While {
             body: loop_body, ..
         } = &body[0]
         else {
             panic!("expected While");
         };
-        assert_eq!(loop_body.len(), 2, "-O1 must not truncate");
+        assert_eq!(loop_body.len(), 2, "-O0 must not truncate");
     }
 }

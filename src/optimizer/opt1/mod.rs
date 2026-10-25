@@ -6,7 +6,7 @@
 //! simplification, and non-loop [`strength`] reduction (Level 1, the last
 //! three composed into one scope-tracked walk by [`local_rewrites`]), and
 //! [`placefwd`]'s place copy forwarding (Level 1, right after them);
-//! tree-level [`branches`] simplification, [`uce`], and [`dce`] (Level 2, the
+//! tree-level [`branches`] simplification, [`uce`], and [`dce`] (Level 1, the
 //! last consuming the [`plans`] name-usage census);
 //! and the six structured-loop rows (Level 3): [`licm`], [`unswitch`],
 //! [`fuse`], [`fission`], [`peel`], and [`rotate`], consuming the
@@ -82,14 +82,14 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
     // into the direct form, and every later row — and codegen's in-place field
     // seam — must see that direct form, not the copy.
     timed("place copy forwarding", || placefwd::forward(&mut module));
-    // After the local rewrites: branch simplification (Level 2) folds the
+    // After the local rewrites: branch simplification (Level 1) folds the
     // constant conditions folding just minted; then the loop rows (Level 3)
     // on the still-structured loops — LICM shrinks bodies, unswitching
     // splits on invariant tests, fusion/fission reshape adjacent phases,
     // peeling splits first iterations, and rotation runs last so every
     // other row saw the head-tested `WHILE` shape. Then unreachable-code
-    // truncation (Level 2), so a name whose only readers were unreachable
-    // (or in a dropped arm) is provably unused for tree-DCE (Level 2), which
+    // truncation (Level 1), so a name whose only readers were unreachable
+    // (or in a dropped arm) is provably unused for tree-DCE (Level 1), which
     // sweeps it along with the bindings the rewrites stranded.
     timed("branch simplification", || branches::simplify(&mut module));
     // The three global rows (Level 2) run on the whole module before the loop
