@@ -63,7 +63,7 @@ fn the_package_detail_reports_every_table_it_cannot_read() {
     drop_tables(&store, &["transfer_offers", "transfer_history", "packages"]);
     starts(
         store.package_detail("alice#toolbox").unwrap_err(),
-        "failed to load package: no such table: packages",
+        "failed to prepare detail query: no such table: packages",
     );
 }
 
@@ -107,7 +107,7 @@ fn the_package_audit_reports_every_table_it_cannot_read() {
     drop_tables(&store, &["packages"]);
     starts(
         store.package_audit("alice#toolbox").unwrap_err(),
-        "failed to load package: no such table: packages",
+        "failed to prepare version query: no such table: packages",
     );
 }
 
@@ -197,4 +197,64 @@ fn the_typosquat_check_reports_an_ident_it_cannot_read() {
         store.typosquat_candidates("alice#toolbax").unwrap_err(),
         "failed to read package ident: ",
     );
+}
+
+/// The read models' answer shapes: an unknown ident is `None`; a package with
+/// no versions still has its owner and empty lists; versions come newest
+/// first on the detail and oldest first on the audit, with the STORED owner.
+#[test]
+fn package_detail_and_audit_answer_for_unknown_empty_and_published_packages() {
+    let (_temp, store) = toolbox_store();
+    assert!(store.package_detail("alice#nothing").unwrap().is_none());
+    assert!(store.package_audit("alice#nothing").unwrap().is_none());
+
+    let owner = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+    store
+        .publish_package_version(
+            owner,
+            "alice#toolbox",
+            "1.1.0",
+            "hash-1.1.0",
+            "data/1.1.0.mfp",
+            "{}",
+            &[],
+            &PublishMetadata::default(),
+        )
+        .unwrap();
+    let detail = store.package_detail("alice#toolbox").unwrap().unwrap();
+    assert_eq!(detail.owner, "alice");
+    let versions: Vec<_> = detail.versions.iter().map(|v| v.version.as_str()).collect();
+    assert_eq!(versions, vec!["1.1.0", "1.0.0"]);
+    assert_eq!(detail.versions[1].targets.len(), 1);
+    assert!(detail.versions[0].targets.is_empty());
+    let audit = store.package_audit("alice#toolbox").unwrap().unwrap();
+    assert_eq!(audit.owner, "alice");
+    assert_eq!(audit.versions, vec!["1.0.0", "1.1.0"]);
+
+    tamper(
+        &store,
+        "DELETE FROM package_version_targets; DELETE FROM package_version_blobs;
+         DELETE FROM package_versions;",
+    );
+    let detail = store.package_detail("alice#toolbox").unwrap().unwrap();
+    assert_eq!(detail.owner, "alice");
+    assert!(detail.versions.is_empty());
+    let audit = store.package_audit("alice#toolbox").unwrap().unwrap();
+    assert_eq!(audit.owner, "alice");
+    assert!(audit.versions.is_empty() && audit.state_changes.is_empty());
+}
+
+/// The one statement that binds the ident on each read model reports a
+/// parameter it cannot bind rather than answering "no such package".
+#[test]
+fn package_detail_and_audit_report_an_ident_they_cannot_bind() {
+    let (_temp, store) = toolbox_store();
+    limit_value_length(&store, 32);
+    let ident = format!("alice#{}", "x".repeat(64));
+    let err = store.package_detail(&ident).unwrap_err();
+    starts(err.clone(), "failed to load package detail: ");
+    assert!(err.contains("too big"), "{err}");
+    let err = store.package_audit(&ident).unwrap_err();
+    starts(err.clone(), "failed to list package versions: ");
+    assert!(err.contains("too big"), "{err}");
 }
