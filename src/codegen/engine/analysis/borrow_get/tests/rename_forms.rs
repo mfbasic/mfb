@@ -127,8 +127,18 @@ fn source() -> String {
         "\nFUNC c_state_assign(c AS fs::File STATE Counter) AS Integer\n  MUT xs AS List OF P = mk()\n  \
          FOR j = 0 TO 1\n    LET h AS P = collections::get(xs, j)\n    c.state.n = c.state.n + h.age\n  NEXT\n  \
          FOR j = 0 TO 1\n    LET h AS P = collections::get(xs, j)\n    c.state.n = f(h)\n  NEXT\n  RETURN 0\nEND FUNC\n\n\
-         FUNC main() AS Integer\n  io::print(toString(len(mk())))\n  RETURN 0\nEND FUNC\n",
+         FUNC main() AS Integer\n  io::print(toString(len(mk())))\n",
     );
+    // Each probe is held as a function value so call-graph DCE (Level 1) keeps it:
+    // nothing calls them, and a function no root reaches is not emitted.
+    for name in CONSTRUCTS
+        .iter()
+        .map(|(name, _)| *name)
+        .chain(["state_assign"])
+    {
+        text.push_str(&format!("  LET keep_{name} = c_{name}\n"));
+    }
+    text.push_str("  RETURN 0\nEND FUNC\n");
     text
 }
 

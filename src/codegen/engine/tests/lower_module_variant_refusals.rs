@@ -152,8 +152,8 @@ fn a_type_kind_the_model_does_not_know_is_refused() {
 #[test]
 fn a_lambda_created_with_two_layouts_across_functions_is_refused() {
     use crate::target::shared::nir::{NirOp, NirValue};
-    let source = "IMPORT collections\nIMPORT io\n\nFUNC helper() AS Integer\n  RETURN 1\n\
-                  END FUNC\n\nFUNC main() AS Integer\n  LET s AS String = io::readLine()\n  \
+    let source = "IMPORT collections\nIMPORT io\n\nFUNC helper() AS Integer\n  LET one AS Integer = 1\n  \
+                  RETURN one\nEND FUNC\n\nFUNC main() AS Integer\n  LET s AS String = io::readLine()\n  \
                   collections::forEach([1], LAMBDA(v AS Integer) -> io::print(s))\n  \
                   RETURN helper()\nEND FUNC\n";
     lower(&module(source)).expect("the program as written lowers");

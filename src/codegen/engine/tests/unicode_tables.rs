@@ -24,7 +24,7 @@ MUT sink AS String = \"\"
 
 fn uses_tables(body: &str, name: &str) -> bool {
     let source = format!(
-        "{HEADER}\nFUNC probe(s AS String, f AS fs::File STATE Note, n AS Integer) AS Integer\n{body}\n  RETURN 0\nEND FUNC\n\nFUNC main() AS Integer\n  RETURN 0\nEND FUNC\n"
+        "{HEADER}\nFUNC probe(s AS String, f AS fs::File STATE Note, n AS Integer) AS Integer\n{body}\n  RETURN 0\nEND FUNC\n\nFUNC main() AS Integer\n  LET keep = probe\n  RETURN 0\nEND FUNC\n"
     );
     let module = nir_for_src(&source, CodeTarget::LinuxX86_64, Console)
         .unwrap_or_else(|error| panic!("{name}: the probe lowers to NIR: {error}"));
