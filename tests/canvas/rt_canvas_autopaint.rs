@@ -1084,8 +1084,13 @@ fn an_autopaint_frame_costs_linear_in_its_instances() {
          an n-sized block is freed per instance"
     );
 
-    let few = run(&built, true, &[("COUNT", "250")]);
-    let many = run(&built, true, &[("COUNT", "4000")]);
+    // Sixty frames, not the scene's default eight: `phaseOffsetsMs` is a cumulative
+    // count of whole milliseconds, and 250 instances walk in about 0.4 ms, so over the
+    // five frames eight leave the total is 2 ms give or take 1 -- a ratio that wanders
+    // past the bound with nothing wrong. Measured at 2f281c5e7: 26.0x over eight frames,
+    // 21.7x over sixty.
+    let few = run(&built, true, &[("COUNT", "250"), ("FRAMES", "60")]);
+    let many = run(&built, true, &[("COUNT", "4000"), ("FRAMES", "60")]);
     let walk = walk_ms_per_frame(&many) / walk_ms_per_frame(&few);
     assert!(
         walk < 25.0,
