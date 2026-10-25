@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 mod accounts;
+mod governance_faults;
 mod transport;
 mod verification;
 
