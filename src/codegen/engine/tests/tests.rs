@@ -2,7 +2,6 @@
 use crate::codegen::collection::layout::list_element_is_fixed_width;
 use crate::codegen::engine::builder::bind_deferred_relocation_libraries;
 use crate::codegen::engine::types::*;
-use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 #[test]
 fn negative_integer_const_materializes_as_its_u64_bit_pattern() {
