@@ -175,7 +175,7 @@ FUNC __canvas_particleAppend(offsets AS List OF Integer, ps AS ParticleSystem, g
           out = collections::append(out, offset)
           __canvas_noteEntry(offset, hash, gdx, gdy, mat)
         ELSE
-          out = __canvas_appendDraw(out, child, hash, gdx, gdy, mat, depth + 1, path, index)
+          out = __canvas_appendDraw(out, child, hash, hash, gdx, gdy, mat, depth + 1, path, index)
         END IF
       END IF
     END IF

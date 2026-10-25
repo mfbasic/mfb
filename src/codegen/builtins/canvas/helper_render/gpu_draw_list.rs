@@ -322,7 +322,8 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
       ' plan-172-L: a `Picture` child is a block for each record it draws from -- the
       ' ones `__canvas_pictureAppend` made its entries of.
       CASE Picture(pic)
-        LET picBlocks AS List OF Integer = __canvas_pictureBlocks(pic, __canvas_hashItem(child), path, k)
+        LET picGeo AS Integer = __canvas_geoHash(child)
+        LET picBlocks AS List OF Integer = __canvas_pictureBlocks(pic, picGeo, __canvas_drawHashOf(child, picGeo), path, k)
         MUT b AS Integer = 0
         WHILE b + 1 < len(picBlocks)
           __canvas_pushBlock(collections::getOr(picBlocks, b, 0))
@@ -333,7 +334,8 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
       CASE ParticleSystem(ps)
         count = count + __canvas_particleBlocks(ps)
       CASE ELSE
-        LET childOffset AS Integer = __canvas_geometryFor(child, __canvas_hashItem(child))
+        LET childGeo AS Integer = __canvas_geoHash(child)
+        LET childOffset AS Integer = __canvas_geometryOf(child, childGeo, __canvas_drawHashOf(child, childGeo))
         __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, childOffset)
         __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(childOffset)
@@ -553,7 +555,8 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
       IF collections::getOr(__CANVAS_TOP_OFFSETS, i, 0) < 0 THEN
         LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
         LET before AS Integer = len(side)
-        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), 0.0, 0.0, 0, 0, 0, i)
+        ' plan-175-A: the frame's hashes are every index's `D`, then every index's `G`.
+        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), collections::getOr(__CANVAS_FRAME_HASHES, count + i, 0), 0.0, 0.0, 0, 0, 0, i)
         ' plan-150-B: any particle system that walk expanded belongs to this index.
         __canvas_particleOwned(i, before)
         spans = collections::append(spans, i)

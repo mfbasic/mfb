@@ -1372,10 +1372,18 @@ Two consequences worth stating because they are easy to get wrong in the other o
 ## 14. The geometry cache and item hashes (bug-686)
 
 The graphics thread's geometry cache (`helper_geometry/`, kept by the inline native
-members of `func_geo_cache/`) is keyed by the item's content hash through
-`__CANVAS_GEO_TABLE` (an open-addressing table of `(hash, slot)` over `__CANVAS_GEO_SLOTS`),
-and **a hit is trusted on the hash alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
-`setBytes` swaps without the item changing (`__canvas_pictureCached`). That is only
+members of `func_geo_cache/`) is keyed by the item's GEOMETRY identity `G` (plan-175-A,
+below) through `__CANVAS_GEO_TABLE` (an open-addressing table of `(hash, slot)` over
+`__CANVAS_GEO_SLOTS`), and each slot also remembers the damage identity `D` its record was
+last written for (`__CANVAS_GEO_DRAWS`, one word a slot beside the four-word slots).
+Resolving an item: `G` found holding its `D` is a hit; `G` found holding another `D`, and
+no entry of this frame using the slot, is a REFRESH — the record's appearance slots
+rewritten in place (`emit_refresh_record`; the MFBASIC walk rebuilds the record into the
+same floats, `canvas::geoRefresh`), no allocation, no insert, `refreshes=` + 1; `G` found
+holding another `D` with the slot already used this frame (two equal shapes, two paints)
+is resolved under `D` instead; `G` not found is built and inserted under `G`. **A hit is
+trusted on the key alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
+`setBytes` swaps without the item changing (`__canvas_pictureCachedOf`). That is only
 sound because the hash is 62 bits (two independent 31-bit lanes, `__canvas_hashStep`) and
 resolves a float to 2^-46 px (`__canvas_hashFloat`); the old single 31-bit lane collided
 at ~0.3 per frame at 10,000 items.
@@ -1402,7 +1410,7 @@ Lifetime rules, and why:
   out from the offsets — items AND layers (the draw list used to walk items only, and a
   `presentLayers` scene drew nothing on Metal).
 * **A picture is never resolved on its hash alone** — `sceneResolve` leaves every picture
-  hit to the MFBASIC walk, whose `__canvas_pictureCached` confirms the record against
+  hit to the MFBASIC walk, whose `__canvas_pictureCachedOf` confirms the record against
   the image's current pixel block (§17).
 
 * **An item has two identities, and a damage identity mixed from them** (plan-175-A).

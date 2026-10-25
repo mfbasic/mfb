@@ -34,6 +34,18 @@ MUT __CANVAS_GEO_NATIVE_BUILDS AS Integer = 0
 MUT __CANVAS_GEO_BUILT AS List OF Integer = []
 MUT __CANVAS_GEO_GENERATIONS AS Integer = 0
 MUT __CANVAS_GEO_COMPACTIONS AS Integer = 0
+' plan-175-A: the table is keyed by an item's GEOMETRY identity `G`, and this is the
+' damage identity `D` each slot's record holds, one word a slot in slot order: a slot
+' found by `G` is a hit only when its `D` is the item's. Kept beside the four-word slots
+' rather than as a fifth word, so every `slot * 4` reader is unchanged.
+MUT __CANVAS_GEO_DRAWS AS List OF Integer = []
+' Records rewritten in place for a change of appearance alone: no allocation, no insert,
+' no generation (`refreshes=` on the stats line).
+MUT __CANVAS_GEO_REFRESHES AS Integer = 0
+' What `__canvas_geoLookup` decided for the record its caller builds next: the slot to
+' rewrite in place (-1: none), else the key to insert it under (`__canvas_geoStore`).
+MUT __CANVAS_GEO_PLAN_SLOT AS Integer = 0 - 1
+MUT __CANVAS_GEO_PLAN_KEY AS Integer = 0
 
 ' The frame being resolved, and what it and the frame before it used. A slot counts once
 ' per frame however many times the scene names it, so these are the live set's size.
@@ -126,23 +138,76 @@ FUNC __canvas_geoStamp(slot AS Integer) AS Nothing
   END IF
 END FUNC
 
+' plan-175-A: the record for an item of geometry identity `g` and damage identity `d` --
+' `canvas::sceneResolve`'s branches, in MFBASIC. Answers the offset of a record to use as
+' it is, or -1 after deciding how the record the caller then builds is stored
+' (`__canvas_geoStore`):
+'
+' * `g` found and its record holds `d`: a hit.
+' * `g` found, another paint, and nothing this frame uses the record: a REFRESH -- the
+'   new record is written over the old one in place (`canvas::geoRefresh`).
+' * `g` found, another paint, and an entry of this frame already uses the record (two
+'   items of one geometry and two paints): this one is resolved under `d` instead --
+'   found there, or built and inserted there.
+' * `g` not found: built and inserted under `g`.
+FUNC __canvas_geoLookup(g AS Integer, d AS Integer) AS Integer
+  LET slot AS Integer = canvas::geoFind(g)
+  IF slot < 0 THEN
+    __CANVAS_GEO_PLAN_SLOT = 0 - 1
+    __CANVAS_GEO_PLAN_KEY = g
+    RETURN 0 - 1
+  END IF
+  IF collections::getOr(__CANVAS_GEO_DRAWS, slot, 0 - 1) = d THEN
+    __canvas_geoStamp(slot)
+    RETURN collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 1, 0)
+  END IF
+  IF collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 3, 0) <> __CANVAS_GEO_FRAME THEN
+    __CANVAS_GEO_PLAN_SLOT = slot
+    __CANVAS_GEO_PLAN_KEY = g
+    RETURN 0 - 1
+  END IF
+  LET shared AS Integer = canvas::geoFind(d)
+  IF shared >= 0 THEN
+    __canvas_geoStamp(shared)
+    RETURN collections::getOr(__CANVAS_GEO_SLOTS, shared * 4 + 1, 0)
+  END IF
+  __CANVAS_GEO_PLAN_SLOT = 0 - 1
+  __CANVAS_GEO_PLAN_KEY = d
+  RETURN 0 - 1
+END FUNC
+
+' Store the record built after `__canvas_geoLookup` answered -1, as it decided: over the
+' slot it chose, or as a new slot under the key it chose. Answers the record's offset.
+FUNC __canvas_geoStore(d AS Integer, header AS List OF Float, tail AS List OF Float) AS Integer
+  IF __CANVAS_GEO_PLAN_SLOT >= 0 THEN
+    RETURN canvas::geoRefresh(__CANVAS_GEO_PLAN_SLOT, d, header, tail)
+  END IF
+  RETURN canvas::geoInsert(__CANVAS_GEO_PLAN_KEY, d, header, tail)
+END FUNC
+
+' The record cached for `key`, for a caller whose key IS its damage identity: an
+' `AutoPaint` state's (`__canvas_autoGeoHash`), a picture's outline, the worker's hit
+' records. What `__canvas_geometryOf` is for an item hashed whole.
+FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
+  RETURN __canvas_geometryOf(item, hash, hash)
+END FUNC
+
 ' plan-172-L: a `Picture` is not built here. Its records are made, cached and -- the
 ' one kind a hash cannot vouch for, since `setBytes` swaps an image's pixels without
 ' changing the item -- confirmed in `helper_picture.rs`, which the walks hand a picture
 ' to before they get here (`__canvas_appendDraw`, `__canvas_memoGroup`).
-FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
+FUNC __canvas_geometryOf(item AS DrawItem, geo AS Integer, draw AS Integer) AS Integer
   MATCH item
     CASE Tile(tile)
-      RETURN __canvas_tileGeometry(tile, hash)
+      RETURN __canvas_tileGeometry(tile, geo, draw)
     CASE ELSE
   END MATCH
-  LET slot AS Integer = canvas::geoFind(hash)
-  IF slot >= 0 THEN
-    __canvas_geoStamp(slot)
-    RETURN collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 1, 0)
+  LET found AS Integer = __canvas_geoLookup(geo, draw)
+  IF found >= 0 THEN
+    RETURN found
   END IF
 
-  ' A miss: a new slot.
+  ' Not a hit: build the record, then store it as the lookup decided.
   '
   ' bug-686: the common kinds -- a rectangle, rounded rectangle, circle, line or polygon
   ' with no transform and no gradient -- are built natively, header and tail in one
@@ -153,7 +218,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   IF len(native) > 0 THEN
     __canvas_geoVerify(item, native)
     __CANVAS_GEO_NATIVE_BUILDS = __CANVAS_GEO_NATIVE_BUILDS + 1
-    RETURN canvas::geoInsert(hash, native, [])
+    RETURN __canvas_geoStore(draw, native, [])
   END IF
 
   ' ONE `MATCH` for both halves (bug-686): extracting a variant copies it, and doing it
@@ -288,7 +353,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   ' `canvas::geoInsert` appends header then tail straight into `__CANVAS_GEO_DATA`, in
   ' place (bug-682, bug-686), and counts the generation.
   IF len(header) = __CANVAS_GEO_HEADER THEN
-    RETURN canvas::geoInsert(hash, header, tail)
+    RETURN __canvas_geoStore(draw, header, tail)
   END IF
   MUT fixed AS List OF Float = []
   MUT i AS Integer = 0
@@ -296,7 +361,7 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     fixed = collections::append(fixed, collections::getOr(header, i, 0.0))
     i = i + 1
   END WHILE
-  RETURN canvas::geoInsert(hash, fixed, tail)
+  RETURN __canvas_geoStore(draw, fixed, tail)
 END FUNC
 
 FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float

@@ -86,6 +86,12 @@ pub(super) fn lower_scene_resolve(
     let key_slot = builder.allocate_stack_object("canvas_resolve_key", 8);
     let n_slot = builder.allocate_stack_object("canvas_resolve_n", 8);
     let off_slot = builder.allocate_stack_object("canvas_resolve_off", 8);
+    // plan-175-A: the index's damage and geometry identities, and the slot `G` found.
+    let d_slot = builder.allocate_stack_object("canvas_resolve_d", 8);
+    let g_slot = builder.allocate_stack_object("canvas_resolve_g", 8);
+    let found_slot = builder.allocate_stack_object("canvas_resolve_found", 8);
+    let lookup = builder.label("canvas_resolve_lookup");
+    let miss = builder.label("canvas_resolve_miss");
 
     let next_segment = builder.label("canvas_resolve_segment");
     let layer_segment = builder.label("canvas_resolve_layer");
@@ -148,67 +154,120 @@ pub(super) fn lower_scene_resolve(
         builder.emit(abi::load_u64(&hcount, abi::stack_pointer(), hcount_slot));
         builder.emit(abi::compare_registers(&gi, &hcount));
         builder.emit(abi::branch_ge(&all_done));
+        // plan-175-A: the index's damage identity `D` (word `gi`) and geometry identity
+        // `G` (word `hcount + gi`).
         let hashes = builder.temporary_vreg();
         builder.emit(abi::load_u64(&hashes, abi::stack_pointer(), hashes_slot));
-        let hash = load_word(builder, &hashes, &gi, 0);
+        let d = load_word(builder, &hashes, &gi, 0);
+        builder.emit(abi::store_u64(&d, abi::stack_pointer(), d_slot));
+        let gw = builder.temporary_vreg();
+        builder.emit(abi::add_registers(&gw, &gi, &hcount));
+        let geo = load_word(builder, &hashes, &gw, 0);
+        builder.emit(abi::store_u64(&geo, abi::stack_pointer(), g_slot));
+    }
+    // Resolve the index by (`G` in g_slot, `D` in d_slot): the published pair, or the
+    // item's own when the miss path below finds the published pair stale.
+    builder.emit(abi::label(&lookup));
+    {
+        let geo = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&geo, abi::stack_pointer(), g_slot));
+        builder.emit(abi::store_u64(&geo, abi::stack_pointer(), key_slot));
         let slot = builder.temporary_vreg();
-        emit_find(builder, &g, &hash, &slot);
-        let miss = builder.label("canvas_resolve_miss");
+        emit_find(builder, &g, &geo, &slot);
         builder.emit(abi::compare_immediate(&slot, "0"));
         builder.emit(abi::branch_lt(&miss));
-        // A hit: resolved, unless it is a picture.
-        emit_hit(
-            builder,
-            &g,
-            &slot,
-            top_off,
-            gi_slot,
-            resolved_slot,
-            &item_next,
-        )?;
-        builder.emit(abi::label(&miss));
-        // A miss: build it if it is a kind geoBuild builds.
-        let list = builder.temporary_vreg();
-        let j = builder.temporary_vreg();
-        builder.emit(abi::load_u64(&list, abi::stack_pointer(), list_slot));
-        builder.emit(abi::load_u64(&j, abi::stack_pointer(), j_slot));
-        let view = emit_list_view(builder, &list, &item_list_type)?;
-        let item = builder.temporary_vreg();
-        emit_list_element(builder, &item, &view, &j);
+        builder.emit(abi::store_u64(&slot, abi::stack_pointer(), found_slot));
+        // 2. The record holds this item's appearance too: today's hit.
+        let draws = gload(builder, g.draws);
+        let held = load_word(builder, &draws, &slot, 0);
+        let d = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&d, abi::stack_pointer(), d_slot));
+        let other = builder.label("canvas_resolve_other_paint");
+        builder.emit(abi::compare_registers(&held, &d));
+        builder.emit(abi::branch_ne(&other));
+        emit_hit(builder, &g, &slot, top_off, gi_slot, resolved_slot, &item_next)?;
+        builder.emit(abi::label(&other));
+        // 4. Another paint, and an entry of THIS frame already uses the record (equal
+        // items share one): this item is resolved under its `D` instead -- found, or
+        // built and inserted there -- which is what it cost before the split.
+        let slot = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&slot, abi::stack_pointer(), found_slot));
+        let slots = gload(builder, g.slots);
+        let base = builder.temporary_vreg();
+        builder.emit(abi::shift_left_immediate(&base, &slot, 2));
+        let used = load_word(builder, &slots, &base, 3);
+        let frame = gload(builder, g.frame);
+        let refresh = builder.label("canvas_resolve_refresh");
+        builder.emit(abi::compare_registers(&used, &frame));
+        builder.emit(abi::branch_ne(&refresh));
+        let d = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&d, abi::stack_pointer(), d_slot));
+        builder.emit(abi::store_u64(&d, abi::stack_pointer(), key_slot));
+        let shared = builder.temporary_vreg();
+        emit_find(builder, &g, &d, &shared);
+        builder.emit(abi::compare_immediate(&shared, "0"));
+        builder.emit(abi::branch_lt(&miss));
+        emit_hit(builder, &g, &shared, top_off, gi_slot, resolved_slot, &item_next)?;
+        // 3. Another paint, and nothing this frame uses the record: REFRESH it -- its
+        // appearance slots rewritten in place from the item (`emit_refresh_record`), the
+        // slot marked as holding the new `D`. No allocation, no insert, no generation.
+        // A kind `canvas::geoBuild` does not build (a picture, a `Text`, a declined
+        // paint) is the MFBASIC walk's, which rebuilds it in place there
+        // (`__canvas_geometryOf`).
+        builder.emit(abi::label(&refresh));
+        let item = emit_index_item(builder, list_slot, j_slot, &item_list_type)?;
+        let slot = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&slot, abi::stack_pointer(), found_slot));
+        let slots = gload(builder, g.slots);
+        let base = builder.temporary_vreg();
+        builder.emit(abi::shift_left_immediate(&base, &slot, 2));
+        let count = load_word(builder, &slots, &base, 2);
+        let off = load_word(builder, &slots, &base, 1);
+        builder.emit(abi::store_u64(&off, abi::stack_pointer(), off_slot));
+        let data = gload(builder, g.data);
+        let out = word_addr(builder, &data, &off);
+        // A refreshed index is re-checked by the verifier with every other resolved one
+        // (`geoResolvedChecked=`), so it is not listed as built.
+        emit_refresh_record(builder, &item, &out, &count, &item_next)?;
+        let slot = builder.temporary_vreg();
+        let d = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&slot, abi::stack_pointer(), found_slot));
+        builder.emit(abi::load_u64(&d, abi::stack_pointer(), d_slot));
+        emit_refreshed(builder, &g, &slot, &d);
+        let off = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&off, abi::stack_pointer(), off_slot));
+        emit_resolved(builder, top_off, gi_slot, resolved_slot, &off);
+        builder.emit(abi::branch(&item_next));
+    }
+    // 5. A miss -- of `G` (key_slot holds it), or of `D` for an item sharing a record
+    // (key_slot holds `D`): build it, if it is a kind geoBuild builds.
+    builder.emit(abi::label(&miss));
+    {
+        let item = emit_index_item(builder, list_slot, j_slot, &item_list_type)?;
         builder.emit(abi::store_u64(&item, abi::stack_pointer(), item_slot));
         let n = builder.temporary_vreg();
         emit_record_size(builder, &item, &n)?;
         builder.emit(abi::compare_immediate(&n, "0"));
         builder.emit(abi::branch_eq(&item_next));
         builder.emit(abi::store_u64(&n, abi::stack_pointer(), n_slot));
+        // A record is indexed under the item's OWN identities, computed here rather
+        // than trusted (a hash per miss). When they are not the pair this index was
+        // resolved by -- a stale published pair -- the index is resolved again by its
+        // own, which can still find geometry cached under them.
         let item = builder.temporary_vreg();
         builder.emit(abi::load_u64(&item, abi::stack_pointer(), item_slot));
-        let key = builder.temporary_vreg();
-        emit_item_hash(builder, &item, &key, None)?;
-        builder.emit(abi::store_u64(&key, abi::stack_pointer(), key_slot));
-        // A stale published hash can still name geometry cached under the item's own.
-        let build = builder.label("canvas_resolve_build");
-        let hashes = builder.temporary_vreg();
-        let gi = builder.temporary_vreg();
-        builder.emit(abi::load_u64(&hashes, abi::stack_pointer(), hashes_slot));
-        builder.emit(abi::load_u64(&gi, abi::stack_pointer(), gi_slot));
-        let published = load_word(builder, &hashes, &gi, 0);
-        builder.emit(abi::compare_registers(&published, &key));
-        builder.emit(abi::branch_eq(&build));
-        let own = builder.temporary_vreg();
-        emit_find(builder, &g, &key, &own);
-        builder.emit(abi::compare_immediate(&own, "0"));
-        builder.emit(abi::branch_lt(&build));
-        emit_hit(
-            builder,
-            &g,
-            &own,
-            top_off,
-            gi_slot,
-            resolved_slot,
-            &item_next,
-        )?;
-        builder.emit(abi::label(&build));
+        let own_d = builder.temporary_vreg();
+        let own_g = builder.temporary_vreg();
+        emit_item_hash(builder, &item, &own_d, Some(&own_g))?;
+        let d = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&d, abi::stack_pointer(), d_slot));
+        let own = builder.label("canvas_resolve_own");
+        builder.emit(abi::compare_registers(&own_d, &d));
+        builder.emit(abi::branch_eq(&own));
+        builder.emit(abi::store_u64(&own_d, abi::stack_pointer(), d_slot));
+        builder.emit(abi::store_u64(&own_g, abi::stack_pointer(), g_slot));
+        builder.emit(abi::branch(&lookup));
+        builder.emit(abi::label(&own));
         let n = builder.temporary_vreg();
         builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
         emit_reserve(builder, g.data, &n, &float_list())?;
@@ -228,19 +287,14 @@ pub(super) fn lower_scene_resolve(
         builder.emit(abi::add_registers(&end, &off, &n));
         emit_set_count(builder, g.data, &end);
         let key = builder.temporary_vreg();
+        let d = builder.temporary_vreg();
         builder.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
-        let new_slot = emit_add_slot(builder, &g, &key, &off, &n)?;
+        builder.emit(abi::load_u64(&d, abi::stack_pointer(), d_slot));
+        let new_slot = emit_add_slot(builder, &g, &key, &d, &off, &n)?;
         let new_slot_slot = builder.spill_to_slot("canvas_resolve_new_slot", &new_slot);
         let one = imm(builder, 1);
         gadd(builder, g.native_builds, &one);
-        let two = imm(builder, 2);
-        emit_reserve(builder, g.built, &two, &int_list())?;
-        let gi = builder.temporary_vreg();
-        builder.emit(abi::load_u64(&gi, abi::stack_pointer(), gi_slot));
-        emit_push(builder, g.built, &gi);
-        let s = builder.temporary_vreg();
-        builder.emit(abi::load_u64(&s, abi::stack_pointer(), new_slot_slot));
-        emit_push(builder, g.built, &s);
+        emit_built(builder, &g, gi_slot, new_slot_slot)?;
         let off = builder.temporary_vreg();
         builder.emit(abi::load_u64(&off, abi::stack_pointer(), off_slot));
         emit_resolved(builder, top_off, gi_slot, resolved_slot, &off);
@@ -268,6 +322,42 @@ pub(super) fn lower_scene_resolve(
     Ok(finish(builder, Some(&hcount), "canvas.sceneResolve"))
 }
 
+/// The `DrawItem` at index `j` of the list in `list_slot`.
+fn emit_index_item(
+    builder: &mut CodeBuilder,
+    list_slot: usize,
+    j_slot: usize,
+    item_list_type: &ParameterType,
+) -> Result<VirtualRegister, String> {
+    let list = builder.temporary_vreg();
+    let j = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&list, abi::stack_pointer(), list_slot));
+    builder.emit(abi::load_u64(&j, abi::stack_pointer(), j_slot));
+    let view = emit_list_view(builder, &list, item_list_type)?;
+    let item = builder.temporary_vreg();
+    emit_list_element(builder, &item, &view, &j);
+    Ok(item)
+}
+
+/// `__CANVAS_GEO_BUILT += [gi, slot]`: a record this resolve wrote, built or refreshed,
+/// for the `--debug` geometry check to re-check against a fresh build.
+fn emit_built(
+    builder: &mut CodeBuilder,
+    g: &Globals,
+    gi_slot: usize,
+    slot_slot: usize,
+) -> Result<(), String> {
+    let two = imm(builder, 2);
+    emit_reserve(builder, g.built, &two, &int_list())?;
+    let gi = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&gi, abi::stack_pointer(), gi_slot));
+    emit_push(builder, g.built, &gi);
+    let s = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&s, abi::stack_pointer(), slot_slot));
+    emit_push(builder, g.built, &s);
+    Ok(())
+}
+
 /// `__CANVAS_TOP_OFFSETS[gi] = offset`, one more resolved.
 fn emit_resolved(
     builder: &mut CodeBuilder,
@@ -288,7 +378,7 @@ fn emit_resolved(
 }
 
 /// A cache hit on `slot`: a picture's or a tile's record branches to `next` unresolved,
-/// so the MFBASIC pass confirms its image block (`__canvas_pictureCached`); anything
+/// so the MFBASIC pass confirms its image block (`__canvas_pictureCachedOf`); anything
 /// else is stamped and resolved, then branches to `next`.
 fn emit_hit(
     builder: &mut CodeBuilder,

@@ -172,7 +172,7 @@ so a normal build ignores them. This section is the canonical list.
 
 | Variable | Program | What the program writes |
 | --- | --- | --- |
-| `MFB_CANVAS_STATS` | canvas | appends one line of renderer counters (`generations=`, `frames=`, `skipped=`, `damage=`, ...) to the named file for every rendered or skipped frame; its timing fields are under "The canvas frame profile" below |
+| `MFB_CANVAS_STATS` | canvas | appends one line of renderer counters (`generations=`, `refreshes=` (plan-175-A: records rewritten in place for a change of paint alone), `frames=`, `skipped=`, `damage=`, ...) to the named file for every rendered or skipped frame; its timing fields are under "The canvas frame profile" below |
 | `MFB_CANVAS_DUMP` | canvas | writes each presented frame's raw RGBA8 bytes to the named file, overwriting it |
 | `MFB_CANVAS_FACE_DUMP` | canvas | appends one line per loaded font to the named file: `face` and then every word of the font's face index, the parse-once form of its metrics, `cmap` and advances [[src/codegen/builtins/canvas/helper_font.rs:FACE_DUMP_DEBUG]] |
 | `MFB_CANVAS_FACE_CHECK` | canvas | on each `canvas::measureText`, holds the measured font's face index to its font bytes for every Unicode scalar, every glyph id and the four metrics, and appends `faceCheck glyphMismatches=… advanceMismatches=… metricMismatches=… mapped=… glyphIds=… runs=… kern=…` to the named file, where `kern=` lists `left:right:x1:x2` for every pair of the first 64 glyph ids the font kerns. It costs seconds per call on a large font |

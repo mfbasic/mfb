@@ -116,7 +116,10 @@ LET __CANVAS_GROUP_MAX_DEPTH AS Integer = 64
 ' `__canvas_autoPath` of the group node that was expanded. Nothing here reads them; they
 ' are handed on, and an `AutoPaint` is told them (`__canvas_autoAppend`), because its
 ' state belongs to that place and not to its contents or its `id`.
-FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
+'
+' plan-175-A: `hash` is the item's damage identity `D` -- what its draw hash folds -- and
+' `geo` its geometry identity `G`, which keys its record (`__canvas_geometryOf`).
+FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, geo AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   MUT out AS List OF Integer = offsets
   MATCH item
     CASE Group(g)
@@ -148,7 +151,8 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
       LET childPath AS Integer = __canvas_autoPath(path, index, slot)
       MUT k AS Integer = 0
       FOR EACH child IN canvas::groupItems(slot)
-        out = __canvas_appendDraw(out, child, __canvas_hashItem(child), childX, childY, childMat, depth + 1, childPath, k)
+        LET childGeo AS Integer = __canvas_geoHash(child)
+        out = __canvas_appendDraw(out, child, __canvas_drawHashOf(child, childGeo), childGeo, childX, childY, childMat, depth + 1, childPath, k)
         k = k + 1
       NEXT
       RETURN out
@@ -161,14 +165,14 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
     ' plan-172-L: a `Picture` is the entries its shape and image make -- one, two or
     ' none (`helper_picture.rs`).
     CASE Picture(pic)
-      RETURN __canvas_pictureAppend(out, pic, hash, gdx, gdy, mat, depth, path, index)
+      RETURN __canvas_pictureAppend(out, pic, geo, hash, gdx, gdy, mat, depth, path, index)
     ' plan-150-A: a `ParticleSystem` is the entries its live particles make -- any
     ' number, each an ordinary shape that comes back through this function
     ' (`helper_particles.rs`).
     CASE ParticleSystem(ps)
       RETURN __canvas_particleAppend(out, ps, gdx, gdy, mat, depth, path, index)
     CASE ELSE
-      LET offset AS Integer = __canvas_geometryFor(item, hash)
+      LET offset AS Integer = __canvas_geometryOf(item, geo, hash)
       out = collections::append(out, offset)
       __canvas_noteEntry(offset, hash, gdx, gdy, mat)
       RETURN out

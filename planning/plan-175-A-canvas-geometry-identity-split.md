@@ -633,26 +633,46 @@ Commit: 6d98d7e3c
 
 ### Phase 2 — The cache keyed by `G`; native refresh for solid paints
 
-- [ ] `func_geo_cache.rs`: the fifth slot word; `lower_scene_resolve` branches 2 to 5
-      of §4.3; refresh through `emit_paint_header`'s appearance half; compaction and
-      `emit_rebuild` carry the fifth word.
-- [ ] `helper_geometry.rs:__canvas_geometryFor`: branches 3 (rebuild in place) and 4.
-- [ ] `refreshes=` on the stats line, if decision 2 is yes.
-- [ ] `tests/canvas/rt_canvas_geo_native.rs`: a paint-only change builds nothing and
-      refreshes every item; a stroke alpha going 0 to 1 builds; two items of one
-      geometry and two paints in one frame, alternating which is first, draw right and
-      verify clean; a frame after a refresh is byte-identical to a fresh run that
-      starts on that scene.
-- [ ] Moved from Phase 1 (Correction 4), the same file: a change of each appearance
-      field alone (fill, stroke colour with alpha staying non-zero, blend, a two-stop
-      ramp's colours, transparency) mints no new cache key (the item keeps its one
-      entry: refreshed, or rebuilt in place for a ramp); each geometry predicate alone
-      mints one — stroke alpha 0 against 1, one stop against two, `FillOnly` against
-      `FillAndStroke` on a `Line`, empty against non-empty `PolyLine.colors`.
-- [ ] `tests/canvas/rt_canvas_damage.rs`: a paint-only change under `MFB_CANVAS_DAMAGE`
-      damages the item's bounds (the regression of spike experiment 1).
-- [ ] `scripts/test-canvas-gpu-rows.sh`: a `repaint` row (the dots scene, two frames,
-      `MFB_CANVAS_GEO_VERIFY=1`) so the refresh is verified on x86-64 and Linux.
+- [x] `func_geo_cache/`: the slot's damage identity as the parallel list
+      `__CANVAS_GEO_DRAWS` (Correction 5), appended by `emit_add_slot` and moved by the
+      compaction; `lower_scene_resolve` branches 2 to 5 of §4.3 (`resolve.rs`); refresh
+      through `emit_paint_appearance`, split out of `emit_paint_header`
+      (`func_geo_build/mod.rs:emit_refresh_record`); `canvas::geoInsert(hash, draw, ...)`
+      and the new `canvas::geoRefresh`. `emit_rebuild` reads keys only, so it needs no
+      change. Dots under the verifier: `generations=2000 refreshes=240000
+      geoVerifyMismatches=0 geoResolvedChecked=242000` over 121 frames of 2,000 dots.
+- [x] `helper_geometry/cache.rs`: `__canvas_geoLookup` / `__canvas_geoStore` (branches 2
+      to 5 in MFBASIC; branch 3 rebuilds in place through `canvas::geoRefresh`),
+      `__canvas_geometryOf(item, geo, draw)`; `__canvas_geometryFor(item, key)` is it
+      with `geo = draw = key`, for the callers whose key is their damage identity. The
+      picture and tile records use the same protocol (`__canvas_pictureCachedOf`,
+      Correction 5); `__canvas_appendDraw` carries `geo` beside `hash`.
+- [x] `refreshes=` on the stats line (decision 2), after `generations=`; the debug-report
+      spec's `MFB_CANVAS_STATS` row names it.
+- [x] `tests/canvas/rt_canvas_geo_native.rs`:
+      `a_paint_only_change_builds_nothing_and_refreshes_every_record` (scene
+      `canvas_geo_native_repaint.mfb`: every kind, A, B, A),
+      `two_items_of_one_geometry_and_two_paints_draw_right_in_either_order` (software and
+      Metal), `a_frame_after_a_refresh_is_the_fresh_runs_frame` (software and Metal,
+      byte for byte); the stroke alpha 0 to 1 case is the next task's frame 7. All pass
+      (`cargo test --release --test rt_canvas_geo_native` → 8 passed).
+- [x] Moved from Phase 1 (Correction 4), the same file:
+      `appearance_fields_refresh_and_geometry_predicates_build` (scene
+      `canvas_geo_native_lanes.mfb`): fill, stroke colour, blend, transparency and a
+      ramp's colours each build 0; stroke alpha 0 → 255, one stop → two, `FillOnly` →
+      `FillAndStroke` on a `Line` and no colours → three on a `PolyLine` each build 1.
+      Passes.
+- [x] `tests/canvas/rt_canvas_damage.rs`: `a_paint_only_change_damages_the_items_box`
+      (partial repaint, damage the rectangle's box, `generations` unchanged, the new
+      colour drawn). Passes (`rt_canvas_damage` → 14 passed).
+- [x] `scripts/test-canvas-gpu-rows.sh`: a `repaint` row (`canvas_geo_native_repaint`,
+      kind `geo`: one GPU run under `MFB_CANVAS_SYNC`, every record verified).
+- [x] Found doing this: the alpha fade divided at transparency 0, where it is the
+      identity (`emit_fade_alpha` now skips it; the dots row's offsets 8.74 → 7.76 ms on
+      this Mac, verifier clean).
+- [x] Found doing this: `rt_canvas_autopaint:an_autopaint_frame_costs_linear_in_its_
+      instances` failed at the base too (26.0x, bound 25) because it measured whole
+      milliseconds over five frames; fixed to sixty (8def521d9: base 21.7x, here 21.9x).
 
 Acceptance: the dots scene builds no geometry after its first two frames, verifies
 clean, and no pixel moves.
@@ -660,8 +680,23 @@ clean, and no pixel moves.
   Check: `MFB_CANVAS_GEO_VERIFY=1` rows of `scripts/test-canvas-gpu-rows.sh` on box 206
   and box 2226 → `geoVerifyMismatches=0` on every row.
   Check: every `tests/canvas` target passes; the `--keep` frames equal the base's.
-  Check, by measurement: `phaseOffsetsMs` per frame at 100,000 on box 206 is within
-  25% of the spike's 11.0 ms (the refresh's own cost is what the 25% allows).
+  Check, by measurement: ~~`phaseOffsetsMs` per frame at 100,000 on box 206 is within
+  25% of the spike's 11.0 ms (the refresh's own cost is what the 25% allows)~~ — a
+  prediction the measurements refuse (Correction 6): on box 206 the paint row's
+  `phaseOffsetsMs` at most twice the base compiler's all-hit row and at least three
+  times under the base compiler's paint row; on this Mac within 10% of the touch-only
+  floor.
+
+**MET 2026-10-25** (compiler of this phase frozen as one binary for every check):
+- `dots 100000 5` on box 206 → `builds/frame=0 refreshes/frame=100000`; this Mac the same.
+- `scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64 --keep` and
+  `--target linux-aarch64 --keep` → 258 `ok:` and no `FAIL` on each box, the new
+  `repaint` row `geoVerifyMismatches=0` (806 refreshes on 206), and all 124 kept
+  frames of each box equal by `cmp` to the base's; Metal (the 62 render rows, headless)
+  → 62 GPU frames equal by `cmp` to the base's, every row `geoVerifyMismatches=0`.
+- every `tests/canvas` target → 24 of 24 `test result: ok`.
+- Correction 6's bar: box 206 paint row 16.45 ms ≤ 18.0 (twice the base all-hit 9.00)
+  and 3.3 times under the base paint row's 54.93; this Mac 7.76 ms ≤ 8.0.
 Commit: —
 
 ### Phase 3 — Refresh for gradients, pictures and text (only where measured)
@@ -958,14 +993,40 @@ correction is added here, dated, with the command that showed it.
      compaction with its slot; nothing that reads a slot changes.
    - **Branch 4's second key is `D` itself**, not a new `mix(G, A)`: `D` already is that
      mix, and it never equals a `G` but by a 62-bit collision.
-   - **The native refresh is the native build, into the record's own floats**
-     (`emit_fill_record` at the slot's offset), not `emit_paint_header`'s appearance
-     half. §2.3's cost was the churn (allocation, insert, a compaction a frame), not
-     the ~27 stores of a circle's build, and a record written by the builder itself is
-     bit-identical to a fresh build by construction — the one property §3 names as the
-     risk. Measured: Phase 2's acceptance row below. The MFBASIC path does the same
-     (`canvas::geoRefresh` writes the builders' fresh record over the slot's floats),
-     which is §4.3's "rebuild in place".
+   - **The native refresh is `emit_paint_header`'s appearance half, as §4.3 says — a
+     first cut that rebuilt the whole record in place was measured and refused.** The
+     first cut wrote `emit_fill_record` over the slot's floats, on the theory that
+     §2.3's cost was the churn and not the build. On box 206 at 100,000 dots it gave
+     `builds/frame=0` and `phaseOffsetsMs=22.4` against the 13.75 the acceptance allows
+     (`tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host
+     test@192.168.1.206 dots 100000 5`); dropping its needless push onto the verifier's
+     built-list (the verifier re-checks every resolved index anyway) gave 18.8. So the
+     refresh writes only `emit_paint_appearance` (slots 8–15, 26, 42–46, split out of
+     `emit_paint_header`), a `Line`'s stroke-as-fill copy, and nothing for an empty
+     record; a `PolyLine` alone, whose tail holds colours, is rebuilt whole in place.
+     It decides "built natively" by `emit_record_size`'s support checks without the
+     sizing: the kind, the transform, the stop count and a rectangle's corners are all
+     geometry, so a record found by `G` was built the way the item would be now. The
+     MFBASIC path rebuilds in place (`canvas::geoRefresh` writes the builders' fresh
+     record over the slot's floats, length checked), which is §4.3's "rebuild in place".
+6. 2026-10-25, Phase 2's last check: "within 25% of the spike's 11.0 ms" is a prediction
+   the measurements refuse, and it is replaced by a bar they ground. The spike's `geo`
+   variant read no item on a paint change; a correct refresh must read every changed
+   item to learn its new paint, and that alone exceeds 25%. Measured (`dots 100000 4`,
+   this Mac, `phaseOffsetsMs`):
+   - every item a hit (`--control`: both scenes one paint, a marker moving): 5.08;
+   - the refresh path doing nothing but its slot bookkeeping (a throwaway build): 6.42
+     (+26%); touching each item's paint and nothing else: 7.27 (+43%);
+   - the shipped refresh: 7.76 (+53%), after the fade fast path (8.74 before it);
+     without its colour writes at all (throwaway): 8.55 of the 8.74.
+   On box 206 (`--target windows-x86_64 --host test@192.168.1.206 dots 100000 5`),
+   against the base compiler at `2f281c5e7`: paint 54.93 → 16.45 ms, all-hit control
+   9.00 → 10.03 ms (the 2n-word hash list and the draw-identity check), release pps/fps
+   8/9 → 12/13. The spike's 11.0 was taken at `ab9061ff8` and is not this code's floor.
+   The check becomes: on box 206 at 100,000 dots, the paint row's `phaseOffsetsMs` is at
+   most twice the base compiler's all-hit row (18.0 ms) and at least three times under
+   the base compiler's paint row (18.3 ms); and on this Mac within 10% of the
+   touch-only floor above (8.0 ms). Measured: 16.45, 3.3 times under, and 7.76.
    - **Pictures and tiles go through the same protocol** (`__canvas_pictureCachedOf`,
      replacing `__canvas_pictureCached`): keyed by `G` (stepped by
      `__canvas_pictureKey`), holding `D` (stepped the same way), with the pixel block

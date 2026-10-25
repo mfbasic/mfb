@@ -298,6 +298,54 @@ fn an_id_only_change_damages_nothing() {
     assert_eq!(pixel(&frame, 150, 150), (200, 40, 40, 255), "the rectangle is drawn");
 }
 
+/// The same two shapes, except that the second present recolours the rectangle.
+const RECOLOURED: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT os
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET box AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 120.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET blue AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 120.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 40, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 400.0], radius := 60.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::present([box, dot])
+  os::sleep(150)
+  canvas::present([blue, dot])
+  os::sleep(150)
+END FUNC
+"#;
+
+/// plan-175-A Phase 2: the geometry cache is keyed by an item's geometry identity, and
+/// the record of a recoloured item is refreshed in place -- but damage compares the
+/// damage identity, which folds the paint, so the recoloured item still repaints its
+/// own box, in its new colour. (With the geometry identity as the damage identity the
+/// frame was skipped: plan-175-A §9, spike experiment 1.)
+#[test]
+fn a_paint_only_change_damages_the_items_box() {
+    let (frame, lines) = render("canvas_damage_recolour", RECOLOURED, true);
+    assert_eq!(
+        number(&lines, "partial"),
+        1,
+        "the recoloured frame was not a partial repaint:\n{}",
+        lines.join("\n"),
+    );
+    let damage = last(&lines, "damage");
+    let rect: Vec<i64> = damage.split(',').map(|v| v.parse().unwrap()).collect();
+    assert!(
+        rect[0] <= 100 && rect[1] <= 100 && rect[2] >= 200 && rect[3] >= 120 && rect[0] + rect[2] < 600,
+        "the damage `{damage}` is not the rectangle's box (x,y,w,h around 100,100,200,120)"
+    );
+    assert_eq!(
+        number(&lines, "generations"),
+        2,
+        "a recolour rebuilt geometry:\n{}",
+        lines.join("\n"),
+    );
+    assert_eq!(pixel(&frame, 150, 150), (40, 40, 200, 255), "the rectangle is blue");
+}
+
 #[test]
 fn a_moved_item_repaints_its_own_rectangle_and_not_the_window() {
     let (_, lines) = render("canvas_damage_rect", MOVED, true);

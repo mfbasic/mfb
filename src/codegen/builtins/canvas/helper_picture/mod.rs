@@ -43,11 +43,11 @@ const ABSENT: &str =
 r#"IMPORT canvas
 IMPORT collections
 
-FUNC __canvas_pictureAppend(offsets AS List OF Integer, pic AS Picture, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
+FUNC __canvas_pictureAppend(offsets AS List OF Integer, pic AS Picture, geo AS Integer, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   RETURN offsets
 END FUNC
 
-FUNC __canvas_pictureBlocks(pic AS Picture, hash AS Integer, path AS Integer, index AS Integer) AS List OF Integer
+FUNC __canvas_pictureBlocks(pic AS Picture, geo AS Integer, hash AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   RETURN []
 END FUNC
 
@@ -75,7 +75,7 @@ FUNC __canvas_pictureNamesFont(pic AS Picture, handle AS Integer) AS Boolean
   RETURN FALSE
 END FUNC
 
-FUNC __canvas_tileGeometry(tile AS Tile, hash AS Integer) AS Integer
+FUNC __canvas_tileGeometry(tile AS Tile, g AS Integer, d AS Integer) AS Integer
   RETURN 0 - 1
 END FUNC
 

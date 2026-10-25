@@ -1,0 +1,88 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT io
+
+' plan-175-A: each appearance field alone, then each geometry predicate alone, one per
+' frame. Frame `f` changes the one thing its `IF f >= ...` line says, and keeps every
+' earlier change.
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC stops(n AS Integer, a AS color::Color, b AS color::Color) AS List OF canvas::GradientStop
+  IF n = 1 THEN
+    RETURN [canvas::GradientStop[offset := 0.0, color := a]]
+  END IF
+  RETURN [canvas::GradientStop[offset := 0.0, color := a], canvas::GradientStop[offset := 1.0, color := b]]
+END FUNC
+
+FUNC ramped(p AS canvas::Paint, n AS Integer, a AS color::Color, b AS color::Color, apply AS canvas::GradientApply) AS canvas::Paint
+  LET g AS canvas::Gradient = WITH p.gradient { startPoint := at(0.0, 0.0), endPoint := at(30.0, 0.0), stops := stops(n, a, b), strokeApply := apply }
+  RETURN WITH p { gradient := g }
+END FUNC
+
+FUNC items(f AS Integer) AS List OF canvas::DrawItem
+  LET red AS color::Color = color::rgb(220, 30, 30)
+  LET blue AS color::Color = color::rgb(30, 30, 220)
+  MUT c AS canvas::Paint = canvas::fillStroke(red, blue, 3.0)
+  ' Appearance, one field a frame: fill, stroke colour (still drawn), blend, transparency.
+  IF f >= 2 THEN
+    c = WITH c { fill := color::rgb(30, 200, 30) }
+  END IF
+  IF f >= 3 THEN
+    c = WITH c { stroke := color::rgb(200, 200, 30) }
+  END IF
+  IF f >= 4 THEN
+    c = WITH c { blend := canvas::BlendMode.Multiply }
+  END IF
+  IF f >= 5 THEN
+    c = WITH c { transparency := 0.5 }
+  END IF
+  ' ...and a two-stop ramp's colours.
+  MUT rampTo AS color::Color = blue
+  IF f >= 6 THEN
+    rampTo = color::rgb(250, 250, 250)
+  END IF
+  ' Geometry predicates, one a frame: the stroke's alpha 0 -> 255, one stop -> two,
+  ' FillOnly -> FillAndStroke, no colours -> one a point.
+  MUT lineInk AS color::Color = color::rgba(30, 30, 220, 0)
+  IF f >= 7 THEN
+    lineInk = blue
+  END IF
+  MUT stopCount AS Integer = 1
+  IF f >= 8 THEN
+    stopCount = 2
+  END IF
+  MUT apply AS canvas::GradientApply = canvas::GradientApply.FillOnly
+  IF f >= 9 THEN
+    apply = canvas::GradientApply.FillAndStroke
+  END IF
+  MUT inks AS List OF color::Color = []
+  IF f >= 10 THEN
+    inks = [red, blue, red]
+  END IF
+  LET circle AS canvas::DrawItem = canvas::Circle[id := "", position := at(100.0, 100.0), radius := 30.0, paint := c, transform := none()]
+  LET ramp AS canvas::DrawItem = canvas::Circle[id := "", position := at(200.0, 100.0), radius := 30.0, paint := ramped(canvas::fill(red), 2, red, rampTo, canvas::GradientApply.FillOnly), transform := none()]
+  LET line AS canvas::DrawItem = canvas::Line[id := "", position := at(300.0, 100.0), startAt := at(0.0, 0.0), endAt := at(60.0, 20.0), paint := canvas::stroke(lineInk, 4.0), transform := none()]
+  LET stop AS canvas::DrawItem = canvas::Circle[id := "", position := at(400.0, 100.0), radius := 30.0, paint := ramped(canvas::fill(red), stopCount, red, blue, canvas::GradientApply.FillOnly), transform := none()]
+  LET lit AS canvas::DrawItem = canvas::Line[id := "", position := at(500.0, 100.0), startAt := at(0.0, 0.0), endAt := at(60.0, 20.0), paint := ramped(canvas::stroke(blue, 4.0), 2, red, blue, apply), transform := none()]
+  LET path AS canvas::DrawItem = canvas::PolyLine[id := "", position := at(600.0, 100.0), points := [at(0.0, 0.0), at(30.0, 20.0), at(60.0, 0.0)], colors := inks, paint := canvas::stroke(blue, 3.0), transform := none()]
+  RETURN [circle, ramp, line, stop, lit, path]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT f AS Integer = 1
+  WHILE f <= 10
+    canvas::present(items(f))
+    f = f + 1
+  END WHILE
+  io::print("rendered")
+END FUNC

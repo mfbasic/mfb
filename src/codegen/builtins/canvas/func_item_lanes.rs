@@ -45,7 +45,7 @@ pub(crate) enum ItemField {
     Geometry,
     /// A resource's backend id, into `G`: content identity (a different image is a
     /// different record, its size being geometry). A picture's record is still
-    /// confirmed against the image's pixel block every frame (`__canvas_pictureCached`).
+    /// confirmed against the image's pixel block every frame (`__canvas_pictureCachedOf`).
     Identity,
     /// Into neither lane, nor into `D` (plan-175-A decision 1: `id` is only meant for
     /// mouse feedback, so a changed `id` redraws nothing).

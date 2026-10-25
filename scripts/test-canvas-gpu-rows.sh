@@ -75,13 +75,16 @@
 # and `passes_grouped.mfb`, where a group is drawn in both passes of a frame and a run of
 # the scene's own items is cut by the end of the first.
 #
-# Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
+# Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and five more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
 # item hash, frame pass and scene sequence lock are emitted through arch-neutral code and
 # were only ever run on macOS AArch64; this is where they run on x86-64 (Windows, Linux)
 # and on Linux AArch64, and `geoVerifyMismatches` must be 0 on every one. The publish-race
 # row runs WITHOUT `MFB_CANVAS_SYNC`, so the graphics thread renders while the worker
-# publishes — the case the sequence lock exists for.
+# publishes — the case the sequence lock exists for. The fifth, `repaint`, is
+# plan-175-A's: a scene presented A, B, A where B changes only paint, so its records are
+# refreshed in place on frames 2 and 3, and the verifier checks each one against a fresh
+# build of its item.
 #
 # Usage: scripts/test-canvas-gpu-rows.sh <mfb-exe> [--target <t>] [--box <port>]
 #                                        [--libc glibc|musl] [--icd auto|<manifest>]
@@ -217,6 +220,7 @@ passgroups|passes_grouped|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo
+repaint|canvas_geo_native_repaint|geo
 race|canvas_geo_native_publish_race|race
 "
 

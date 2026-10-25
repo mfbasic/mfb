@@ -223,11 +223,16 @@ HEAD it costs about 2.9 µs/item for rectangles and 3.6 µs/item for polygons.
 
 ### `hit`
 
-Builds and runs the release-build hit-test microbenchmark (`gen/hit.sh`) four
-times — 1,000 and 10,000 rectangles, each with every item given an `id` and
-with none — and prints one row per run:
+Builds and runs the release-build hit-test microbenchmark (`gen/hit.sh`) six
+times — 1,000 and 10,000 rectangles, each with every item given an `id`, with
+none, and (`1p`, plan-175-A Phase 4) with ids and every item RECOLOURED each
+frame instead of one moved — and prints one row per run:
 
-    items   ids  present(med/min)   poll-first(med/min)  poll-again(med/min)  overID    events
+    items   ids    present(med/min)   poll-first(med/min)  poll-again(med/min)  overID    events
+
+A `1p` row is a change of paint alone. The worker's hit cache is keyed by each
+item's geometry identity, so its `poll-first` builds nothing and should sit near
+`poll-again` plus the walk's own setup, where the `1` row's rebuilds the moved item.
 
 All times are nanoseconds, the median and the minimum over 40 frames. Each
 frame moves one item and presents, then polls sixty injected presses:

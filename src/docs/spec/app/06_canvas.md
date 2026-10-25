@@ -43,7 +43,11 @@ present-diff. The consequences are the point:
   make the renderer redraw.
 - **Per-item geometry can be cached on content**, because an item's identity is
   its contents rather than a call ordering. Re-presenting an unchanged item
-  re-uses its cached geometry.
+  re-uses its cached geometry. The cache is keyed by the item's GEOMETRY identity
+  (*The item unions*, below), so an item whose paint alone changed keeps its record
+  and has only the record's paint slots rewritten in place; the damage diff compares
+  the identity that folds the paint too, so such an item still repaints.
+  [[src/codegen/builtins/canvas/func_geo_cache/resolve.rs:lower_scene_resolve]]
 
 The comparison is exact rather than hashed, so there are no collisions to reason
 about. It is of CONTENT, not of bytes: the two lists' counts, then each element,
@@ -2470,7 +2474,7 @@ hit target or per-item transform. A group transform carries it like every other 
 Like a `ParticleSystem` it is never hit: `canvas::sceneIdBits` and
 `__canvas_hitAppend` skip it, so `overID` never names it and it hides nothing beneath
 it from the mouse. Its geometry is an image record, so the native resolver leaves a cache
-hit on it to `__canvas_pictureCached`, which confirms the image's current pixel block
+hit on it to `__canvas_pictureCachedOf`, which confirms the image's current pixel block
 as it does a picture's. [[src/codegen/builtins/canvas/func_item_hash.rs:NEVER_HIT]]
 
 The source rectangle is in image pixels and maps directly onto the destination
@@ -2532,7 +2536,7 @@ image may be refilled or closed between the two walks, and a frame draws from on
 reading of it. A picture inside a group is laid out by `__canvas_memoGroup`
 (`__canvas_pictureBlocks`). Either
 way a picture record is confirmed against the image's current pixel block before it is
-used (`__canvas_pictureCached`) — `canvas::setBytes` swaps the block without changing
+used (`__canvas_pictureCachedOf`) — `canvas::setBytes` swaps the block without changing
 the item, so it is the one cached kind a hash cannot vouch for.
 
 **The outline** is rings and a fill rule: a `Rectangle`'s `__canvas_rrectRing`; a

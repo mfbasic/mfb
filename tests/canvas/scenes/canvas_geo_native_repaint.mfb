@@ -1,0 +1,94 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+IMPORT io
+
+' plan-175-A Phase 2: one scene presented three times, A, B, A, where B changes the paint
+' of every item and nothing else -- fill and stroke colours (the stroke staying drawn),
+' a two-stop ramp's colours, a polyline's per-point colours, a picture's tint. Every
+' kind the frame resolves natively is here (square and rounded rectangles, circles,
+' polygons, lines, polylines), and so is every kind the MFBASIC walk rebuilds in place:
+' an ellipse, a transformed rectangle, a ramped circle, an arc, and pictures (plain and
+' in a disc). So frames 2 and 3 build no record and refresh every one of them.
+
+FUNC pattern(w AS Integer, h AS Integer, seed AS Integer) AS List OF Byte
+  MUT px AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < w * h
+    px = collections::append(px, toByte(((i MOD w) * 7 + seed) MOD 256))
+    px = collections::append(px, toByte(((i / w) * 5 + seed * 3) MOD 256))
+    px = collections::append(px, toByte((((i MOD w) + (i / w)) * 3) MOD 256))
+    px = collections::append(px, toByte(255))
+    i = i + 1
+  END WHILE
+  RETURN px
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC ramp(a AS color::Color, b AS color::Color) AS canvas::Paint
+  MUT p AS canvas::Paint = canvas::fill(a)
+  LET g AS canvas::Gradient = WITH p.gradient { kind := canvas::GradientKind.Linear, startPoint := at(0.0, 0.0), endPoint := at(20.0, 0.0), stops := [canvas::GradientStop[offset := 0.0, color := a], canvas::GradientStop[offset := 1.0, color := b]] }
+  RETURN WITH p { gradient := g }
+END FUNC
+
+FUNC scene(img AS canvas::Image, b AS Boolean) AS List OF canvas::DrawItem
+  MUT k AS Integer = 0
+  IF b THEN
+    k = 1
+  END IF
+  LET fillA AS color::Color = color::rgb(200 - 150 * k, 40 + 100 * k, 90)
+  LET strokeA AS color::Color = color::rgb(20 + 200 * k, 230 - 200 * k, 120)
+  LET paint AS canvas::Paint = canvas::fillStroke(fillA, strokeA, 2.0)
+  MUT items AS List OF canvas::DrawItem = []
+  MUT i AS Integer = 0
+  WHILE i < 40
+    LET x AS Float = 10.0 + toFloat(i MOD 10) * 85.0
+    LET y AS Float = 10.0 + toFloat(i / 10) * 150.0
+    LET box AS canvas::DrawItem = canvas::Rectangle[id := "", position := at(x, y), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 30.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := none()]
+    LET round AS canvas::DrawItem = canvas::Rectangle[id := "", position := at(x + 35.0, y), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 30.0, height := 20.0], radiusTL := 6.0, radiusTR := 6.0, radiusBL := 6.0, radiusBR := 6.0, paint := paint, transform := none()]
+    LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := at(x + 10.0, y + 35.0), radius := 9.0, paint := paint, transform := none()]
+    LET tri AS canvas::DrawItem = canvas::Polygon[id := "", position := at(x + 30.0, y + 25.0), contours := [[at(0.0, 0.0), at(25.0, 5.0), at(5.0, 20.0)]], rule := canvas::FillRule.EvenOdd, paint := paint, transform := none()]
+    LET seg AS canvas::DrawItem = canvas::Line[id := "", position := at(x, y + 55.0), startAt := at(0.0, 0.0), endAt := at(60.0, 8.0), paint := canvas::stroke(strokeA, 3.0), transform := none()]
+    LET path AS canvas::DrawItem = canvas::PolyLine[id := "", position := at(x, y + 70.0), points := [at(0.0, 0.0), at(20.0, 10.0), at(40.0, 0.0), at(60.0, 10.0)], colors := [fillA, strokeA, fillA, strokeA], paint := canvas::stroke(strokeA, 2.5), transform := none()]
+    LET oval AS canvas::DrawItem = canvas::Ellipse[id := "", position := at(x + 15.0, y + 95.0), radiusX := 14.0, radiusY := 7.0, paint := paint, transform := none()]
+    LET turned AS canvas::DrawItem = canvas::Rectangle[id := "", position := at(x + 50.0, y + 95.0), bind := canvas::BindTo.Center, size := canvas::Size[width := 16.0, height := 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.8, 0.6, -0.6, 0.8, 0.0, 0.0]]
+    LET ramped AS canvas::DrawItem = canvas::Circle[id := "", position := at(x + 10.0, y + 118.0), radius := 8.0, paint := ramp(fillA, strokeA), transform := none()]
+    LET bow AS canvas::DrawItem = canvas::Arc[id := "", position := at(x + 45.0, y + 120.0), radius := 10.0, startAngle := 0.0, endAngle := 2.5, paint := canvas::stroke(strokeA, 2.0), transform := none()]
+    items = collections::append(items, box)
+    items = collections::append(items, round)
+    items = collections::append(items, dot)
+    items = collections::append(items, tri)
+    items = collections::append(items, seg)
+    items = collections::append(items, path)
+    items = collections::append(items, oval)
+    items = collections::append(items, turned)
+    items = collections::append(items, ramped)
+    items = collections::append(items, bow)
+    i = i + 1
+  END WHILE
+  ' Pictures: a plain one and one in a disc, each under a tint that changes with B.
+  LET tint AS canvas::Paint = canvas::fill(color::rgba(255, 255 - 120 * k, 255, 255 - 60 * k))
+  LET plain AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := at(600.0, 560.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := tint, transform := none()], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET disc AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Circle[id := "", position := at(700.0, 576.0), radius := 16.0, paint := tint, transform := none()], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  items = collections::append(items, plain)
+  items = collections::append(items, disc)
+  RETURN items
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES img AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 7))
+  canvas::present(scene(img, FALSE))
+  canvas::present(scene(img, TRUE))
+  canvas::present(scene(img, FALSE))
+  io::print("rendered")
+END FUNC

@@ -674,13 +674,17 @@ cmd_hit() {
   [ "$WIN" != 1 ] || die "hit: MFB_MOUSE_INJECT is POSIX-only, so there is no event to poll on Windows"
   # Sixty presses of button 0 at pixel (444, 54): SGR-1006, 1-based column;row.
   # The ring holds 64.
-  local n ids
-  printf '%-7s %-4s %-18s %-20s %-20s %-9s %s\n' items ids "present(med/min)" "poll-first(med/min)" "poll-again(med/min)" overID events
+  local n ids variant
+  printf '%-7s %-6s %-18s %-20s %-20s %-9s %s\n' items ids "present(med/min)" "poll-first(med/min)" "poll-again(med/min)" overID events
   for n in 1000 10000; do
-    for ids in 1 0; do
-      local dir="$WORK/hit-$n-$ids" outfile
+    # `1p` (plan-175-A Phase 4): ids, and every item recoloured each frame instead of
+    # item 0 moved -- a change of paint alone, which rebuilds nothing on the worker.
+    for variant in 1 0 1p; do
+      ids=${variant%p}
+      local paint=0; [ "$variant" = 1p ] && paint=1
+      local dir="$WORK/hit-$n-$variant" outfile
       outfile="$dir/run.out"
-      bash "$GEN/hit.sh" "$dir" "$n" "$ids"
+      bash "$GEN/hit.sh" "$dir" "$n" "$ids" "$paint"
       build_app "$dir"
       if [ -n "$LINUX_TARGET" ]; then
         # The value is built on the box: an escape and a `;` do not survive the
@@ -690,7 +694,7 @@ cmd_hit() {
         local bin; bin=$(bin_path "$dir" hit)
         env MFB_HEADLESS=1 MFB_CANVAS_GPU=0 MFB_MOUSE_INJECT="$(for i in $(seq 60); do printf '\033[<0;445;55M'; done)" "$bin" > "$outfile" 2>&1
       fi
-      printf '%-7s %-4s %-18s %-20s %-20s %-9s %s\n' "$n" "$ids" \
+      printf '%-7s %-6s %-18s %-20s %-20s %-9s %s\n' "$n" "$variant" \
         "$(hit_stat "$outfile" present-ns)" "$(hit_stat "$outfile" poll-first-ns)" \
         "$(hit_stat "$outfile" poll-again-ns)" "$(grep '^over:' "$outfile" | cut -d' ' -f2)" \
         "$(grep '^events:' "$outfile" | cut -d' ' -f2)"
@@ -1062,23 +1066,27 @@ dots_run() {
 
 cmd_dots() {
   local n=${1:?"dots needs N"}; shift
-  local secs=10 move=0 same=0
+  local secs=10 move=0 same=0 item=circle control=0
   DOTS_WINDOW=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --window) DOTS_WINDOW=1 ;;
       --move) move=1 ;;
       --same) same=1 ;;
+      --kind) item=${2:?"--kind needs circle|gradient|picture|text"}; shift ;;
+      --control) control=1 ;;
       *) secs=$1 ;;
     esac
     shift
   done
   [ "$DOTS_WINDOW" = 1 ] && [ -n "$LINUX_TARGET" ] && die "dots --window runs a real window on this Mac only"
-  local kind=paint; [ "$move" = 1 ] && kind=move; [ "$same" = 1 ] && kind=same
+  local kind=paint; [ "$move" = 1 ] && kind=move; [ "$same" = 1 ] && kind=same; [ "$control" = 1 ] && kind=ctrl
+  # plan-175-A Phase 3: a text dot loads the box's own font, as `text` does.
+  local font_env=(); [ -n "$LINUX_TARGET" ] && font_env=(FONT="$LINUX_FONT")
   # Release: the rates. No stats line in a release build, so the renderer is
   # the one canvas::getFrameStats reports for the last frame drawn.
-  local rdir="$WORK/dots-$n-$kind-release"
-  MOVE=$move SAME=$same bash "$GEN/dots.sh" "$rdir" "$n" "$secs"
+  local rdir="$WORK/dots-$n-$item-$kind-release"
+  env MOVE=$move SAME=$same KIND=$item CONTROL=$control ${font_env[@]+"${font_env[@]}"} bash "$GEN/dots.sh" "$rdir" "$n" "$secs"
   build_app "$rdir"
   dots_run "$rdir" "$rdir/result" "MFB_CANVAS_GPU=1"
   local line; line=$(grep '^count=' "$rdir/result" | tail -1 || true)
@@ -1090,8 +1098,8 @@ cmd_dots() {
   # how many of the frames a GPU backend drew, how many geometry records a
   # frame built, and where a frame's time went. Slower than release; its rates
   # are not reported.
-  local ddir="$WORK/dots-$n-$kind-debug"
-  MOVE=$move SAME=$same bash "$GEN/dots.sh" "$ddir" "$n" "$secs"
+  local ddir="$WORK/dots-$n-$item-$kind-debug"
+  env MOVE=$move SAME=$same KIND=$item CONTROL=$control ${font_env[@]+"${font_env[@]}"} bash "$GEN/dots.sh" "$ddir" "$n" "$secs"
   build_app "$ddir" --debug
   local stats="$ddir/stats"
   dots_run "$ddir" "$ddir/result" "MFB_CANVAS_GPU=1" "MFB_CANVAS_STATS=$stats"
@@ -1101,12 +1109,17 @@ cmd_dots() {
   local direct; direct=$(stats_field "$stats" directFrames)
   g0=$(stats_field_line "$(head -1 "$stats" 2>/dev/null)" generations); g1=$(stats_field "$stats" generations)
   builds=$(awk -v a="${g0:-0}" -v b="${g1:-0}" -v r="$rendered" 'BEGIN{ if (r>1) printf "%.0f", (b-a)/(r-1); else print "-" }')
+  # plan-175-A: records rewritten in place a frame, after the first.
+  local r0 r1 refreshes
+  # A compiler older than plan-175-A writes no `refreshes=`: report `-`, do not stop.
+  r0=$(stats_field_line "$(head -1 "$stats" 2>/dev/null)" refreshes || true); r1=$(stats_field "$stats" refreshes || true)
+  refreshes=$(awk -v a="${r0:-0}" -v b="${r1:-0}" -v r="$rendered" 'BEGIN{ if (r>1) printf "%.0f", (b-a)/(r-1); else print "-" }')
   phases=$(phase_fields "$stats" "$rendered")
-  printf "dots=%-7s scene=%-5s window=%s secs=%s | release: pps=%-6s fps=%-6s renderer=%-8s workerPresentUs=%-7s | debug: frames=%-5s gpuFrames=%-5s directFrames=%-5s builds/frame=%-7s phase: %s\n" \
-    "$n" "$kind" "$DOTS_WINDOW" "$secs" "${pps:--}" "${fps:--}" "${renderer:--}" "${workerus:--}" "${frames:--}" "${gpu:--}" "${direct:--}" "$builds" "$phases"
+  printf "dots=%-7s item=%-8s scene=%-5s window=%s secs=%s | release: pps=%-6s fps=%-6s renderer=%-8s workerPresentUs=%-7s | debug: frames=%-5s gpuFrames=%-5s directFrames=%-5s builds/frame=%-7s refreshes/frame=%-7s phase: %s\n" \
+    "$n" "$item" "$kind" "$DOTS_WINDOW" "$secs" "${pps:--}" "${fps:--}" "${renderer:--}" "${workerus:--}" "${frames:--}" "${gpu:--}" "${direct:--}" "$builds" "$refreshes" "$phases"
   # bug-765's goal, asked of the paint-only scene: 30 presents and 30 frames a
   # second, every frame a GPU frame.
-  if [ "$kind" = paint ]; then
+  if [ "$kind" = paint ] && [ "$item" = circle ]; then
     if ! awk -v p="${pps:-0}" -v f="${fps:-0}" 'BEGIN{exit !(p >= 30.0 && f >= 30.0)}' \
        || [ "${gpu:-0}" != "${frames:-x}" ] || [ "${renderer:-Software}" = Software ]; then
       echo "dots=$n FAIL: under 30.0 pps / 30.0 fps, or a frame was not drawn by the GPU backend"

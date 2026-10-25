@@ -36,7 +36,7 @@
 
 use super::func_geo_build::{
     emit_field_block, emit_fill_record, emit_list_element, emit_list_view, emit_record_size,
-    record_type,
+    emit_refresh_record, record_type,
 };
 use super::func_item_hash::emit_item_hash;
 use super::scene_base::{emit_scene_load, scene_base};
@@ -62,8 +62,8 @@ use snapshot::{
     lower_scene_snapshot, lower_snapshot_hashes, lower_snapshot_items, lower_snapshot_layers,
 };
 use table::{
-    emit_add_slot, emit_find, emit_stamp, finish, lower_geo_begin_frame, lower_geo_find,
-    lower_geo_forget, lower_geo_insert,
+    emit_add_slot, emit_find, emit_refreshed, emit_stamp, finish, lower_geo_begin_frame,
+    lower_geo_find, lower_geo_forget, lower_geo_insert, lower_geo_refresh,
 };
 
 /// Words per slot in `__CANVAS_GEO_SLOTS`.
@@ -97,6 +97,11 @@ struct Globals {
     compactions: usize,
     native_builds: usize,
     built: usize,
+    /// plan-175-A: `__CANVAS_GEO_DRAWS`, the damage identity `D` each slot's record
+    /// holds, one word a slot in slot order.
+    draws: usize,
+    /// plan-175-A: `__CANVAS_GEO_REFRESHES`, records rewritten in place.
+    refreshes: usize,
 }
 
 fn global(builder: &CodeBuilder, name: &str) -> Result<usize, String> {
@@ -120,6 +125,8 @@ impl Globals {
             compactions: global(builder, "CANVAS_GEO_COMPACTIONS")?,
             native_builds: global(builder, "CANVAS_GEO_NATIVE_BUILDS")?,
             built: global(builder, "CANVAS_GEO_BUILT")?,
+            draws: global(builder, "CANVAS_GEO_DRAWS")?,
+            refreshes: global(builder, "CANVAS_GEO_REFRESHES")?,
         })
     }
 }
@@ -366,12 +373,25 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "geoInsert",
         vec![
             param("hash", ParameterType::Integer),
+            param("draw", ParameterType::Integer),
             param("header", float_list()),
             param("tail", float_list()),
         ],
         ParameterType::Integer,
         vec!["ErrOutOfMemory"],
         lower_geo_insert,
+    ));
+    pkg.add_function(function(
+        "geoRefresh",
+        vec![
+            param("slot", ParameterType::Integer),
+            param("draw", ParameterType::Integer),
+            param("header", float_list()),
+            param("tail", float_list()),
+        ],
+        ParameterType::Integer,
+        vec!["ErrOutOfMemory"],
+        lower_geo_refresh,
     ));
     pkg.add_function(function(
         "geoForget",
