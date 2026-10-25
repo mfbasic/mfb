@@ -127,7 +127,7 @@ fn an_undeclared_config_fails_the_build() {
         both.contains("No config named `staging`. Declared: dev, release."),
         "{both}"
     );
-    assert!(!project.join("build").join("cfg_unknown.out").exists());
+    assert!(!common::host_executable(&project, "cfg_unknown").exists());
     let _ = fs::remove_dir_all(&project);
 }
 
