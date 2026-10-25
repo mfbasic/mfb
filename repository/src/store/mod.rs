@@ -411,7 +411,13 @@ impl Store {
 }
 
 pub fn now_unix() -> i64 {
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
+    unix_seconds(SystemTime::now())
+}
+
+/// `at` as whole seconds since the Unix epoch; the clock reading is a
+/// parameter so the pre-epoch arm below is testable without a broken host.
+fn unix_seconds(at: SystemTime) -> i64 {
+    match at.duration_since(UNIX_EPOCH) {
         Ok(elapsed) => elapsed.as_secs() as i64,
         // A pre-1970 host clock used to fall through `unwrap_or_default()` to 0,
         // which silently stamps every `created_at`/`expires_at` as the epoch — so

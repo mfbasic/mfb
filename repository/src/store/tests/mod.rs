@@ -4,6 +4,7 @@ mod accounts;
 mod blobs;
 mod faults_accounts;
 mod faults_governance;
+mod faults_open;
 mod faults_schema;
 mod faults_versions;
 mod packages;
