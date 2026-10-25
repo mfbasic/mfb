@@ -115,13 +115,16 @@ Commit: 280b3f268
 Acceptance: same as Phase 2.
   Check: same command as Phase 2 (est. 1 s).
   Result: the filter leaves only this phase's source/doc files; `scripts/artifact-gate.sh target/release/mfb all` → `1721 tests, 1900 build(s), 2384 golden(s) checked, 0 diff(s)`; `bash scripts/test-accept.sh target/release/mfb /tmp/p182-ph3-accept` → `acceptance tests passed (1756 test(s) ran)`. Goal: `mfb build -v /tmp/p182-probe` → `Branch simplification / folding: 2`, `Dead-code elimination (DCE, NIR): 2`, `Unreachable code elimination: 5`, `Basic block merging: 1`, `CFG simplification (simplifycfg): 1` (none at `-O0`); the built program prints `5`.
-Commit: —
+Commit: 9189a11b7 (plus 8391c5023, the lowering-route probe fix the landing tier found)
 
 ## Validation Plan
 
-- Behavior: `bash scripts/test-accept.sh target/release/mfb` (default level) → every `.run` and `build.log` matches; `MFB_OPT=0` and `MFB_OPT=2` runs exit 0.
+- Behavior: `bash scripts/test-accept.sh target/release/mfb <out-dir>` (default level) → every `.run` and `build.log` matches; `MFB_OPT=0` and `MFB_OPT=2` runs exit 0.
+  Result (phase-3 binary, 2026-10-25): default → `acceptance tests passed (1756 test(s) ran)`; `MFB_OPT=0` → `1756 test(s) ran, 73 level-variant golden(s) skipped at -O0`; `MFB_OPT=2` → `1756 test(s) ran, 73 level-variant golden(s) skipped at -O2`.
 - Codegen: `scripts/artifact-gate.sh target/release/mfb all` → green after regeneration (~15–20 min, `.ai/testing-gates.md`).
+  Result: `1721 tests, 1900 build(s), 2384 golden(s) checked, 0 diff(s)`.
 - Landing tier: `bash scripts/test-fast.sh` plus `cargo test --bin mfb builtins_codegen::optimizer::` (the optimizer sweeps, since levels moved).
+  Result: optimizer sweeps → `3 passed; 0 failed`; `test-fast.sh` first run failed 14 `builtins_codegen` tests (see Corrections, fixed in `8391c5023`), final run → `fmt ok, check ok, build ok, skips ok, tests ok`, `test-fast: ok`. Main had not moved past the fork point `2f281c5e7`, so no merge from main was needed.
 - Doc sync: `mfb man optimizations` renders the new levels (from `catalog.rs`); `planning/optimizations.md` already carries the target levels — mark these rows' notes "moved to Level 1 by plan-182" as each phase lands.
 - Default-level fire counts (Goal): `mfb build -v /tmp/p182-probe`, an executable project (`entry: main`) whose `src/main.mfb` is:
 
