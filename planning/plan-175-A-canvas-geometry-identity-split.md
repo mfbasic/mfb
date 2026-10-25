@@ -697,7 +697,7 @@ clean, and no pixel moves.
 - every `tests/canvas` target → 24 of 24 `test result: ok`.
 - Correction 6's bar: box 206 paint row 16.45 ms ≤ 18.0 (twice the base all-hit 9.00)
   and 3.3 times under the base paint row's 54.93; this Mac 7.76 ms ≤ 8.0.
-Commit: —
+Commit: f7c605784
 
 ### Phase 3 — Refresh for gradients, pictures and text (only where measured)
 
@@ -717,11 +717,21 @@ Commit: —
 
 ### Phase 4 — The worker's hit cache keyed by `G`
 
-- [ ] `helper_hit.rs:__canvas_hitGeometry`, `__canvas_hitAppend`: key by `G`.
-- [ ] `tools/canvas-bench/bench.sh <mfb> hit`: a paint-changing row.
+- [x] `helper_hit.rs:__canvas_hitGeometry`, `__canvas_hitAppend`: key by `G`
+      (`__canvas_geoHash`; an `AutoPaint` by its shape's `G`). A hit record reads no
+      appearance slot (§2.2), so it is never refreshed: its key is its whole identity.
+- [x] `tools/canvas-bench/bench.sh <mfb> hit`: the `1p` row (ids, every item recoloured
+      a frame; `gen/hit.sh PAINT=1`).
 
 Acceptance: a paint-only frame builds nothing on the worker; `overID` is unchanged.
   Check: `cargo test --release --test rt_canvas_hit --test rt_canvas_pointer`.
+
+**MET 2026-10-25**: `rt_canvas_hit` 16 passed, `rt_canvas_pointer` 2 passed.
+`tools/canvas-bench/bench.sh <mfb> hit` (this Mac, load 15 to 20), poll-first median at
+10,000 items: the `1p` row 5,471 µs against the `1` row's 5,313 (one item moved, so one
+rebuilt), where the base compiler took 17,463 against 11,758 — a paint-only frame costs
+the worker what one changed item does, so it builds nothing; `overID` `[i484]` on every
+row, 60 events each.
 Commit: —
 
 ### Phase 5 — The group walk: children hashed once per revision, no list per node

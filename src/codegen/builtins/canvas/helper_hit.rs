@@ -309,6 +309,12 @@ END FUNC
 ' renderer's record adds to that -- every glyph of the run rasterised -- no hit test
 ' reads, and this thread draws nothing. A `Picture` never arrives: it is hit as its
 ' shape (`__canvas_hitAppend`).
+'
+' plan-175-A: `hash` is the item's GEOMETRY identity (`__canvas_geoHash`). A hit test
+' reads no appearance slot -- the bounds, transform, clip, radius, stroke half-width,
+' joins and text box are all geometry -- so a record built under another paint answers
+' it exactly, and a change of paint alone builds nothing on this thread. Nothing here is
+' ever refreshed: the key is the record's whole identity for this cache.
 FUNC __canvas_hitGeometry(item AS DrawItem, hash AS Integer) AS Integer
   MATCH item
     CASE Text(t)
@@ -319,10 +325,10 @@ FUNC __canvas_hitGeometry(item AS DrawItem, hash AS Integer) AS Integer
       LET header AS List OF Float = __canvas_textBoxHeader(t)
       LET built AS List OF List OF Float = __canvas_withClipEdges(header, [], item)
       LET none AS List OF Float = []
-      RETURN canvas::geoInsert(hash, collections::getOr(built, 0, header), collections::getOr(built, 1, none))
+      RETURN canvas::geoInsert(hash, hash, collections::getOr(built, 0, header), collections::getOr(built, 1, none))
     ' An `AutoPaint` is hit where its shape is, by the shape's own paint.
     CASE AutoPaint(a)
-      RETURN __canvas_hitGeometry(__canvas_autoItem(a), hash)
+      RETURN __canvas_hitGeometry(__canvas_autoItem(a), __canvas_geoHash(__canvas_autoItem(a)))
     CASE ELSE
       RETURN __canvas_geometryFor(item, hash)
   END MATCH
@@ -366,7 +372,7 @@ FUNC __canvas_hitAppend(item AS DrawItem, gdx AS Float, gdy AS Float, mat AS Int
     CASE Tile(tile)
       RETURN
     CASE ELSE
-      LET offset AS Integer = __canvas_hitGeometry(item, __canvas_hashItem(item))
+      LET offset AS Integer = __canvas_hitGeometry(item, __canvas_geoHash(item))
       LET id AS String = __canvas_joinId(path, __canvas_itemId(item))
       __CANVAS_HIT_OFFSETS = collections::append(__CANVAS_HIT_OFFSETS, offset)
       __CANVAS_DRAW_DX = collections::append(__CANVAS_DRAW_DX, gdx)

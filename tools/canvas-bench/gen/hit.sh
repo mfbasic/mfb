@@ -25,8 +25,12 @@
 # box was too slow for this size and poll-again is understated.
 # Release build; MFB_CANVAS_GPU=0 keeps the graphics thread to software, and the
 # program never waits on a frame.
+#
+# PAINT=1 (plan-175-A Phase 4): each frame recolours EVERY item instead of moving item
+# 0, so the scene changes in paint alone. The worker's cache is keyed by the items'
+# geometry identities, so poll-first then rebuilds nothing.
 set -euo pipefail
-DIR=$1; N=$2; IDS=$3
+DIR=$1; N=$2; IDS=$3; PAINT=${4:-0}
 mkdir -p "$DIR/src"
 cat > "$DIR/project.json" <<J
 {"name":"hit","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src","role":"main","include":["**/*.mfb"]}],"entry":"main","targets":["native"]}
@@ -54,12 +58,16 @@ FUNC main() AS Nothing
   WHILE frame < 40
     MUT items AS List OF canvas::DrawItem = []
     MUT k AS Integer = 0
+    MUT ink AS canvas::Paint = paint
+    IF $PAINT = 1 THEN
+      ink = canvas::fill(color::rgb((frame * 6) MOD 256, 200, 255))
+    END IF
     WHILE k < n
       MUT x AS Float = toFloat((k MOD 88) * 10)
-      IF k = 0 THEN
+      IF k = 0 AND $PAINT = 0 THEN
         x = x + toFloat(frame) / 100.0
       END IF
-      LET it AS canvas::DrawItem = canvas::Rectangle[id := $NAME, position := vector::Float2[x := x, y := toFloat((k / 88) * 10)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      LET it AS canvas::DrawItem = canvas::Rectangle[id := $NAME, position := vector::Float2[x := x, y := toFloat((k / 88) * 10)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       items = collections::append(items, it)
       k = k + 1
     END WHILE
