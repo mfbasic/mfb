@@ -1,5 +1,6 @@
-//! plan-183-C: the medium and huge regions — one span between the small region and
-//! the slice top, medium growing up from its base and huge down from the top.
+//! plan-183-C, plan-183-D: the huge and medium regions — one span between the small
+//! region and the slice top, huge growing up from its base and medium down from the
+//! top.
 //!
 //! Every chunk and every free run in the span is larger than the 2 KiB block a tag
 //! record covers, so at most one of them starts, and at most one free run ends, in
@@ -12,7 +13,7 @@
 //! Free runs live in the node pool and on doubly linked lists: 64 medium size classes
 //! (best fit within a class, else any run of a higher class) and one huge list. A free
 //! merges with its free neighbours at once. Allocation takes a run's low end, so the
-//! rest stays above the new chunk (where `arena_extend` grows into).
+//! rest stays above the new chunk, where `arena_extend` (`extend.rs`) grows into.
 
 use super::layout::*;
 use super::*;
@@ -29,31 +30,31 @@ pub(crate) const ARENA_HUGE_ALLOC_SYMBOL: &str = "_mfb_arena_huge_alloc";
 pub(crate) const ARENA_SPAN_FREE_SYMBOL: &str = "_mfb_arena_span_free";
 
 /// The smallest free run each region keeps: a remainder below it stays in the chunk.
-const MEDIUM_MIN_RUN: u64 = ARENA_SMALL_MAX + 16;
-const HUGE_MIN_RUN: u64 = ARENA_HUGE_PAGE;
+pub(super) const MEDIUM_MIN_RUN: u64 = ARENA_SMALL_MAX + 16;
+pub(super) const HUGE_MIN_RUN: u64 = ARENA_HUGE_PAGE;
 
 /// One helper's emission state.
-struct Span<'a> {
-    from: &'a str,
-    ins: Vec<CodeInstruction>,
-    rel: Vec<CodeRelocation>,
-    v: Vregs,
-    sc: VirtualRegister,
+pub(super) struct Span<'a> {
+    pub(super) from: &'a str,
+    pub(super) ins: Vec<CodeInstruction>,
+    pub(super) rel: Vec<CodeRelocation>,
+    pub(super) v: Vregs,
+    pub(super) sc: VirtualRegister,
     labels: usize,
 }
 
 impl Span<'_> {
-    fn label(&mut self, name: &str) -> String {
+    pub(super) fn label(&mut self, name: &str) -> String {
         self.labels += 1;
         format!("{}_{name}_{}", self.from, self.labels)
     }
 
-    fn reg(&mut self) -> VirtualRegister {
+    pub(super) fn reg(&mut self) -> VirtualRegister {
         self.v.next()
     }
 
     /// `dst = nodes + idx × 32`.
-    fn node(&mut self, dst: &VirtualRegister, idx: &VirtualRegister) {
+    pub(super) fn node(&mut self, dst: &VirtualRegister, idx: &VirtualRegister) {
         let base = self.reg();
         self.ins.extend([
             abi::shift_left_immediate(dst, idx, ARENA_NODE_SIZE.trailing_zeros() as u8),
@@ -63,10 +64,10 @@ impl Span<'_> {
     }
 
     /// `dst = tags + ((addr - mediumBase) >> 11) × 16`.
-    fn record(&mut self, dst: &VirtualRegister, addr: &VirtualRegister) {
+    pub(super) fn record(&mut self, dst: &VirtualRegister, addr: &VirtualRegister) {
         let base = self.reg();
         self.ins.extend([
-            abi::load_u64(&base, &self.sc, ARENA_SC_MEDIUM_BASE),
+            abi::load_u64(&base, &self.sc, ARENA_SC_SPAN_BASE),
             abi::subtract_registers(dst, addr, &base),
             abi::shift_right_immediate(dst, dst, ARENA_TAG_BLOCK_SHIFT as u8),
             abi::shift_left_immediate(dst, dst, 4),
@@ -77,7 +78,12 @@ impl Span<'_> {
 
     /// `dst = &list head` for a run of `size` bytes: the huge list when `huge` is
     /// non-zero, else the medium class of `size`.
-    fn head(&mut self, dst: &VirtualRegister, size: &VirtualRegister, huge: &VirtualRegister) {
+    pub(super) fn head(
+        &mut self,
+        dst: &VirtualRegister,
+        size: &VirtualRegister,
+        huge: &VirtualRegister,
+    ) {
         let medium = self.label("head_medium");
         let done = self.label("head_done");
         let (k, shift, sub) = (self.reg(), self.reg(), self.reg());
@@ -97,7 +103,12 @@ impl Span<'_> {
     }
 
     /// Push node `idx` (address `n`) on the list at `head`.
-    fn push(&mut self, head: &VirtualRegister, idx: &VirtualRegister, n: &VirtualRegister) {
+    pub(super) fn push(
+        &mut self,
+        head: &VirtualRegister,
+        idx: &VirtualRegister,
+        n: &VirtualRegister,
+    ) {
         let old = self.reg();
         let t = self.reg();
         let done = self.label("pushed");
@@ -115,7 +126,7 @@ impl Span<'_> {
     }
 
     /// Unlink node `n` from the list at `head`.
-    fn unlink(&mut self, head: &VirtualRegister, n: &VirtualRegister) {
+    pub(super) fn unlink(&mut self, head: &VirtualRegister, n: &VirtualRegister) {
         let next = self.reg();
         let prev = self.reg();
         let t = self.reg();
@@ -175,7 +186,7 @@ impl Span<'_> {
         let ceiling = self.reg();
         self.node(&need, &t);
         self.ins
-            .push(abi::load_u64(&ceiling, &self.sc, ARENA_SC_MEDIUM_BASE));
+            .push(abi::load_u64(&ceiling, &self.sc, ARENA_SC_SPAN_BASE));
         let tag = self.label("nodes");
         let sc = self.sc;
         emit_ensure_up(
@@ -195,7 +206,7 @@ impl Span<'_> {
     }
 
     /// Return node `idx` (address `n`) to the pool.
-    fn drop_node(&mut self, idx: &VirtualRegister, n: &VirtualRegister) {
+    pub(super) fn drop_node(&mut self, idx: &VirtualRegister, n: &VirtualRegister) {
         let t = self.reg();
         self.ins.extend([
             abi::load_u64(&t, ARENA_STATE_REGISTER, ARENA_NODE_FREE_OFFSET),
@@ -205,9 +216,9 @@ impl Span<'_> {
     }
 
     /// Write the allocated-chunk start tag for `[start, start + size)`:
-    /// `size | (start >> 4 & 127) << 48 | 1`. Bits 55–63 are zero; bit 55 is reserved
-    /// for a huge chunk's growth headroom, and every reader masks bits 55 and up away.
-    fn tag_chunk(&mut self, start: &VirtualRegister, size: &VirtualRegister) {
+    /// `size | (start >> 4 & 127) << 48 | 1`. Bits 55–63 are zero, and every reader
+    /// masks them away.
+    pub(super) fn tag_chunk(&mut self, start: &VirtualRegister, size: &VirtualRegister) {
         let rec = self.reg();
         let t = self.reg();
         let u = self.reg();
@@ -224,7 +235,7 @@ impl Span<'_> {
     }
 }
 
-fn new_span(from: &str) -> Span<'_> {
+pub(super) fn new_span(from: &str) -> Span<'_> {
     let mut v = Vregs::new();
     let sc = v.next();
     let mut ins = vec![abi::label("entry")];
@@ -390,27 +401,28 @@ pub(crate) fn lower_arena_span_alloc(huge: bool) -> CodeFunction {
         abi::return_(),
         abi::label(&frontier),
     ]);
-    // The region's frontier.
+    // The region's frontier: huge carves up from its top, medium down from its
+    // bottom (plan-183-D).
     let end = s.reg();
     let limit_reg = s.reg();
     let need = s.reg();
     let sc = s.sc;
-    if !huge {
+    if huge {
         s.ins.extend([
-            abi::load_u64(&start, &sc, ARENA_SC_MEDIUM_FRONT),
+            abi::load_u64(&start, &sc, ARENA_SC_HUGE_FRONT),
             abi::add_registers(&end, &start, &size),
             abi::compare_registers(&end, &start),
             abi::branch_lo(&fail),
-            abi::load_u64(&limit_reg, &sc, ARENA_SC_HUGE_FRONT),
+            abi::load_u64(&limit_reg, &sc, ARENA_SC_MEDIUM_FRONT),
             abi::compare_registers(&end, &limit_reg),
             abi::branch_hi(&fail),
-            abi::load_u64(&limit_reg, &sc, ARENA_SC_HUGE_COMMIT),
+            abi::load_u64(&limit_reg, &sc, ARENA_SC_MEDIUM_COMMIT),
         ]);
         emit_ensure_up(
             symbol,
             "data",
             &sc,
-            ARENA_SC_MEDIUM_COMMIT,
+            ARENA_SC_HUGE_COMMIT,
             &end,
             &limit_reg,
             ARENA_COMMIT_STEP,
@@ -439,23 +451,23 @@ pub(crate) fn lower_arena_span_alloc(huge: bool) -> CodeFunction {
             &mut s.rel,
             &mut s.v,
         );
-        s.ins.push(abi::store_u64(&end, &sc, ARENA_SC_MEDIUM_FRONT));
+        s.ins.push(abi::store_u64(&end, &sc, ARENA_SC_HUGE_FRONT));
     } else {
         s.ins.extend([
-            abi::load_u64(&end, &sc, ARENA_SC_HUGE_FRONT),
+            abi::load_u64(&end, &sc, ARENA_SC_MEDIUM_FRONT),
             abi::subtract_registers(&start, &end, &size),
             abi::compare_registers(&start, &end),
             abi::branch_hi(&fail),
-            abi::load_u64(&limit_reg, &sc, ARENA_SC_MEDIUM_FRONT),
+            abi::load_u64(&limit_reg, &sc, ARENA_SC_HUGE_FRONT),
             abi::compare_registers(&start, &limit_reg),
             abi::branch_lo(&fail),
-            abi::load_u64(&limit_reg, &sc, ARENA_SC_MEDIUM_COMMIT),
+            abi::load_u64(&limit_reg, &sc, ARENA_SC_HUGE_COMMIT),
         ]);
         emit_ensure_down(
             symbol,
             "data",
             &sc,
-            ARENA_SC_HUGE_COMMIT,
+            ARENA_SC_MEDIUM_COMMIT,
             &start,
             &limit_reg,
             ARENA_COMMIT_STEP,
@@ -480,7 +492,8 @@ pub(crate) fn lower_arena_span_alloc(huge: bool) -> CodeFunction {
             &mut s.rel,
             &mut s.v,
         );
-        s.ins.push(abi::store_u64(&start, &sc, ARENA_SC_HUGE_FRONT));
+        s.ins
+            .push(abi::store_u64(&start, &sc, ARENA_SC_MEDIUM_FRONT));
     }
     s.tag_chunk(&start, &size);
     s.ins.extend([
@@ -531,7 +544,7 @@ pub(crate) fn lower_arena_span_free(debug_arena: bool) -> CodeFunction {
     let sc = s.sc;
     s.ins.extend([
         abi::move_register(&ptr, abi::c_arg(0)),
-        abi::load_u64(&t, &sc, ARENA_SC_MEDIUM_BASE),
+        abi::load_u64(&t, &sc, ARENA_SC_SPAN_BASE),
         abi::compare_registers(&ptr, &t),
         abi::branch_lo(&refuse),
         abi::load_u64(&t, &sc, ARENA_SC_SLICE_TOP),
@@ -585,21 +598,20 @@ pub(crate) fn lower_arena_span_free(debug_arena: bool) -> CodeFunction {
         abi::branch_link(ARENA_FILL_ZERO_SYMBOL),
     ]);
     s.rel.push(internal_branch(symbol, ARENA_FILL_ZERO_SYMBOL));
-    // The region: huge from its front up to the slice top, medium from its base to its
-    // front. Merges never cross a region's bounds.
+    // The region: huge from the span base up to its front, medium from its front up
+    // to the slice top. Merges never cross a region's bounds.
     let medium = s.label("medium");
     let bounded = s.label("bounded");
     s.ins.extend([
-        abi::move_immediate(&is_huge, "Integer", "0"),
-        abi::load_u64(&lo, &sc, ARENA_SC_MEDIUM_BASE),
-        abi::load_u64(&hi, &sc, ARENA_SC_MEDIUM_FRONT),
-        abi::load_u64(&t, &sc, ARENA_SC_HUGE_FRONT),
-        abi::compare_registers(&ptr, &t),
-        abi::branch_lo(&medium),
         abi::move_immediate(&is_huge, "Integer", "1"),
-        abi::move_register(&lo, &t),
-        abi::load_u64(&hi, &sc, ARENA_SC_SLICE_TOP),
+        abi::load_u64(&lo, &sc, ARENA_SC_SPAN_BASE),
+        abi::load_u64(&hi, &sc, ARENA_SC_HUGE_FRONT),
+        abi::compare_registers(&ptr, &hi),
+        abi::branch_lo(&bounded),
         abi::label(&medium),
+        abi::move_immediate(&is_huge, "Integer", "0"),
+        abi::load_u64(&lo, &sc, ARENA_SC_MEDIUM_FRONT),
+        abi::load_u64(&hi, &sc, ARENA_SC_SLICE_TOP),
         abi::label(&bounded),
         abi::add_registers(&end, &ptr, &size),
         abi::move_immediate(&left, "Integer", "0"),

@@ -402,11 +402,11 @@ fn areas_are_the_three_regions_with_their_frontiers() {
         (ARENA_SC_SMALL_PAGES, 0x4001_0000),
         (ARENA_SC_SMALL_NEXT, 3),
         (ARENA_SC_SMALL_COMMIT, 0x4040_0000),
-        (ARENA_SC_MEDIUM_BASE, 0x5000_0000),
-        (ARENA_SC_MEDIUM_FRONT, 0x5000_8000),
-        (ARENA_SC_MEDIUM_COMMIT, 0x5040_0000),
-        (ARENA_SC_HUGE_FRONT, 0x8e00_0000),
-        (ARENA_SC_HUGE_COMMIT, 0x8e00_0000),
+        (ARENA_SC_SPAN_BASE, 0x5000_0000),
+        (ARENA_SC_HUGE_FRONT, 0x5000_8000),
+        (ARENA_SC_HUGE_COMMIT, 0x5040_0000),
+        (ARENA_SC_MEDIUM_FRONT, 0x8e00_0000),
+        (ARENA_SC_MEDIUM_COMMIT, 0x8e00_0000),
         (ARENA_SC_SLICE_TOP, 0x9000_0000),
     ] {
         memory.put(scalar(0x100, offset), value);
@@ -421,13 +421,13 @@ fn areas_are_the_three_regions_with_their_frontiers() {
                 committed: 0x3f_0000
             },
             Area {
-                name: "medium",
+                name: "huge",
                 address: 0x5000_0000,
                 size: 0x8000,
                 committed: 0x40_0000
             },
             Area {
-                name: "huge",
+                name: "medium",
                 address: 0x8e00_0000,
                 size: 0x200_0000,
                 committed: 0x200_0000

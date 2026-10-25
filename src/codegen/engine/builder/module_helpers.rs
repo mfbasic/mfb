@@ -258,6 +258,10 @@ pub(super) fn lower_core_runtime_helpers(
     code_functions.push(crate::codegen::memory::arena::arena::lower_arena_span_free(
         debug_arena,
     ));
+    // plan-183-D: collection growth tries to extend in place first.
+    code_functions.push(crate::codegen::memory::arena::arena::lower_arena_extend(
+        debug_arena,
+    ));
     code_functions.push(lower_build_error_loc());
     code_functions.push(lower_make_error_result());
     code_functions.push(lower_simd_alloc_list());

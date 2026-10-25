@@ -29,24 +29,24 @@ a few megabytes at a time, so even a small program's pool holds several.
 `show arena` shows the main thread's pool (`show arena 3` shows pool 3): every
 number MFBASIC keeps about the pool, in hex, then its three regions and the free
 space it is keeping for reuse. Values of 2048 bytes or less live in region 0,
-`small`; larger ones in region 1, `medium`; values of 32 MiB or more in region 2,
-`huge`:
+`small`; values of 32 MiB or more in region 1, `huge`; the ones in between in
+region 2, `medium`:
 
 ```
 Arena Region (0 small):
   start             0x0000007001680000
-  handedOut         0x00000000000a0000
+  handedOut         0x0000000000010000
   committed         0x0000000000180000
-Arena Region (1 medium):
+Arena Region (1 huge):
   start             0x00000070b1800000
-  handedOut         0x0000000000003ee0
-  committed         0x0000000000400000
-Arena Region (2 huge):
-  start             0x0000007500000000
   handedOut         0x0000000000000000
   committed         0x0000000000000000
+Arena Region (2 medium):
+  start             0x00000074ffffc120
+  handedOut         0x0000000000003ee0
+  committed         0x0000000000400000
 Free Runs: 1
-  medium[1]         0x00000070b1803310 0x0000000000000bd0
+  medium[1]         0x00000074ffffc120 0x0000000000000bd0
 ```
 
 `handedOut` is how much of the region the pool has used so far, and `committed`

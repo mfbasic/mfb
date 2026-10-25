@@ -212,6 +212,14 @@ const COLLECTIONS_RAISES_NOTHING: &[(&str, &str)] = &[
     ),
     ("_mfb_arena_free", "releases a block; never fails"),
     (
+        "_mfb_arena_extend",
+        "grows a block in place or answers 0, and the caller then allocates (plan-183-D)",
+    ),
+    (
+        "_mfb_arena_fill_zero",
+        "zeroes the table slots an in-place grow uncovers; never fails",
+    ),
+    (
         "_mfb_make_error_result",
         "packages an error code the caller already loaded",
     ),

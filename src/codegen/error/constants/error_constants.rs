@@ -1029,23 +1029,25 @@ pub(crate) const ARENA_SC_SMALL_EMPTY: usize = 32;
 pub(crate) const ARENA_SC_SMALL_COMMIT: usize = 40;
 /// The end of the committed small page descriptors.
 pub(crate) const ARENA_SC_TABLE_COMMIT: usize = 48;
-/// The run-tag array: one 16-byte record per 2 KiB block of the medium and huge
+/// The run-tag array: one 16-byte record per 2 KiB block of the huge and medium
 /// span, `{start, end}`.
 pub(crate) const ARENA_SC_TAGS: usize = 56;
-/// The first byte of the medium region's data (block 0 of the tag array).
-pub(crate) const ARENA_SC_MEDIUM_BASE: usize = 64;
-/// The medium region's top: everything below it has been handed out at least once.
+/// The first byte of the span (block 0 of the tag array) and of the huge region,
+/// which grows up from it (plan-183-D).
+pub(crate) const ARENA_SC_SPAN_BASE: usize = 64;
+/// The medium region's bottom: everything from here to the slice top is medium
+/// chunks or medium free runs. It grows down from the slice top.
 pub(crate) const ARENA_SC_MEDIUM_FRONT: usize = 72;
-/// The end of the committed medium data.
+/// The bottom of the committed medium data.
 pub(crate) const ARENA_SC_MEDIUM_COMMIT: usize = 80;
-/// The huge region's bottom: everything from here to the slice top is huge chunks
-/// or huge free runs.
+/// The huge region's top: everything below it, down to the span base, has been
+/// handed out at least once.
 pub(crate) const ARENA_SC_HUGE_FRONT: usize = 88;
-/// The bottom of the committed huge data.
+/// The end of the committed huge data.
 pub(crate) const ARENA_SC_HUGE_COMMIT: usize = 96;
-/// The end of the tag records committed for the medium region (they grow up).
+/// The end of the tag records committed for the huge region (they grow up).
 pub(crate) const ARENA_SC_TAGS_LOW: usize = 104;
-/// The start of the tag records committed for the huge region (they grow down).
+/// The start of the tag records committed for the medium region (they grow down).
 pub(crate) const ARENA_SC_TAGS_HIGH: usize = 112;
 /// The run-node pool: 32-byte nodes `{start, size, next, prev}`, index 0 unused.
 pub(crate) const ARENA_SC_NODES: usize = 120;

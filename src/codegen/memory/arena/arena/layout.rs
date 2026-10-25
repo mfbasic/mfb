@@ -1,21 +1,25 @@
-//! plan-183-C: the slice geometry and committing.
+//! plan-183-C, plan-183-D: the slice geometry and committing.
 //!
 //! An arena owns one slice `[base, base + S)` of the startup reservation (S at least
 //! 256 MiB, a multiple of 2 MiB). Inside it:
 //!
 //! ```text
-//! | small: S/8                  | tags | nodes | medium → grows up     ... grows down ← huge |
+//! | small: S/8                  | tags | nodes | huge → grows up       ... grows down ← medium |
 //! | descriptors | 64 KiB pages  |      side    |                                             |
 //! ```
 //!
 //! - **Small**: `ARENA_SMALL_DESC_SIZE`-byte page descriptors, then 64 KiB pages,
 //!   each serving one 16-byte size class.
-//! - **Tags**: one 16-byte record `{start, end}` per 2 KiB block of the medium and
-//!   huge span: `start` describes what begins in the block (an allocated chunk:
+//! - **Tags**: one 16-byte record `{start, end}` per 2 KiB block of the huge and
+//!   medium span: `start` describes what begins in the block (an allocated chunk:
 //!   `size | offset << 48 | 1`; a free run: `node << 2 | 2`), `end` names the free
 //!   run whose last byte lies in it.
 //! - **Nodes**: the free runs, `{start, size, next, prev}`, out of free memory.
-//! - **Medium** grows up from its base, **huge** down from the slice top.
+//! - **Huge** grows up from the span base, **medium** down from the slice top
+//!   (plan-183-D). The newest huge chunk ends at the huge frontier, so a growing
+//!   collection past 32 MiB extends into it (`arena_extend`) instead of copying; a
+//!   medium chunk is under 32 MiB, so the copies a medium chunk cannot avoid are
+//!   bounded.
 //!
 //! The geometry words are computed from the slice base the first time the arena
 //! allocates (`_mfb_arena_geometry`), so an arena that never allocates touches none
@@ -241,11 +245,12 @@ pub(crate) fn lower_arena_geometry(debug_arena: bool) -> CodeFunction {
     ]);
     emit_round_up(&t, &t, ARENA_COMMIT_STEP, &u, &mut instructions);
     instructions.extend([
-        abi::store_u64(&t, &sc, ARENA_SC_MEDIUM_BASE),
-        abi::store_u64(&t, &sc, ARENA_SC_MEDIUM_FRONT),
-        abi::store_u64(&t, &sc, ARENA_SC_MEDIUM_COMMIT),
-        abi::store_u64(&top, &sc, ARENA_SC_HUGE_FRONT),
-        abi::store_u64(&top, &sc, ARENA_SC_HUGE_COMMIT),
+        // plan-183-D: huge grows up from the span base, medium down from the top.
+        abi::store_u64(&t, &sc, ARENA_SC_SPAN_BASE),
+        abi::store_u64(&t, &sc, ARENA_SC_HUGE_FRONT),
+        abi::store_u64(&t, &sc, ARENA_SC_HUGE_COMMIT),
+        abi::store_u64(&top, &sc, ARENA_SC_MEDIUM_FRONT),
+        abi::store_u64(&top, &sc, ARENA_SC_MEDIUM_COMMIT),
     ]);
     if debug_arena {
         let slot = vregs.next();

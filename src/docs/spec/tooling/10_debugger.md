@@ -481,7 +481,7 @@ Then, repeatedly:
 | `show arena [<id>]` | prints arena `<id>`'s state, regions and free runs (default 0) |
 | `show error [<thread>]` | prints the error thread `<thread>` (default the current thread) has raised and not yet caught |
 | `show report` | prints the debug report the program wrote as it exited, or why there is none |
-| `show arena <id> <region> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of region `<region>` (0 small, 1 medium, 2 huge) from `<offset>` (default 0) |
+| `show arena <id> <region> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of region `<region>` (0 small, 1 huge, 2 medium) from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
 | `step-all [<count>]`, `sa …` | runs every thread `<count>` rounds of one instruction (default 1) |
 | `breakpoint <target> [<commands>]`, `bp …` | sets breakpoints at `<target>`, each running `<commands>` at a stop |
@@ -609,7 +609,7 @@ Then, repeatedly:
 | `show <what>` but `mem`, `type`, `arena`, `error` or `report` | `cannot show '<what>'; 'show mem', 'show type', 'show arena', 'show error' and 'show report' are what can be shown` |
 | `show arena` with more than four arguments | `too many arguments to 'show arena'` |
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
-| a region number not a `usize` | `'<region>' is not a region number (0 small, 1 medium, 2 huge)` |
+| a region number not a `usize` | `'<region>' is not a region number (0 small, 1 huge, 2 medium)` |
 | an offset or size not a `u64` (decimal, or hex after `0x`) | `'<word>' is not a number` |
 | `env` or `list env` on a program attached to | `'env' needs a program the debugger launched; this one was attached to` (`'list env'` for `list env`) |
 | `env` alone | `'env' needs what to do: env s <name> <value>, env r <name>, env clear or env reset; 'list env' shows the environment` |
@@ -1040,8 +1040,9 @@ An array prints `<name>[<count>]` and `<n> non-empty`, then a line
 `    [<index>]` per entry that is not all zero bytes.
 [[src/debugger/prompt/render.rs:state_lines]] Then, for an arena that has laid
 its slice out, each region as `Arena Region (<n> <name>):` — 0 `small`, 1
-`medium`, 2 `huge` — with its `start`, `handedOut` (the bytes up to its frontier:
-the small pages used so far, the medium front, the huge span down to its front)
+`huge`, 2 `medium`, in slice order — with its `start`, `handedOut` (the bytes up to
+its frontier: the small pages used so far, the huge span up to its front, the medium
+span from its front up to the slice top)
 and `committed` bytes, and then `Free Runs: <n>` and one line per run on the
 medium class lists and the huge list, `<list> 0x<address> 0x<size>`
 (`medium[<class>]` or `huge`). [[src/debugger/runtime.rs:areas]]
@@ -1051,7 +1052,7 @@ A list longer than the node pool is refused (`the <list> list of the arena at
 
 `show arena <id> <region> [<offset>] [<size>]` dumps region `<region>` (an
 arena not laid out: `arena <id> has not allocated yet: its slice has no
-regions`; past 2: `arena <id> has 3 regions: 0 small, 1 medium, 2 huge`).
+regions`; past 2: `arena <id> has 3 regions: 0 small, 1 huge, 2 medium`).
 `<offset>` and `<size>` are decimal or `0x` hex; `<size>` of 0 fails with `a dump
 needs a size of 1 or more bytes`, and `<offset> + <size>` past the region's
 handed-out bytes with `offset 0x… + size 0x… runs past the end of the <name>

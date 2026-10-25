@@ -253,7 +253,7 @@ fn find_arena(inferior: &mut dyn Inferior, program: Program, id: usize) -> Resul
 }
 
 /// `show arena`: the arena's state, its regions and its free runs, or a dump of
-/// part of one region (plan-183-C: `0` small, `1` medium, `2` huge).
+/// part of one region (plan-183-C, plan-183-D: `0` small, `1` huge, `2` medium).
 pub(super) fn show_arena(
     inferior: &mut dyn Inferior,
     program: Program,
@@ -276,7 +276,7 @@ pub(super) fn show_arena(
     }
     let area = areas.get(dump.area).ok_or_else(|| {
         format!(
-            "arena {id} has {} regions: 0 small, 1 medium, 2 huge",
+            "arena {id} has {} regions: 0 small, 1 huge, 2 medium",
             areas.len()
         )
     })?;

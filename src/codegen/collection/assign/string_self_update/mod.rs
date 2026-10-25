@@ -698,8 +698,43 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             r.newcap_slot,
         ));
+        // plan-183-D: grow the block where it is when the arena can. Its bytes stay
+        // put, so only the length word changes; `fill` then writes after them, as on
+        // the allocate-copy path, and there is no old block to free.
+        let moved_slot = self.allocate_stack_object("string_regrow_moved", 8);
+        let joined = self.label("string_regrow_joined");
+        let not_extended = self.label("string_regrow_not_extended");
+        self.emit(abi::load_u64(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            r.name_slot,
+        ));
+        self.emit(abi::load_u64(
+            abi::c_arg(1),
+            abi::stack_pointer(),
+            r.oldsize_slot,
+        ));
+        self.emit(abi::add_immediate(abi::c_arg(2), r.newcap, 9));
+        self.emit_symbol_call(crate::codegen::memory::arena::arena::ARENA_EXTEND_SYMBOL);
+        self.emit(abi::compare_immediate(abi::return_register(), "0"));
+        self.emit(abi::branch_eq(&not_extended));
+        self.emit(abi::load_u64(r.ptr, abi::stack_pointer(), r.name_slot));
+        self.emit(abi::store_u64(r.ptr, abi::stack_pointer(), r.newbuf_slot));
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), moved_slot));
+        self.emit(abi::load_u64(r.len, r.ptr, 0)); // len
+        self.emit(abi::add_immediate(r.dst, r.ptr, 8));
+        self.emit(abi::add_registers(r.dst, r.dst, r.len)); // ptr+8+len
+        self.emit(abi::load_u64(
+            r.newlen,
+            abi::stack_pointer(),
+            r.len_after_slot,
+        ));
+        self.emit(abi::store_u64(r.newlen, r.ptr, 0));
+        self.emit(abi::branch(&joined));
+        self.emit(abi::label(&not_extended));
         // alloc size = 8 (len word) + newcap_payload + 1 (NUL).
         // plan-71-C Family-1a: alloc size is arg 0 → `%arg0`, not return_register().
+        self.emit(abi::load_u64(r.newcap, abi::stack_pointer(), r.newcap_slot));
         self.emit(abi::add_immediate(abi::c_arg(0), r.newcap, 9));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
@@ -711,6 +746,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             r.newbuf_slot,
         ));
+        self.emit(abi::move_immediate(r.newlen, "Integer", "1"));
+        self.emit(abi::store_u64(r.newlen, abi::stack_pointer(), moved_slot));
         // newbuf[0] = len_after.
         self.emit(abi::load_u64(
             r.newlen,
@@ -725,13 +762,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(r.dst, abi::mfb_return(1), 8)); // new data
         self.emit_copy_bytes(r.dst, r.ptr, r.len, r.copy_prefix);
         // dst now points at newbuf+8+len.
+        self.emit(abi::label(&joined));
         fill(self, r.dst)?;
         // bug-77: free the old buffer before installing the new pointer. The
         // old buffer pointer is still live at name_slot (overwritten just
         // below) and its size is in oldsize_slot; the new buffer is already
         // spilled in newbuf_slot, so it survives this call. arena_free clobbers
-        // all caller-saved registers. This free runs exactly once per regrow.
+        // all caller-saved registers. This free runs exactly once per regrow, and
+        // not at all when the block was extended in place (plan-183-D).
         // plan-71-C Family-1a: ptr is arg 0 of arena-free → `%arg0`.
+        let kept = self.label("string_regrow_kept");
+        self.emit(abi::load_u64(r.newlen, abi::stack_pointer(), moved_slot));
+        self.emit(abi::compare_immediate(r.newlen, "0"));
+        self.emit(abi::branch_eq(&kept));
         self.emit(abi::load_u64(
             abi::c_arg(0),
             abi::stack_pointer(),
@@ -743,6 +786,7 @@ impl CodeBuilder<'_> {
             r.oldsize_slot,
         ));
         self.emit_arena_free_call();
+        self.emit(abi::label(&kept));
         // Install new buffer; spare = newcap_payload - len_after.
         self.emit(abi::load_u64(
             abi::mfb_return(1),

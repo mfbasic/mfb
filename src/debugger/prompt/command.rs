@@ -530,7 +530,7 @@ pub(super) fn parse(line: &str, arch: &Arch) -> Result<Command, String> {
             id: arena_id(id)?,
             dump: Some(Dump {
                 area: area.parse::<usize>().map_err(|_| {
-                    format!("'{area}' is not a region number (0 small, 1 medium, 2 huge)")
+                    format!("'{area}' is not a region number (0 small, 1 huge, 2 medium)")
                 })?,
                 offset: rest.first().map_or(Ok(0), |word| number(word))?,
                 size: rest.get(1).map_or(Ok(DUMP_SIZE), |word| number(word))?,

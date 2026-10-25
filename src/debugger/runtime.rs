@@ -37,10 +37,10 @@ use crate::codegen::error::constants::error_constants::{
     ARENA_NODE_LEN, ARENA_NODE_NEXT, ARENA_NODE_SIZE, ARENA_NODE_START, ARENA_OUT_ENABLED_OFFSET,
     ARENA_OUT_FILLED_OFFSET, ARENA_OUT_PTR_OFFSET, ARENA_RNG_STATE_HI_OFFSET,
     ARENA_RNG_STATE_LO_OFFSET, ARENA_ROUNDING_MODE_OFFSET, ARENA_SC_COMMITTED,
-    ARENA_SC_HUGE_COMMIT, ARENA_SC_HUGE_FRONT, ARENA_SC_MEDIUM_BASE, ARENA_SC_MEDIUM_COMMIT,
-    ARENA_SC_MEDIUM_FRONT, ARENA_SC_NODES, ARENA_SC_NODE_COMMIT, ARENA_SC_NODE_LIMIT,
-    ARENA_SC_NODE_NEXT, ARENA_SC_SLICE_TOP, ARENA_SC_SMALL_COMMIT, ARENA_SC_SMALL_EMPTY,
-    ARENA_SC_SMALL_END, ARENA_SC_SMALL_LIMIT, ARENA_SC_SMALL_NEXT, ARENA_SC_SMALL_PAGES,
+    ARENA_SC_HUGE_COMMIT, ARENA_SC_HUGE_FRONT, ARENA_SC_MEDIUM_COMMIT, ARENA_SC_MEDIUM_FRONT,
+    ARENA_SC_NODES, ARENA_SC_NODE_COMMIT, ARENA_SC_NODE_LIMIT, ARENA_SC_NODE_NEXT,
+    ARENA_SC_SLICE_TOP, ARENA_SC_SMALL_COMMIT, ARENA_SC_SMALL_EMPTY, ARENA_SC_SMALL_END,
+    ARENA_SC_SMALL_LIMIT, ARENA_SC_SMALL_NEXT, ARENA_SC_SMALL_PAGES, ARENA_SC_SPAN_BASE,
     ARENA_SC_TABLE_COMMIT, ARENA_SC_TAGS, ARENA_SC_TAGS_HIGH, ARENA_SC_TAGS_LOW,
     ARENA_SLICE_BASE_OFFSET, ARENA_SMALL_CLASS_COUNT, ARENA_SMALL_HEAD_BASE_OFFSET,
     ARENA_SMALL_PAGE, ARENA_STACK_LIMIT_OFFSET, ARENA_STACK_LIMIT_SCRATCH_OFFSET,
@@ -153,10 +153,7 @@ pub(crate) const ARENA_STATE_FIELDS: &[Field] = &[
         ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_TABLE_COMMIT,
     ),
     word("tags", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_TAGS),
-    word(
-        "mediumBase",
-        ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_MEDIUM_BASE,
-    ),
+    word("spanBase", ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_SPAN_BASE),
     word(
         "mediumFront",
         ARENA_ALLOC_SCALARS_OFFSET + ARENA_SC_MEDIUM_FRONT,
@@ -214,8 +211,9 @@ pub(crate) fn arena_state(inferior: &mut dyn Inferior, state: u64) -> Result<Vec
     inferior.read_bytes(state, ARENA_STATE_SIZE)
 }
 
-/// plan-183-C: the arena's regions — small, medium, huge — in slice order, or none
-/// for an arena that has not allocated (its slice is not laid out yet).
+/// plan-183-C, plan-183-D: the arena's regions — small, huge, medium — in slice order,
+/// or none for an arena that has not allocated (its slice is not laid out yet). Huge
+/// grows up from the span base, medium down from the slice top.
 pub(crate) fn areas(inferior: &mut dyn Inferior, state: u64) -> Result<Vec<Area>, String> {
     let sc = state + ARENA_ALLOC_SCALARS_OFFSET as u64;
     let mut read = |offset: usize| inferior.read_u64(sc + offset as u64);
@@ -225,7 +223,7 @@ pub(crate) fn areas(inferior: &mut dyn Inferior, state: u64) -> Result<Vec<Area>
     }
     let small_next = read(ARENA_SC_SMALL_NEXT)?;
     let small_commit = read(ARENA_SC_SMALL_COMMIT)?;
-    let medium = read(ARENA_SC_MEDIUM_BASE)?;
+    let span = read(ARENA_SC_SPAN_BASE)?;
     let medium_front = read(ARENA_SC_MEDIUM_FRONT)?;
     let medium_commit = read(ARENA_SC_MEDIUM_COMMIT)?;
     let huge_front = read(ARENA_SC_HUGE_FRONT)?;
@@ -239,16 +237,16 @@ pub(crate) fn areas(inferior: &mut dyn Inferior, state: u64) -> Result<Vec<Area>
             committed: small_commit.saturating_sub(small),
         },
         Area {
-            name: "medium",
-            address: medium,
-            size: medium_front.saturating_sub(medium),
-            committed: medium_commit.saturating_sub(medium),
+            name: "huge",
+            address: span,
+            size: huge_front.saturating_sub(span),
+            committed: huge_commit.saturating_sub(span),
         },
         Area {
-            name: "huge",
-            address: huge_front,
-            size: top.saturating_sub(huge_front),
-            committed: top.saturating_sub(huge_commit),
+            name: "medium",
+            address: medium_front,
+            size: top.saturating_sub(medium_front),
+            committed: top.saturating_sub(medium_commit),
         },
     ])
 }

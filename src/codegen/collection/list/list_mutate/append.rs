@@ -224,6 +224,33 @@ impl CodeBuilder<'_> {
             &scratch15,
             &size_overflow,
         );
+        // plan-183-D: grow the block where it is when the arena can.
+        let new_size = self.temporary_vreg();
+        let new_cap = self.temporary_vreg();
+        let new_dcap = self.temporary_vreg();
+        self.emit(abi::move_register(&new_size, abi::return_register()));
+        self.emit(abi::load_u64(&new_cap, abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::load_u64(
+            &new_dcap,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
+        self.emit_list_try_extend(
+            &crate::codegen::collection::buffer::extend_in_place::ListExtend {
+                block_slot: buffer_slot,
+                field_off_slot: None,
+                new_size: &new_size,
+                new_cap: &new_cap,
+                new_dcap: &new_dcap,
+                layout: &layout,
+                element_type: &element_type,
+                entry_stride,
+                is_map: false,
+                prefix: "append_grow",
+            },
+            &write,
+        );
+        self.emit(abi::move_register(abi::return_register(), &new_size));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));

@@ -335,6 +335,44 @@ impl CodeBuilder<'_> {
         if let Some(g) = inline {
             self.emit_inline_grow_extend_size(&g, &size_overflow);
         }
+        // plan-183-D: grow the block where it is when the arena can.
+        {
+            let extend_size = self.temporary_vreg();
+            let extend_cap = self.temporary_vreg();
+            let extend_dcap = self.temporary_vreg();
+            self.emit(abi::move_register(&extend_size, abi::return_register()));
+            self.emit(abi::load_u64(&extend_cap, abi::stack_pointer(), map_slot));
+            self.emit(abi::load_u64(
+                &extend_cap,
+                &extend_cap,
+                COLLECTION_OFFSET_CAPACITY,
+            ));
+            self.emit(abi::load_u64(
+                &extend_dcap,
+                abi::stack_pointer(),
+                new_dcap_slot,
+            ));
+            let (block_slot, field_off_slot) = match inline {
+                Some(g) => (g.block_slot, Some(g.field_off_slot)),
+                None => (map_slot, None),
+            };
+            self.emit_list_try_extend(
+                &crate::codegen::collection::buffer::extend_in_place::ListExtend {
+                    block_slot,
+                    field_off_slot,
+                    new_size: &extend_size,
+                    new_cap: &extend_cap,
+                    new_dcap: &extend_dcap,
+                    layout: &layout,
+                    element_type: &ParameterType::named(""),
+                    entry_stride: COLLECTION_ENTRY_SIZE,
+                    is_map: true,
+                    prefix: "mapset_vgrow",
+                },
+                &vwrite,
+            );
+            self.emit(abi::move_register(abi::return_register(), &extend_size));
+        }
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&valloc_ok));
@@ -689,6 +727,43 @@ impl CodeBuilder<'_> {
         // the record prefix before asking the allocator for it.
         if let Some(g) = inline {
             self.emit_inline_grow_extend_size(&g, &size_overflow);
+        }
+        // plan-183-D: grow the block where it is when the arena can.
+        {
+            let extend_size = self.temporary_vreg();
+            let extend_cap = self.temporary_vreg();
+            let extend_dcap = self.temporary_vreg();
+            self.emit(abi::move_register(&extend_size, abi::return_register()));
+            self.emit(abi::load_u64(
+                &extend_cap,
+                abi::stack_pointer(),
+                new_cap_slot,
+            ));
+            self.emit(abi::load_u64(
+                &extend_dcap,
+                abi::stack_pointer(),
+                new_dcap_slot,
+            ));
+            let (block_slot, field_off_slot) = match inline {
+                Some(g) => (g.block_slot, Some(g.field_off_slot)),
+                None => (map_slot, None),
+            };
+            self.emit_list_try_extend(
+                &crate::codegen::collection::buffer::extend_in_place::ListExtend {
+                    block_slot,
+                    field_off_slot,
+                    new_size: &extend_size,
+                    new_cap: &extend_cap,
+                    new_dcap: &extend_dcap,
+                    layout: &layout,
+                    element_type: &ParameterType::named(""),
+                    entry_stride: COLLECTION_ENTRY_SIZE,
+                    is_map: true,
+                    prefix: "mapset_grow",
+                },
+                &write,
+            );
+            self.emit(abi::move_register(abi::return_register(), &extend_size));
         }
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();

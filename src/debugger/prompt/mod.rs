@@ -49,7 +49,7 @@ Commands:
   show            Show memory: show mem <where> [<size>]
                   The error a thread has raised and not yet caught: show error [<thread>]
                   An arena's state, regions and free runs: show arena [<id>]
-                  Dump a region (0 small, 1 medium, 2 huge):
+                  Dump a region (0 small, 1 huge, 2 medium):
                     show arena <id> <region> [<offset>] [<size>]
                   An arena value as a type: show type <type> <where> (as show mem)
                   ('show type' alone for the types and their forms)

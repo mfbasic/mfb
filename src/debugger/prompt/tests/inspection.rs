@@ -506,21 +506,21 @@ fn regions_print_their_frontiers_then_the_free_runs() {
             committed: 0x3f_0000,
         },
         Area {
-            name: "medium",
-            address: 0x5000_0000,
-            size: 0x8000,
-            committed: 0x40_0000,
-        },
-        Area {
             name: "huge",
-            address: 0x8e00_0000,
+            address: 0x5000_0000,
             size: 0,
             committed: 0,
+        },
+        Area {
+            name: "medium",
+            address: 0x8e00_0000,
+            size: 0x8000,
+            committed: 0x40_0000,
         },
     ];
     let runs = [FreeRun {
         list: "medium[3]".to_string(),
-        address: 0x5000_1000,
+        address: 0x8e00_1000,
         size: 0x1000,
     }];
     assert_eq!(
@@ -530,16 +530,16 @@ fn regions_print_their_frontiers_then_the_free_runs() {
             "  start             0x0000000040010000",
             "  handedOut         0x0000000000030000",
             "  committed         0x00000000003f0000",
-            "Arena Region (1 medium):",
+            "Arena Region (1 huge):",
             "  start             0x0000000050000000",
-            "  handedOut         0x0000000000008000",
-            "  committed         0x0000000000400000",
-            "Arena Region (2 huge):",
-            "  start             0x000000008e000000",
             "  handedOut         0x0000000000000000",
             "  committed         0x0000000000000000",
+            "Arena Region (2 medium):",
+            "  start             0x000000008e000000",
+            "  handedOut         0x0000000000008000",
+            "  committed         0x0000000000400000",
             "Free Runs: 1",
-            "  medium[3]         0x0000000050001000 0x0000000000001000",
+            "  medium[3]         0x000000008e001000 0x0000000000001000",
         ]
     );
     assert!(
@@ -610,7 +610,7 @@ fn show_arena_parses_its_forms() {
         ),
         (
             "show arena 0 b",
-            "'b' is not a region number (0 small, 1 medium, 2 huge)",
+            "'b' is not a region number (0 small, 1 huge, 2 medium)",
         ),
         ("show arena 0 0 zz", "'zz' is not a number"),
         ("show arena 0 0 0 0 0", "too many arguments to 'show arena'"),

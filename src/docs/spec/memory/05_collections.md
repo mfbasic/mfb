@@ -373,6 +373,27 @@ start at 32, double until 64 KiB, then ×1.5. Either way data grows to at least
 what the operation needs.
 [[src/codegen/collection/buffer/collection_buffer.rs:emit_fixed_width_data_capacity]]
 
+**A grow first tries to extend the block where it is** (plan-183-D). Every in-place
+grow — `append` and its bulk and inline-field forms, `insert`/`prepend`, `repeat`,
+a `Map`/`Set` `set` or reserve, and a `String` self-append — asks `arena_extend` to
+make the block it already has hold the new size. When it can, nothing is copied and
+nothing freed: the header takes the new `capacity` and `dataCapacity`, and when the
+lookup table grew the data region moves up to the base the new capacity puts it at
+(an overlapping copy within the block, highest byte first) and the bytes it left —
+now table slots — are zeroed, so the block reads exactly as a fresh grow would leave
+it. A map's bucket region needs nothing: the index rebuild after every grow zeroes
+and refills it where it now lies. When it cannot, the grow allocates, copies and
+frees as before. The sizes are the same either way, so whether a grow extended is
+not observable. Which blocks can extend is the arena's business
+(`./mfb spec memory arenas`, *`arena_extend`*): in practice a collection past 32 MiB
+grows in place, and a smaller one copies.
+[[src/codegen/collection/buffer/extend_in_place.rs:emit_list_try_extend]]
+
+One grow keeps allocate-copy-free regardless: the variable-width list `set` repack
+(`emit_repack_list_data`). Its copy is the compaction itself, made in entry order,
+which is not data order once a replaced value has gone to the tail, so compacting in
+place would overwrite payloads not yet moved.
+
 Headroom is retained by working buffers and bounded-output builders; ordinary
 value copies tighten the destination:
 

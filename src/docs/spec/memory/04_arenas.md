@@ -13,10 +13,15 @@ in three regions (plan-183-C):
 - **small** — requests of 2048 bytes or less: 64 KiB pages, each serving one of
   128 size classes (16, 32, …, 2048), with each page's slot bitmap in a side
   descriptor;
-- **medium** — larger requests below 32 MiB: chunks carved upward from the
-  region's base, free runs on 64 size-class lists;
+- **medium** — larger requests below 32 MiB: chunks carved downward from the
+  slice top, free runs on 64 size-class lists;
 - **huge** — requests of 32 MiB or more, and any request aligned above 16 bytes:
-  16 KiB-page chunks carved downward from the slice top, free runs on one list.
+  16 KiB-page chunks carved upward from the span base, free runs on one list.
+
+Huge grows up so that the newest huge chunk ends at the huge frontier: a collection
+past 32 MiB grows into the frontier in place (`arena_extend`) instead of being copied,
+which is where copies cost most. A medium chunk is under 32 MiB, so the copy a medium
+collection cannot avoid leaves less than 32 MiB extra live at its peak.
 
 No allocator metadata lives in free memory: run and page bookkeeping is in side
 tables of the slice and in the arena state, so **every byte of an arena that is not
@@ -97,13 +102,13 @@ The scalar block (`ARENA_ALLOC_SCALARS_OFFSET`, offsets `ARENA_SC_*` within it):
   +40   smallCommit   end of the committed small pages
   +48   tableCommit   end of the committed page descriptors
   +56   tags          the run-tag array
-  +64   mediumBase    first byte of medium data (tag block 0)
-  +72   mediumFront   medium frontier: every byte below it was handed out once
-  +80   mediumCommit  end of the committed medium data
-  +88   hugeFront     huge frontier: everything from it to the slice top is huge
-  +96   hugeCommit    start of the committed huge data
-  +104  tagsLow       end of the tag records committed for medium
-  +112  tagsHigh      start of the tag records committed for huge
+  +64   spanBase      first byte of the span: huge data and tag block 0
+  +72   mediumFront   medium frontier: everything from it to the slice top is medium
+  +80   mediumCommit  start of the committed medium data
+  +88   hugeFront     huge frontier: every byte below it was handed out once
+  +96   hugeCommit    end of the committed huge data
+  +104  tagsLow       end of the tag records committed for huge
+  +112  tagsHigh      start of the tag records committed for medium
   +120  nodes         the run-node pool
   +128  nodeNext      next never-used node index (index 0 is never used)
   +136  nodeLimit     how many nodes the pool holds
@@ -146,7 +151,7 @@ An arena's slice is `[base, base + S)`, `S` the reservation's slice size (at lea
 [[src/codegen/memory/arena/arena/layout.rs:lower_arena_geometry]]
 
 ```text
-| small: S/8                    | tags | nodes | medium → grows up   ...   grows down ← huge |
+| small: S/8                    | tags | nodes | huge → grows up   ...   grows down ← medium |
 | descriptors | 64 KiB pages    |  side        |                                            |
 ```
 
@@ -157,17 +162,16 @@ An arena's slice is `[base, base + S)`, `S` the reservation's slice size (at lea
   free slot, next/prev = the page's class-list links) and a 512-byte slot bitmap at
   +64 whose bit is 1 while the slot is handed out. Bits past the last slot are set.
 - **Run tags**: one 16-byte record `{start, end}` per 2 KiB block of the rest of
-  the slice, indexed by `(address - mediumBase) >> 11`. `start` describes what
+  the slice, indexed by `(address - spanBase) >> 11`. `start` describes what
   begins in the block — an allocated chunk, `size | (address >> 4 & 127) << 48 |
-  1` (bits 55–63 zero; bit 55 is reserved for a huge chunk's growth headroom, and
-  every reader masks bits 55 and up away), or a free run, `node << 2 | 2` — and `end` names the free run whose last byte
+  1` (bits 55–63 zero, and every reader masks them away), or a free run, `node << 2 | 2` — and `end` names the free run whose last byte
   lies in the block. Every medium and huge chunk and free run is longer than 2 KiB
   (a remainder shorter than the region's minimum run stays in the chunk it was cut
   from), so at most one thing starts, and at most one free run ends, in any block.
 - **Run nodes**: half as many 32-byte nodes `{start, size, next, prev}` as there
   are blocks, the most free runs the span can hold.
-- **Medium** data begins at the next 4 MiB boundary and grows up; **huge** data
-  grows down from the slice top. Each region commits on demand — data in 4 MiB
+- **Huge** data begins at the next 4 MiB boundary (`spanBase`) and grows up;
+  **medium** data grows down from the slice top. Each region commits on demand — data in 4 MiB
   steps, side structures in 64 KiB granules (`_mfb_arena_commit`) — and a region
   never commits into the other's committed range.
 
@@ -200,11 +204,11 @@ register.
    16 runs of the size's class (an exact size at once), else the head of the next
    non-empty higher class, every run of which is larger; the run's low end becomes
    the chunk and the rest stays a run (a rest under 2064 bytes stays in the chunk).
-   With no run, the chunk is carved at `mediumFront`, committing data and tag records
-   as needed; it may not reach `hugeFront`. [[src/codegen/memory/arena/arena/span.rs:lower_arena_span_alloc]]
+   With no run, the chunk is carved down from `mediumFront`, committing data and tag
+   records as needed; it may not reach `hugeFront`. [[src/codegen/memory/arena/arena/span.rs:lower_arena_span_alloc]]
 6. **Huge** (`size ≥ 32 MiB`, or `align > 16`): `size` is rounded up to 16 KiB;
    the best fit among the first 64 runs of the huge list, its low end taken (a rest
-   under 16 KiB stays in the chunk), else a chunk carved down from `hugeFront`,
+   under 16 KiB stays in the chunk), else a chunk carved up from `hugeFront`,
    committing as needed; it may not reach `mediumFront`. Huge chunks are 16 KiB
    aligned, which is how an alignment above 16 is honoured.
 7. The chunk's start record gets its tag. Failure anywhere — the small region full,
@@ -289,6 +293,31 @@ into a chunk or a free run, an address outside the arena's slice, a free before 
 arena ever allocated — changes nothing (counted as `double_free_skips` in a
 `--debug` build). The `size` is supplied by the compiler's type-directed drop glue;
 there is no user-level free operation.
+
+## `arena_extend(ptr, old_size, new_size)`
+
+`arena_extend` (symbol `_mfb_arena_extend`, plan-183-D) asks the chunk at `ptr`,
+allocated or last extended with `old_size`, to hold `new_size` bytes **without
+moving**. It returns 1 when it does and 0 when it cannot — the caller then
+allocates, copies and frees — and clobbers every caller-saved register. Both sizes
+are normalized as `arena_alloc` normalizes them; a `new_size` no larger than
+`old_size` answers 1 at once. [[src/codegen/memory/arena/arena/extend.rs:lower_arena_extend]]
+
+- **Small**: only within its slot — a size its class already holds.
+- **Medium**: into the free run that starts at the chunk's end; the medium region
+  grows down, so nothing else lies above a medium chunk. A request of 32 MiB or more
+  answers 0: the caller's allocation moves the chunk into the huge region once.
+- **Huge**: into the free run above it, and on into the huge frontier when the chunk
+  — or that run — ends there, committing data and tag records as the frontier
+  advances; it may not reach `mediumFront`. The huge region grows up, so the newest
+  huge chunk can always grow until the regions meet.
+
+The bytes the chunk gains read zero, as `arena_alloc`'s do: a free run was zeroed when
+freed and a fresh commit is the OS's zero pages. A run is taken from its low end and
+its rest stays a run (a rest under the region's minimum run joins the chunk); the
+chunk's start record takes its new size, so the free that follows returns all of it.
+In a `--debug` build every call counts in `extend_calls`, every 1 in `extend_hits`,
+and a growth adds `new_size - old_size` to `live_bytes`.
 
 ## Zero Fill
 

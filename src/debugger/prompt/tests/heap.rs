@@ -12,8 +12,8 @@ use crate::codegen::debug::arena::{
 };
 use crate::codegen::error::constants::error_constants::{
     ARENA_ALLOC_SCALARS_OFFSET, ARENA_CURRENT_ERROR_OFFSET, ARENA_SC_COMMITTED,
-    ARENA_SC_HUGE_COMMIT, ARENA_SC_HUGE_FRONT, ARENA_SC_MEDIUM_BASE, ARENA_SC_MEDIUM_COMMIT,
-    ARENA_SC_MEDIUM_FRONT, ARENA_SC_SLICE_TOP, ARENA_SC_SMALL_COMMIT, ARENA_SC_SMALL_PAGES,
+    ARENA_SC_HUGE_COMMIT, ARENA_SC_HUGE_FRONT, ARENA_SC_MEDIUM_COMMIT, ARENA_SC_MEDIUM_FRONT,
+    ARENA_SC_SLICE_TOP, ARENA_SC_SMALL_COMMIT, ARENA_SC_SMALL_PAGES, ARENA_SC_SPAN_BASE,
 };
 use crate::debugger::{Ending, FunctionRange, Step};
 
@@ -80,7 +80,8 @@ impl Heap {
 
     /// A `--debug` registry holding the main arena, laid out with `BLOCK_BYTES`
     /// handed out in its medium region (bytes counting up from 0) and nothing in
-    /// the small or huge region (plan-183-C).
+    /// the small or huge region (plan-183-C). The medium region grows down to its
+    /// front from the slice top (plan-183-D), so the block is the whole of it.
     fn with_main_arena(&mut self) {
         self.symbols
             .insert(ARENA_BASE_SYMBOL.to_string(), REGISTRY_GLOBAL);
@@ -100,12 +101,12 @@ impl Heap {
         for (offset, value) in [
             (ARENA_SC_SMALL_PAGES, 0x1000_0000),
             (ARENA_SC_SMALL_COMMIT, 0x1000_0000),
-            (ARENA_SC_MEDIUM_BASE, BLOCK),
-            (ARENA_SC_MEDIUM_FRONT, BLOCK + BLOCK_BYTES),
-            (ARENA_SC_MEDIUM_COMMIT, BLOCK + 0x1_0000),
-            (ARENA_SC_HUGE_FRONT, 0x3000_0000),
-            (ARENA_SC_HUGE_COMMIT, 0x3000_0000),
-            (ARENA_SC_SLICE_TOP, 0x3000_0000),
+            (ARENA_SC_SPAN_BASE, 0x20_0000),
+            (ARENA_SC_HUGE_FRONT, 0x20_0000),
+            (ARENA_SC_HUGE_COMMIT, 0x20_0000),
+            (ARENA_SC_MEDIUM_FRONT, BLOCK),
+            (ARENA_SC_MEDIUM_COMMIT, BLOCK + BLOCK_BYTES - 0x1_0000),
+            (ARENA_SC_SLICE_TOP, BLOCK + BLOCK_BYTES),
             (ARENA_SC_COMMITTED, 0x400),
         ] {
             self.put(scalar(offset), value);
@@ -295,7 +296,7 @@ fn show_arena_shows_its_state_and_regions_and_dumps_a_region() {
     assert_eq!(lines[0], "Arena State:");
     let region = lines
         .iter()
-        .position(|line| *line == "Arena Region (1 medium):")
+        .position(|line| *line == "Arena Region (2 medium):")
         .unwrap();
     assert_eq!(
         lines[region + 1..region + 4],
@@ -306,13 +307,13 @@ fn show_arena_shows_its_state_and_regions_and_dumps_a_region() {
         ]
     );
     assert!(lines.contains(&"Free Runs: 0"));
-    // A dump of 0x10 bytes from offset 0x30 of region 1, the medium one.
-    let (out, err) = session_over(&mut heap, "show arena 0 1 0x30 0x10\nq\n");
+    // A dump of 0x10 bytes from offset 0x30 of region 2, the medium one.
+    let (out, err) = session_over(&mut heap, "show arena 0 2 0x30 0x10\nq\n");
     assert_eq!(err, "");
     assert_eq!(
         out.lines().take(2).collect::<Vec<_>>(),
         [
-            "Arena Region (0,1 medium):",
+            "Arena Region (0,2 medium):",
             "0x0000_0030 30 31 32 33 34 35 36 37 38 39 3a 3b 3c 3d 3e 3f | 0 1 2 3 4 5 6 7 8 9 : ; < = > ?",
         ]
     );
@@ -325,12 +326,12 @@ fn show_arena_refuses_an_arena_or_dump_that_is_not_there() {
     heap.with_main_arena();
     let (_, err) = session_over(
         &mut heap,
-        "show arena 3\nshow arena 0 5\nshow arena 0 1 0 0\nshow arena 0 1 0xf8 0x10\nq\n",
+        "show arena 3\nshow arena 0 5\nshow arena 0 2 0 0\nshow arena 0 2 0xf8 0x10\nq\n",
     );
     assert_eq!(
         err,
         "error: no arena 3; type 'list arena' for the arenas\n\
-         error: arena 0 has 3 regions: 0 small, 1 medium, 2 huge\n\
+         error: arena 0 has 3 regions: 0 small, 1 huge, 2 medium\n\
          error: a dump needs a size of 1 or more bytes\n\
          error: offset 0xf8 + size 0x10 runs past the end of the medium region's 0x100 \
          handed-out bytes\n"
