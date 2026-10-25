@@ -35,11 +35,11 @@ peaked at old plus new, 1.78 GB.
 - [x] `05_collections.md` growth section; `.ai/collections.md` note.
 - [x] Test: new `tests/runtime/rt_arena_grow_in_place.rs` — append 41 records, each holding a 1.6 MiB `List OF Float`, one at a time. Assert `peak_live ≤ final_live + one record + 1 MiB` and `extend_hits ≥ 30`. Both bounds corrected (Corrections 2): one tier crossing, ≥ 1 extend, `peak ≤ final + two records + 1 MiB` (measured final 82,076,848 B, peak 85,276,960 B; before D the peak was 138,394,832 B). Plus the huge-tier case (Corrections 3): one `List OF Float` appended to 2^25 elements — one crossing, ≥ 5 extend hits, `peak ≤ final + 4 MiB` (measured peak 310,282,496 B = the final capacity; before D 517,137,296 B).
 
-- [ ] Added (from Validation): the goldens — full gate, full `test-accept.sh` with no `.run`/`build.log` change, `regen-native-goldens.sh`, gate back to 0.
+- [x] Added (from Validation): the goldens — full gate, full `test-accept.sh` with no `.run`/`build.log` change, `regen-native-goldens.sh`, gate back to 0. `scripts/artifact-gate.sh target/release/mfb all` → 166 diffs, all `.ncode`/`.mir` (`parser_hello_world` MIR: `_mfb_arena_extend` added; `_geometry`, `_medium_alloc`, `_huge_alloc`, `_span_free` changed; `_mfb_rt_park_error` vreg numbering only); `scripts/test-accept.sh target/release/mfb` → 1756 ran, 9 mismatches, all native dumps; `regen-native-goldens.sh` → 230 rewritten, 0 failures; gate → 0 diffs over 2384 goldens.
 
 Acceptance: `cargo test --test rt_arena_grow_in_place --test inplace_self_update_census` passes on macOS, 2223 and the Windows box (est. 3 min each).
 Measured 2026-10-24: macOS 2 binaries, 5 passed; with `rt_arena_regions` and `rt_arena_zeroing` added (the flip moves both regions), box 2226 (for 2223) 4 binaries 9 passed, Windows box 9 passed, box 2229 (riscv64) 9 passed, box 2227 (x86_64) 9 passed.
-Commit: —
+Commit: 974e566a3 (goldens in the commit after it)
 
 ## Validation
 
