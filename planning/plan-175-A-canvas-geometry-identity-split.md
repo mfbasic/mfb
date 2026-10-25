@@ -615,7 +615,21 @@ Acceptance: frames are byte-identical to the base on Metal, box 2226 and box 206
   and `--target linux-aarch64 --keep <dir>` against the base compiler's `--keep`: every
   `*-gpu.rgba` equal by `cmp`.
   Check: `tools/canvas-bench/bench.sh <mfb> dots 60000 5` → `builds/frame=60000`.
-Commit: —
+
+**MET 2026-10-25**, against the base compiler at `2f281c5e7` (a detached worktree):
+- the five suites → autopaint 23, damage 12, geo_native 4, hit 15, metal 74 passed;
+- `scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64 --keep` and
+  `--target linux-aarch64 --keep`, base and Phase 1 → box 206 and box 2226 each 124
+  kept frames (62 render rows, software and GPU) equal by `cmp`, `generations=` equal
+  on all 66 rows, 256 `ok:` and no `FAIL` either way;
+- Metal: the same 62 render rows drawn headless on this Mac's GPU with both compilers
+  (`MFB_CANVAS_GPU=1 MFB_CANVAS_GEO_VERIFY=1 MFB_CANVAS_SYNC=1`, a one-off probe of the
+  script's row list) → 62 GPU frames equal by `cmp`, every row's `gpuFrames`,
+  `generations` and `geoVerifyMismatches=0` equal. (`benchmark/canvas`, which would
+  have been the Metal check, needs a live display, which this session has not: its first
+  row stops with `gpuFrames=0 of frames=120`.)
+- `tools/canvas-bench/bench.sh target/release/mfb dots 60000 5` → `builds/frame=60000`.
+Commit: 6d98d7e3c
 
 ### Phase 2 — The cache keyed by `G`; native refresh for solid paints
 
@@ -935,6 +949,31 @@ correction is added here, dated, with the command that showed it.
      paints differing only in appearance have one `G`" and "each geometry predicate
      changes `G`" are asserted in Phase 2 through `generations=` and `refreshes=`, where
      they are the behaviour (Phase 2's test task lists each).
+5. 2026-10-25, Phase 2: four corrections to §4.3, none to its effect.
+   - **The slot's damage identity is a parallel list, not a fifth slot word.** Slots
+     are indexed `slot << 2` / `slot * 4` in the native table, the compaction, the
+     resolve and five MFBASIC readers (`__canvas_geoStamp`, `__canvas_geometryOf`, the
+     picture lookups, the hit path, the stats line's `entries=`). `__CANVAS_GEO_DRAWS`
+     holds one word a slot in slot order, appended by `emit_add_slot` and moved by the
+     compaction with its slot; nothing that reads a slot changes.
+   - **Branch 4's second key is `D` itself**, not a new `mix(G, A)`: `D` already is that
+     mix, and it never equals a `G` but by a 62-bit collision.
+   - **The native refresh is the native build, into the record's own floats**
+     (`emit_fill_record` at the slot's offset), not `emit_paint_header`'s appearance
+     half. §2.3's cost was the churn (allocation, insert, a compaction a frame), not
+     the ~27 stores of a circle's build, and a record written by the builder itself is
+     bit-identical to a fresh build by construction — the one property §3 names as the
+     risk. Measured: Phase 2's acceptance row below. The MFBASIC path does the same
+     (`canvas::geoRefresh` writes the builders' fresh record over the slot's floats),
+     which is §4.3's "rebuild in place".
+   - **Pictures and tiles go through the same protocol** (`__canvas_pictureCachedOf`,
+     replacing `__canvas_pictureCached`): keyed by `G` (stepped by
+     `__canvas_pictureKey`), holding `D` (stepped the same way), with the pixel block
+     confirmed before a hit is trusted, and a stale-pixel or recoloured record rebuilt
+     in place. The keys handed to `__canvas_noteEntry` stay the `D` ones, so a tint
+     change still damages. A picture on an `AutoPaint` keeps `G = D` (§4.6). This is
+     §4.6's design landing with Phase 2 rather than waiting for Phase 3, because the
+     picture walk calls the same lookup.
 
 ## Summary
 
