@@ -895,3 +895,58 @@ fn auto_wait_frame_is_not_cut_short_by_a_window_ending() {
         lines.join("\n")
     );
 }
+
+/// plan-175-A Phase 5, R13 and R15 for the in-place group walk: a `setGroup` landing
+/// while a frame holds the group draws, in that frame, what the frame resolved — and the
+/// next frame draws the replacement.
+///
+/// The walk reads a slot's items block where it is (`canvas::groupItemsBlock`) and files
+/// the children's identities under the slot's revision and that block. The held frame
+/// must keep drawing the block it took: the displaced one is retired, not freed, until a
+/// frame completes (`.ai/canvas-threading.md` §13). The next frame must see the new
+/// revision, take the new block, and not reuse the identities of the old: `wide` differs
+/// from `box` in both colour and size, so a stale identity shows in either pixel.
+const GROUP_HELD: &str = "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+     LET wide AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+     canvas::setGroup(\"panel\", [box])\n  \
+     LET node AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := 300.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n  \
+     canvas::present([node, mark])\n  os::sleep(120)\n  canvas::setGroup(\"panel\", [wide])\n  os::sleep(1200)\n";
+
+#[test]
+fn a_group_replaced_while_a_frame_holds_it_draws_what_the_frame_resolved() {
+    let hold = [("MFB_CANVAS_FRAME_HOLD_MS", "600")];
+    let held = picture_frame("canvas_group_held", GROUP_HELD, &hold);
+    assert_eq!(
+        rgba_at(&held, 320, 320),
+        (0, 0, 255, 255),
+        "the frame already holding the group must draw the items it resolved, not the \
+         replacement that landed during the hold"
+    );
+    assert_eq!(
+        rgba_at(&held, 380, 380),
+        (0, 0, 0, 255),
+        "the held frame drew the replacement's extent"
+    );
+    assert_eq!(
+        rgba_at(&held, 700, 500),
+        (255, 0, 0, 255),
+        "the rest of the frame was lost"
+    );
+
+    let next = picture_frame(
+        "canvas_group_held_next",
+        &format!("{GROUP_HELD}  canvas::present([node, mark])\n  os::sleep(1200)\n"),
+        &hold,
+    );
+    assert_eq!(
+        rgba_at(&next, 320, 320),
+        (255, 255, 0, 255),
+        "the frame after the replacement drew the old group: its children's identities \
+         were reused across the revision"
+    );
+    assert_eq!(
+        rgba_at(&next, 380, 380),
+        (255, 255, 0, 255),
+        "the replacement drew at the old size"
+    );
+}

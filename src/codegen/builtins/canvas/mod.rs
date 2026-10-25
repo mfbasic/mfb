@@ -54,6 +54,7 @@ mod func_get_bytes;
 mod func_get_frame_stats;
 mod func_get_size;
 mod func_graphics;
+mod func_group_block;
 mod func_group_stats;
 mod func_handle_bridge;
 mod func_installed_items;
@@ -367,6 +368,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_set_group::register(&mut pkg);
     func_remove_group::register(&mut pkg);
     func_group_stats::register(&mut pkg);
+    func_group_block::register(&mut pkg);
     func_publish_scene::register(&mut pkg);
     func_blit_surface::register(&mut pkg);
     func_metal_draw::register(&mut pkg);

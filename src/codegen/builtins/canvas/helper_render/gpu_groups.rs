@@ -104,6 +104,65 @@ MUT __CANVAS_DRAW_HASHES AS List OF Integer = []
 
 LET __CANVAS_GROUP_MAX_DEPTH AS Integer = 64
 
+' plan-175-A Phase 5: per group slot, its children's identities -- every child's `D`,
+' then every child's `G`, as the published hash list lays out a scene -- and the
+' revision and items block they were computed from. Graphics-thread globals (section 2:
+' arena state is per thread). A slot's revision only ever grows (`setGroup` is its one
+' writer, `+ 1`), so a slot emptied and filled again never matches an old entry, and
+' nothing has to clear one when the worker frees a group buffer.
+MUT __CANVAS_GROUP_HASH_REV AS List OF Integer = []
+MUT __CANVAS_GROUP_HASH_BLOCK AS List OF Integer = []
+MUT __CANVAS_GROUP_HASHES AS List OF List OF Integer = []
+' The revision `__canvas_groupBlock` read the block under, for `__canvas_groupHashes`.
+MUT __CANVAS_GROUP_BLOCK_REV AS Integer = 0
+' The item `canvas::groupBlockItem` answers for an index past the block -- never one a
+' walk asks for, since every walk stops at the block's count. One value, made once,
+' rather than a `__canvas_noItem()` per node.
+MUT __CANVAS_BLOCK_NONE AS DrawItem = Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := ""]
+
+' A group slot's items block, read AFTER its revision, so the block is at least as new
+' as the revision `__canvas_groupHashes` files its identities under.
+FUNC __canvas_groupBlock(slot AS Integer) AS Integer
+  __CANVAS_GROUP_BLOCK_REV = canvas::groupRevision(slot)
+  RETURN canvas::groupItemsBlock(slot)
+END FUNC
+
+' The identities of the children in `block`, the items block of group `slot` as
+' `__canvas_groupBlock` just read it: from the slot's cache when it holds that revision
+' and that block, else computed -- one `__canvas_geoHash` and one `__canvas_drawHashOf` a
+' child -- and kept.
+FUNC __canvas_groupHashes(slot AS Integer, block AS Integer) AS List OF Integer
+  LET rev AS Integer = __CANVAS_GROUP_BLOCK_REV
+  WHILE len(__CANVAS_GROUP_HASH_REV) <= slot
+    __CANVAS_GROUP_HASH_REV = collections::append(__CANVAS_GROUP_HASH_REV, 0 - 1)
+    __CANVAS_GROUP_HASH_BLOCK = collections::append(__CANVAS_GROUP_HASH_BLOCK, 0)
+    LET empty AS List OF Integer = []
+    __CANVAS_GROUP_HASHES = collections::append(__CANVAS_GROUP_HASHES, empty)
+  END WHILE
+  IF slot >= 0 AND collections::getOr(__CANVAS_GROUP_HASH_REV, slot, 0 - 1) = rev AND collections::getOr(__CANVAS_GROUP_HASH_BLOCK, slot, 0) = block THEN
+    LET none AS List OF Integer = []
+    RETURN collections::getOr(__CANVAS_GROUP_HASHES, slot, none)
+  END IF
+  LET n AS Integer = canvas::groupBlockCount(block)
+  MUT draws AS List OF Integer = []
+  MUT geos AS List OF Integer = []
+  MUT k AS Integer = 0
+  WHILE k < n
+    LET child AS DrawItem = canvas::groupBlockItem(block, k, __CANVAS_BLOCK_NONE)
+    LET geo AS Integer = __canvas_geoHash(child)
+    draws = collections::append(draws, __canvas_drawHashOf(child, geo))
+    geos = collections::append(geos, geo)
+    k = k + 1
+  END WHILE
+  LET out AS List OF Integer = collections::append(draws, geos)
+  IF slot >= 0 THEN
+    __CANVAS_GROUP_HASH_REV = collections::set(__CANVAS_GROUP_HASH_REV, slot, rev)
+    __CANVAS_GROUP_HASH_BLOCK = collections::set(__CANVAS_GROUP_HASH_BLOCK, slot, block)
+    __CANVAS_GROUP_HASHES = collections::set(__CANVAS_GROUP_HASHES, slot, out)
+  END IF
+  RETURN out
+END FUNC
+
 ' One draw entry, or a whole group's worth of them.
 '
 ' The recursion section 4.4 describes, done where the draw list is built rather than as
@@ -149,12 +208,18 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
       LET childY AS Float = __CANVAS_COMPOSED_Y
       LET slot AS Integer = canvas::groupResolve(g.name)
       LET childPath AS Integer = __canvas_autoPath(path, index, slot)
+      ' plan-175-A Phase 5: the children read where they are, through the slot's items
+      ' block taken once for this node, and their identities from the slot's cache --
+      ' computed once per `setGroup` of the group, not once per node per frame.
+      LET block AS Integer = __canvas_groupBlock(slot)
+      LET hashes AS List OF Integer = __canvas_groupHashes(slot, block)
+      LET n AS Integer = canvas::groupBlockCount(block)
       MUT k AS Integer = 0
-      FOR EACH child IN canvas::groupItems(slot)
-        LET childGeo AS Integer = __canvas_geoHash(child)
-        out = __canvas_appendDraw(out, child, __canvas_drawHashOf(child, childGeo), childGeo, childX, childY, childMat, depth + 1, childPath, k)
+      WHILE k < n
+        LET child AS DrawItem = canvas::groupBlockItem(block, k, __CANVAS_BLOCK_NONE)
+        out = __canvas_appendDraw(out, child, collections::getOr(hashes, k, 0), collections::getOr(hashes, n + k, 0), childX, childY, childMat, depth + 1, childPath, k)
         k = k + 1
-      NEXT
+      END WHILE
       RETURN out
     ' plan-172-K: an `AutoPaint` draws its shape, and is noted as an instance at this
     ' place for the frame's resolve (`helper_autopaint.rs`). The entry appended here is

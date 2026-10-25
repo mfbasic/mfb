@@ -1593,7 +1593,7 @@ kept as a translation and, only when some node on the path has a transform in ef
   gradient;
 * a draw entry's hash folds in the linear part when it has one, so a group turned in
   place — no geometry and no translation changed — is repainted.
-  [[tests/canvas/rt_canvas_damage.rs:turning_a_group_repaints_and_matches_a_full_redraw]]
+  [[tests/canvas/rt_canvas_damage_groups.rs:turning_a_group_repaints_and_matches_a_full_redraw]]
 
 A composed linear part with no area (`|det| < 1e-12`, reached only by scaling something
 out of existence through several nodes) draws nothing: the node and everything under it

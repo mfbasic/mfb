@@ -740,7 +740,7 @@ clean; a case not implemented is recorded here with its measured cost.
 `rt_canvas_font` 61, `rt_canvas_golden` 28, `rt_canvas_picture` 16 passed;
 `rt_canvas_geo_native` 8 passed (its repaint scene's ramped circle, ellipse and turned
 rectangle take the new path).
-Commit: —
+Commit: e0142e34a
 
 ### Phase 4 — The worker's hit cache keyed by `G`
 
@@ -759,22 +759,40 @@ Acceptance: a paint-only frame builds nothing on the worker; `overID` is unchang
 rebuilt), where the base compiler took 17,463 against 11,758 — a paint-only frame costs
 the worker what one changed item does, so it builds nothing; `overID` `[i484]` on every
 row, 60 events each.
-Commit: —
+Commit: 6c96fa40e
 
 ### Phase 5 — The group walk: children hashed once per revision, no list per node
 
 Depends on Phase 2 (the walk hashes `(G, A)` and resolves through §4.3).
 
-- [ ] `helper_render.rs:__canvas_appendDraw`, `Group` arm: the per-slot child-hash table
-      of §4.8, read while `canvas::groupRevision(slot)` matches; children walked through
-      `canvas::groupItemAt` with no list copied.
-- [ ] `canvas::groupItemAt(slot, k)` (native, beside `canvas::groupItems`), and the
-      table's entry cleared where §13's drain frees a group buffer.
-- [ ] `tests/canvas/rt_canvas_damage.rs` and `rt_canvas_graphics_thread.rs`: a
+- [x] `helper_render/gpu_groups.rs:__canvas_appendDraw`, `Group` arm: the per-slot
+      child-hash table of §4.8 (`__canvas_groupHashes`: every child's `D`, then every
+      `G`), read while the slot's revision AND items block both match; children walked
+      in place with no list copied. `gpu_draw_list.rs:__canvas_memoGroup` reads the same
+      table and block, and `__canvas_drawGroup` copies out only the nested `Group`
+      children (`canvas::groupBlockIsGroup`, a tag test). Correction 7.
+- [x] ~~`canvas::groupItemAt(slot, k)`~~ `canvas::groupItemsBlock(slot)`,
+      `groupBlockCount(block)`, `groupBlockItem(block, k, none)` and
+      `groupBlockIsGroup(block, k)` (native, `func_group_block.rs`, beside
+      `canvas::groupItems`) — Correction 7.
+- [x] ~~the table's entry cleared where §13's drain frees a group buffer~~ — moot: a
+      slot's `CANVAS_GROUP_REVISION` has one writer, `gen_group.rs`'s `setGroup`
+      lowering (`load`, `+ 1`, `store`; `grep -rn CANVAS_GROUP_REVISION src/` → that
+      store, the `groupRevision` read and a layout test), and `removeGroup` zeroes only
+      the name (`store_u64(&zero, &found, CANVAS_GROUP_NAME)`), so a slot refilled after
+      a drain carries a revision no entry was filed under. The entry is also keyed by the
+      block address, so even a revision collision would need the same block.
+- [x] `tests/canvas/rt_canvas_damage.rs` and `rt_canvas_graphics_thread.rs`: a
       `setGroup` that changes one child's paint and another's geometry redraws both,
       under `MFB_CANVAS_GEO_VERIFY=1` and under `MFB_CANVAS_DAMAGE=1`; a group replaced
       while a frame holds it (R13 to R15 of `.ai/canvas-threading.md` §8) still draws
       what it resolved.
+      `rt_canvas_damage_groups.rs:a_set_group_changing_one_childs_paint_and_anothers_geometry_redraws_both`
+      (damage on and off, byte-equal, `geoVerifyMismatches=0`, and on Metal) and
+      `a_group_replaced_while_a_frame_holds_it_draws_what_the_frame_resolved` (the held
+      frame draws the old block, the next the new) → both pass. With the table's key
+      cut to "any entry" (revision and block ignored), the first FAILS
+      (`panicked at tests/canvas/rt_canvas_damage.rs:1195`, inside its `check`, before the split).
 
 Acceptance: no pixel moves; the group row allocates less and walks faster.
   Check: `cargo test --release --test rt_canvas_geo_native --test rt_canvas_damage
@@ -785,6 +803,20 @@ Acceptance: no pixel moves; the group row allocates less and walks faster.
   Check: `perf.mfb_alloc.count` from the `--debug` report of a 120-frame
   `KIND=group COUNT=10000` run of `benchmark/canvas/mfb`,
   before and after, recorded here.
+
+**MET 2026-10-25**, against the base compiler at `e0142e34a` (a detached worktree):
+- the four suites → damage 14 (now 15), geo_native 8, graphics_thread 20 (now 21),
+  group_ownership 19 passed, before the two new tests; the new tests pass on their own;
+- the `group fill 10000` row, headless on Metal (Correction 7), five interleaved runs
+  each: walk 15.017, 13.504, 13.769, 13.547, 13.547 ms a frame at the base (median
+  13.55) against 12.752, 12.658, 12.735, 12.821, 15.650 (median 12.75), so below both
+  the base and the baseline's 14.1; the frame hash `d9a59c34efd34ce3` on every run of
+  both compilers; 120 GPU frames each;
+- `perf.mfb_alloc.count` 349,089 → 344,092 (`perf.mfb_free.count` 348,911 → 353,908).
+  The graphics arena's allocation calls are unchanged (14,438,551 → 14,438,686): the
+  list copy per node is gone, but each child is still copied out of the block once per
+  node (`canvas::groupBlockItem`), which is one allocation where the list copy was
+  one. The bytes it scrubs on free fall 5.87 GB → 4.24 GB over the run.
 Commit: —
 
 ### Phase 6 — The picture walk: one confirmation per image per frame
@@ -1072,6 +1104,31 @@ correction is added here, dated, with the command that showed it.
      change still damages. A picture on an `AutoPaint` keeps `G = D` (§4.6). This is
      §4.6's design landing with Phase 2 rather than waiting for Phase 3, because the
      picture walk calls the same lookup.
+7. 2026-10-25, Phase 5: two corrections to §4.8 and one to the Phase 5 checks.
+   - **`canvas::groupItemAt(slot, k)` would read two lists in one node.** Read by slot,
+     each `k` re-reads the slot's items pointer, so a `setGroup` landing between child
+     2 and child 3 of one node hands the node the old list's head and the new list's
+     tail, filed under whichever revision was read. The walk instead takes the slot's
+     block ONCE per node (`canvas::groupItemsBlock`, after `canvas::groupRevision`) and
+     reads children from that block (`canvas::groupBlockCount`,
+     `canvas::groupBlockItem`); the cache entry is keyed by the revision AND the block,
+     so an entry filed while a replacement raced the two reads is never reused against
+     the other block. The block is safe to hold for the frame for §13's reason — a
+     displaced block is retired, not freed, until a frame completes.
+   - **The first cut was slower than the copy it replaced** (28.6 against 15.0 ms
+     walk): a `__canvas_noItem()` default built per node, and `__canvas_drawGroup`
+     copying out every child only to skip the non-groups. One shared default
+     (`__CANVAS_BLOCK_NONE`) and a tag test (`canvas::groupBlockIsGroup`) fixed both.
+   - **`benchmark/canvas/run.sh` cannot run here**: its rows are windowed and
+     display-synced ("attended, every window unobstructed", `baseline/README.md`), and
+     this session has no display. The check is made with a headless probe of the same
+     program instead (`benchmark/canvas/mfb`, `--debug`, `MFB_HEADLESS=1
+     MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 KIND=group COUNT=10000 SIZE=small`, Metal),
+     base compiler and Phase 5 alike: the walk is `phaseOffsetsMs + phaseDrawsMs` a
+     frame over frames 3–120, the frame hash is the sha256 of a 2-frame run's dump (as
+     `run.sh` makes its `.sums`), and the allocation counts come from the 120-frame
+     run's `--debug` report. The baseline's 14.1 ms is a windowed number and is not
+     comparable to the probe's; the base-compiler comparison is the one that holds.
 
 ## Summary
 

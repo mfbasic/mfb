@@ -304,7 +304,15 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
 
   MUT count AS Integer = 0
   MUT k AS Integer = 0
-  FOR EACH child IN canvas::groupItems(slot)
+  ' plan-175-A Phase 5: the children in place and their identities from the slot's cache
+  ' (`__canvas_groupHashes`), as `__canvas_appendDraw` reads them.
+  LET block AS Integer = __canvas_groupBlock(slot)
+  LET childHashes AS List OF Integer = __canvas_groupHashes(slot, block)
+  LET n AS Integer = canvas::groupBlockCount(block)
+  WHILE k < n
+    LET child AS DrawItem = canvas::groupBlockItem(block, k, __CANVAS_BLOCK_NONE)
+    LET childD AS Integer = collections::getOr(childHashes, k, 0)
+    LET childG AS Integer = collections::getOr(childHashes, n + k, 0)
     MATCH child
       CASE Group(g)
         ' A nested group is NOT part of this group's own run -- it gets its own memoised
@@ -314,7 +322,7 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
       ' use of the group is showing, the record the frame's resolve put in the draw
       ' entries, so the two walks name one record.
       CASE AutoPaint(a)
-        LET autoOffset AS Integer = __canvas_autoBlock(a, __canvas_hashItem(child), path, k)
+        LET autoOffset AS Integer = __canvas_autoBlock(a, childD, path, k)
         __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, autoOffset)
         __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(autoOffset)
@@ -322,8 +330,7 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
       ' plan-172-L: a `Picture` child is a block for each record it draws from -- the
       ' ones `__canvas_pictureAppend` made its entries of.
       CASE Picture(pic)
-        LET picGeo AS Integer = __canvas_geoHash(child)
-        LET picBlocks AS List OF Integer = __canvas_pictureBlocks(pic, picGeo, __canvas_drawHashOf(child, picGeo), path, k)
+        LET picBlocks AS List OF Integer = __canvas_pictureBlocks(pic, childG, childD, path, k)
         MUT b AS Integer = 0
         WHILE b + 1 < len(picBlocks)
           __canvas_pushBlock(collections::getOr(picBlocks, b, 0))
@@ -334,15 +341,14 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
       CASE ParticleSystem(ps)
         count = count + __canvas_particleBlocks(ps)
       CASE ELSE
-        LET childGeo AS Integer = __canvas_geoHash(child)
-        LET childOffset AS Integer = __canvas_geometryOf(child, childGeo, __canvas_drawHashOf(child, childGeo))
+        LET childOffset AS Integer = __canvas_geometryOf(child, childG, childD)
         __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, childOffset)
         __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(childOffset)
         count = count + 1
     END MATCH
     k = k + 1
-  NEXT
+  END WHILE
   __CANVAS_DRAW_MEMO_COUNT = collections::set(__CANVAS_DRAW_MEMO_COUNT, row, count)
   RETURN row
 END FUNC
@@ -356,25 +362,30 @@ FUNC __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float
   LET row AS Integer = __canvas_memoGroup(slot, hashes, depth, path)
   __canvas_pushDraw(collections::getOr(__CANVAS_DRAW_MEMO_BASE, row, 0), collections::getOr(__CANVAS_DRAW_MEMO_COUNT, row, 0), gdx, gdy, mat)
   MUT k AS Integer = 0
-  FOR EACH child IN canvas::groupItems(slot)
-    MATCH child
-      CASE Group(g)
-        ' plan-172-G: the same composition the software walk makes.
-        LET childMat AS Integer = __canvas_composeGroup(gdx, gdy, mat, g.position, g.transform)
-        IF childMat >= 0 THEN
-          LET childX AS Float = __CANVAS_COMPOSED_X
-          LET childY AS Float = __CANVAS_COMPOSED_Y
-          LET nested AS Integer = canvas::groupResolve(g.name)
-          ' plan-172-K: the path `__canvas_appendDraw` gave the same node.
-          __canvas_drawGroup(nested, hashes, childX, childY, childMat, depth + 1, __canvas_autoPath(path, k, nested))
-        END IF
-      CASE ELSE
-        ' A non-group child contributes no draw entry of its own: its block is already
-        ' inside the run this group's memo laid out.
-        LET skipped AS Integer = 0
-    END MATCH
+  ' plan-175-A Phase 5: read in place, not a copy of the list per node -- and only the
+  ' nested groups copied out at all: a non-group child contributes no draw entry of its
+  ' own, its block being already inside the run this group's memo laid out.
+  LET block AS Integer = canvas::groupItemsBlock(slot)
+  LET n AS Integer = canvas::groupBlockCount(block)
+  WHILE k < n
+    IF canvas::groupBlockIsGroup(block, k) THEN
+      MATCH canvas::groupBlockItem(block, k, __CANVAS_BLOCK_NONE)
+        CASE Group(g)
+          ' plan-172-G: the same composition the software walk makes.
+          LET childMat AS Integer = __canvas_composeGroup(gdx, gdy, mat, g.position, g.transform)
+          IF childMat >= 0 THEN
+            LET childX AS Float = __CANVAS_COMPOSED_X
+            LET childY AS Float = __CANVAS_COMPOSED_Y
+            LET nested AS Integer = canvas::groupResolve(g.name)
+            ' plan-172-K: the path `__canvas_appendDraw` gave the same node.
+            __canvas_drawGroup(nested, hashes, childX, childY, childMat, depth + 1, __canvas_autoPath(path, k, nested))
+          END IF
+        CASE ELSE
+          LET skipped AS Integer = 0
+      END MATCH
+    END IF
     k = k + 1
-  NEXT
+  END WHILE
 END FUNC
 
 FUNC __canvas_sceneDraws() AS List OF Integer

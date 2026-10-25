@@ -1188,7 +1188,7 @@ three letters) or tested by luck, and a green run tested by luck reads exactly l
 tested by construction.
 
 The hold point is after the draw list is built, deliberately: by then every group name
-is resolved and every group's items copied, so a `removeGroup` arriving during the hold
+is resolved and every group's items block read, so a `removeGroup` arriving during the hold
 lands while a frame is demonstrably still working from that block. That is the window
 the drain gate exists for.
 
@@ -1264,7 +1264,16 @@ publish-then-flag rule §3 gives for the scene revision.
 `canvas::groupItems` returns a **copy**, so a published scene never holds a pointer into
 a group's buffer and a parent group never holds one into its child's — a `canvas::Group`
 node carries a *name*, and the renderer resolves it per frame. The only window in which
-anything reads the block is that copy, on the graphics thread, inside one frame.
+anything reads the block is on the graphics thread, inside one frame. Since plan-175-A
+Phase 5 the frame's walk reads the block **in place** rather than copying it per node
+(`canvas::groupItemsBlock` once per node, after `canvas::groupRevision`, then
+`canvas::groupBlockItem` per child, `func_group_block.rs`): it holds the block's address
+for the frame, which the drain gate below makes as safe as holding the copy. Taking the
+address once per node, not re-reading the slot per child, is what keeps a `setGroup`
+landing mid-walk from giving one node the old list's head and the new list's tail. The
+walk's per-slot table of the children's identities (`__canvas_groupHashes`) is keyed by
+the revision AND the block, and needs no clearing when a buffer is freed: the revision
+only grows.
 
 So the **buffer's** lifetime rule is the drain gate alone, and it is the one §3 and §7
 already use *(the resources the buffer's items name are a separate question, and
