@@ -170,6 +170,10 @@ cargo run -p mfb_repository --bin mfb-repo -- \
 # prints MFB_REPO_LISTEN=127.0.0.1:7777 once bound
 ```
 
+`Ctrl-C` (SIGINT) or SIGTERM — what `docker stop` and Fly send — stops the server
+gracefully: it stops accepting connections, finishes the requests in flight, and
+exits with status 0.
+
 Then point the `mfb` client at it:
 
 ```sh

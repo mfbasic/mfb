@@ -770,8 +770,9 @@ fn blob_hash_paths_must_be_lowercase_hex() {
 #[tokio::test]
 async fn serve_binds_the_router_and_answers_over_http() {
     let h = harness();
-    // `serve()` runs its accept loop forever, so it never reports the port
-    // it bound; take a free one from the OS, release it, and hand it over.
+    // `serve()` reports the port it bound only when it returns, after its
+    // shutdown future fires; take a free one from the OS, release it, and
+    // hand it over.
     let probe = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = probe.local_addr().unwrap();
     drop(probe);
@@ -779,7 +780,7 @@ async fn serve_binds_the_router_and_answers_over_http() {
     let store = h.store.clone();
     let blob_store = BlobStore::local(h.packages_dir.clone());
     tokio::spawn(async move {
-        let _ = serve(store, blob_store, addr).await;
+        let _ = serve(store, blob_store, addr, std::future::pending()).await;
     });
 
     let base = format!("http://{addr}");
