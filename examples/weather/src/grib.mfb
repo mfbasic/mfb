@@ -366,6 +366,10 @@ FUNC decodeMessage(data AS List OF Byte, at AS Integer) AS Decoded
   LET edition AS Integer = toInt(collections::get(data, at + 7))
   IF edition <> 2 THEN FAIL error(errorCode::ErrUnsupported, "grib: this is edition " & toString(edition) & ", and only edition 2 is read here")
   LET length AS Integer = beInt(data, at + 8, 8)
+  ' Section 0 and the closing "7777" alone take 20 bytes. A shorter length
+  ' would also leave decodeFile with nowhere to move on to: a length of 0 would
+  ' have it decode the same bytes again forever.
+  IF length < 20 THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the message at byte " & toString(at) & " declares a length of " & toString(length) & ", too short to hold one")
   IF at + length > len(data) THEN FAIL error(errorCode::ErrInvalidFormat, "grib: the message at byte " & toString(at) & " runs past the end of the file")
 
   MUT field AS Field = Field[ni := 0, nj := 0, lat1 := 0.0, lon1 := 0.0, dlat := 0.0, dlon := 0.0, category := 0, parameter := 0, surface := 0, height := 0, interval := FALSE, values := []]
