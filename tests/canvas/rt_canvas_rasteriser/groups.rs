@@ -911,7 +911,8 @@ fn installing_and_removing_many_named_groups_does_not_grow_without_bound() {
 /// Read off `MFB_CANVAS_STATS`, which is the only window onto a structure built on the
 /// graphics thread and handed straight to an emitter. `blocks=` is how many item blocks
 /// the frame uploads; `draws=` is `base:count:dx:dy:mode` per entry, `|`-separated, with the
-/// offsets in 16.16 as stored — 100.0 is `6553600`.
+/// offsets as the float32 bit patterns stored (`__canvas_float32Bits`) — 100.0 is
+/// `1120403456`.
 ///
 /// The four cases are one test rather than four because the interesting failures are
 /// relative: a walk that emitted per-reference blocks passes the flat and single-group
@@ -946,8 +947,8 @@ fn scene_draws_shares_one_base_between_a_diamonds_two_draws() {
     ));
     assert_eq!(
         (blocks.as_str(), draws.as_str()),
-        ("2", "0:2:6553600:6553600:0"),
-        "one group should be its own items once, drawn at its offset in 16.16, in \
+        ("2", "0:2:1120403456:1120403456:0"),
+        "one group should be its own items once, drawn at its offset as float32 bits, in \
          Normal blend mode",
     );
 
@@ -963,11 +964,11 @@ fn scene_draws_shares_one_base_between_a_diamonds_two_draws() {
          should be laid out: {draws}",
     );
     assert!(
-        draws.contains(&format!("{}:{}", 500 * 65536, 300 * 65536)),
+        draws.contains(&format!("{}:{}", 500.0f32.to_bits(), 300.0f32.to_bits())),
         "the inner run must be drawn at the composed offset (500,100)+(0,200) = \
-         (500,300) = {}:{} in 16.16; got {draws}",
-        500 * 65536,
-        300 * 65536,
+         (500,300) = {}:{} as float32 bits; got {draws}",
+        500.0f32.to_bits(),
+        300.0f32.to_bits(),
     );
 
     // 4. The diamond: one group, two references. THE case.
