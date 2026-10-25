@@ -19,7 +19,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| The corpus is behavior-clean at `-O2`, where every moved pass already runs | `MFB_OPT=2 bash scripts/test-accept.sh target/release/mfb` → exit 0 | not checked at authoring (shared host busy) |
+| The corpus is behavior-clean at `-O2`, where every moved pass already runs | `MFB_OPT=2 bash scripts/test-accept.sh target/release/mfb /tmp/p182-prereq-out` → exit 0 | MET 2026-10-25 on main `2f281c5e7`: `acceptance tests passed (1756 test(s) ran, 73 level-variant golden(s) skipped at -O2)`, exit 0. Baseline `scripts/artifact-gate.sh <main mfb> all` → `1721 tests, 1900 build(s), 2384 golden(s) checked, 0 diff(s)` |
 
 ## 1. Goal
 
@@ -75,11 +75,14 @@ are the behavior gate.
 
 ### Phase 1 — Check fusion 3 → 2 (no default-build change)
 
-- [ ] `src/optimizer/opt2/flags.rs:fuse`: `level_enabled(3)` → `level_enabled(2)`; update the module doc ("Level-3" → "Level-2").
-- [ ] `src/optimizer/catalog.rs`: "Check fusion with existing comparisons" `level: 3` → `2`.
+- [x] `src/optimizer/opt2/flags.rs:fuse`: `level_enabled(3)` → `level_enabled(2)`; update the module doc ("Level-3" → "Level-2"). `cargo test --release --bin mfb optimizer::opt2::flags` → 5 passed.
+- [x] `src/optimizer/catalog.rs`: "Check fusion with existing comparisons" `level: 3` → `2`.
+- [x] (added) `opt2/flags.rs` test `level_two_disables_the_row` pinned the old level (off at 2); now `level_one_disables_the_row` (off at 1). See Corrections.
+- [x] (added) `planning/optimizations.md`: Check fusion + Compare elimination rows marked "moved to Level 2 by plan-182 (phase 1)".
 
 Acceptance: default-level goldens untouched; check fusion fires at `-O2`.
-  Check: `scripts/artifact-gate.sh target/release/mfb collections` → 0 diffs (est. 2 s); `mfb build -v -O2 tests/byte-identity/collections` → "Check fusion" count > 0 (est. 10 s).
+  Check: `scripts/artifact-gate.sh target/release/mfb collections` → 0 diffs (est. 2 s); `mfb build -v -O2 examples/ai_chat` → "Check fusion" count > 0 (est. 10 s). (Fixture corrected from `tests/byte-identity/collections`, see Corrections.)
+  Result: gate → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`; `mfb build -v -O2 examples/ai_chat` → `Check fusion with existing comparisons: 8` (the main binary at `-O2` prints no Check fusion line — row not enabled; at `-O3` both print 8).
 Commit: —
 
 ### Phase 2 — NIR DCE to Level 1
@@ -118,6 +121,10 @@ Commit: —
 - Check fusion moves as a whole rather than splitting out compare reuse — they are one mechanism (`opt2/flags.rs`).
 
 ## Corrections
+
+- **Prerequisite command was missing an argument.** `scripts/test-accept.sh` requires `<mfb-exe> <actual-output-dir>`; the written command exited 2 with the usage text. Corrected to `MFB_OPT=2 bash scripts/test-accept.sh target/release/mfb /tmp/p182-prereq-out`, run on an unmodified main-tip build (`/tmp/p182-base`).
+- **Phase 1's check-fusion fixture never fires check fusion.** `mfb build -v -O3 tests/byte-identity/collections` → `Check fusion with existing comparisons: 0` on both the main and the phase-1 binary, so the check could not pass at any level. `examples/ai_chat` (where `planning/optimizations.md` measured the row) fires 8 at `-O3`; the phase-1 check now uses it at `-O2`.
+- **Unit tests pinned each moved row's old level.** Each moved pass has a `level_*_disables_the_row` test asserting the row is off one level below its old gate (`opt2/flags.rs`, `opt1/dce/tests`, `opt1/uce.rs`, `opt1/branches/tests`, `opt2/uce.rs`, `opt2/branches.rs`, `opt2/merge.rs`, `opt2/simplifycfg.rs`). AGENTS.md four questions: (1) written with each row, to pin its catalog gate; (2) protects "the row is off below its catalog level"; (3) nothing else depends (a tree grep of each test name hits only its own file); (4) the catalog level is the owner's decision recorded under Decisions — the old level is what this plan replaces. Each test keeps its intent and moves down one level (off at new level − 1). Tasks added per phase.
 
 ## Summary
 

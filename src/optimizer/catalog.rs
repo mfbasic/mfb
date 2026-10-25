@@ -362,7 +362,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Check fusion with existing comparisons",
-            level: 3,
+            level: 2,
             stage: "MIR",
             summary: "Deletes a comparison the condition flags already reflect, so a \
                       guarded region's second test reuses the guard's own compare \

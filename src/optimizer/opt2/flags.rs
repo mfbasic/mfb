@@ -1,4 +1,4 @@
-//! Check fusion with existing comparisons — a Level-3 Opt2 catalog row
+//! Check fusion with existing comparisons — a Level-2 Opt2 catalog row
 //! (`planning/optimizations.md`): reuse a comparison the program already made
 //! to discharge a check, instead of emitting a second one.
 //!
@@ -54,9 +54,9 @@ enum Side {
 type Fact = (Side, Side);
 
 /// Run the check-fusion row over one function's selected stream, in place.
-/// Self-guarded on the row's catalog level (3).
+/// Self-guarded on the row's catalog level (2).
 pub(crate) fn fuse(instructions: &mut Vec<CodeInstruction>, model: &dyn RegisterModel) {
-    if !crate::optimizer::level_enabled(3) {
+    if !crate::optimizer::level_enabled(2) {
         return;
     }
     let models = regalloc::class_models(model);
@@ -281,9 +281,9 @@ mod tests {
         );
     }
 
-    /// The row is off below `-O3`.
+    /// The row is off below `-O2`.
     #[test]
-    fn level_two_disables_the_row() {
+    fn level_one_disables_the_row() {
         let stream = || {
             vec![
                 ci("cmp", &[("lhs", "%v1"), ("rhs", "%v2")]),
@@ -297,7 +297,7 @@ mod tests {
             ]
         };
         let mut off = stream();
-        run(&mut off, 2);
+        run(&mut off, 1);
         assert_eq!(ops(&off), ops(&stream()));
     }
 }
