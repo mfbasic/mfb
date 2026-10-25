@@ -8,6 +8,7 @@ use std::thread;
 
 mod accounts;
 mod governance_faults;
+mod identity_faults;
 mod transport;
 mod verification;
 
