@@ -7,6 +7,7 @@ mod identity;
 mod log_routes;
 mod pages;
 mod publish;
+mod publish_faults;
 mod search_limits;
 mod tokens;
 mod transfers;
