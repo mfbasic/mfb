@@ -158,17 +158,15 @@ pub fn cursor_u8(bytes: &[u8], offset: &mut usize) -> Result<u8, String> {
     let value = *bytes
         .get(*offset)
         .ok_or_else(|| "truncated binary representation".to_string())?;
-    *offset = offset
-        .checked_add(1)
-        .ok_or_else(|| "invalid u8 offset".to_string())?;
+    // `bytes[*offset]` exists, so `*offset + 1 <= bytes.len()`: no overflow.
+    *offset += 1;
     Ok(value)
 }
 
 pub fn cursor_u16(bytes: &[u8], offset: &mut usize) -> Result<u16, String> {
     let value = checked_u16_at(bytes, *offset)?;
-    *offset = offset
-        .checked_add(2)
-        .ok_or_else(|| "invalid u16 offset".to_string())?;
+    // `checked_u16_at` just read `bytes[*offset..*offset + 2]`: no overflow.
+    *offset += 2;
     Ok(value)
 }
 
@@ -187,17 +185,15 @@ pub fn cursor_hash(bytes: &[u8], offset: &mut usize) -> Result<[u8; ABI_HASH_LEN
 
 pub fn cursor_u32(bytes: &[u8], offset: &mut usize) -> Result<u32, String> {
     let value = checked_u32_at(bytes, *offset)?;
-    *offset = offset
-        .checked_add(4)
-        .ok_or_else(|| "invalid u32 offset".to_string())?;
+    // `checked_u32_at` just read `bytes[*offset..*offset + 4]`: no overflow.
+    *offset += 4;
     Ok(value)
 }
 
 pub fn cursor_u64(bytes: &[u8], offset: &mut usize) -> Result<u64, String> {
     let value = checked_u64_at(bytes, *offset)?;
-    *offset = offset
-        .checked_add(8)
-        .ok_or_else(|| "invalid u64 offset".to_string())?;
+    // `checked_u64_at` just read `bytes[*offset..*offset + 8]`: no overflow.
+    *offset += 8;
     Ok(value)
 }
 
@@ -351,6 +347,26 @@ mod tests {
         invalid.push(0xFF);
         let mut o = 0;
         assert!(cursor_string(&invalid, &mut o).is_err());
+    }
+
+    /// PKG-07: a hostile offset near `usize::MAX` is refused, never wrapped.
+    #[test]
+    fn cursor_reads_refuse_an_offset_that_would_wrap() {
+        let mut offset = usize::MAX - 8;
+        assert_eq!(
+            cursor_hash(&[0; 64], &mut offset).unwrap_err(),
+            "invalid hash offset"
+        );
+        assert_eq!(offset, usize::MAX - 8, "a refused read does not move");
+        for width in [2, 4, 8] {
+            let mut offset = usize::MAX - 1;
+            let err = match width {
+                2 => cursor_u16(&[0; 16], &mut offset).unwrap_err(),
+                4 => cursor_u32(&[0; 16], &mut offset).unwrap_err(),
+                _ => cursor_u64(&[0; 16], &mut offset).unwrap_err(),
+            };
+            assert_eq!(err, "truncated binary representation");
+        }
     }
 
     #[test]
