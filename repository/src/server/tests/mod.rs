@@ -9,6 +9,7 @@ mod pages;
 mod publish;
 mod publish_faults;
 mod search_limits;
+mod session_faults;
 mod tokens;
 mod transfers;
 mod validate;

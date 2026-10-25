@@ -72,3 +72,6 @@ tower = { version = "0.4", features = ["util"] }
 # it rather than answer with an empty result. Dev-only feature unification: the
 # shipped binary's rusqlite is unchanged.
 rusqlite = { version = "0.31", features = ["bundled", "limits"] }
+# Test-only `test-util`: a paused clock lets a test advance past the server's
+# 60-second background reaper interval instead of sleeping through it.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "test-util"] }

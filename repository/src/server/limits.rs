@@ -10,7 +10,9 @@ use super::*;
 /// with a proxy — but enough to keep the transparency log spam-free.
 #[derive(Clone)]
 pub(super) struct RateLimiter {
-    hits: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<i64>>>>,
+    /// `pub(super)` so `server::tests` can poison the lock to pin the bug-264
+    /// recovery below; nothing outside `limits` touches the map otherwise.
+    pub(super) hits: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<i64>>>>,
 }
 
 impl RateLimiter {
