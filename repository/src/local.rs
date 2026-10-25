@@ -120,16 +120,15 @@ pub fn read_root_pin(paths: &LocalPaths) -> Result<Option<(String, String)>, Str
     }
     let value = fs::read_to_string(&path)
         .map_err(|err| format!("failed to read root pin '{}': {err}", path.display()))?;
-    let mut parts = value.trim().splitn(2, ' ');
-    let registry_id = parts
-        .next()
-        .ok_or_else(|| "malformed root pin".to_string())?
-        .to_string();
-    let root_fingerprint = parts
-        .next()
-        .ok_or_else(|| "malformed root pin".to_string())?
-        .to_string();
-    Ok(Some((registry_id, root_fingerprint)))
+    // The first separator splits; the fingerprint keeps any later spaces.
+    let (registry_id, root_fingerprint) = value
+        .trim()
+        .split_once(' ')
+        .ok_or_else(|| "malformed root pin".to_string())?;
+    Ok(Some((
+        registry_id.to_string(),
+        root_fingerprint.to_string(),
+    )))
 }
 
 pub fn write_snapshot_version(paths: &LocalPaths, version: i64) -> Result<(), String> {

@@ -1,5 +1,7 @@
 use super::*;
 
+mod damaged;
+
 #[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     fs::metadata(path).unwrap().permissions().mode() & 0o777
