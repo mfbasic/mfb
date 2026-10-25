@@ -1,0 +1,213 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "callgraph_dce_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "FACTOR", "line": 9, "visibility": "public", "mutable": false, "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "scale", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "scale",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 11, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 12, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "x" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    ]
+  },
+  {
+    "name": "neverCalled",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 15, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 16, "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "x" }, "right": { "kind": "const", "type": "Integer", "value": "7" } }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    ]
+  },
+  {
+    "name": "orphanA",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 19, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 20,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 21, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 23, "value": { "kind": "call", "type": "Integer", "target": "orphanB", "args": [{ "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+    ]
+  },
+  {
+    "name": "orphanB",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 26, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 27, "value": { "kind": "call", "type": "Integer", "target": "orphanA", "args": [{ "kind": "local", "name": "n" }] } }
+    ]
+  },
+  {
+    "name": "onEach",
+    "line": 30,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 30, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "visit " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "x" }] } }] } },
+    { "op": "return", "line": 32, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "x" }, "right": { "kind": "global", "name": "FACTOR" } } }
+    ]
+  },
+  {
+    "name": "apply",
+    "line": 35,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 35, "type": "FUNC(Integer) AS Integer", "default": null },
+    { "name": "x", "line": 35, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 36, "value": { "kind": "call", "type": "Integer", "target": "f", "args": [{ "kind": "local", "name": "x" }] } }
+    ]
+  },
+  {
+    "name": "adder",
+    "line": 39,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "base", "line": 39, "type": "Integer", "default": null }
+    ],
+    "returns": "FUNC(Integer) AS Integer",
+    "body": [
+    { "op": "bind", "line": 40, "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "local", "name": "base" } },
+    { "op": "return", "line": 41, "value": { "kind": "closure", "name": "$lambda0", "type": "FUNC(Integer) AS Integer", "captures": [{ "kind": "local", "name": "captured" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 44,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "apply", "args": [{ "kind": "functionRef", "name": "onEach", "type": "FUNC(Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "4" }] }] }] } },
+    { "op": "bind", "line": 46, "mutable": false, "name": "addTen", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "type": "FUNC(Integer) AS Integer", "target": "adder", "args": [{ "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "addTen", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "FACTOR" }] }] } },
+    { "op": "return", "line": 49, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "line": 41,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 41, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 41, "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer" } },
+    { "op": "return", "line": 41, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "captured" } } }
+    ]
+  }
+  ]
+}

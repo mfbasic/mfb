@@ -1,0 +1,143 @@
+{
+  "project": "callgraph_dce_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    { "kind": "binding", "visibility": "public", "mutable": false, "name": "FACTOR", "type": "Integer", "value": { "kind": "call", "callee": "scale", "arguments": [{ "kind": "number", "value": "3" }] }, "line": 9 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "scale",
+      "line": 11,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 11 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "2" } }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "neverCalled",
+      "line": 15,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 15 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "-", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "7" } }, "right": { "kind": "number", "value": "2" } }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "orphanA",
+      "line": 19,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 19 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 20,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "call", "callee": "orphanB", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }] }, "line": 23 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "orphanB",
+      "line": 26,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 26 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "orphanA", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "onEach",
+      "line": 30,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 30 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "visit " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "x" }] } }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "identifier", "value": "FACTOR" } }, "line": 32 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "apply",
+      "line": 35,
+      "params": [
+      { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null, "line": 35 },
+      { "name": "x", "type": "Integer", "default": null, "line": 35 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "f", "arguments": [{ "kind": "identifier", "value": "x" }] }, "line": 36 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "adder",
+      "line": 39,
+      "params": [
+      { "name": "base", "type": "Integer", "default": null, "line": 39 }
+      ],
+      "returnType": "FUNC(Integer) AS Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "identifier", "value": "base" }, "line": 40 },
+      { "kind": "return", "value": { "kind": "lambda", "params": [
+{ "name": "value", "type": "Integer", "default": null, "line": 41 }], "body": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "value" }, "right": { "kind": "identifier", "value": "captured" } } }, "line": 41 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 44,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "apply", "arguments": [{ "kind": "identifier", "value": "onEach" }, { "kind": "number", "value": "4" }] }] }] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "addTen", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "callee": "adder", "arguments": [{ "kind": "number", "value": "10" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "addTen", "arguments": [{ "kind": "number", "value": "5" }] }] }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "FACTOR" }] }] }, "line": 48 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 49 }
+      ]
+    }
+    ]
+  }
+  ]
+}

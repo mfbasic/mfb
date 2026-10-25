@@ -1,0 +1,185 @@
+{
+  "format": "mfb-nir",
+  "version": 1,
+  "target": "macos-aarch64",
+  "buildMode": "console",
+  "project": "callgraph_dce_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "globals": [
+  { "name": "FACTOR", "symbol": "_mfb_global_callgraph_5Fdce_5Frt_FACTOR", "visibility": "public", "mutable": false, "type": "Integer", "value": { "kind": "call", "target": "scale", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "name": "grapheme", "type": "String" },
+    { "visibility": null, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "imports": [
+  ],
+  "runtimeHelpers": ["io"],
+  "functions": [
+  {
+    "name": "__mfb_init_globals_callgraph_5Fdce_5Frt",
+    "visibility": "private",
+    "kind": "func",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "storeGlobal", "name": "FACTOR", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "6" } }
+    ]
+  },
+  {
+    "name": "scale",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    { "name": "x", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "x" }, "right": { "kind": "local", "name": "x" } } }
+    ]
+  },
+  {
+    "name": "onEach",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    { "name": "x", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "visit " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "x" }] } }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "x" }, "right": { "kind": "global", "name": "FACTOR", "type": "" } } }
+    ]
+  },
+  {
+    "name": "apply",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    { "name": "f", "type": "FUNC(Integer) AS Integer", "default": null },
+    { "name": "x", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "f", "args": [{ "kind": "local", "name": "x" }] } }
+    ]
+  },
+  {
+    "name": "adder",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    { "name": "base", "type": "Integer", "default": null }
+    ],
+    "returns": "FUNC(Integer) AS Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "local", "name": "base" } },
+    { "op": "return", "value": { "kind": "closure", "name": "$lambda0", "type": "FUNC(Integer) AS Integer", "captures": [{ "kind": "local", "name": "captured" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "apply", "args": [{ "kind": "functionRef", "name": "onEach", "type": "FUNC(Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "4" }] }] }] } },
+    { "op": "bind", "mutable": false, "name": "addTen", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "target": "adder", "args": [{ "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "addTen", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "global", "name": "FACTOR", "type": "" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "visibility": "private",
+    "kind": "func",
+    "isolated": false,
+    "file": "src/main.mfb",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer" } },
+    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "captured" } } }
+    ]
+  }
+  ]
+}
