@@ -41,11 +41,11 @@ but no commit or decommit rows (`09_debug-report.md`).
 - [x] `rt_arena_zeroing.rs`: free a 64 MiB chunk, force a flush, reallocate and assert all zero (the decommit path). `a_decommitted_chunk_comes_back_zero`: four 64 MiB lists; a large free decommits at once, so no flush is needed — ≥ 3 × 60 MiB decommitted, the run taken back, `zero_violations` 0, under 1 MiB zero-filled. The module doc's stale "first 16 bytes hold the free-list node" (true before C) was corrected.
 - [x] `planning/todo.md` "## Memory": close Spike 8, Spike 9, Bucket 9, Bucket 12a and A/B 7 with "plan-183". Each now carries a **Closed (plan-183)** line with what replaced it.
 
-- [ ] Added (from Validation): the goldens (full gate, full `test-accept.sh` with no `.run`/`build.log` change, `regen-native-goldens.sh`, gate back to 0) and the landing tier (`test-fast` and every `rt_arena_*`, `rt_thread_*`, `rt_worker_*`, `rt_canvas_*` binary).
+- [x] Added (from Validation): the goldens (full gate, full `test-accept.sh` with no `.run`/`build.log` change, `regen-native-goldens.sh`, gate back to 0) and the landing tier (`test-fast` and every `rt_arena_*`, `rt_thread_*`, `rt_worker_*`, `rt_canvas_*` binary). Gate → 166 diffs, all `.ncode`/`.mir` (`parser_hello_world` MIR: `_mfb_arena_decommit` and `_mfb_arena_sweep` added; `_main`, `_small_page`, `_medium_alloc`, `_huge_alloc`, `_span_free`, `_extend`, `_free`, `_destroy` changed; `_mfb_rt_park_error` vreg numbering only); `test-accept.sh target/release/mfb` → 1756 ran, 9 mismatches, all native dumps; `regen-native-goldens.sh` → 230 rewritten, 0 failures; gate → 0 diffs over 2384 goldens. `bash scripts/test-fast.sh` → ok; the 39 landing binaries → 570 passed, 0 failed.
 
 Acceptance: `cargo test --test rt_arena_large_block_reuse --test rt_arena_zeroing --test rt_arena_regions` passes on macOS, 2223 and the Windows box (est. 4 min each).
 Measured 2026-10-25, with `rt_arena_grow_in_place` and `rt_arena_memory_cap` added: macOS, box 2226 (for 2223), the Windows box, box 2229 (riscv64) and box 2227 (x86_64) — 5 binaries, 15 passed, 0 failed on each; rerun after Corrections 6 with its new test: 16 passed, 0 failed on each.
-Commit: —
+Commit: 850c09337 (goldens in the commit after it)
 
 ## Validation (plan-183 final)
 
