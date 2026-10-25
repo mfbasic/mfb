@@ -15,6 +15,13 @@
 #   - a "valid" cycle: this test's own committed fixture
 #     (tests/fixtures/valid-analysis.grb2 — a real, previously-fetched GFS
 #     analysis hour) is planted at its cache path.
+#   - a "zero-length" cycle: a file whose only message is "GRIB", edition 2
+#     and a declared message length of 0. decodeMessage once accepted that as
+#     an empty field of length 0, so decodeFile never advanced and appended
+#     fields until allocation failed (about 20 seconds and 32 GB later on a
+#     96 GB machine). It must be refused by the decoder itself, with a "grib:"
+#     error, like any other corrupt file. The driver also runs under a time
+#     limit, so a regression on a smaller machine fails rather than stalls.
 #
 # No network access is required or attempted: cycleData only calls
 # http::read when no cache file exists, and both synthetic cycles always have
@@ -43,6 +50,7 @@ cleanup() {
   # directory, whether or not the fix already deleted it.
   if [ -n "${CORRUPT_PATH:-}" ]; then rm -f "$CORRUPT_PATH"; fi
   if [ -n "${VALID_PATH:-}" ]; then rm -f "$VALID_PATH"; fi
+  if [ -n "${ZERO_PATH:-}" ]; then rm -f "$ZERO_PATH"; fi
   exit $status
 }
 trap cleanup EXIT INT TERM
@@ -78,6 +86,7 @@ cat > "$WORK/src/main.mfb" <<EOF
 IMPORT collections
 IMPORT fs
 IMPORT io
+IMPORT strings
 
 TYPE Winds
   east AS Field
@@ -119,6 +128,15 @@ FUNC main AS Nothing
   io::print("VALID_PROBLEM_EMPTY=" & toString(validAttempt.problem = ""))
   io::print("VALID_LABEL_OK=" & toString(validAttempt.winds.label = "GFS surface weather  bug711-valid"))
   io::print("VALID_FILE_KEPT=" & toString(fs::fileExists(validPath)))
+
+  LET zeroCycle AS Cycle = Cycle[day := "19990101", hour := "12", caption := "bug711-zero-length", seconds := 43200]
+  LET zeroPath AS String = cachePath(zeroCycle, 0)
+  LET zeroBytes AS List OF Byte = [71, 82, 73, 66, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  fs::writeBytesAtomic(zeroPath, zeroBytes)
+  LET zeroAttempt AS Attempt = attemptCycle(zeroCycle, 0)
+  io::print("ZERO_PROBLEM_EMPTY=" & toString(zeroAttempt.problem = ""))
+  io::print("ZERO_REFUSED_BY_DECODER=" & toString(strings::startsWith(zeroAttempt.problem, "grib:")))
+  io::print("ZERO_FILE_GONE=" & toString(NOT fs::fileExists(zeroPath)))
 END FUNC
 EOF
 
@@ -128,6 +146,7 @@ TMPDIR_RESOLVED=${TMPDIR:-/tmp}
 CACHE_DIR="${TMPDIR_RESOLVED%/}/mfb-weather-gfs"
 CORRUPT_PATH="$CACHE_DIR/gfs-19990101-00-f000-wind-wind850-wind250-temp-rain-0p50.grb2"
 VALID_PATH="$CACHE_DIR/gfs-19990101-06-f000-wind-wind850-wind250-temp-rain-0p50.grb2"
+ZERO_PATH="$CACHE_DIR/gfs-19990101-12-f000-wind-wind850-wind250-temp-rain-0p50.grb2"
 
 "$MFB_BIN" build "$WORK" >"$WORK/build.log" 2>&1 || {
   echo "FAIL: driver did not build" >&2
@@ -135,7 +154,27 @@ VALID_PATH="$CACHE_DIR/gfs-19990101-06-f000-wind-wind850-wind250-temp-rain-0p50.
   exit 1
 }
 
-OUT=$("$WORK/build/bug711check.out")
+# Run the driver with a 30-second limit: a decoder that stops advancing loops
+# forever rather than failing.
+"$WORK/build/bug711check.out" >"$WORK/out.txt" 2>&1 &
+DRIVER=$!
+WAITED=0
+while kill -0 "$DRIVER" 2>/dev/null; do
+  if [ "$WAITED" -ge 30 ]; then
+    kill -9 "$DRIVER" 2>/dev/null || true
+    echo "FAIL: the driver did not finish within 30 seconds" >&2
+    cat "$WORK/out.txt" >&2
+    exit 1
+  fi
+  sleep 1
+  WAITED=$((WAITED + 1))
+done
+wait "$DRIVER" || {
+  echo "FAIL: the driver exited with an error" >&2
+  cat "$WORK/out.txt" >&2
+  exit 1
+}
+OUT=$(cat "$WORK/out.txt")
 echo "$OUT"
 
 FAIL=0
@@ -155,10 +194,14 @@ check CORRUPT_FILE_GONE TRUE
 check VALID_PROBLEM_EMPTY TRUE
 check VALID_LABEL_OK TRUE
 check VALID_FILE_KEPT TRUE
+# The zero-length cycle: rejected like any other undecodable file, and deleted.
+check ZERO_PROBLEM_EMPTY FALSE
+check ZERO_REFUSED_BY_DECODER TRUE
+check ZERO_FILE_GONE TRUE
 
 if [ "$FAIL" -ne 0 ]; then
   echo "FAIL: bug-711 regression test failed" >&2
   exit 1
 fi
 
-echo "PASS: bug-711 — a corrupt cached file is treated as this cycle's attempt failing and is deleted; a valid cached file still decodes and is kept"
+echo "PASS: bug-711 — a corrupt cached file (including one whose message declares a length of 0) is treated as this cycle's attempt failing and is deleted; a valid cached file still decodes and is kept"
