@@ -2,6 +2,8 @@ use super::*;
 use crate::server::{OwnerBinding, Publisher};
 use std::cell::RefCell;
 
+mod refusals;
+
 const IDENT: &str = "alice#toolbox";
 
 /// A registry and its owners, built in memory: every owner's rotation chain,
