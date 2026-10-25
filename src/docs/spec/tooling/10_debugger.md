@@ -536,6 +536,7 @@ Then, repeatedly:
 | `show type <word>` for a `<word>` that is no type | `cannot show type '<word>'; the types are: int, float, fixed, money, bool, byte, scalar, string, list, set, map, resource` |
 | a scalar, `string` or `resource` view with more than a location | `too many arguments to 'show type <type>'` |
 | a `list`/`set` span or type that reads as neither | `'<word>' is not an index or a range (3, 0..10, 2..) or a type` |
+| a `list`/`set` index whose one-past-end value overflows `u64` | the same invalid-index-or-range error; the prompt remains alive [[src/debugger/values/view.rs:Span::parse]] |
 | a `map` argument but `keys`, `values`, an index or `get` | `'<word>' is not an index, 'keys', 'values' or 'get <key>'` |
 | `finish` or `restart` with arguments | `'<name>' takes no arguments` |
 | `restart` of an attached program | `restart needs a program the debugger launched; this one was attached to` |
@@ -588,6 +589,7 @@ Then, repeatedly:
 | a watchpoint where one is | `there is already a watchpoint at 0x<address>` |
 | `watchpoint r` where none is | `there is no watchpoint at 0x<address>` |
 | a target starting `0x` that is not hex | `'<target>' is not an address` |
+| a breakpoint address or function offset that is not an instruction boundary | `0x<address> is not the start of an instruction: they start every <alignment> bytes` |
 | `run` with arguments | `'<name>' takes no arguments` |
 | a `backtrace` count that is not a `usize` of 1 or more | `'<count>' is not a number of frames (1 or more), or 'all'` |
 | `backtrace` with three arguments | `'<name>' takes at most two arguments` |
@@ -1182,7 +1184,9 @@ anything else is a name.
   stops print a place: `main+0x110`, `main+272`): `<name>` matched as by name,
   then one breakpoint `<offset>` bytes into each bound function it matches,
   described as by address. None bound: `'<name>' is not loaded yet; run the
-  program until it has loaded its libraries`.
+  program until it has loaded its libraries`. A resolved address must be an
+  instruction boundary for the target architecture; an unaligned address is
+  refused before any breakpoint is installed. [[src/debugger/breakpoints/mod.rs:Breakpoints::set]]
 
 Each new breakpoint prints `Set a breakpoint at <place>.`, where `<place>` is
 `0x<address>` and ` in <written name or symbol>` when it has one; a pending one

@@ -242,7 +242,7 @@ fn breakpoints_are_set_listed_and_removed() {
     let mut inferior = Recorder::new(Ending::Killed);
     let (out, err) = drive(
         &mut inferior,
-        "bp next_seed\nbreakpoint 0x1012\nlist breakpoint\nbp r 0x1012\nl breakpoint\nq\n",
+        "bp next_seed\nbreakpoint 0x1014\nlist breakpoint\nbp r 0x1014\nl breakpoint\nq\n",
         false,
     );
     assert_eq!(err, "");
@@ -250,12 +250,12 @@ fn breakpoints_are_set_listed_and_removed() {
         out,
         format!(
             "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed.\n\
-                 {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2.\n\
+                 {PROMPT}Set a breakpoint at 0x0000000000001014 in main+0x4.\n\
                  {PROMPT}\
 Address            | Count | Symbol              | Written name
 0x0000000000001004 | 0     | _mfb_fn_next_5Fseed | next_seed
-0x0000000000001012 | 0     | _mfb_fn_main+0x2    | main+0x2
-{PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2.\n\
+0x0000000000001014 | 0     | _mfb_fn_main+0x4    | main+0x4
+{PROMPT}Removed the breakpoint at 0x0000000000001014 in main+0x4.\n\
                  {PROMPT}Address            | Count | Symbol              | Written name\n\
                  0x0000000000001004 | 0     | _mfb_fn_next_5Fseed | next_seed\n\
                  {PROMPT}Killed process 42.\n"

@@ -92,9 +92,11 @@ impl Span {
     pub(crate) fn parse(word: &str) -> Option<Span> {
         let number = |text: &str| text.parse::<u64>().ok();
         match word.split_once("..") {
-            None => number(word).map(|at| Span {
-                start: at,
-                end: Some(at + 1),
+            None => number(word).and_then(|at| {
+                at.checked_add(1).map(|end| Span {
+                    start: at,
+                    end: Some(end),
+                })
             }),
             Some((start, "")) => Some(Span {
                 start: number(start)?,
