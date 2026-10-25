@@ -251,7 +251,13 @@ FUNC main() AS Nothing
   ' last reading a block never written). "AAAA" above has no space, which is how that
   ' stayed invisible here; Metal's picture scene is where it was found.
   LET spaced AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 470.0, y := 636.0], text := "A A", fonts := [face], fontSize := 20.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, spaced, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri, picPlain, picStrip, picScaled, picEdge, picTint, picFade]
+  ' A clipped text run, in the free corner right of `faint`. A glyph run builds its
+  ' blocks on a path of its own, which once skipped the clip step: its clip words held
+  ' stack leftovers, so a run was clipped by garbage and its own clip was ignored. The
+  ' triangle's hypotenuse cuts both glyphs, so an ignored clip is whole squares where the
+  ' oracle has halves -- full-coverage pixels, far past the per-channel bound.
+  LET cutText AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 780.0, y := 100.0], text := "AA", fonts := [face], fontSize := 90.0, letterSpacing := 0.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[vector::Float2[x := 0.0 - 5.0, y := 0.0 - 40.0], vector::Float2[x := 100.0, y := 0.0 - 40.0], vector::Float2[x := 0.0 - 5.0, y := 10.0]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, spaced, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri, picPlain, picStrip, picScaled, picEdge, picTint, picFade, cutText]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from
   ' here because this is the only harness with a scripted resize -- the macOS side can

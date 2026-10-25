@@ -609,6 +609,8 @@ pub(super) fn emit_item_walk(builder: &mut CodeBuilder, s: &DrawSceneSlots) {
             state: s.off_state,
             item: s.off_item,
             header: s.off_header,
+            edge_cursor: s.off_edge_cursor,
+            bands: &s.bands,
             width: s.off_width,
             height: s.off_height,
             item_cursor: s.off_item_cursor,

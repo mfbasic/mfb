@@ -17,6 +17,8 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+#[path = "rt_canvas_font/clip.rs"]
+mod clip;
 #[path = "rt_canvas_font/drawing.rs"]
 mod drawing;
 #[path = "rt_canvas_font/face_index_and_kerning.rs"]

@@ -506,10 +506,14 @@ pub(super) fn emit_draw_list_pass(
 ///
 /// A struct rather than seventeen parameters, because every one of them is a `usize`
 /// stack offset and a transposed pair would compile, run, and draw the wrong thing.
-pub(super) struct GlyphPublishSlots {
+pub(super) struct GlyphPublishSlots<'a> {
     pub(super) state: usize,
     pub(super) item: usize,
     pub(super) header: usize,
+    /// The frame's edge cursor and the band-index slots, for the run's clip: a path
+    /// clip's edges ride the edge region as a shape's do (`emit_clip_upload`).
+    pub(super) edge_cursor: usize,
+    pub(super) bands: &'a BandSlots,
     pub(super) width: usize,
     pub(super) height: usize,
     /// The frame's item-buffer cursor — shared with the shape loop, because a glyph is
@@ -546,7 +550,7 @@ pub(super) struct GlyphPublishSlots {
 /// Everything the loop carries lives on the stack, not in registers. Two calls happen
 /// per glyph, and on x86-64 the scratch pool aliases the C argument bank — so a loop
 /// counter in a register is a loop counter the next call overwrites (`.ai/arch-abi.md`).
-pub(super) fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots) {
+pub(super) fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlots<'_>) {
     let head = builder.label("vk_glyph_head");
     let done = builder.label("vk_glyph_done");
     let next = builder.label("vk_glyph_next");
@@ -564,6 +568,28 @@ pub(super) fn emit_glyph_publish(builder: &mut CodeBuilder, at: GlyphPublishSlot
         at.header,
     ));
     emit_item_block(builder, at.item, at.width, at.height);
+    // `emit_item_block` leaves the stroke-style, clip-band and clip-path words to the
+    // shape path's join, dash and clip steps, which a glyph run never reaches; unset,
+    // they hold whatever the stack did, and the shader reads that as a clip. A glyph is
+    // never stroked, so its style is zero; the clip is the text item's own, once for the
+    // run — the frame cost already counts a text item's clip edges once. The Metal twin
+    // is `emit_glyph_publish` in `macos_aarch64/app/metal.rs`.
+    builder.emit(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    for word in [0usize, 4, 8, 12] {
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            at.item + ITEM_OFFSET_STROKE_STYLE + word,
+        ));
+    }
+    emit_clip_upload(
+        builder,
+        at.state,
+        at.item,
+        at.header,
+        at.edge_cursor,
+        at.bands,
+    );
 
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],

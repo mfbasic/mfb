@@ -1928,7 +1928,7 @@ pub(super) fn emit_metal_draw(profile: bool) -> CodeFunction {
     emit_join_buffer(&mut asm);
     emit_dash_buffer(&mut asm);
     // plan-163-C: the clip's words and a path clip's edges, after the join records.
-    emit_clip_buffer(&mut asm);
+    emit_clip_buffer(&mut asm, "clip", CLIP_BANDS);
     emit_gradient_buffer(&mut asm);
     // bug-484: after the edge buffer, which zeroes `arc.z` for every non-polygon, and
     // before the split, so both records of a blended stroked picture name its texels.
@@ -2895,6 +2895,21 @@ fn emit_glyph_publish(asm: &mut Asm) {
         OFF_GLYPH_HEADER,
     ));
     emit_item_block(asm, "glyph");
+    // `emit_item_block` leaves the stroke-style, clip-band and clip-path words to the
+    // shape path's join, dash and clip steps, which a glyph run never reaches. Unset,
+    // they held whatever the stack did, and the shader read that as a clip: a run drew
+    // nothing or a part of itself depending on the run. A glyph is never stroked, so its
+    // style is zero; the clip is the text item's own, once for the run — the frame cost
+    // already counts a text item's clip edges once.
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    for word in [0usize, 4, 8, 12] {
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_STROKE_STYLE + word,
+        ));
+    }
+    emit_clip_buffer(asm, "text_clip", TEXT_CLIP_BANDS);
 
     // The run's glyph count, and a zeroed index.
     asm.push(abi::load_u64(
@@ -4259,11 +4274,14 @@ fn emit_gradient_buffer(asm: &mut Asm) {
 /// residuals, exactly as a polygon's edges are (`emit_edge_buffer`). The frame-sum edge cap
 /// counts them, so the over-cap arm is unreachable; it leaves the edge count 0, which the
 /// shader reads as a clip enclosing nothing -- hidden, never drawn unclipped.
-fn emit_clip_buffer(asm: &mut Asm) {
-    let head = format!("{METAL_DRAW_SYMBOL}_clip_head");
-    let done = format!("{METAL_DRAW_SYMBOL}_clip_done");
-    let copy = format!("{METAL_DRAW_SYMBOL}_clip_copy");
-    let banded = format!("{METAL_DRAW_SYMBOL}_clip_banded");
+///
+/// `prefix` names this call site's labels and `bands` its band-index labels: a shape
+/// and a glyph run each emit one copy (`emit_glyph_publish`).
+fn emit_clip_buffer(asm: &mut Asm, prefix: &str, bands: BandSet) {
+    let head = format!("{METAL_DRAW_SYMBOL}_{prefix}_head");
+    let done = format!("{METAL_DRAW_SYMBOL}_{prefix}_done");
+    let copy = format!("{METAL_DRAW_SYMBOL}_{prefix}_copy");
+    let banded = format!("{METAL_DRAW_SYMBOL}_{prefix}_banded");
     let header = abi::SCRATCH[0];
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
@@ -4446,7 +4464,7 @@ fn emit_clip_buffer(asm: &mut Asm) {
     asm.push(abi::branch(&head));
     // The clip's edges are in the region; index them by band.
     asm.push(abi::label(&banded));
-    emit_band_index(asm, CLIP_BANDS);
+    emit_band_index(asm, bands);
     asm.push(abi::label(&done));
 }
 
@@ -5430,6 +5448,12 @@ const CLIP_BANDS: BandSet = BandSet {
     norm: OFF_ITEM + ITEM_CLIP_BAND_NORM,
     clip: true,
     tag: "clipband",
+};
+
+/// `CLIP_BANDS` for a glyph run's clip: the same words, its own labels.
+const TEXT_CLIP_BANDS: BandSet = BandSet {
+    tag: "text_clipband",
+    ..CLIP_BANDS
 };
 
 /// Build this polygon's band index in the frame buffer's band region and write its
