@@ -924,8 +924,11 @@ Commit: 7cdedfffb
       sentence cites; `12_monomorphization.md` `Monomorphizer::new` ×2 →
       `overload_names`, the map the sentences describe — the literal text left those
       files in earlier refactors, `git log -S`).
-- [ ] Re-run §2.3's rows on box 206 and this Mac alone (load under 4) and record them
-      in bug-765.
+- [x] Re-run §2.3's rows on box 206 and this Mac alone (load under 4) and record them
+      in bug-765. Recorded there ("Re-measured after plan-175-A and plan-175-D"): at
+      100,000 dots, box 206 4 / 4 → 11 / 12 pps / fps (offsets 55.9 → 16.2 ms, render
+      213.6 → 63.9 ms, worker 88.8 → 57.5 ms), this Mac 34 / 35 (load 3.83 at the start,
+      7.69 at the end: the rows' own builds), `builds/frame` 0 on every paint row.
 - [ ] Re-run `benchmark/canvas` in full; if the group or picture rows moved by 1.25× or
       more, re-baseline it in its own commit with `compare.py`'s output.
 - [x] `.ai/canvas-threading.md` §13 (the child-hash table and its drain) and §17 (one
@@ -933,9 +936,28 @@ Commit: 7cdedfffb
       5: the block read in place, the table keyed by revision and block, no clearing
       because a revision only grows); §17 per Correction 8: the confirmation stays per
       record, and what Phase 6 removed is the copy (`canvas::itemImageShadow`).
-- [ ] The arena free scrub's share of the busy graphics thread in `group fill 10000`
+- [x] The arena free scrub's share of the busy graphics thread in `group fill 10000`
       and `picture fill 10000`, re-profiled as in §9, recorded here against §2.4's
-      20.8% and 18.1% (decision 6).
+      20.8% and 18.1% (decision 6). At `7cdedfffb`, windowed, `FRAMES=2000`, `sample
+      <pid> 8` (self time on the thread holding `__canvas_sceneOffsets`, grouped as
+      §2.4 groups it, by a one-off parser of the sample file). The scrub is
+      `mfb_arena_fill_zero` now, a zero fill since `4bb55ea8c`, which predates this
+      plan; §2.4's profile was of `mfb_arena_fill_random`.
+
+      | Share of the busy graphics thread | `group fill 10000` | `picture fill 10000` |
+      |---|---:|---:|
+      | `--debug` perf timers | 53.1% | 7.6% |
+      | arena free scrub (`mfb_arena_fill_zero`) | 1.0% | 0.6% |
+      | arena alloc, free and drops | 5.1% | 1.7% |
+      | canvas walk code | 25.9% | 61.9% |
+      | renderer, Metal, objc | 8.3% | 8.5% |
+      | the rest | 6.5% | 19.6% |
+
+      Busy samples: 5,194 of 6,880 (group) and 3,621 of 6,940 (picture). The scrub has
+      stopped being a cost: the zero fill made it about a twentieth of what §2.4
+      measured, and the walks allocate less. In the group row the timers' 53% are the
+      per-child copy (`canvas::groupBlockItem`, Phase 5's record) under the `--debug`
+      build's per-allocation timing, which a release build does not pay.
 
 Acceptance: the spec describes the implementation at HEAD.
 Commit: —
@@ -1193,7 +1215,11 @@ correction is added here, dated, with the command that showed it.
      (`__CANVAS_BLOCK_NONE`) and a tag test (`canvas::groupBlockIsGroup`) fixed both.
    - **`benchmark/canvas/run.sh` cannot run here**: its rows are windowed and
      display-synced ("attended, every window unobstructed", `baseline/README.md`), and
-     this session has no display. The check is made with a headless probe of the same
+     ~~this session has no display~~ (corrected in Phase 7: windows do open from this
+     session, but `run.sh --only '^rect fill 1$'` stops with `gpuFrames=118 of
+     frames=120` — the first two frames are drawn before the window's Metal pipeline,
+     built on its own thread, is ready — with the base compiler `2f281c5e7` exactly as
+     with this branch, at load 4 to 12). The check is made with a headless probe of the same
      program instead (`benchmark/canvas/mfb`, `--debug`, `MFB_HEADLESS=1
      MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 KIND=group COUNT=10000 SIZE=small`, Metal),
      base compiler and Phase 5 alike: the walk is `phaseOffsetsMs + phaseDrawsMs` a

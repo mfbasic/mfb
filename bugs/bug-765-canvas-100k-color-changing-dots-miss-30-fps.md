@@ -103,6 +103,47 @@ So this bug stays open for three costs the plan lists and does not remove (its �
 worker's copy and compare, the per-frame block upload, and on the Intel GPU the draw
 itself, which no CPU-side change can bring under 33 ms at this count.
 
+### Re-measured after plan-175-A and plan-175-D (2026-10-25, `7cdedfffb`)
+
+plan-175-A §2.3's rows again, `tools/canvas-bench/bench.sh <mfb> [--target
+windows-x86_64 --host test@192.168.1.206] dots N <secs> [--same]`, headless (the GPU
+readback path), the release build's pps / fps and `workerPresentUs`, the `--debug`
+build's phases a frame. Every frame a GPU frame; `builds/frame` 0 and `refreshes/frame`
+N on every paint row (the paint change is a refresh in place, plan-175-A Phase 2).
+
+Box 206 (Windows 11, Intel UHD 630, Vulkan; 5 s a row):
+
+| N | scene | pps / fps | worker µs | offsets ms | draws ms | render ms | §2.3 before (pps / fps, worker, offsets, render) |
+|---:|---|---|---:|---:|---:|---:|---|
+| 10,000 | paint | 59 / 60 | 5,696 | 1.69 | 0.56 | 14.7 | 20 / 21, 8,730, 5.33, 44.6 |
+| 10,000 | same | 59 / 0 | 1,763 | | | | 60 / 0, 7,973 |
+| 50,000 | paint | 26 / 27 | 28,593 | 8.09 | 2.86 | 29.5 | 7 / 8, 43,843, 27.0, 109.9 |
+| 50,000 | same | 60 / 0 | 8,743 | | | | 25 / 0, 40,443 |
+| 60,000 | paint | 22 / 23 | 34,367 | 9.74 | 3.42 | 33.0 | 6 / 7, 52,755, 31.9, 125.0 |
+| 60,000 | same | 60 / 0 | 10,279 | | | | 21 / 0, 48,867 |
+| 100,000 | paint | 11 / 12 | 57,489 | 16.21 | 5.70 | 63.9 | 4 / 4, 88,837, 55.9, 213.6 |
+| 100,000 | same | 60 / 0 | 17,098 | | | | 13 / 0, 82,681 |
+
+This Mac (Apple Silicon, Metal; 4 s a row; load average 3.83 at the start, 7.69 at the
+end — the rows' own builds):
+
+| N | scene | pps / fps | worker µs | offsets ms | draws ms | render ms |
+|---:|---|---|---:|---:|---:|---:|
+| 10,000 | paint | 59 / 60 | 2,201 | 0.50 | 0.17 | 3.1 |
+| 10,000 | same | 60 / 0 | 415 | | | |
+| 50,000 | paint | 60 / 60 | 10,853 | 3.43 | 1.86 | 7.4 |
+| 50,000 | same | 60 / 0 | 2,222 | | | |
+| 60,000 | paint | 60 / 60 | 13,740 | 3.74 | 2.12 | 7.6 |
+| 60,000 | same | 60 / 0 | 2,672 | | | |
+| 100,000 | paint | 34 / 35 | 23,270 | 6.47 | 3.96 | 17.0 |
+| 100,000 | same | 60 / 0 | 3,885 | | | |
+
+On Metal 100,000 changing dots now reach 30 / 30 (34 / 35), headless, at this load.
+On box 206 they reach 11 / 12. The worker's `present` is still the largest cost there
+(57 ms at 100,000), and a re-present of an unchanged scene no longer copies it (17 ms,
+the compare alone, was 82). Not re-verified here: a real window on either machine
+(this table's frames are read back), which is what the Goal's rows name.
+
 ### Golden impact (not regenerated)
 
 `scripts/artifact-gate.sh <mfb> all` reports the same 13 diffs with the new compiler as
