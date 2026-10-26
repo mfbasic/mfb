@@ -463,11 +463,70 @@ Commit: f58c14267 (Codex half, 14 of 26), 3be554816 (closed)
 
 ### Phase 4 — strings (43 units; was 42 — see Corrections 2026-10-26)
 
-- [ ] 41 pages + overview + types (`D-phase4-current.txt`).
-- [ ] Every Unicode claim probe-verified; every performance hint checked
+- [x] 41 pages + overview + types (`D-phase4-current.txt`).
+      `--reconcile --letter D-phase4-current --units planning/plan-125-units/D-phase4-current.txt`
+      → `units=43 unaccounted=0 orphans=0` (Fable, `--jobs 2`).
+- [x] Every Unicode claim probe-verified; every performance hint checked
       against memory `string-concat-beats-list-join-in-mfb` before it is left
-      standing.
-- [ ] Every example compiled and run; ledger recorded.
+      standing. The reviewers probed each page's claims (their probes are in each
+      findings file). Every claim the edits added was re-probed on the release
+      binary (`/tmp/p125-ex/strprobe`): `upper("ŉ")` → `ʼN` (2 → 3 bytes), `upper("ﬁ")`
+      → `FI` (3 → 2), `lower("ΟΔΟΣ")` → `οδοσ`, NFC `U+212B` → `Å` (1 scalar, 3 → 2
+      bytes), `U+212A` → `K`, `U+0958` → 2 scalars, `U+F900` → `豈`, jamo → `가`;
+      `lineBreaks` breaks after VT, NEL and FF (all `mandatory`), after `ab-` but not
+      inside `-ing` or `-5`; `isDigit` is `TRUE` on `٣` and `३`, while `toInt("٣")` and
+      `toFloat("३")` raise `77050003`; `split` on `U+0301` and `trim`/`trimChars`
+      leave the mark as stated. `padRight("日本", 4, "-")` measures 6 columns with
+      `term::measureText` on a pty. The Unicode 16.0 version is what
+      `src/codegen/string/unicode/*_ranges.txt` pin. No strings page gives
+      accumulation advice: `grep -n -i 'faster|slower|accumulat|in a loop|quadratic'`
+      over `src/codegen/builtins/strings/*.rs` finds only the `stripPrefix`/`stripSuffix`
+      "call it in a loop" for repeated prefixes, which is a correctness hint, not a
+      performance one.
+- [x] Every example compiled and run; ledger recorded.
+      `MFB=$PWD/target/release/mfb ./scripts/man-run-examples.sh strings --run` →
+      `examples: 88 built: 88 ran: 88 failed: 0`; `--memory-scope strings` and
+      `--scope strings` → `unclassified … 0`, `internals-vocabulary hits: 0`.
+
+#### Phase 4 ledger — Fable iteration 2 (`planning/plan-125-findings/D-phase4-current/`)
+
+79 findings on 38 pages (`grep -c '^VERDICT:'` over the findings files); 5 pages
+had none (`caseFold`, `contains`, `endsWith`, `isLetter`, `isWhitespace`). Verdicts:
+40 incomplete, 26 misleading, 9 out-of-scope, 2 wrong, 1 example-broken,
+1 UNVERIFIED. 78 applied. The UNVERIFIED one (`padRight` 5, six columns) needed no
+edit and was then measured on a pty. The 9 out-of-scope sentences, plus the same
+sentences on their siblings, were cut and logged as belongs-in-spec rows 85-92.
+
+| Page | Findings | Disposition |
+|---|---|---|
+| byteLen | 1 out-of-scope | "does not walk the text" cut → row 85 |
+| count | 1 | "matched literally, not as a pattern" |
+| endsWithAny | 2 | `AttributedString` spelling; "like it, it never fails". The `startsWithAny` order cut and the `startsWith` scalar wording were mirrored here and on `endsWith` (not flagged there, same defect) |
+| find | 3 | upper bound "greater than the scalar length"; caption matches the `TRAP` example; type spelling |
+| fromScalars | 2 | the only error is `ErrOutOfMemory`; scalars vs graphemes, pointing at `graphemesCount` |
+| graphemeAt, graphemes | 1 + 3 | type spelling; points at `graphemesCount`/`graphemeAt`; example now uses a decomposed `é` and says it prints five lines |
+| graphemesCount | 1 | fallibility difference from `graphemes` stated |
+| isDigit, isLower, isUpper | 2 + 1 + 1 | Unicode 16.0; `isDigit` vs `toInt`/`toFloat` (probed) |
+| join | 1 | the `ErrOutOfMemory` condition |
+| left, right | 1 + 1 | `count` zero/negative outcomes |
+| lineBreaks | 4 | VT and NEL added; hyphen rule conditioned; trailing spaces belong to the line before, the example measures `trimEnd`; types `index`/`mandatory` descriptions |
+| lower, upper | 3 + 3 | final sigma; type spelling; unconditional attribute drop; `ŉ`/`ﬁ` byte examples; the OOM sentence moved out of the AttributedString paragraph |
+| mid | 1 → code | descriptor declares `ErrOutOfMemory`; the new `intrinsic_declared_errors` guard (56c0406c5) found and fixed `strings::replace`, `collections::mid` and both `utf8` codecs the same way |
+| normalizeNfc | 4 + 1 out-of-scope | singletons and exclusions; length can grow; the OOM condition; Unicode 16.0; Hangul mechanism cut → row 86 |
+| overview | 3 | negative-argument errors split between `ErrInvalidArgument` and `mid`'s `ErrIndexOutOfRange`; `mid` negative case; `lineBreaks` returns `LineBreak` records |
+| padLeft, padRight | 4 + 1 out-of-scope, 4 + 1 UNVERIFIED | huge-width OOM vs `ErrInvalidArgument`; one scalar is not one character; "No argument"; the pair named; unstyled padding; identity sentence cut → row 90 |
+| padLeftToWidth, padRightToWidth | 1 + 1 | control characters count as one column |
+| repeat | 3 | both size errors; every copy carries the styling |
+| replace | 2 | inserted text unstyled; empty `value` |
+| split | 3 | grapheme split by a combining-mark delimiter; the OOM condition; alias shown as call syntax |
+| startsWith | 3 | can only *end* inside a character; one scalar-by-scalar wording; `prefix` is a plain `String` |
+| startsWithAny | 1 out-of-scope | short-circuit cut → row 87 |
+| stripPrefix, stripSuffix | 3 + 1, 1 out-of-scope each | "never fails" replaced with the OOM-only statement; span handling at the cut; identity sentence cut → row 91 |
+| toBytes, toScalars | 1 out-of-scope + 1 + 1 out-of-scope | storage/walk wording cut → rows 88-89; the OOM condition |
+| trim, trimStart, trimEnd, trimChars | 1 + 1 + 1 out-of-scope + 1 | `AttributedString` in the parameter row; scalars not graphemes; identity sentence cut → row 92 |
+| types | 2 | "never 0" moved onto `lineBreaks`; the last entry's index is the text length |
+
+Fallout fixed alongside: the `AttributedString` rewording broke `inplace_self_update_census`'s Tier-B sentence on `padLeft`/`padRight`, so those pages keep the census sentence ("it returns an `AttributedString`"). The census is green.
 
 Acceptance: 43 units `exit 0` (`--reconcile --letter D-phase4-current`); sweeps clean; no page advises an accumulation
 pattern the measurement contradicts.

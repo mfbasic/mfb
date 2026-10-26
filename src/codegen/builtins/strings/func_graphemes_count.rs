@@ -14,6 +14,8 @@ const INTRO: &str = r#"Count the extended grapheme clusters in a string."#;
 
 const DESC: &str = r#"`strings::graphemesCount` returns the number of Unicode extended grapheme
 clusters in `value`; the result always equals `len(strings::graphemes(value))`.
+Unlike `strings::graphemes`, which builds a list and can raise `ErrOutOfMemory`,
+`graphemesCount` builds nothing and never fails.
 
 An extended grapheme cluster is one user-perceived character, and it may be built
 from several Unicode scalar values: a base letter followed by combining marks, a
@@ -35,9 +37,9 @@ Counting means walking the whole string, so unlike `strings::byteLen` the cost
 grows with its length — when you need both the clusters and their count, call
 `strings::graphemes` once and take `len` of the result.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
-text and returns exactly what the `String` overload returns (same value, type, and
-errors)."#;
+`value` may also be an `AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns: the same value and
+type, and like it, it never fails."#;
 
 const EX: &str = r#"Count user-perceived characters:
 

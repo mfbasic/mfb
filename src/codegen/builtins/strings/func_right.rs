@@ -31,7 +31,7 @@ This clamping is the difference from `strings::mid`, which raises
 
 `value` is not mutated; the result is a new `String`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
+`value` may also be an `AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
 
@@ -91,7 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "count",
-                    desc: "The number of trailing Unicode scalar values to take. Must be `0` or greater; values at or above the scalar length of `value` yield the whole string.",
+                    desc: "The number of trailing Unicode scalar values to take. `0` returns the empty string; a count at or above the scalar length of `value` returns the whole string; a negative count raises `ErrInvalidArgument`.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

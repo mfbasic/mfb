@@ -18,9 +18,10 @@ Scalars with no uppercase mapping — digits, punctuation, symbols, and
 already-uppercase letters — are copied through unchanged.
 
 The mapping is *full*, not simple: one scalar may expand into several. The German
-sharp s `ß` uppercases to `SS`, so `upper` can return a string that is longer
-than its input in both scalars and bytes. Never assume `len` is preserved across
-a case mapping.
+sharp s `ß` uppercases to `SS`, so the result can have more scalars than the
+input. The byte length can go up or down too: `ŉ` becomes `ʼN` (one byte more),
+while the ligature `ﬁ` becomes `FI` (one byte fewer). Never assume `len` or
+`strings::byteLen` is preserved across a case mapping.
 
 The mapping is deterministic and locale-independent: it always uses the default
 Unicode case conventions and applies no language-specific tailoring, so no
@@ -32,10 +33,13 @@ For caseless *comparison*, prefer `strings::caseFold` over uppercasing or
 lowercasing both operands. `value` is not mutated; the result is a new
 `String`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
+`ErrOutOfMemory` is raised only when the program runs out of memory while
+building the result; no input `String` causes any other error.
+
+`value` may also be an `AttributedString`: it returns an
 `AttributedString` whose text is uppercased as above, but **attributes are
 dropped** — a full case mapping can change the scalar count within a span, so the
-overlay cannot be remapped. `ErrOutOfMemory` means the program ran out of memory."#;
+overlay cannot be remapped."#;
 
 const EX: &str = r#"Uppercase a word; uncased scalars pass through:
 
@@ -87,7 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "The string to uppercase. Any `String` is accepted, including the empty string.",
+                desc: "The string to uppercase. Any `String` is accepted; the empty string returns the empty string.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

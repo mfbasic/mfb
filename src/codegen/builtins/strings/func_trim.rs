@@ -21,18 +21,20 @@ line, `U+00A0` no-break space, `U+1680` ogham space mark, `U+2000`–`U+200A` th
 en/em quad and space family, `U+2028` line separator, `U+2029` paragraph
 separator, `U+202F` narrow no-break space, `U+205F` medium mathematical space,
 and `U+3000` ideographic space. Multi-byte whitespace scalars are matched whole,
-so trimming never splits a scalar.
+so trimming never splits a scalar. Trimming works on scalars, not graphemes: a
+leading space followed by a combining mark loses the space, and the combining
+mark stays at the front of the result.
 
 Only the contiguous runs of whitespace at the very start and the very end are
 removed. Whitespace between non-whitespace scalars is interior and is preserved
 byte for byte. A `value` that is entirely whitespace trims to the empty string,
 and the empty string trims to the empty string. `value` is not mutated; the
-result is a new `String`, even when nothing was trimmed.
+call returns the trimmed text and leaves `value` as it was.
 
 The trim is locale-independent and performs no normalization or case folding. To
 strip a specific set of scalars instead of whitespace, use `strings::trimChars`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
+`value` may also be an `AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
 
@@ -83,7 +85,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",
-                desc: "The string to trim. Any `String` is accepted, including the empty string and a string that is entirely whitespace.",
+                desc: "The string to trim: a `String`, or an `AttributedString` (see the description). Any value is accepted, including the empty string and a string that is entirely whitespace.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

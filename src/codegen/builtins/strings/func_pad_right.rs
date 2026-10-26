@@ -13,14 +13,15 @@ const INTRO: &str = r#"Pad a string on the right to a given scalar width."#;
 const DESC: &str = r#"`strings::padRight` returns a new `String` in which copies of `padChar` are
 appended to `value` until the whole result spans `width` Unicode scalar values.
 The number of copies appended is `width` minus the current scalar length of
-`value`.
+`value`, or none when that difference is not positive.
 
 Width is counted in Unicode scalar values, not in UTF-8 bytes and not in grapheme
 clusters, and it counts scalars of the *result*, not of the padding alone. A
 multi-byte `padChar` therefore contributes one toward the width per copy while
 adding several bytes.
 
-Scalar count is not screen width, and this is the sharp edge of the pair.
+Scalar count is not screen width, and that is what separates `padRight` from
+`strings::padRightToWidth`.
 `term::measureText` measures **terminal columns**, and
 `strings::padRightToWidth` pads to the same measure without requiring an active
 terminal surface:
@@ -32,19 +33,26 @@ characters — a fixed-length record field, a zero-padded number — and for
 
 When the scalar length of `value` already equals or exceeds `width`, no padding
 is added and the result equals `value`. `padRight` never truncates to fit within
-`width`. You still get a new `String` back in that case, and `value` itself is
-never changed.
+`width`.
 
 `padChar` is optional and defaults to a single space. When supplied, it must be
 exactly one well-formed Unicode scalar value — neither empty nor more than one
-scalar — otherwise `ErrInvalidArgument` is raised. A negative `width` raises the
-same error, as does a result size that cannot be represented in 64 bits.
+scalar — otherwise `ErrInvalidArgument` is raised. One scalar is not one visible
+character: a decomposed accented letter (`"e"` followed by `U+0301`) or an emoji
+sequence joined with `U+200D` is several scalars and is rejected, while a lone
+combining mark is one scalar and is accepted.
 
-Neither argument is mutated.
+A negative `width` raises `ErrInvalidArgument` too. A `width` far too large to
+build a result for raises `ErrInvalidArgument` when the size of the result cannot
+even be represented, and `ErrOutOfMemory` when it can be represented but there
+is not enough memory for it — so which of the two a wildly large `width` raises
+depends on the byte length of `padChar`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
-`AttributedString` whose text is transformed exactly as the `String` overload's
-and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
+No argument is mutated.
+
+`value` may also be an `AttributedString`: it returns an `AttributedString`
+whose text is padded exactly as for a `String`; every existing attribute range
+stays on the same scalars, and the appended padding carries no attributes."#;
 
 const EX: &str = r#"Right-pad with the default space and with an explicit character:
 

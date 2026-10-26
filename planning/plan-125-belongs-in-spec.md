@@ -118,6 +118,14 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 82 | `term::drawGlyph` | `for width 2 it stamps a WIDE_TRAIL sentinel at column + 1` | `internals` | term-backend | OPEN | — |
 | 83 | `term::isOn` | `The result is the module's active flag read directly` | `internals` | term-backend | OPEN | — |
 | 84 | `term::setBold`, `setUnderline`, `setForeground`, `setBackground` | `The flag is stored in the module's current-attribute state and no escape sequence is emitted. / The colour is packed into the module's current-attribute state` | `internals` | term-backend | OPEN | — |
+| 85 | `strings::byteLen` | `The answer is immediate however long the string is — `byteLen` does not walk the text.` | `internals` | unicode | OPEN | — |
+| 86 | `strings::normalizeNfc` | `Hangul is composed algorithmically rather than from the table.` | `internals` | unicode | OPEN | — |
+| 87 | `strings::startsWithAny`, `endsWithAny` | `Candidates are tested in list order and the scan stops at the first match` | `internals` | unicode | OPEN | — |
+| 88 | `strings::toBytes` | `returns the UTF-8 octets that back `value`` | `internals` | unicode | OPEN | — |
+| 89 | `strings::toScalars` | `It walks the UTF-8 once, yielding one element per code point.` | `internals` | unicode | OPEN | — |
+| 90 | `strings::padLeft`, `padRight` | `You still get a new `String` back in that case, and `value` itself is never changed.` | `memory-vocab` | memory | OPEN | — |
+| 91 | `strings::stripPrefix`, `stripSuffix` | `Neither operand is modified, and you always get a new `String` back, even on the unchanged path.` | `memory-vocab` | memory | OPEN | — |
+| 92 | `strings::trim`, `trimStart`, `trimEnd`, `trimChars` | `the result is a new `String`, even when nothing was trimmed.` | `memory-vocab` | memory | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused
@@ -148,7 +156,7 @@ open      : grep -c '| OPEN |'  planning/plan-125-belongs-in-spec.md
 |---|---|---|
 | B | — | — |
 | C | 44 | 71 |
-| D | 11 | 82 |
+| D | 21 | 92 |
 | E | — | — |
 | F | — | — |
 | G | — | — |

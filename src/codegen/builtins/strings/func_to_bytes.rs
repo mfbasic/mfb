@@ -14,10 +14,9 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Return a string's UTF-8 encoding as a list, one element per byte."#;
 
-const DESC: &str = r#"`strings::toBytes` returns the UTF-8 octets that back `value` as a
-`List OF Byte`, one element per byte, in encoding order. It is the byte-level
-view of a string: no decoding, validation, or transformation is performed, and
-the bytes are copied verbatim into a freshly built list.
+const DESC: &str = r#"`strings::toBytes` returns the UTF-8 encoding of `value` as a `List OF Byte`,
+one element per byte, in encoding order. It is the byte-level view of a string:
+no decoding, validation, or transformation is performed, and the bytes are copied verbatim into a freshly built list.
 
 The result length is exactly `strings::byteLen(value)`, which is never smaller
 than `len(value)` and equals it only when every scalar is ASCII: an ASCII scalar contributes one element, while a non-ASCII
@@ -32,7 +31,7 @@ string.
 `value` is not mutated. The returned `List OF Byte` is its own value, so
 mutating it does not affect the string it came from.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
+`value` may also be an `AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
 errors)."#;
 

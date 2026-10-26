@@ -15,7 +15,10 @@ const DESC: &str = r#"`strings::padRightToWidth` returns a new `String` in which
 are appended to `value` until the result fills as much of `columns` terminal
 columns as whole copies of `padChar` allow. It uses the same column rules as
 `term::measureText` without requiring an active terminal surface, so this is the
-member that lines a table up on screen.
+member that lines a table up on screen. Only printable text lines up: like
+`term::measureText`, it counts a tab, newline or other control character in
+`value` as one column, so a value that contains one will not line up with its
+neighbours however it is padded.
 
 `strings::padRight` measures the same argument in **Unicode scalar values**, which
 is the right unit for a fixed-length record field and the wrong one for a column:
@@ -41,9 +44,9 @@ of more than one scalar are rejected with the same error. A `columns` so large
 that the padded result cannot be built fails with `ErrOutOfMemory` (`77010001`)
 rather than producing a wrong answer.
 
-Neither argument is mutated.
+No argument is mutated.
 
-`value` may also be an `astrings::AttributedString`: it returns an
+`value` may also be an `AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit."#;
 

@@ -15,13 +15,16 @@ concatenating the UTF-8 encoding of each element, in order.
 It is the inverse of `strings::toScalars`: `fromScalars(toScalars(s))` equals `s`
 for every `String s`. Encoding always succeeds because a `Scalar` is by
 construction a valid, non-surrogate Unicode code point, so there is no
-ill-formed input to reject.
+ill-formed input to reject. The only error it can raise is `ErrOutOfMemory`, when
+the result string cannot be created; no input value is ever rejected.
 
 Each element contributes one to four bytes depending on its code point, so the
 byte length of the result (`strings::byteLen`) is never smaller than the element
 count — equal only when every scalar is ASCII — while
-`len` of the result equals the element count exactly. The empty list yields the
-empty string.
+`len` of the result equals the element count exactly. That count is scalars, not
+user-perceived characters: a base letter plus a combining mark, or a two-scalar
+flag, is one grapheme but two elements. Use `strings::graphemesCount` when the
+visible character count matters. The empty list yields the empty string.
 
 The input list is not modified; the returned `String` is its own value."#;
 

@@ -36,9 +36,9 @@ two-argument `find`: `contains` searches the whole string, so it can report a
 match that lies before a `find(value, needle, start)`'s `start`, which then
 raises anyway. Use `strings::count` for the number of occurrences.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
-text and returns exactly what the `String` overload returns (same value, type, and
-errors)."#;
+`value` may also be an `AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns: the same value and
+type, and like it, it never fails."#;
 
 const EX: &str = r#"Test for a substring, including a multi-byte one:
 

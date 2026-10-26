@@ -20,7 +20,11 @@ Matching is an exact byte comparison with no normalization and no case folding.
 After a match, scanning resumes at the byte immediately following the matched
 delimiter, so matches never overlap. Because both operands are
 well-formed UTF-8, a delimiter is only found where its complete byte sequence
-appears, so a split can never land mid-scalar.
+appears, so a split never lands inside a scalar value. It can land inside a
+grapheme: a delimiter that is a combining mark, such as `"\u{0301}"`, matches
+the mark after its base letter and leaves the base letter in one piece and the
+next character in the next, so the accent is removed from the output. To cut on
+user-perceived characters, use `strings::graphemes`.
 
 The result always contains exactly one more element than the number of matches
 found, and is therefore never empty. Everything else follows from that rule:
@@ -37,11 +41,11 @@ found, and is therefore never empty. Everything else follows from that rule:
 `ErrInvalidArgument` before any scanning occurs. An empty delimiter occurs at
 every position, and cutting at every position is not a division of the text, so
 `split` refuses it exactly as `strings::count` does — see `mfb man strings` for
-the rule. `value` is not mutated; the returned list and its elements are their
+the rule. `ErrOutOfMemory` is raised when the program cannot obtain room for the
+result list. `value` is not mutated; the returned list and its elements are their
 own values.
 
-`delimiter` is also accepted under the name `separator`. Joining the result with
-the same non-empty delimiter reproduces `value` exactly. The reverse does not
+Joining the result with the same non-empty delimiter reproduces `value` exactly. The reverse does not
 hold in general: joining a list whose elements contain the delimiter and splitting
 again yields more pieces than you started with.
 
@@ -51,7 +55,7 @@ string — one-or-more whitespace, a set of alternatives, an optional trailing
 comma — reach for `regex::split`, which breaks on a regular-expression match and
 follows the same counting and empty-piece rules as this member.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
+`value` may also be an `AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
 errors)."#;
 
@@ -373,7 +377,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "delimiter",
-                    desc: "The separator to break `value` on. Must be non-empty. Also accepted under the name `separator`.",
+                    desc: "The separator to break `value` on. Must be non-empty. May be passed by name as `delimiter := \",\"` or `separator := \",\"`.",
                     aliases: &["separator"],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

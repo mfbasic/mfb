@@ -27,7 +27,7 @@ precomposed `é` does not match a decomposed one.
 `start` defaults to `0` when the two-argument form is used. It must lie in `0`
 through the scalar length of `value` *inclusive*; the upper bound equals the
 length so a search may begin at the very end of the string, where only an empty
-needle can match. A negative `start`, or one past the scalar length, raises
+needle can match. A negative `start`, or one greater than the scalar length, raises
 `ErrIndexOutOfRange`. An empty `needle` matches immediately and returns `start`,
 which is the package's empty-needle rule for a member that answers with a
 position (see `mfb man strings`).
@@ -53,7 +53,7 @@ lists; see `mfb man collections find` for the `List` form. Every index-returning
 `collections::findLastIndex` all raise `ErrNotFound` — so swapping a literal
 search for a pattern search does not change how absence behaves.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
+`value` may also be an `AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
 errors)."#;
 
@@ -83,7 +83,7 @@ FUNC main() AS Integer
 END FUNC
 ```
 
-Guard with `contains`, or catch the absence with `TRAP`:
+Catch the absence with `TRAP`:
 
 ```
 IMPORT io

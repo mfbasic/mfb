@@ -22,16 +22,18 @@ scalars of such a cluster into a single element, so `"👨‍👩‍👧‍👦x
 elements, not eight. Cluster boundaries follow the Unicode extended
 grapheme-cluster rules.
 
-This is a third way of counting a string, distinct from both of the others:
+This is a third way of measuring a string, distinct from both of the others:
 `len(value)` counts Unicode scalar values and `strings::byteLen(value)` counts
 UTF-8 bytes. For text with combining marks, emoji, or flags all three can differ.
+To count clusters without building the list, use `strings::graphemesCount`; to
+fetch one cluster by position, use `strings::graphemeAt`.
 
 The clusters appear in the same left-to-right order as in `value`, and
 concatenating them reproduces `value` exactly — no scalar is dropped or
 reordered. The empty string yields the empty list. `value` is not mutated; the
 returned list and its elements are their own values.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
+`value` may also be an `AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
 errors). `ErrOutOfMemory` means the program ran out of memory."#;
 
@@ -51,14 +53,16 @@ FUNC main() AS Integer
 END FUNC
 ```
 
-Iterate over user-perceived characters:
+Iterate over user-perceived characters. The `é` here is `e` followed by a
+combining acute accent (`U+0301`), two scalars but one cluster, so the loop prints
+five lines, not six:
 
 ```
 IMPORT io
 IMPORT strings
 
 FUNC main() AS Integer
-  FOR EACH g IN strings::graphemes("héllo")
+  FOR EACH g IN strings::graphemes("he\u{301}llo")
     io::print(g)
   NEXT
   RETURN 0

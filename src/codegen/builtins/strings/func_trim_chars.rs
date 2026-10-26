@@ -23,20 +23,24 @@ that is not; the same is then done from the back. Only those two contiguous runs
 are removed, so a set member that sits between two non-members is interior and is
 preserved. Membership is tested on whole Unicode scalars rather than bytes, so a
 multi-byte scalar listed in `chars` matches correctly and trimming never splits a
-scalar.
+scalar. Scalars, not graphemes: a base letter listed in `chars` is removed even
+when a combining mark follows it, and the mark is then left at the edge of the
+result. A decomposed character in `chars` (such as `e` plus `U+0301`) contributes
+two set members, not one. To work with user-perceived characters, see
+`strings::graphemes`.
 
 Comparison is literal: scalars must be equal exactly, with no normalization and
 no case folding, so a scalar removed in one case is not removed in another. When
 `chars` is the empty string the set is empty, nothing qualifies, and a copy of
 `value` is returned. When `value` is empty, or every scalar of `value` belongs to
-the set, the result is the empty string. Neither argument is mutated; the result
-is a new `String`, even when nothing was trimmed.
+the set, the result is the empty string. Neither argument is mutated; the call
+returns the trimmed text and leaves both as they were.
 
 Unlike `strings::trim`, which removes Unicode whitespace, `trimChars` removes
 only what `chars` lists. To strip a fixed leading or trailing *substring* rather
 than a set of scalars, use `strings::stripPrefix` or `strings::stripSuffix`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
+`value` may also be an `AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
 

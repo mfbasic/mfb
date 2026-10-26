@@ -10,8 +10,8 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Decode a string into its Unicode scalar values."#;
 
 const DESC: &str = r#"`strings::toScalars` decodes `value` into its Unicode scalar values and returns
-them, in order, as a `List OF Scalar`. It walks the UTF-8 once, yielding one
-element per code point.
+them, in order, as a `List OF Scalar`. It yields one element per Unicode scalar
+value, in left-to-right order.
 
 Each element is one `Scalar` — a 32-bit Unicode scalar value — not a grapheme
 cluster. A base letter followed by a combining mark is two separate elements,
@@ -25,12 +25,14 @@ This is the entry point for walking a string one scalar at a time: compare each
 siblings, then rebuild a `String` with `strings::fromScalars`. The round trip is
 exact — `fromScalars(toScalars(s))` equals `s` for every `String s` — because
 every `String` is well-formed UTF-8 by construction, so decoding cannot fail.
+The only error it can raise is `ErrOutOfMemory`, when the result list cannot be
+built; no input `String` raises anything else.
 
 The scalars appear in the same left-to-right order as in `value`. The empty
 string yields the empty list. `value` is not mutated; the returned list is its
 own value.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
+`value` may also be an `AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
 errors)."#;
 

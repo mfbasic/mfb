@@ -39,7 +39,7 @@ overflows 64 bits raises the same error.
 `value` is not mutated; the result is a new `String`. `collections::mid`
 slices a list the same way; see `mfb man collections mid`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
+`value` may also be an `AttributedString`: it returns an
 `AttributedString` whose text is the same slice as the `String` overload's and
 whose attribute spans are remapped by the same edit."#;
 

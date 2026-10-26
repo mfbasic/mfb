@@ -24,15 +24,18 @@ A `times` of `0` returns the empty string regardless of `value`, and a `times` o
 string for any valid `times`. A negative `times` is rejected with
 `ErrInvalidArgument`.
 
-The total size is computed with overflow checks. A `byteLen(value) * times`
-product that cannot be represented in 64 bits raises the same
-`ErrInvalidArgument` rather than producing a truncated result.
+A result too large to build never comes back truncated. If
+`byteLen(value) * times` is so large it cannot even be counted, `repeat` raises
+`ErrInvalidArgument`; if it can be counted but the memory is not available, it
+raises `ErrOutOfMemory`. Both can be caught with `TRAP`.
 
 `value` is not mutated; the result is a new `String`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
-`AttributedString` whose text is transformed exactly as the `String` overload's
-and whose attribute spans are remapped by the same edit."#;
+`value` may also be an `AttributedString`: it returns an `AttributedString`
+whose text is repeated exactly as for a `String`, and every copy carries the
+styling of the original, so a bold first letter is bold in each copy. A `times`
+of `0` gives an empty `AttributedString`, and a negative `times` raises
+`ErrInvalidArgument` just as for a `String`."#;
 
 const EX: &str = r#"Repeat a short string; zero copies yields the empty string:
 

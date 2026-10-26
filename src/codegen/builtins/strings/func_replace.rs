@@ -48,9 +48,11 @@ back that is independent of the one you passed in.
 `replacement`. The bare `replace` name is also defined for lists; see
 `mfb man collections replace`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
-`AttributedString` whose text is transformed exactly as the `String` overload's
-and whose attribute spans are remapped by the same edit."#;
+`value` may also be an `AttributedString`: it returns an `AttributedString`
+whose text is replaced exactly as for a `String`. Attributes on text that
+survives the edit stay with that text; the matched text's attributes go with it,
+and the inserted `new` text carries no attributes. When nothing matches, the
+result keeps every attribute of `value`."#;
 
 const EX: &str = r#"Replace every occurrence, and delete with an empty replacement:
 
@@ -119,7 +121,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "The string to copy from, replacing matches as they are found.",
+                    desc: "The string to copy from, replacing matches as they are found. May be empty, in which case the empty string is returned.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

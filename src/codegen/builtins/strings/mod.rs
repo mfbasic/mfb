@@ -120,7 +120,9 @@ Index- and count-based functions (`find`, `mid`, `left`, `right`) measure
 positions in zero-based Unicode scalar values, not bytes or graphemes. `left`
 and `right` clamp — a count past the end returns the whole string, and only a
 negative count raises `ErrInvalidArgument`. `mid` never clamps: a window that
-starts or runs past the end raises `ErrIndexOutOfRange`. `find` reports absence
+starts or runs past the end, or that has a negative start or count, raises
+`ErrIndexOutOfRange` — never `ErrInvalidArgument`, unlike a negative count to
+`left` or `right`. `find` reports absence
 by raising `ErrNotFound`, never with a sentinel such as `-1`; guard it with
 `contains` when a miss is expected. A `find` `start` outside `0` through the
 scalar length inclusive raises `ErrIndexOutOfRange`, as does an out-of-range
@@ -128,17 +130,24 @@ index to `graphemeAt`. The
 grapheme helpers `graphemes`, `graphemeAt`, and `graphemesCount` are the
 exception: they operate on user-perceived extended grapheme clusters. `byteLen`
 reports the length of the UTF-8 encoding in bytes, and `toBytes` returns those
-raw UTF-8 bytes one element per byte. `lineBreaks` returns where text may wrap, by the
-Unicode line-breaking rules, as scalar positions that feed straight into `mid` and
-`left`. Case-insensitive comparison should use
+raw UTF-8 bytes one element per byte. `lineBreaks` returns a
+`List OF strings::LineBreak`, one per place a line may start under the Unicode
+line-breaking rules: each has an `index` in scalar positions (so
+`strings::left(text, b.index)` is the text before it) and a `mandatory` flag for
+breaks the text forces, such as after a line feed; the end of the text is always
+the last entry. Case-insensitive comparison should use
 `caseFold` rather than `upper` or `lower`, and content that may combine
 characters differently can be normalized with `normalizeNfc` before comparison.
 
 Several functions accept an optional or defaulted argument: `find` takes an
 optional `start` position, and the four padding members take an optional
 `padChar` that defaults to a single space. The pad character, when supplied, must
-be exactly one Unicode scalar value; an empty or longer `padChar`, like a
-negative width or count anywhere in the package, raises `ErrInvalidArgument`.
+be exactly one Unicode scalar value; an empty or longer `padChar` raises
+`ErrInvalidArgument`, as does a negative width to the four padding members and a
+negative count to `left`, `right` and `repeat`. `mid` is the exception: a
+negative start or count is an out-of-range window and raises
+`ErrIndexOutOfRange`, like a negative `start` to `find` or a negative index to
+`graphemeAt`.
 
 **Padding comes in two units, and picking the wrong one is the package's
 sharpest edge.** `padLeft` and `padRight` pad to a count of Unicode scalar
@@ -193,8 +202,10 @@ one concatenates with nothing between the elements.
 
 `strings` is a built-in package: `IMPORT strings` needs no manifest dependency.
 
-Many `strings::` functions also accept an `astrings::AttributedString` at the text
-position; each function's own page documents that overload. A function that only
+Many `strings::` functions also accept an `AttributedString` as their first
+argument, the text they work on; each function's own page documents that
+overload. No other argument takes one: a needle, a prefix, a delimiter or a pad
+character is always a plain `String`. A function that only
 reads the text answers exactly as it does for the visible `String`. A function
 that changes the text returns an `AttributedString` whose styling follows the text
 it keeps; text the call adds, such as `replace`'s replacement or padding, carries

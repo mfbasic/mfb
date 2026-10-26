@@ -11,13 +11,12 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Test whether a string begins with any of several prefixes."#;
 
 const DESC: &str = r#"`strings::startsWithAny` returns `TRUE` when `value` begins with at least one of
-the strings in `prefixes`, and `FALSE` otherwise. Candidates are tested in list
-order and the scan stops at the first match; which candidate matched is not
-reported, only that one did.
+the strings in `prefixes`, and `FALSE` otherwise. Which candidate matched is not
+reported, only that one did; the order of `prefixes` does not affect the result.
 
-Each individual test is the same exact byte comparison `strings::startsWith`
-performs: the leading bytes of `value` must equal every byte of the candidate, in
-order, with no normalization and no case folding. A match always covers whole
+Each individual test is the same exact comparison `strings::startsWith`
+performs: the start of `value` must match every scalar of the candidate, with no
+normalization and no case folding. A match always covers whole
 Unicode scalars but not necessarily whole characters: a decomposed `é` (`e`
 followed by a combining accent) begins with `"e"`, while the precomposed `é` does
 not, and the two spellings never match each other. A candidate longer than `value`
@@ -28,9 +27,9 @@ containing `""` makes the result `TRUE` for any `value`. An empty `prefixes` lis
 has no candidates and returns `FALSE`. Neither `value` nor the list is modified,
 and the call is total — it never fails.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
-text and returns exactly what the `String` overload returns (same value, type, and
-errors)."#;
+`value` may also be an `AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns: the same value and
+type, and like it, it never fails."#;
 
 const EX: &str = r#"Test a URL against several scheme prefixes:
 
@@ -81,14 +80,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "The string whose leading bytes are examined. May be empty.",
+                    desc: "The string whose start is examined. May be empty.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "prefixes",
-                    desc: "The candidate prefixes, tested in list order. May be empty, in which case the result is `FALSE`. Entries may themselves be empty; an empty entry always matches.",
+                    desc: "The candidate prefixes. May be empty, in which case the result is `FALSE`. Entries may themselves be empty; an empty entry always matches.",
                     aliases: &[],
                     ty: ParameterType::list_of(ParameterType::String),
                     default: DefaultValue::None,

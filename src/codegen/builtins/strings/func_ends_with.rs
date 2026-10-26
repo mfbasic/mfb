@@ -10,19 +10,19 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Test whether a string ends with a given suffix."#;
 
 const DESC: &str = r#"`strings::endsWith` returns `TRUE` when `value` ends with `suffix` and `FALSE`
-otherwise. The test is an exact byte comparison of the trailing bytes of `value`
-against every byte of `suffix`, in order; it succeeds only when all of them
-match.
+otherwise. The test compares the end of `value` with `suffix` scalar by scalar,
+exactly; it succeeds only when every scalar of `suffix` matches.
 
 No normalization, case folding, or other transformation is applied to either
 operand, so `endsWith("Hello", "LO")` is `FALSE`. Matching is by Unicode scalar:
-a match always covers whole scalars, but not necessarily whole
-characters: it can begin or end inside a combining sequence, an emoji sequence or
-a flag, so `endsWith("cafe\u{0301}", "\u{0301}")` is `TRUE` even though
-the visible text ends in `é`. Apply `strings::normalizeNfc` to both operands first
+a match always covers whole scalars, but not necessarily whole characters.
+Because the match ends at the end of `value`, it can only *begin* inside a
+combining sequence, an emoji sequence or a flag, so
+`endsWith("cafe\u{0301}", "\u{0301}")` is `TRUE` even though the visible text
+ends in `é`. Apply `strings::normalizeNfc` to both operands first
 if composed and decomposed spellings must compare equal.
 
-The boundary cases follow from the byte comparison. A `suffix` longer than
+The boundary cases follow from this comparison. A `suffix` longer than
 `value` cannot match and returns `FALSE`. The empty `suffix` matches every
 `value`, including the empty string, and returns `TRUE`. A non-empty `suffix`
 against an empty `value` returns `FALSE`. Neither operand is modified and the
@@ -32,9 +32,9 @@ To test the start of the string use `strings::startsWith`; to test several
 candidate suffixes at once use `strings::endsWithAny`; to remove the suffix
 rather than test for it use `strings::stripSuffix`.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
-text and returns exactly what the `String` overload returns (same value, type, and
-errors)."#;
+`value` may also be an `AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns: the same value and
+type, and like it, it never fails."#;
 
 const EX: &str = r#"Test for a trailing suffix, including a multi-byte one:
 
@@ -94,7 +94,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "The string whose trailing bytes are examined. May be empty.",
+                    desc: "The string whose end is examined. May be empty.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

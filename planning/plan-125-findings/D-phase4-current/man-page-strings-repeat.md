@@ -1,0 +1,22 @@
+### 1. ErrOutOfMemory is in the Errors table but the page never says what raises it
+UNIT:      man-page:strings/repeat
+CLAIM:     "A negative `times` is rejected with `ErrInvalidArgument`." (the only error condition the description names; the `77010001 ErrOutOfMemory` row has no matching sentence)
+VERDICT:   incomplete
+EVIDENCE:  Probe `/tmp/plan-125-scratch/D-phase4-current/man-page-strings-repeat/p_ex2/src/main.mfb`: `strings::byteLen(strings::repeat("xxxxxxxx", 1000000000000))` inside a `TRAP(e)` printed `8TB: 77010001` and the program continued to print `after` (exit 0). A result that is countable but larger than the memory available raises a catchable `ErrOutOfMemory`; the page's §2 duty is "every raisable error and the condition that raises it", and this one is missing. Lowering: `func_repeat.rs:lower` branches to `raise_error_bare("ErrOutOfMemory")` when the arena call fails.
+SUGGESTED: Add after the negative-`times` sentence: "A result too large for the memory available raises `ErrOutOfMemory`; it can be caught with `TRAP` like any other error, and no partial string is produced."
+
+### 2. The overflow sentence names the wrong error for half of the "cannot be represented" range
+UNIT:      man-page:strings/repeat
+CLAIM:     "A `byteLen(value) * times` product that cannot be represented in 64 bits raises the same `ErrInvalidArgument` rather than producing a truncated result."
+VERDICT:   misleading
+EVIDENCE:  The check is an *unsigned* 64-bit high-half test (`builder_error_emission.rs:emit_checked_size_multiply` uses `unsigned_multiply_high_registers`), so a product between 2^63 and 2^64, which no `Integer` can represent, passes the check and then fails allocation. Probe `p_ex2`: `strings::repeat("xx", 4611686018427387905)` (product 2^63+2) printed `2^63+2: 77010001` (ErrOutOfMemory), while `strings::repeat("xxxx", 4611686018427387905)` (product 2^64+4) printed `2^64+4: 77050002` (ErrInvalidArgument). A developer reading "cannot be represented in 64 bits" thinks of `Integer`'s signed range and would TRAP for the wrong code. "computed with overflow checks" is also implementation talk the developer does not need.
+SUGGESTED: Replace the paragraph with: "A result too large to build never comes back truncated. If `byteLen(value) * times` is so large it cannot even be counted, `repeat` raises `ErrInvalidArgument`; if it can be counted but the memory is not available, it raises `ErrOutOfMemory`. Both are catchable with `TRAP`."
+
+### 3. The AttributedString overload sentence does not say what repeat actually does with styling
+UNIT:      man-page:strings/repeat
+CLAIM:     "`value` may also be an `astrings::AttributedString`: it returns an `AttributedString` whose text is transformed exactly as the `String` overload's and whose attribute spans are remapped by the same edit."
+VERDICT:   misleading
+EVIDENCE:  "Remapped by the same edit" is a template sentence shared with slicing functions and leaves the developer guessing whether copies two and three are styled. They are: probe `p_probe` built `astrings::addAttribute(astrings::fromString("hello"), 0, 1, astrings::bold())` and `astrings::toMarkdown(strings::repeat(styled, 3))` printed `**he**llo**he**llo**he**llo`. The `astrings` overview already states "repeat is the one exception: every copy carries the styling of the original", and this page, which the overview defers to ("each function's own page documents that overload"), says something vaguer. Also verified: `times` of 0 on an AttributedString gives empty text, and a negative `times` raises `77050002` for the overload too.
+SUGGESTED: "`value` may also be an `astrings::AttributedString`. The result is an `AttributedString` whose text is repeated exactly as for a `String`, and every copy carries the styling of the original, so a bold first letter is bold in each copy. A `times` of `0` gives an empty `AttributedString`, and a negative `times` raises `ErrInvalidArgument` just as for a `String`."
+
+For the record, both examples compiled and ran as the page implies: the first printed `ababab` then `[]`, the second printed a line of 40 dashes. All other sentences checked out against `p_probe`: `"héé👍"` repeated 2 printed intact, `byteLen(repeat(s,3))` and `byteLen(s)*3` both printed 27, `repeat("",5)` and `repeat("",0)` printed `[]`, `repeat("q",1)` printed `q`, `repeat("x",-1)` raised `77050002`, and the source variable was unchanged after the call (`ab abab`).
