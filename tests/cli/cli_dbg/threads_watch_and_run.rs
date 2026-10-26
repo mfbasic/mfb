@@ -74,7 +74,7 @@ fn greeting_program() -> PathBuf {
 
 const THREAD_COLUMNS: &[&str] = &["ID", "Name", "PC", "Task"];
 
-const ARENA_COLUMNS: &[&str] = &["ID", "Thread", "Address", "Size (KB)"];
+const ARENA_COLUMNS: &[&str] = &["ID", "Thread", "Address", "Committed (KB)"];
 
 const BREAKPOINT_COLUMNS: &[&str] = &["Address", "Count", "Symbol", "Written name"];
 
@@ -208,24 +208,24 @@ fn an_attached_threaded_program_lists_its_threads_and_arenas() {
     );
     assert!(rows.iter().any(|row| row[1] == workers[0]), "{arenas:?}");
 
-    // The main arena's state and blocks, and a dump of its oldest block.
+    // The main arena's state and regions, and a dump of its small region.
     session.send("show arena\n");
     let shown = body(&session.until_prompt());
     assert_eq!(shown[0], "Arena State:", "{shown:?}");
     assert!(
-        shown.iter().any(|line| line == "Arena Block (0):"),
+        shown.iter().any(|line| line == "Arena Region (0 small):"),
         "{shown:?}"
     );
     assert!(
         shown
             .iter()
-            .any(|line| line.starts_with("  quickBin[128]     ")),
+            .any(|line| line.starts_with("  smallHead[128]    ")),
         "{shown:?}"
     );
     session.send("show arena 0 0 0 32\n");
     let dump = body(&session.until_prompt());
     assert_eq!(dump.len(), 3, "{dump:?}");
-    assert_eq!(dump[0], "Arena Block (0,0):");
+    assert_eq!(dump[0], "Arena Region (0,0 small):");
     assert!(dump[1].starts_with("0x0000_0000 ") && dump[2].starts_with("0x0000_0010 "));
 
     // The worker is running MFBASIC code, so it steps.
