@@ -153,9 +153,25 @@ pub(crate) fn lower_term_helper(
     // is worse than the trap its siblings raise. A canvas program asks
     // `canvas::pollMouse`, which is `Canvas`-gated for the mirror-image reason.
     //
+    // The read-only members (`isOn` and the four attribute getters) reach this
+    // fall-through the same way on the backends that do not claim them, and are
+    // gated for the same reason: their descriptors declare `ErrWrongMode`, and a
+    // `term::` call outside `Console` must not answer as if the TUI were there.
+    //
     // A no-op outside app builds (`presentation_mode_offset` is `None`), so a
     // console program is untouched.
-    if build_mode.is_app() && matches!(call, "term.enableMouse" | "term.pollMouse") {
+    if build_mode.is_app()
+        && matches!(
+            call,
+            "term.enableMouse"
+                | "term.pollMouse"
+                | "term.isOn"
+                | "term.getForeground"
+                | "term.getBackground"
+                | "term.getBold"
+                | "term.getUnderline"
+        )
+    {
         let (mut instructions, mut relocations, locals) = parts?;
         prepend_wrong_mode_gate(
             &mut instructions,

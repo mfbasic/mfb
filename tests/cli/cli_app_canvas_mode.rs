@@ -236,6 +236,80 @@ fn macos_term_traps_wrong_mode_in_canvas() {
     let _ = fs::remove_dir_all(&project);
 }
 
+/// The read-only `term::` members — `isOn` and the four attribute getters — are
+/// `Console`-gated like every other member: each raises `ErrWrongMode` in `Canvas`.
+/// Before the fix no backend claimed them in an app build, so they fell through
+/// ungated and answered as if the TUI were reachable. Exit code `10 + n` names
+/// the `n`th member that did not trap.
+#[cfg(target_os = "macos")]
+const TERM_GETTERS_TRAP_IN_CANVAS_SOURCE: &str = "IMPORT app\n\
+     IMPORT color\n\
+     IMPORT term\n\
+     IMPORT errorCode\n\
+     FUNC main AS Integer\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 LET on AS Boolean = term::isOn() TRAP(e1)\n\
+    \x20   IF e1.code <> errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 20\n\
+    \x20   END IF\n\
+    \x20   RETURN 0 + check2()\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 11\n\
+     END FUNC\n\
+     FUNC check2 AS Integer\n\
+    \x20 LET fg AS color::Color = term::getForeground() TRAP(e2)\n\
+    \x20   IF e2.code <> errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 20\n\
+    \x20   END IF\n\
+    \x20   RETURN check3()\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 12\n\
+     END FUNC\n\
+     FUNC check3 AS Integer\n\
+    \x20 LET bg AS color::Color = term::getBackground() TRAP(e3)\n\
+    \x20   IF e3.code <> errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 20\n\
+    \x20   END IF\n\
+    \x20   RETURN check4()\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 13\n\
+     END FUNC\n\
+     FUNC check4 AS Integer\n\
+    \x20 LET b AS Boolean = term::getBold() TRAP(e4)\n\
+    \x20   IF e4.code <> errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 20\n\
+    \x20   END IF\n\
+    \x20   RETURN check5()\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 14\n\
+     END FUNC\n\
+     FUNC check5 AS Integer\n\
+    \x20 LET u AS Boolean = term::getUnderline() TRAP(e5)\n\
+    \x20   IF e5.code <> errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 20\n\
+    \x20   END IF\n\
+    \x20   RETURN 0\n\
+    \x20 END TRAP\n\
+    \x20 RETURN 15\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_term_getters_trap_wrong_mode_in_canvas() {
+    let (project, ok, log) =
+        build_app("app_canvas_term_getters", TERM_GETTERS_TRAP_IN_CANVAS_SOURCE, &[]);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe =
+        project.join("build/app_canvas_term_getters.app/Contents/MacOS/app_canvas_term_getters");
+    let (code, _) = run_headless_with_stdin(&exe, "");
+    assert_eq!(
+        code, 0,
+        "isOn/getForeground/getBackground/getBold/getUnderline must raise ErrWrongMode \
+         in Canvas (11..15 = that member did not trap, 20 = wrong code)"
+    );
+    let _ = fs::remove_dir_all(&project);
+}
+
 /// The Phase 2 relaxation itself: `io::readLine` must **not** trap in `Canvas`
 /// (`Canvas` has a window, so it has an input source), but must still trap in
 /// `None` (no window, nowhere for input to come from). Both halves in one program
