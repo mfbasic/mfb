@@ -274,7 +274,7 @@ fn probe_source(member: &str, args: &[&str], ret: &str) -> String {
 
 /// Every error code the plan function `root` and every internal function it
 /// transitively calls load.
-fn transitive_codes(
+pub(super) fn transitive_codes(
     plan: &NativeCodePlan,
     root: &str,
     codes: &BTreeMap<&'static str, &'static str>,

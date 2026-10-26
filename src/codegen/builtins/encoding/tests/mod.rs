@@ -229,7 +229,10 @@ fn members_declare_the_errors_they_raise() {
         ),
         (
             "encoding.utf8Decode",
-            &[&[INVALID_FORMAT], &[INVALID_FORMAT]],
+            &[
+                &["ErrInvalidFormat", "ErrOutOfMemory"],
+                &["ErrInvalidFormat", "ErrOutOfMemory"],
+            ],
         ),
         ("encoding.varintDecode", &[&[INVALID_FORMAT]]),
         (
@@ -246,18 +249,21 @@ fn members_declare_the_errors_they_raise() {
         ),
         // No path in the body or its helpers reaches a `FAIL`; the ones that
         // build their result can run out of memory (bug-698).
-        ("encoding.base32Encode", &[&[]]),
-        ("encoding.base64Encode", &[&[]]),
-        ("encoding.base64UrlEncode", &[&[]]),
+        ("encoding.base32Encode", &[&["ErrOutOfMemory"]]),
+        ("encoding.base64Encode", &[&["ErrOutOfMemory"]]),
+        ("encoding.base64UrlEncode", &[&["ErrOutOfMemory"]]),
         ("encoding.formUrlEncode", &[&["ErrOutOfMemory"]]),
-        ("encoding.hexEncode", &[&[]]),
-        ("encoding.htmlEscape", &[&[]]),
+        ("encoding.hexEncode", &[&["ErrOutOfMemory"]]),
+        ("encoding.htmlEscape", &[&["ErrOutOfMemory"]]),
         ("encoding.percentEncode", &[&["ErrOutOfMemory"]]),
         ("encoding.punycodeEncode", &[&["ErrOutOfMemory"]]),
         ("encoding.sleb128Encode", &[&["ErrOutOfMemory"]]),
         ("encoding.utf16Encode", &[&["ErrOutOfMemory"]]),
         ("encoding.utf32Encode", &[&["ErrOutOfMemory"]]),
-        ("encoding.utf8Encode", &[&[], &[]]),
+        (
+            "encoding.utf8Encode",
+            &[&["ErrOutOfMemory"], &["ErrOutOfMemory"]],
+        ),
         ("encoding.varintEncode", &[&["ErrOutOfMemory"]]),
     ];
     assert_eq!(

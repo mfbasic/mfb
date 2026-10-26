@@ -15,8 +15,9 @@ instructions) owned by `./mfb man bits`.
 
 Outputs are standardized, so the native and Binary Representation execution paths
 produce identical results, and every encoder/decoder pair round-trips. Encoders
-are **total** except `uleb128Encode`, which rejects a negative value, and
-`codepageEncode`, which rejects a character its codepage cannot spell; decoders
+reject no input except `uleb128Encode`, which rejects a negative value, and
+`codepageEncode`, which rejects a character its codepage cannot spell; each
+builds a new value, so each declares `ErrOutOfMemory`; decoders
 fail closed with `ErrInvalidFormat` (`77050003`) on malformed input, so a `TRAP`
 can recover from bad data.
 

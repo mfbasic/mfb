@@ -24,8 +24,9 @@ the output is then padded with `=` characters until its length is a multiple of
 four, so the result length is always a multiple of four. An empty list yields
 the empty string.
 
-The function is **total**: every `List OF Byte`, including the empty list,
-encodes successfully, and it never raises a runtime error. For the URL- and
+Every `List OF Byte`, including the empty list, encodes: no input is
+rejected, and the only error it can raise is `ErrOutOfMemory`, when the program
+runs out of memory. For the URL- and
 filename-safe variant that uses `-` and `_` without `=` padding, use
 `encoding::base64UrlEncode`. The inverse operation is `encoding::base64Decode`,
 which parses a Base64 string back into a `List OF Byte`."#;
@@ -77,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_base64Encode"),
         }],
     });
