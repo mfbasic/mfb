@@ -106,7 +106,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 934    | LOW      | `math::min`/`math::max` on `Float` give a different signed zero on x86-64 than on AArch64/riscv64 (`min(-0.0, 0.0)` prints `0.00` on x86, `-0.00` elsewhere) |
 | [ ]  | 977    | LOW      | `toString`'s `precision` is a `Byte` — a number typed as data; make it an `Integer` with a checked 0..32 range (owner-confirmed language change; first of 977 → 878, 978 + 839, 945) |
 | [ ]  | 978    | LOW      | there is no `Byte` literal suffix, and an Integer literal silently becomes a `Byte` argument — add `3b` and stop the coercion (owner-confirmed language change) |
-| [ ]  | 1109   | LOW      | the general conversion `toInt` is the only `to*` builtin not named after its result type; rename it `toInteger`, no alias (owner decision 2026-10-21) |
 
 ## Data formats (datetime, JSON, CSV, base64)
 
