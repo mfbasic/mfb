@@ -902,7 +902,7 @@ Commit: 7cdedfffb
 
 ### Phase 7 — Spec, threading notes, closeout
 
-- [ ] (added, Correction 9) Regenerate the canvas change-sentinel goldens after the
+- [x] (added, Correction 9) Regenerate the canvas change-sentinel goldens after the
       plan's last code change (letters B and C move them again): `cargo test --release
       --bin mfb` → `replay_shard_05/08/23` fail on `syntax/app/app-mouse-surface`,
       `syntax/resources/canvas-append-unconsumed-valid` and
@@ -910,6 +910,15 @@ Commit: 7cdedfffb
       helper text's lines and globals moved). Classify against main with
       `scripts/artifact-gate.sh <mfb> all` from a detached main-tip worktree, then
       regenerate every flagged fixture, and run `scripts/test-accept.sh` in full.
+      Main's tip `ba92007cd` (merged into this branch at `e0d3b08b0`, no file changed on
+      both sides) → `2387 golden(s) checked, 0 diff(s)`. The merged branch → 10 diffs in
+      four fixtures, all canvas programs: `app-mouse-surface`'s `.ir`, macOS `.nir`,
+      `.nplan` and four `.app.ncode` sums (the walk helpers and both emitters);
+      `app-window-surface`'s macOS `.app.ncode` sum only (the Metal emitter — its `.ir`
+      did not move); and the two `syntax/resources` canvas fixtures' `.ir`. Those ten
+      regenerated with the gate's own build flags; then the gate → `0 diff(s)` over
+      2,387; `scripts/test-accept.sh <mfb> target/accept-actual` → `acceptance tests
+      passed (1757 test(s) ran)`; `replay_shard_05/08/23` → 3 passed.
 - [x] The text of §4.7. `.ai/canvas-threading.md` §14 (Phases 1–2), §16 (an
       `AutoPaint`'s one identity) and §17 (the keys; a cached picture or tile laid out
       without a copy); `06_canvas.md`: "Retained, not immediate" (Phase 2), "The item
