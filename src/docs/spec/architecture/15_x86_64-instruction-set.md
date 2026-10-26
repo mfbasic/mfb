@@ -174,6 +174,21 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_common/
   map to `jcc` directly. [[src/arch/x86_64/select.rs:x86_float_branch]]
 - **Flags are implicit.** x86 `add`/`sub` always set EFLAGS, so the flag-setting
   `adds`/`subs` share the same encoding as `add`/`sub`. [[src/arch/x86_64/encode/emitter/integer.rs:alu3]]
+- **A compare with zero is `test r, r`** (REX.W 85 /r, 3 bytes), for `cmp_imm r, 0`
+  and `cmp r, xzr`, at every level (plan-171-B). It sets ZF, SF and PF from `r` and
+  clears CF and OF exactly as `cmp r, 0` does — only AF, which nothing reads,
+  differs — so every following `jcc` decides the same. Any other immediate keeps
+  `cmp r/m64, imm32` (REX.W 81 /7). [[src/arch/x86_64/encode/emitter/integer.rs:enc_test_self]]
+- **Single-bit tests** (`tbz`/`tbnz register, #bit, target`, plan-171-B): bits 0–30
+  encode as `test r/m64, imm32` (REX.W F7 /0, the immediate `1<<bit`) plus `je`
+  (bit clear) / `jne` (set); bits 31–63 — whose mask does not survive the imm32
+  sign extension — as `bt r/m64, imm8` (REX.W 0F BA /4) plus `jae` (CF clear) /
+  `jb` (set). Both write EFLAGS; the Level-1 row "Compare-with-zero branch
+  (cbz/cbnz) formation" forms them, after selection, only where the flags are dead
+  after the branch, from `mov_imm m, 2^k; and t, r, m; cmp t, 0; b.eq/b.ne` with
+  `t` dead. The bytes are pinned against clang's assembler.
+  [[src/arch/x86_64/encode/emitter/integer.rs:bit_test_branch]]
+  [[src/arch/x86_64/encode/tests/bit_branches.rs:encodes_the_bit_tests_at_their_boundaries]]
 - **Three-operand → two-operand.** The neutral `CodeOp` set is three-operand
   (`dst,lhs,rhs`); x86 ALU is two-operand (`dst OP= src`). `alu3` synthesizes the
   three-operand form with `dst==lhs` in place, `dst==rhs` by commutative swap (or,
@@ -235,6 +250,9 @@ The encoder rejects ops it does not encode with an explicit `Err`
 (`x86 encode: unsupported op {op}`) rather than miscompiling.
 [[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]]
 
+- **AArch64-only forms:** `stp`/`ldp` (plan-171-A) and `cbz`/`cbnz` (plan-171-B) are
+  refused by name — no producer emits them for x86-64 (`supports_pair_access` is
+  false; a compare with zero is already `test r, r`).
 - **Unsupported SIMD ops:** `fcvtas_v` (nearest ties-away vector), `sshl_v`,
   `ushl_v` (per-lane variable shifts). The `sshl_v` rejection is pinned by the
   `unsupported_op_errors` test. [[src/arch/x86_64/encode/tests/image_and_coverage.rs:unsupported_op_errors]]

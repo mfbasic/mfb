@@ -434,9 +434,9 @@ Removing a single caller-saved temporary (`t3`) from `src/arch/riscv64/regmodel.
 
 ## AArch64 (all OSes)
 
-### A single function over ~1 MiB of code fails to build
+### AArch64 branch reach is relaxed, not a build failure
 
-AArch64 conditional branches reach ±1 MiB and the backend emits no veneers, so a very large function fails with e.g. `AArch64 branch 'b.eq' displacement 1199944 to 'while_end_621' exceeds ±1 MiB`. The limit is per function. MFBASIC constructs inline a lot of code (`WITH` rebuilds, record constructors, `collections::get(...).field`), so a ~700-line `main` reached 1.2 MiB. Split it into smaller functions: keep non-resource state in a record, make handlers return the new state plus an intent, and do the resource operations in the small caller (`examples/ai_chat`).
+`b.<cond>` and `cbz`/`cbnz` reach ±1 MiB (`imm19`), `tbz`/`tbnz` only ±32 KiB (`imm14` — an ordinary large function exceeds that), `b` ±128 MiB. `relax_conditional_branches` (`src/arch/aarch64/encode/relax.rs`, bug-445; `cbz`/`tbz` since plan-171-B) rewrites an out-of-reach conditional into `<same branch> Ltramp; b Lcont; Ltramp: b far; Lcont:` before encoding, so a large function builds. (This entry used to say "a single function over ~1 MiB fails to build — split it"; that was true before bug-445.) A new conditional branch form must be added to `relax.rs:reach`, or the encoder rejects it with "displacement … exceeds" once a function grows. The trampoline keeps every operand of the branch — it clones the instruction and rewrites only `target`.
 
 ## macOS AArch64
 

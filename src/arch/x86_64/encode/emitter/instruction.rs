@@ -420,7 +420,7 @@ pub(in crate::arch::x86_64::encode) fn encode_instruction(
             // into the compare (same r8-collision family as bug-123/154). A zero
             // `rhs` is the real "cmp lhs, 0": route it through the immediate form.
             if is_zero_token(rhs) {
-                return Ok(Encoded::plain(enc_alu_imm32(7, lhs, 0))); // cmp lhs, 0
+                return Ok(Encoded::plain(enc_test_self(lhs))); // cmp lhs, 0
             }
             // A zero `lhs` ("cmp 0, rhs", flags of `0 - rhs`) has no scratch-free
             // x86 form (no zero register); no producer emits it, so reject loudly
@@ -438,6 +438,12 @@ pub(in crate::arch::x86_64::encode) fn encode_instruction(
             // r8. "cmp 0, imm" is a degenerate, unproduced compare — reject loudly.
             if is_zero_token(lhs) {
                 return Err("x86-64 cmp_imm with a zero-token lhs is not handled".to_string());
+            }
+            // plan-171-B §4.5: `test r, r` sets ZF, SF and PF from `r` and clears
+            // CF and OF exactly as `cmp r, 0` does (only the unread AF differs),
+            // in 3 bytes instead of 7.
+            if imm == 0 {
+                return Ok(Encoded::plain(enc_test_self(lhs)));
             }
             Ok(Encoded::plain(enc_alu_imm32(7, lhs, imm))) // /7 = CMP
         }

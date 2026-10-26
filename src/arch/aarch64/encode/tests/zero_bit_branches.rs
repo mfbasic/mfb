@@ -128,3 +128,35 @@ fn a_tbz_past_32_kib_is_refused_and_one_within_encodes() {
     let err = text_words(padded(8191)).expect_err("out of reach");
     assert!(err.contains("±32 KiB"), "{err}");
 }
+
+/// plan-171-B: a `tbz` 40 KiB from its target and a `cbz` 1.5 MiB from its
+/// target are relaxed through bug-445's trampoline — the near hop keeps the
+/// register and bit — and the plans encode.
+#[test]
+fn far_zero_and_bit_branches_relax_through_a_trampoline() {
+    for (branch_op, bit, bytes) in [("tbz", Some("37"), 40 << 10), ("cbz", None, 3 << 19)] {
+        let mut instructions = vec![branch(branch_op, "x5", bit, "far")];
+        instructions.extend((0..bytes / 4).map(|_| CodeInstruction::new("ret")));
+        instructions.push(CodeInstruction::new("label").field("name", "far"));
+        instructions.push(CodeInstruction::new("ret"));
+        let mut relaxed = plan(vec![function(instructions)], vec![], vec![], Some("main"));
+        let err = super::super::encode(&relaxed)
+            .err()
+            .expect("out of reach unrelaxed");
+        assert!(err.contains("exceeds"), "{err}");
+        super::super::relax_conditional_branches(&mut relaxed).expect("relaxation");
+        let hop = &relaxed.functions[0].instructions[0];
+        assert_eq!(hop.op.mnemonic(), branch_op);
+        assert_eq!(hop.get("register").as_deref(), Some("x5"));
+        assert_eq!(hop.get("bit").as_deref(), bit);
+        let image = super::super::encode(&relaxed).expect("the relaxed plan encodes");
+        let first = u32::from_le_bytes(image.text[..4].try_into().unwrap());
+        // The hop jumps +8 to the trampoline (two words: imm 2 at bit 5).
+        let expected = if branch_op == "tbz" {
+            0xb628_0000 | (2 << 5) | 5
+        } else {
+            0xb400_0000 | (2 << 5) | 5
+        };
+        assert_eq!(first, expected, "{branch_op}");
+    }
+}

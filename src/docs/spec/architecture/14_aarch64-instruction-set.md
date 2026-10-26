@@ -95,6 +95,10 @@ encoder. [[src/arch/aarch64/encode/emitter/mod.rs:emit_instruction]]
 | `BranchLo` | `b.lo` | `target` | `0x54000003` | cond=`3` (unsigned <) |
 | `BranchMi` | `b.mi` | `target` | `0x54000004` | cond=`4` (N set; IEEE float `<`) |
 | `BranchLs` | `b.ls` | `target` | `0x54000009` | cond=`9` (C clear or Z set; IEEE float `<=`) |
+| `Cbz` | `cbz` | `register`,`target` | `0xB4000000` | branch if `Xt` is zero; `imm19<<5`; label-patched (plan-171-B) |
+| `Cbnz` | `cbnz` | `register`,`target` | `0xB5000000` | branch if `Xt` is not zero |
+| `Tbz` | `tbz` | `register`,`bit`,`target` | `0x36000000` | branch if bit `bit` of `Rt` is clear; `b5=bit[31]`, `b40=bits[23:19]`, `imm14<<5`; see *Worked encodings* |
+| `Tbnz` | `tbnz` | `register`,`bit`,`target` | `0x37000000` | branch if bit `bit` is set |
 | `Branch` | `b` | `target` | `0x14000000` | unconditional; `imm26`; label-patched |
 | `BranchLink` | `bl` | `target` | `0x94000000` | emits a `branch26` relocation, not a label patch |
 | `BranchLinkRegister` | `blr` | `register` | `0xD63F0000` | `Rn=bits[9:5]` |
@@ -307,6 +311,29 @@ name. [[src/codegen/engine/mir/mir.rs:supports_pair_access]]
 Each form's exact word is pinned against Apple clang's assembler.
 [[src/arch/aarch64/encode/tests/pairs.rs:encodes_every_pair_form]]
 
+### `cbz`/`tbz` — compare-and-branch
+
+`emit_zero_or_bit_branch` writes the register (and bit) at emission and records
+a label patch; `patch_labels` ORs the displacement in. `cbz`/`cbnz` are the X
+form `sf=1 011010 op imm19 Rt`; `tbz`/`tbnz` are `b5 011011 op b40 imm14 Rt`,
+with `b5` the bit's high bit and `b40` its low five. The register is a GPR (an
+`sp`- or FP-spelled operand is refused), the bit 0–63.
+[[src/arch/aarch64/encode/emitter/memory.rs:emit_zero_or_bit_branch]]
+
+```text
+tbnz x27, #32, +12          ; register=27 bit=32
+
+  (1 << 31) | 0x37000000 | ((32 & 0x1f) << 19) = 0xB7000000
+  | ((12 / 4) << 5) | 27                       = 0xB700007B
+```
+
+They read no flags and write none. They are formed only on the final stream,
+after the last selection, by the Level-1 row "Compare-with-zero branch
+(cbz/cbnz) formation" — never in the register allocator's input, which refuses
+them. [[src/optimizer/opt2/cbranch.rs:form]] [[src/codegen/engine/regalloc/mod.rs:allocate]]
+Each form's word is pinned against Apple clang's assembler.
+[[src/arch/aarch64/encode/tests/zero_bit_branches.rs:encodes_every_zero_and_bit_branch_form]]
+
 ### `umulh` — single-word data op
 
 ```text
@@ -347,8 +374,20 @@ Conditional branches and the local unconditional `b` are emitted as a
 placeholder `0` word plus a deferred `LabelPatch`; after a function's body is
 laid out, `patch_labels` computes the PC-relative displacement and rewrites the
 word in place — `imm26` (`branch_imm26`) for `b`, `imm19<<5` (`branch_imm19`)
-for the conditional set. [[src/arch/aarch64/encode/emitter/mod.rs:patch_labels]] These
-intra-function branches never produce relocations.
+for the conditional set and `cbz`/`cbnz`, `imm14<<5` (`branch_imm14`) for
+`tbz`/`tbnz` (their register and bit already in the word).
+[[src/arch/aarch64/encode/emitter/mod.rs:patch_labels]] These
+intra-function branches never produce relocations. A displacement out of reach
+(±128 MiB, ±1 MiB, ±32 KiB) is an encode error, never masked.
+
+Before encoding, `relax_conditional_branches` rewrites every conditional branch
+whose target is out of its reach — `b.<cond>`/`cbz`/`cbnz` past ±1 MiB,
+`tbz`/`tbnz` past ±32 KiB, which an ordinary large function reaches — into the
+same branch aimed at an adjacent trampoline holding an unconditional `b` to the
+real target: `<branch> Ltramp; b Lcont; Ltramp: b far; Lcont:`. The condition,
+register and bit are kept, so no inverse form is needed; in range the pass
+changes nothing. It runs to a fixpoint, since a trampoline moves later code.
+[[src/arch/aarch64/encode/relax.rs:relax_conditional_branches]]
 
 `bl` is different: it targets a **symbol**, not a label. The encoder emits the
 bare `0x94000000` and a `branch26` relocation — `internal` binding if the target

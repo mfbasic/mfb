@@ -7,7 +7,7 @@
 
 use crate::arch::aarch64::regmodel::Aarch64RegisterModel;
 use crate::arch::aarch64::select::select_aarch64;
-use crate::codegen::engine::mir::{Backend, MirInstruction};
+use crate::codegen::engine::mir::{Backend, CompareBranchForms, MirInstruction};
 use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::regmodel::RegisterModel;
 
@@ -37,6 +37,10 @@ impl Backend for Aarch64Backend {
 
     fn supports_pair_access(&self) -> bool {
         true
+    }
+
+    fn compare_branch_forms(&self) -> CompareBranchForms {
+        CompareBranchForms::Aarch64
     }
 }
 

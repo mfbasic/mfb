@@ -17,12 +17,17 @@
 //! dominating-predicate refinement, the fact base of the check-elision
 //! cluster), and [`mirloops`] (natural loops over the flat MIR CFG — the
 //! desugared and inlined ones included, which the structured Opt1 loop facts
-//! cannot see).
+//! cannot see), and [`flagslive`] (condition-flag liveness over a final,
+//! selected stream — the proof the compare-and-branch row needs), and
+//! [`reglive`] (integer-register liveness over that final stream, conservative
+//! at every call, return and unknown operand).
 
 pub(crate) mod bits;
+pub(crate) mod flagslive;
 pub(crate) mod mark;
 pub(crate) mod memory;
 pub(crate) mod mirloops;
 pub(crate) mod postdom;
 pub(crate) mod ranges;
+pub(crate) mod reglive;
 pub(crate) mod ssa;

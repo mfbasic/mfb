@@ -41,7 +41,7 @@ See plan-171-A §Prerequisites (stated once for the family). In addition:
 | plan-171-A complete | `ls planning/plan-171-A-* 2>/dev/null` → no match (archived to `planning/completed/`) | MET in substance (2026-10-26, `ba1964e81`): the file is still in `planning/` — it is archived when its branch is merged — but `grep -c -- '- \[ \]'` → 0 unticked boxes, `grep -c '^Commit: —'` → 0, and its Summary records every phase landed on main |
 | (plan-171-A family row) the decoder has no uncommitted work | `git -C <tree> status --short src/arch/aarch64/decode` → no output | MET (2026-10-26, `/tmp/171b-base` detached at `ba1964e81`: no output) |
 | (plan-171-A family row) `src/docs/**` has no uncommitted work | `git -C <tree> status --short src/docs` → no output | MET (2026-10-26, same tree: no output) |
-| (plan-171-A family row) the bin unit tests pass at the starting commit | `cargo test --bin mfb > /tmp/171b-pre.log 2>&1; echo EXIT=$?` | see Correction 2 |
+| (plan-171-A family row) the bin unit tests pass at the starting commit | `cargo test --bin mfb > /tmp/171b-pre.log 2>&1; echo EXIT=$?` | MET (2026-10-26, `/tmp/171b-base` at `ba1964e81`: `EXIT=0`, 6200 passed, 0 failed, 5 ignored) |
 | (plan-171-A family row) the artifact gate is clean at the starting commit | `bash scripts/artifact-gate.sh <release mfb of ba1964e81> all` from `/tmp/171b-base` | MET (2026-10-26: `1723 tests, 1903 build(s), 2389 golden(s) checked, 0 diff(s)`) |
 
 ## 1. Goal
@@ -321,34 +321,73 @@ Acceptance: round trips pass; no emitted byte changes.
   Result (2026-10-26): `cargo test --bin mfb -- aarch64:: x86_64::encode riscv64::encode riscv64::decode regalloc ops:: opt2::plans`
   → 475 passed, 0 failed; `artifact-gate.sh target/release/mfb strings` → `7 golden(s) checked, 0 diff(s)`
   (`collections` likewise).
-Commit: —
+Commit: 37d727b51
 
 ### Phase 3 — flags liveness (analysis only; byte-identical)
 
-- [ ] `src/optimizer/opt2/plans/flagslive.rs` (§4.2) with unit tests: `share`
+- [x] `src/optimizer/opt2/plans/flagslive.rs` (§4.2) with unit tests: `share`
       chain (`cmp; b.eq; b.lt` → not dead), reader across a label (live),
       setter on one path only (live), call between (transparent), back edge.
+      (`flagslive/tests/mod.rs`, 8 cases: also both-edges-dead, a branch out
+      of the function and a stream that falls off its end (both live), the
+      x86-64 float branches as readers. Readers reuse
+      `mir::is_flag_reading_branch`, made `pub(crate)`.)
+
+- [x] (Added) `src/optimizer/opt2/plans/reglive.rs`: integer-register liveness
+      over the final stream, conservative where the allocator's own liveness need
+      not be — what a call, `svc` and `ret` read (Correction 9). 7 unit cases
+      (`reglive/tests/mod.rs`).
 
 Acceptance: the analysis answers every unit case; nothing calls it yet.
   Check: `cargo test --bin mfb flagslive` → pass (est. 2 min).
+  Result (2026-10-26): 8 passed, 0 failed (`reglive`: 7 passed). "Nothing calls
+  it yet" is not committable on its own — an uncalled `pub(crate) fn` is a
+  dead-code warning (`cargo build` → "function `dead_after` is never used") —
+  so the analyses land with their first caller, Phase 4's row (Correction 8).
 Commit: —
 
 ### Phase 4 — the row, relaxation, x86 `test`
 
-- [ ] `src/optimizer/opt2/cbranch.rs`: the row (§4.3), called from the A hook;
+- [x] `src/optimizer/opt2/cbranch.rs`: the row (§4.3), called from the A hook;
       catalog row "Compare-and-branch formation" (level 1, stage `machine`).
-- [ ] Relaxation (§4.4) on AArch64 and riscv64, with tests: a `tbz` to a label
+      (Called from the new final-stream hook `machine::finish_selected` at the
+      end of `route_function_through_mir` — Correction 5; catalog row
+      "Compare-with-zero branch (cbz/cbnz) formation" — Correction 10; counter
+      `stats::COMPARE_BRANCHES`; per-backend forms from the new required
+      `Backend::compare_branch_forms`. Also the §4.3 extensions of Correction 4:
+      a compare against a register known to hold zero, and the AArch64 sign test.
+      `cbranch/tests/mod.rs`: 12 cases — every form per backend, live flags,
+      live scratch/mask/zero registers, a constant across a label or a
+      redefinition, a runtime-helper call reading the scratch, a Boolean `false`.)
+- [x] Relaxation (§4.4) on AArch64 and riscv64, with tests: a `tbz` to a label
       40 KiB away encodes through the trampoline; a `cbz` 1.5 MiB away likewise;
       a riscv64 `tbz` 1.5 MiB away gets a hop island.
-- [ ] x86 per Phase 1's decision (§4.5), with an encoder test asserting the 3-byte form.
-- [ ] Fixtures: `tests/rt-behavior/control-flow/branch-zero-and-bit-tests` (valid)
+      (`relax.rs:reach` per op, the hop clones the branch;
+      `zero_bit_branches.rs:far_zero_and_bit_branches_relax_through_a_trampoline`,
+      `relax_edges.rs:a_far_tbz_is_relaxed_into_hops_and_encodes`.)
+- [x] x86 per Phase 1's decision (§4.5), with an encoder test asserting the 3-byte form.
+      (`integer.rs:enc_test_self`; `bit_branches.rs:a_compare_with_zero_is_test_r_r`
+      — `test r10, r10` = `4d 85 d2`, clang's bytes.)
+- [x] Fixtures: `tests/rt-behavior/control-flow/branch-zero-and-bit-tests` (valid)
       — `IF x = 0`, `IF x <> 0`, `bits::band(x, 1 << k) <> 0` for k ∈ {0, 10, 11,
       30, 31, 62, 63}, a function large enough (generated straight-line body,
       > 64 KiB of code) that a `tbz` must relax, printing the taken branches.
-- [ ] `tests/runtime/rt_codegen_forms.rs`: `cbz` and `tbnz` present in the
+      (Also `IF x < 0`/`IF x >= 0` (sign tests); literal masks; `far` is 40
+      `strings::replace` statements, 20,585 AArch64 instructions (~80 KiB) under
+      one `IF bits::band(x, 2048) <> 0`, run with the bit set and clear. Goldens
+      `.ast`/`.ir`/`build.log`/`.run` plus `.ncodesum` for all five targets, so
+      the artifact gate pins the forms per target. No invalid twin: no
+      user-facing surface changed.)
+- [x] `tests/runtime/rt_codegen_forms.rs`: `cbz` and `tbnz` present in the
       aarch64 dump of that fixture; `test` on x86; `slli`-based test on rv64 is
-      checked by op name in the `-ncode` dump.
-- [ ] `rt_regalloc_levels_agree`: add the fixture (`-O0` forms nothing).
+      checked by op name in the `-ncode` dump. (4 tests: AArch64 `cbz`/`cbnz`,
+      the `#63` sign tests and bits {0,10,11,30,31,62} on both AArch64 targets;
+      x86-64 (SysV, Win64) bit tests and no `cbz`; riscv64 bit tests carry a
+      `scratch`; `-O0` forms nothing on three targets. Red on the base compiler:
+      `MFB_TEST_EXE=<ba1964e81 mfb> cargo test --release --test rt_codegen_forms`
+      → 3 failed, `macos-aarch64: IF x = 0`.)
+- [x] `rt_regalloc_levels_agree`: add the fixture (`-O0` forms nothing).
+      (`compare_and_branch_forms_agree_at_every_level`, -O0..-O3: 1 passed.)
 - [ ] Golden re-baseline for this form family (aarch64 + x86 + rv64 where
       predicted), same procedure as plan-171-A Phase 3 (four questions, full suite
       first, `regen-native-goldens.sh`, classify by target).
@@ -426,8 +465,10 @@ Commit: —
    instructions with 214 `cmp #0; b.eq/ne` (was 2598 / 109). §2.1 carries the
    re-measured table and the corpus totals; the design does not depend on the
    old numbers.
-2. **Prerequisite "bin unit tests pass at the starting commit"** — see the
-   Prerequisites row; result recorded below when the run finished.
+2. **The prerequisite rows were re-run, not inherited.** plan-171-A's family
+   rows were re-measured at this letter's starting commit `ba1964e81` (all MET,
+   Prerequisites table); "plan-171-A complete" is met in substance — every box
+   ticked and every `Commit:` filled — though the file is not yet archived.
 3. **Phase 1's check matched its own spelling.** `grep -c UNMEASURED
    planning/plan-171-B-*.md` counts the task line that says "replacing
    UNMEASURED" and the check line itself, so it could never reach 0. The check
@@ -479,6 +520,34 @@ Commit: —
    `stp`/`ldp`. Likewise `tbz`/`tbnz` carry `scratch` only on riscv64, the one
    backend that writes it; on AArch64 and x86-64 the field would claim a write
    that never happens.
+8. **Phase 3 lands with Phase 4.** The flags analysis has no caller until the
+   row exists, and the tree keeps no dead code (AGENTS.md; `cargo build` warned
+   "function `dead_after` is never used"), so `flagslive` and `reglive` are
+   committed with the row — the same move as plan-171-A Correction 4.
+9. **The row needs register liveness the plan did not name.** §4.3 says "physical
+   liveness from `regalloc::analysis::Liveness` re-run on the final stream", but
+   that analysis answers the allocator's question: a call or `ret` there reads
+   nothing (no virtual register is live into a callee), so `mov_imm x0, …` before
+   a `bl` looks dead. Deleting it would change the callee's argument. The new
+   `plans/reglive.rs` keeps the allocator's field roles (`analysis::effect`) and
+   adds the reads the allocator never needs: a call to a hand-written helper, a C
+   function, `blr` or `svc` reads every register (a hand-written helper may take
+   its input anywhere); `bl _mfb_fn_*`/`_mfb_ifn_*` reads everything outside the
+   allocatable pool (the internal convention's argument bank is outside it on
+   every target, and a pool register read on entry would be an allocator bug); a
+   compiled function's `ret` reads everything except the allocatable
+   caller-saved registers (its callers treat those as destroyed — the allocator's
+   own clobber model for `_mfb_fn_*`), a hand-written function's `ret` reads
+   everything; an operand it cannot identify reads everything and stops constant
+   tracking. The first cut read everything at every `ret`, which kept the
+   zeroing `mov_imm` of nearly every user `IF` (measured on the `/tmp/171b-probe`
+   program: `mov_imm x10, 0` survived ahead of each `cbnz`); and it read `lr`
+   (the frame's spelling of `x30` in `ldp x25, lr`) as unknown, which made every
+   epilogue read everything — 2,713 of the 3,286 bit tests the first corpus run
+   left unformed (`/tmp` probe `why.py`, first event on each edge: `ret`).
+10. **The catalog row is named after its `optimizations.md` row**, "Compare-with-zero
+   branch (cbz/cbnz) formation" — every catalog name matches its planning row —
+   not "Compare-and-branch formation"; its summary covers the bit tests.
 
 ## Summary
 

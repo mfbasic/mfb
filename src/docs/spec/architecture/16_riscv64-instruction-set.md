@@ -67,6 +67,8 @@ register, so it needs no scratch register (RISC-V has none free here) and clobbe
 nothing; the leading jump carries fall-through control over it. Every far jump to
 the same label from the same side shares one ladder of islands. The pass is a
 strict no-op when every jump already fits, so in-range code is byte-identical.
+The `jal` sits at offset 0 of a `b`, 4 bytes into an `rv.br` and 8 bytes into a
+`tbz`/`tbnz` (after its bit test and short branch); only the `target` is rewritten.
 [[src/arch/riscv64/encode/relax.rs:relax_rv64_branches]]
 
 Operands are decoded by small helpers. Integer registers are named by their lp64d
@@ -140,6 +142,7 @@ single form — to a short deterministic sequence. The single-instruction cases:
 | `branch_self` | `jal zero,0` | self-loop |
 | `svc` | `ecall` | OS trap |
 | `ret` | `jalr zero,0(ra)` | |
+| `tbz` `tbnz` | `andi s,r,1<<bit` + zero test, or `slli s,r,63-bit` + sign test; then `rv.br`'s long form | branch on bit `bit` of `register` clear / set; `s` is the instruction's `scratch` (plan-171-B); see *Flagless control flow* |
 | `adrp` | `auipc rd,%pcrel_hi` | high half of a PC-relative address |
 | `add_pageoff` | `addi rd,rd,%pcrel_lo` (or `ld` for a GOT symbol) | low half |
 
@@ -290,6 +293,17 @@ RISC-V has no condition flags, so every compare-and-branch is self-contained.
   operand; rendering it to text left the literal token for the encoder to reject.
   [[src/arch/riscv64/select.rs:select_riscv64]] [[src/arch/riscv64/select.rs:snapshot_lhs]]
   [[src/arch/riscv64/select.rs:store_flag_rhs]] [[src/arch/riscv64/select.rs:load_flag_rhs]]
+- **Single-bit tests** (`tbz`/`tbnz register, #bit, scratch`, plan-171-B) are formed
+  after selection, on the final stream, by the Level-1 row "Compare-with-zero branch
+  (cbz/cbnz) formation" from `li m, 2^k; and t, r, m; rv.br eq/ne t, zero` when `t`
+  is dead after the branch — `t` becomes the `scratch`. A bit 0–10 is
+  `andi scratch, r, 1<<bit` (the `andi` immediate reaches 1024) and `bne`/`beq
+  scratch, zero, +8`; any other bit is `slli scratch, r, 63-bit` (the bit becomes
+  the sign) and `blt`/`bge scratch, zero, +8`; then `jal zero, target`. The same row
+  rewrites an `rv.br` operand that holds a known zero (an earlier `li z, 0` in the
+  block) to `zero`. No `cbz`/`cbnz` is formed for riscv64 — `rv.br` already names
+  `zero` — and the encoder refuses them.
+  [[src/arch/riscv64/encode/emitter.rs:emit_rv_bit_branch]] [[src/optimizer/opt2/cbranch.rs:form]]
 - **`addr_of`** expands to the `auipc; addi` pair (the `adrp`+`add_pageoff` ops the
   encoder realizes PC-relative), so a re-lowering pass re-fuses it and the
   expansion is a fixed point. [[src/arch/riscv64/select.rs:select_riscv64]]

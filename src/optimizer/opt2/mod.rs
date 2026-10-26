@@ -35,6 +35,7 @@
 
 pub(crate) mod adce;
 pub(crate) mod branches;
+pub(crate) mod cbranch;
 pub(crate) mod checks;
 pub(crate) mod constant_folding;
 pub(crate) mod constprop;

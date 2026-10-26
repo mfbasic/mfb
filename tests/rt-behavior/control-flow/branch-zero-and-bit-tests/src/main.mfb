@@ -1,0 +1,154 @@
+IMPORT io
+IMPORT bits
+IMPORT strings
+
+' plan-171-B: a compare with zero or a single-bit test that branches compiles to
+' the target's compare-and-branch form (AArch64 cbz/cbnz/tbz/tbnz, x86-64
+' test/bt + jcc, riscv64 andi/slli + branch). Each check prints which way it
+' went, for values on both sides of the test, so a wrong form or a wrong bit
+' changes the output. `far` puts about 80 KiB of code between a bit test and its
+' target, past the +-32 KiB reach of AArch64 `tbz`, so the branch must be relaxed
+' through a trampoline and still go the right way.
+
+FUNC zeroTest(x AS Integer) AS String
+  MUT out AS String = ""
+  IF x = 0 THEN
+    out = out & "z"
+  ELSE
+    out = out & "nz"
+  END IF
+  IF x <> 0 THEN
+    out = out & "+ne"
+  END IF
+  IF x < 0 THEN
+    out = out & "+neg"
+  END IF
+  IF x >= 0 THEN
+    out = out & "+nonneg"
+  END IF
+  RETURN out
+END FUNC
+
+FUNC bitTests(x AS Integer) AS String
+  MUT out AS String = ""
+  IF bits::band(x, 1) <> 0 THEN
+    out = out & "0"
+  END IF
+  IF bits::band(x, 1024) <> 0 THEN
+    out = out & "10"
+  END IF
+  IF bits::band(x, 2048) = 0 THEN
+    out = out & "!11"
+  END IF
+  IF bits::band(x, 1073741824) <> 0 THEN
+    out = out & "30"
+  END IF
+  IF bits::band(x, 2147483648) <> 0 THEN
+    out = out & "31"
+  END IF
+  IF bits::band(x, 4611686018427387904) <> 0 THEN
+    out = out & "62"
+  END IF
+  IF bits::band(x, -9223372036854775808) <> 0 THEN
+    out = out & "63"
+  END IF
+  RETURN "[" & out & "]"
+END FUNC
+
+FUNC far(x AS Integer) AS Integer
+  MUT acc AS Integer = 0
+  MUT s AS String = "abcdefghijklmnopqrstuvwxyz"
+  IF bits::band(x, 2048) <> 0 THEN
+    s = strings::replace(s, "a", "A")
+    acc = acc + len(s) * 1
+    s = strings::replace(s, "b", "B")
+    acc = acc + len(s) * 2
+    s = strings::replace(s, "c", "C")
+    acc = acc + len(s) * 3
+    s = strings::replace(s, "d", "D")
+    acc = acc + len(s) * 4
+    s = strings::replace(s, "e", "E")
+    acc = acc + len(s) * 5
+    s = strings::replace(s, "f", "F")
+    acc = acc + len(s) * 6
+    s = strings::replace(s, "g", "G")
+    acc = acc + len(s) * 7
+    s = strings::replace(s, "h", "H")
+    acc = acc + len(s) * 8
+    s = strings::replace(s, "i", "I")
+    acc = acc + len(s) * 9
+    s = strings::replace(s, "j", "J")
+    acc = acc + len(s) * 10
+    s = strings::replace(s, "k", "K")
+    acc = acc + len(s) * 11
+    s = strings::replace(s, "l", "L")
+    acc = acc + len(s) * 12
+    s = strings::replace(s, "m", "M")
+    acc = acc + len(s) * 13
+    s = strings::replace(s, "n", "N")
+    acc = acc + len(s) * 14
+    s = strings::replace(s, "o", "O")
+    acc = acc + len(s) * 15
+    s = strings::replace(s, "p", "P")
+    acc = acc + len(s) * 16
+    s = strings::replace(s, "q", "Q")
+    acc = acc + len(s) * 17
+    s = strings::replace(s, "r", "R")
+    acc = acc + len(s) * 18
+    s = strings::replace(s, "s", "S")
+    acc = acc + len(s) * 19
+    s = strings::replace(s, "t", "T")
+    acc = acc + len(s) * 20
+    s = strings::replace(s, "u", "U")
+    acc = acc + len(s) * 21
+    s = strings::replace(s, "v", "V")
+    acc = acc + len(s) * 22
+    s = strings::replace(s, "w", "W")
+    acc = acc + len(s) * 23
+    s = strings::replace(s, "x", "X")
+    acc = acc + len(s) * 24
+    s = strings::replace(s, "y", "Y")
+    acc = acc + len(s) * 25
+    s = strings::replace(s, "z", "Z")
+    acc = acc + len(s) * 26
+    s = strings::replace(s, "a", "A")
+    acc = acc + len(s) * 27
+    s = strings::replace(s, "b", "B")
+    acc = acc + len(s) * 28
+    s = strings::replace(s, "c", "C")
+    acc = acc + len(s) * 29
+    s = strings::replace(s, "d", "D")
+    acc = acc + len(s) * 30
+    s = strings::replace(s, "e", "E")
+    acc = acc + len(s) * 31
+    s = strings::replace(s, "f", "F")
+    acc = acc + len(s) * 32
+    s = strings::replace(s, "g", "G")
+    acc = acc + len(s) * 33
+    s = strings::replace(s, "h", "H")
+    acc = acc + len(s) * 34
+    s = strings::replace(s, "i", "I")
+    acc = acc + len(s) * 35
+    s = strings::replace(s, "j", "J")
+    acc = acc + len(s) * 36
+    s = strings::replace(s, "k", "K")
+    acc = acc + len(s) * 37
+    s = strings::replace(s, "l", "L")
+    acc = acc + len(s) * 38
+    s = strings::replace(s, "m", "M")
+    acc = acc + len(s) * 39
+    s = strings::replace(s, "n", "N")
+    acc = acc + len(s) * 40
+  END IF
+  RETURN acc
+END FUNC
+
+FUNC main AS Integer
+  LET values AS List OF Integer = [0, 1, -1, 1024, 2048, 3073, 1073741824, 2147483648, 4611686018427387904, -9223372036854775808, 9223372036854775807]
+  FOR EACH v IN values
+    io::print(toString(v) & " " & zeroTest(v) & " " & bitTests(v))
+  NEXT
+  io::print(toString(far(2048)))
+  io::print(toString(far(1)))
+  RETURN 0
+END FUNC

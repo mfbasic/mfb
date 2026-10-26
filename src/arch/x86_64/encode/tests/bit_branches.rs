@@ -86,3 +86,26 @@ fn refuses_cbz_and_a_bad_bit_test() {
     assert!(enc_err(&branch("tbz", "r10", "64", "l")).contains("outside 0..=63"));
     assert!(enc_err(&branch("tbz", "rsp", "1", "l")).contains("general-purpose"));
 }
+
+/// plan-171-B §4.5: a compare with zero is `test r, r` (REX.W 85 /r, 3 bytes;
+/// clang `test r10, r10` = `4d 85 d2`), whether spelled `cmp_imm r, 0` or
+/// `cmp r, xzr`; any other immediate keeps the imm32 `cmp`.
+#[test]
+fn a_compare_with_zero_is_test_r_r() {
+    assert_eq!(
+        bytes("cmp_imm", &[("lhs", "r10"), ("rhs", "0")]),
+        vec![0x4D, 0x85, 0xD2]
+    );
+    assert_eq!(
+        bytes("cmp_imm", &[("lhs", "rax"), ("rhs", "0")]),
+        vec![0x48, 0x85, 0xC0]
+    );
+    assert_eq!(
+        bytes("cmp", &[("lhs", "rdi"), ("rhs", "xzr")]),
+        vec![0x48, 0x85, 0xFF]
+    );
+    assert_eq!(
+        bytes("cmp_imm", &[("lhs", "r10"), ("rhs", "1")]),
+        vec![0x49, 0x81, 0xFA, 1, 0, 0, 0]
+    );
+}

@@ -152,3 +152,34 @@ fn a_rung_wanted_past_the_last_instruction_lands_at_the_function_end() {
         "jal -> rung 3 (at the end) -> rung 2 -> rung 1 -> far"
     );
 }
+
+/// plan-171-B: a `tbz` 1.5 MiB from its target reaches it through hop islands
+/// (its `jal` sits 8 bytes in, after the `andi`/`slli` and the short branch),
+/// and the relaxed plan encodes with the `tbz` itself unchanged in size.
+#[test]
+fn a_far_tbz_is_relaxed_into_hops_and_encodes() {
+    let words = (3usize << 19) / 4;
+    let mut instructions = vec![CodeInstruction::new("tbz")
+        .physical_field("register", "t3")
+        .field("bit", "5")
+        .physical_field("scratch", "t4")
+        .field("target", "far")];
+    instructions.extend((0..words).map(|_| CodeInstruction::new("ret")));
+    instructions.push(CodeInstruction::new("label").field("name", "far"));
+    instructions.push(CodeInstruction::new("ret"));
+    let mut plan = plan_of(instructions);
+    assert!(
+        encode(&plan)
+            .err()
+            .is_some_and(|err| err.contains("exceeds \u{00b1}1 MiB")),
+        "control: unrelaxed, the tbz's jal is out of reach"
+    );
+    relax_rv64_branches(&mut plan).expect("relaxation");
+    let first = &plan.functions[0].instructions[0];
+    assert_eq!(first.op.mnemonic(), "tbz");
+    assert!(first
+        .get("target")
+        .is_some_and(|target| target.starts_with("__mfb_rv_hop_")));
+    assert_eq!(first.get("bit").as_deref(), Some("5"));
+    encode(&plan).expect("the relaxed plan encodes");
+}

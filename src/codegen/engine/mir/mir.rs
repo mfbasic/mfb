@@ -439,7 +439,7 @@ pub(crate) fn fused_setter_codeop(op: MirOp) -> Option<CodeOp> {
 /// and is a fusable setter (see [`fused_variant`]), so the carry-reading branch
 /// folds into it rather than surviving as a standalone flag branch — leaving the
 /// helper MIR fully flagless (`mir.md §5`/§7).
-fn is_flag_reading_branch(op: CodeOp) -> bool {
+pub(crate) fn is_flag_reading_branch(op: CodeOp) -> bool {
     matches!(
         op,
         CodeOp::BranchEq
@@ -650,6 +650,9 @@ pub(crate) fn route_function_through_mir(function: &mut CodeFunction) {
     // by the selection result below, so ownership is free.
     let neutral = lower_to_mir_owned(std::mem::take(&mut function.instructions));
     function.instructions = active_backend().select(neutral);
+    // plan-171-B: the stream is final now — the compare-and-branch row runs
+    // here, where nothing will select or allocate it again.
+    crate::optimizer::opt2::machine::finish_selected(&mut function.instructions, &function.symbol);
 }
 
 // --- Backend dispatch ---------------------------------------------------------
@@ -731,6 +734,27 @@ pub(crate) trait Backend: Sync {
     fn supports_pair_access(&self) -> bool {
         false
     }
+    /// Which compare-and-branch forms this ISA's final stream gets from the
+    /// Level-1 row `optimizer::opt2::cbranch` (plan-171-B). No default: each
+    /// backend states its own, so a new one cannot inherit another ISA's
+    /// flags model by omission (the bug-350 lesson).
+    fn compare_branch_forms(&self) -> CompareBranchForms;
+}
+
+/// The compare-and-branch shapes a backend's final stream carries and the forms
+/// the plan-171-B row may turn them into.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum CompareBranchForms {
+    /// AArch64: flag compares + `b.<cond>`; forms `cbz`/`cbnz`/`tbz`/`tbnz`
+    /// (all flagless).
+    Aarch64,
+    /// x86-64 (SysV and Win64): flag compares + `b.<cond>`; forms `tbz`/`tbnz`
+    /// (encoded `test`/`bt` + `jcc`, which write EFLAGS). A compare with zero is
+    /// already `test r, r` from the `cmp_imm` encoding.
+    X86,
+    /// riscv64: flagless `rv.br`; forms `tbz`/`tbnz` (`andi`/`slli` into a dead
+    /// scratch + a branch).
+    Riscv64,
 }
 
 thread_local! {

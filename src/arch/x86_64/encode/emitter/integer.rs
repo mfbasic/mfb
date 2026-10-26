@@ -122,6 +122,12 @@ pub(super) fn enc_alu_imm32(digit: u8, rm: u8, imm: i32) -> Vec<u8> {
     bytes
 }
 
+/// `test r, r` — REX.W 85 /r (plan-171-B): the flags of `cmp r, 0` (ZF, SF, PF
+/// from `r`; CF = OF = 0) in 3 bytes. The encoding of every compare with zero.
+pub(super) fn enc_test_self(r: u8) -> Vec<u8> {
+    vec![rex(true, r >= 8, false, r >= 8), 0x85, modrm(0b11, r, r)]
+}
+
 /// `bt r/m64, 0` — REX.W 0F BA /4 ib. Sets CF = bit 0 of `rm` WITHOUT modifying
 /// the register. For the {0,1} carry-in domain CF == rm, exactly like the old
 /// `add rm,-1` trick but non-destructively (so a carry_in whose interval extends
