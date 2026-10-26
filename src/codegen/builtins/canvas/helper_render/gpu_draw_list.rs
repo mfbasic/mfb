@@ -194,8 +194,7 @@ FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS 
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
   ' plan-172-G: word 7 is `hasMatrix`, words 8-11 the inverse linear part of the groups'
-  ' composed affine as float32 bits, words 12-15 reserved. The translation stays in
-  ' words 2-3 either way.
+  ' composed affine as float32 bits. The translation stays in words 2-3 either way.
   MUT hasMatrix AS Integer = 0
   MUT inverseA AS Integer = 0
   MUT inverseB AS Integer = 0
@@ -214,8 +213,10 @@ FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS 
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseB)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseC)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseD)
+  ' Word 12 is the pass word (0: a frame of one pass), word 13 the REPEAT (plan-175-B:
+  ' one draw over this row's own node), words 14-15 reserved.
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 1)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
 END FUNC

@@ -48,6 +48,7 @@ use crate::codegen::registry::{
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_WORDS,
+    CANVAS_DRAW_REPEAT_WORD,
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;

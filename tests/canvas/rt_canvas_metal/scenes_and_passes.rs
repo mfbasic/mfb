@@ -268,6 +268,42 @@ fn a_frame_whose_polygons_together_overflow_the_edge_region_draws_in_passes() {
     }
 }
 
+/// 65,537 group nodes naming one one-rectangle group: one draw-list row each.
+const PAST_THE_NODE_REGION: &str = include_str!("../scenes/past_the_node_region.mfb");
+
+/// plan-175-B: a frame of more draw-list rows than a pass's node region holds is drawn
+/// in passes, and matches the oracle. Its one block fits any region, so only the ROW
+/// count can end a pass: 65,537 rows against `METAL_MAX_FRAME_NODES` = 65,536 is two
+/// passes, split one row from the end. Before the node table a row carried its payload
+/// per draw and rows were unbounded, so this was one pass; after it every row is a
+/// node of the pass's region, and a pass of 65,537 would write a node past the region.
+#[test]
+fn a_frame_of_more_rows_than_the_node_region_draws_in_two_passes() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_frame_nodes", PAST_THE_NODE_REGION);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    let line = stats.lines().next_back().expect("a Metal stats line");
+    assert_eq!(stat(line, "gpuFrames"), 1, "Metal drew the frame: {line}");
+    assert_eq!(
+        stat(line, "profPasses"),
+        2,
+        "65,537 rows is one row past one pass's node region: {line}"
+    );
+    assert!(
+        software.pixels.iter().any(|&b| b != 0),
+        "the software render drew nothing, so the comparison would be vacuous",
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!("the two-pass frame of 65,537 group nodes differs from the oracle: {diff}");
+    }
+}
+
 /// Every `canvas::Picture` path, in one scene (bug-484).
 ///
 /// Pictures ride the frame buffer's glyph region, one packed RGBA texel per word, and

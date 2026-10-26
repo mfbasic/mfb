@@ -105,7 +105,8 @@ END FUNC
 ' just as happily for a rectangle covering the whole window.
 ' plan-116-H: the GPU draw list, rendered compactly for `MFB_CANVAS_STATS`.
 '
-' `base:count:dx:dy` per entry, `|`-separated, offsets in 16.16 as they are stored. The
+' `base:count:dx:dy:mode:repeat` per entry, `|`-separated, offsets as the float32 bits
+' they are stored as. The
 ' draw list is built on the graphics thread and consumed by an emitter; a test has no
 ' other way to see it, which is the same reason `groups=` and `groupBytes=` exist
 ' (`.ai/canvas-threading.md` section 11).
@@ -119,9 +120,10 @@ FUNC __canvas_drawsText() AS String
     IF i > 0 THEN
       out = out & "|"
     END IF
-    ' base:count:dx:dy:mode. The mode is word 4 and it selects the PIPELINE, so a draw
-    ' list that reads correct in the first four fields can still bind the wrong program.
-    out = out & toString(collections::getOr(__CANVAS_DRAWS, i, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 1, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 2, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 3, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 4, 0))
+    ' base:count:dx:dy:mode:repeat. The mode is word 4 and it selects the PIPELINE, so a
+    ' draw list that reads correct in the first four fields can still bind the wrong
+    ' program. The repeat is word 13 (plan-175-B): how many consecutive nodes the row draws.
+    out = out & toString(collections::getOr(__CANVAS_DRAWS, i, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 1, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 2, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 3, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 4, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 13, 0))
     i = i + 16
   END WHILE
   RETURN out

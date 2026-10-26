@@ -846,9 +846,23 @@ pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 /// and zero, so a translate-only entry is its first five words followed by zeros. Word 7 says
 /// whether the entry carries a matrix, and words 8–11 are that matrix: the linear part
 /// of the INVERSE of the enclosing groups' composed affine, as float32 bit patterns.
-/// Word 12 is the pass word ([`CANVAS_DRAW_PASS_WORD`]); words 13–15 are reserved and
-/// zero.
+/// Word 12 is the pass word ([`CANVAS_DRAW_PASS_WORD`]), word 13 the repeat
+/// ([`CANVAS_DRAW_REPEAT_WORD`]); words 14–15 are reserved and zero.
 pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 16;
+
+/// plan-175-B: the word of a draw-list row that is its REPEAT. Every row is also a
+/// NODE — its words 2, 3, 5, 6 and 8–11 are the node payload, the offset and inverse a
+/// shader reads — and a row of repeat `R >= 1` is a draw of `count * R` instances over
+/// `R` consecutive nodes starting at its own. `__canvas_pushOneDraw` and
+/// `canvas::sceneDrawsFlat` write 1 (plan-175-C writes more, and 0 for a node-only row).
+pub(crate) const CANVAS_DRAW_REPEAT_WORD: usize = 13;
+
+/// plan-175-B: the most draw-list rows — NODES — one Metal pass may carry, the size of
+/// the frame buffer's node region in nodes (32 bytes each). A frame of more rows is drawn
+/// in passes, as a frame of too many blocks is (`__canvas_passNext`).
+pub(crate) const METAL_MAX_FRAME_NODES: usize = 65536;
+/// `METAL_MAX_FRAME_NODES`'s Vulkan twin.
+pub(crate) const VULKAN_MAX_FRAME_NODES: usize = 65536;
 
 /// bug-765: the word of a draw list's FIRST entry that says where the list stands in
 /// its frame, for a frame drawn as several passes (`__canvas_passNext`). An emitter is

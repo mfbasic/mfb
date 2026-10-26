@@ -309,7 +309,7 @@ fn emit_block_visible(
 /// into `__CANVAS_DRAW_INST` (`__canvas_blockInstances`), and one draw entry per maximal
 /// stretch `__canvas_drawsJoin` joins — split where the blend mode changes or at a
 /// `Text` block — each `CANVAS_DRAW_ENTRY_WORDS` words, `(instBase, instCount, 0, 0, mode)`
-/// and zeros after (no offset, no matrix), skipped when it publishes no instance
+/// and zeros after (no offset, no matrix) but the repeat, 1 (plan-175-B), skipped when it publishes no instance
 /// (`__canvas_pushOneDraw`). plan-173: a run also ends where a block's viewport
 /// visibility differs from the one before it (`emit_block_visible`), and an offscreen run
 /// publishes no entry — `__canvas_pushDraw`'s split, so the block list and instance bases
@@ -476,13 +476,16 @@ pub(super) fn lower_scene_draws_flat(
         builder.emit(abi::branch_le(&skip));
         let mode = geo_int(builder, &data, &first, 26);
         let zero = imm(builder, 0);
-        // A flat frame's entry: base, count, the blend mode in word 4, zeros elsewhere.
+        let one = imm(builder, 1);
+        // A flat frame's entry: base, count, the blend mode in word 4, the repeat 1 in
+        // word 13 (plan-175-B: one draw over the row's own node), zeros elsewhere.
         let at = word_addr(builder, &draws, &d);
         for k in 0..CANVAS_DRAW_ENTRY_WORDS {
             let value = match k {
                 0 => &base,
                 1 => &count,
                 k if k * 8 == CANVAS_DRAW_ENTRY_MODE => &mode,
+                CANVAS_DRAW_REPEAT_WORD => &one,
                 _ => &zero,
             };
             builder.emit(abi::store_u64(value, &at, k * 8));

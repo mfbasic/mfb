@@ -910,7 +910,7 @@ fn installing_and_removing_many_named_groups_does_not_grow_without_bound() {
 ///
 /// Read off `MFB_CANVAS_STATS`, which is the only window onto a structure built on the
 /// graphics thread and handed straight to an emitter. `blocks=` is how many item blocks
-/// the frame uploads; `draws=` is `base:count:dx:dy:mode` per entry, `|`-separated, with the
+/// the frame uploads; `draws=` is `base:count:dx:dy:mode:repeat` per entry, `|`-separated, with the
 /// offsets as the float32 bit patterns stored (`__canvas_float32Bits`) — 100.0 is
 /// `1120403456`.
 ///
@@ -933,12 +933,13 @@ fn scene_draws_shares_one_base_between_a_diamonds_two_draws() {
     ));
     assert_eq!(
         (blocks.as_str(), draws.as_str()),
-        ("2", "0:2:0:0:0"),
+        ("2", "0:2:0:0:0:1"),
         "a group-free scene must be one run of every item at no offset — the shape this \
-         letter must not change for scenes that use no groups. The trailing field is the \
+         letter must not change for scenes that use no groups. The fifth field is the \
          run's BLEND MODE, which Phase 2 added to `__canvas_drawsText` because it selects \
          the pipeline: a draw list can read correct in base, count and offset and still \
-         bind the wrong program",
+         bind the wrong program. The sixth is the row's REPEAT (plan-175-B), 1: one draw \
+         over the row's own node",
     );
 
     // 2. One group at (100, 100): its two items written once, one draw at the offset.
@@ -947,9 +948,9 @@ fn scene_draws_shares_one_base_between_a_diamonds_two_draws() {
     ));
     assert_eq!(
         (blocks.as_str(), draws.as_str()),
-        ("2", "0:2:1120403456:1120403456:0"),
+        ("2", "0:2:1120403456:1120403456:0:1"),
         "one group should be its own items once, drawn at its offset as float32 bits, in \
-         Normal blend mode",
+         Normal blend mode, repeat 1",
     );
 
     // 3. A nested group: the inner run is drawn at the COMPOSED offset.

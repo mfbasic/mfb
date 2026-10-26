@@ -35,7 +35,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-175-A is complete and archived | `ls planning/plan-175-A-* planning/completed/plan-175-A-*` → only the `completed/` path | NOT MET (2026-10-13) |
+| ~~plan-175-A is complete and archived~~ plan-175-A's code and docs have landed: every box of its Phases 1–7 resolved except the two its Phase 7 runs once after the plan's LAST code change (the change-sentinel goldens, the `benchmark/canvas` re-baseline), Correction 2 | `grep -n "^- \[ \]" planning/plan-175-A-canvas-geometry-identity-split.md` → exactly those two | MET (2026-10-25: two lines, 905 and 932, the goldens and the benchmark) |
 
 Everything below is written against the world where that holds.
 
@@ -250,18 +250,28 @@ Rejected alternatives:
 MFBASIC and the native flat list only; no emitter reads word 13 yet, so no frame can
 change.
 
-- [ ] `helper_render.rs:__canvas_pushOneDraw`: word 13 = 1.
-- [ ] `func_geo_cache.rs:lower_scene_draws_flat`: word 13 = 1.
-- [ ] `helper_render.rs`: `__CANVAS_PASS_MAX_NODES`; `__canvas_passNext` and
+- [x] `helper_render.rs:__canvas_pushOneDraw`: word 13 = 1
+      (`helper_render/gpu_draw_list.rs`).
+- [x] `func_geo_cache.rs:lower_scene_draws_flat`: word 13 = 1
+      (`func_geo_cache/layout.rs`, `CANVAS_DRAW_REPEAT_WORD`).
+- [x] `helper_render.rs`: `__CANVAS_PASS_MAX_NODES`; `__canvas_passNext` and
       `__canvas_framePasses` count rows (§4.1); the two renderable gates pass
       `METAL_MAX_FRAME_NODES` / `VULKAN_MAX_FRAME_NODES`, added to `runtime/canvas/mod.rs`
-      and to `RENDER_CAPS`.
-- [ ] `helper_surface.rs:__canvas_drawsText`: `:repeat` per row;
-      `tests/canvas/rt_canvas_rasteriser/groups.rs`'s `draws=` assertions read five fields.
-- [ ] Tests: a unit test in `helper_render/tests/mod.rs` that `__canvas_pushOneDraw`
+      and to `RENDER_CAPS`. (`helper_render/gpu_passes.rs`; the constants in
+      `runtime/canvas/scene_layout.rs`; a row's nodes are `__canvas_rowNodes`,
+      `max(repeat, 1)`.)
+- [x] `helper_surface.rs:__canvas_drawsText`: `:repeat` per row;
+      `tests/canvas/rt_canvas_rasteriser/groups.rs`'s `draws=` assertions read ~~five~~
+      six fields (the mode was already the fifth, Correction 3).
+- [x] Tests: a unit test in `helper_render/tests/mod.rs` that `__canvas_pushOneDraw`
       and `lower_scene_draws_flat` both write word 13; a runtime test of 65,537 group
       nodes naming one one-rectangle group that draws in two passes and matches the
-      software frame.
+      software frame. `every_row_push_one_draw_writes_has_repeat_one` and
+      `the_renderable_gates_pass_each_backends_node_cap` (the native flat list's word 13
+      is read back at run time: `groups.rs` case 1 is a flat frame, `0:2:0:0:0:1`);
+      `rt_canvas_metal`'s `a_frame_of_more_rows_than_the_node_region_draws_in_two_passes`
+      (`scenes/past_the_node_region.mfb`: `profPasses=2`, within `GPU_DEFAULT` of the
+      oracle) → pass.
 
 Acceptance: rows carry repeat 1; a frame past 65,536 rows draws in passes and matches
 the oracle; no other frame changes.
@@ -270,6 +280,15 @@ the oracle; no other frame changes.
   `rt_canvas_geo_native`).
   Check: `./benchmark/canvas/run.sh --only 'group|rect fill'` then `compare.py` → `.sums`
   unchanged (est. 2 min).
+
+**MET 2026-10-25**, against the base compiler at `339f8e8fc` (a detached worktree):
+- `cargo test --release --test rt_canvas_rasteriser --test rt_canvas_geo_native` →
+  rasteriser 111 passed (2 ignored), geo_native 8 passed; `cargo test --release --bin
+  mfb -- helper_render` → 15 passed;
+- the benchmark's rows, headless on Metal (Correction 3): ALL 87 of them, not only
+  `group|rect fill` — the last frame of a 2-frame GPU run hashed, as `run.sh` hashes its
+  dump (a one-off probe of `run.sh`'s row list) → 87 hashes equal to the base's, every
+  run `gpuFrames=2`.
 Commit: —
 
 ### Phase 2 — Both emitters and both shaders read the node table
@@ -341,6 +360,24 @@ Commit: —
    and "Verified properties" records why the node table is unaffected. No goal, task or
    check changed; `benchmark/canvas`'s `group` rows are all in view, so their row counts
    (10,001, 101) still hold.
+2. 2026-10-25, at the Prerequisites gate: "plan-175-A is complete and archived" cannot
+   be met while this letter is unstarted. A's Phase 7 holds two tasks that must follow
+   the plan's last code change, this letter's and plan-175-C's included: regenerating
+   the canvas change-sentinel goldens (`build_replay` shards 05/08/23, which every
+   canvas change moves) and re-baselining `benchmark/canvas` (which this letter's
+   Phase 2 also re-runs). Archiving A first would mean doing both twice. The row now
+   checks what this letter needs from A: its walk changes landed, and its docs.
+   Measured: `grep -n "^- \[ \]"` on A → lines 905 and 932, those two.
+3. 2026-10-25, Phase 1: two corrections, none to the design.
+   - `__canvas_drawsText` already printed five fields, `base:count:dx:dy:mode` (the mode
+     since plan-116-H Phase 2), so the repeat is the SIXTH, and `groups.rs`'s two exact
+     strings gain `:1`.
+   - `benchmark/canvas/run.sh` stops at its first row on this machine, with this
+     branch and with the plan's base alike: the first two frames are drawn before the
+     window's Metal pipeline is ready (plan-175-A Correction 7). The `.sums` check is
+     made headless instead, over every row: each row's last-frame hash from a 2-frame
+     GPU run (the readback path), base against branch. The direct-present path it leaves
+     unproven is re-checked by the plan's closing `run.sh` (plan-175-A Phase 7).
 
 ## Summary
 

@@ -1,10 +1,10 @@
 use super::*;
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
-    CANVAS_DRAW_ENTRY_WORDS, GEO_KIND_POLYGON, GEO_KIND_TEXT, HEADER_AUX0, METAL_MAX_FRAME_EDGES,
-    METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS,
-    VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES, VULKAN_MAX_FRAME_GRADIENT_STOPS,
-    VULKAN_MAX_FRAME_ITEMS,
+    CANVAS_DRAW_ENTRY_WORDS, CANVAS_DRAW_PASS_WORD, CANVAS_DRAW_REPEAT_WORD, GEO_KIND_POLYGON,
+    GEO_KIND_TEXT, HEADER_AUX0, METAL_MAX_FRAME_EDGES, METAL_MAX_FRAME_GLYPH_SAMPLES,
+    METAL_MAX_FRAME_GRADIENT_STOPS, METAL_MAX_FRAME_ITEMS, VULKAN_MAX_FRAME_EDGES,
+    VULKAN_MAX_FRAME_GLYPH_SAMPLES, VULKAN_MAX_FRAME_GRADIENT_STOPS, VULKAN_MAX_FRAME_ITEMS,
 };
 
 /// The injected MFBASIC source as the compiler receives it — caps generated.
@@ -35,6 +35,42 @@ fn body(name: &str) -> &'static str {
 /// handing Vulkan a junk `VkPipeline`. It SIGSEGVs inside the driver's JIT-compiled
 /// code with no MFBASIC frame in the backtrace, on one remote box, in a harness that
 /// is not part of `cargo test`. This assertion is the only cheap way to catch it.
+/// plan-175-B: a row's word 13 is its repeat, and every row `__canvas_pushOneDraw`
+/// writes draws once over its own node. The 14th of its sixteen appends is the literal
+/// `1`; the native flat list writes the same (`lower_scene_draws_flat`), which
+/// `rt_canvas_rasteriser`'s `scene_draws_shares_one_base_between_a_diamonds_two_draws`
+/// reads back from both (`draws=`'s sixth field, a flat scene and a group).
+#[test]
+fn every_row_push_one_draw_writes_has_repeat_one() {
+    let appended: Vec<&str> = body("pushOneDraw")
+        .lines()
+        .filter_map(|l| {
+            l.trim()
+                .strip_prefix("__CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, ")
+        })
+        .map(|rest| rest.trim_end_matches(')'))
+        .collect();
+    assert_eq!(appended.len(), CANVAS_DRAW_ENTRY_WORDS);
+    assert_eq!(appended[CANVAS_DRAW_REPEAT_WORD], "1", "{appended:?}");
+    assert_eq!(appended[CANVAS_DRAW_PASS_WORD], "0", "{appended:?}");
+}
+
+/// plan-175-B: both backends' gates bound a pass's rows by their own node region.
+#[test]
+fn the_renderable_gates_pass_each_backends_node_cap() {
+    assert!(body("metalRenderable").contains("__CANVAS_METAL_MAX_FRAME_NODES)"));
+    assert!(body("vulkanRenderable").contains("__CANVAS_VULKAN_MAX_FRAME_NODES)"));
+    assert_eq!(
+        declared("__CANVAS_METAL_MAX_FRAME_NODES"),
+        crate::codegen::runtime::canvas::METAL_MAX_FRAME_NODES
+    );
+    assert_eq!(
+        declared("__CANVAS_VULKAN_MAX_FRAME_NODES"),
+        crate::codegen::runtime::canvas::VULKAN_MAX_FRAME_NODES
+    );
+    assert!(body("passNext").contains("__canvas_rowNodes(at) > __CANVAS_PASS_MAX_NODES"));
+}
+
 #[test]
 fn the_draw_entry_width_agrees_with_the_emitter() {
     // Appends straight to the global since 5cf168dd6 made the walk O(n) -- the words
