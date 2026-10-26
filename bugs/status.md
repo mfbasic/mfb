@@ -106,6 +106,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 934    | LOW      | `math::min`/`math::max` on `Float` give a different signed zero on x86-64 than on AArch64/riscv64 (`min(-0.0, 0.0)` prints `0.00` on x86, `-0.00` elsewhere) |
 | [ ]  | 977    | LOW      | `toString`'s `precision` is a `Byte` — a number typed as data; make it an `Integer` with a checked 0..32 range (owner-confirmed language change; first of 977 → 878, 978 + 839, 945) |
 | [ ]  | 978    | LOW      | there is no `Byte` literal suffix, and an Integer literal silently becomes a `Byte` argument — add `3b` and stop the coercion (owner-confirmed language change) |
+| [ ]  | 1109   | LOW      | the general conversion `toInt` is the only `to*` builtin not named after its result type; rename it `toInteger`, no alias (owner decision 2026-10-21) |
 
 ## Data formats (datetime, JSON, CSV, base64)
 
@@ -218,6 +219,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
+| [ ]  | 1112   | HIGH     | a linux-riscv64 build of `benchmark/language/mfb` panics: a function needs 172 concurrent `v128` slots and the per-thread region holds 126 (pre-existing; found by plan-171-A's census) |
 | [ ]  | 946    | MED      | `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant (together with 930; do after the behaviour fixes so its diffs are measured on a stable tree) |
 | [ ]  | 1106   | MED      | the native encoder accepts a floating-point register as the source of an integer store (`str_u64` with `d0`) and stores another register's bits |
 | [ ]  | 930    | LOW      | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |

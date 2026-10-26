@@ -564,10 +564,13 @@ Commit: 2b7058db8 (the riscv64 round-trip guard it reddened is fixed in ad873009
       `89a4dce2c` compiler on the same box `899 passed, 11 failed, 1 not run`
       with the same failures (libsnd vendor library absent, ping, worker thread
       names, fs thread errors — environmental). Correction 8.
-- [ ] Benchmark: `./benchmark/language/run.sh 10` on the macOS host; compare with
+- [x] Benchmark: `./benchmark/language/run.sh 10` on the macOS host; compare with
       `benchmark/language/baseline/mfb-O1.log` via `./benchmark/language/rank.py`; record the
       `recurse` and `tree` rows (call-heavy) in Corrections/Summary. No baseline
-      regeneration.
+      regeneration. Done with the final (phase-4) compiler and, same session, the
+      `89a4dce2c` one (`MFB=… ./benchmark/language/run.sh 10`: checksums 515 keys,
+      0 mismatched), then the three `-O1` benchmark binaries re-run alternately
+      (min of runs). Recorded in Correction 13 — including one real regression.
 
 Acceptance: every aarch64 prologue with ≥ 2 adjacent saves uses `stp`; output of
 every runtime fixture is unchanged.
@@ -800,9 +803,45 @@ Commit: this commit
    of an op, not of words — a pair is two words. Corrected only that count: it
    now counts words (two per `stp`) and checks both of a pair's sources are the
    zero register, which is stricter than before.
+13. **Benchmark: −2.4 % overall, one row +16 %, root-caused to `stp` on Apple M2.**
+   Apple M2 Max, `-O1` benchmark binaries of `89a4dce2c` (base), phase 3 and
+   phase 4 (final) re-run alternately, min of runs, 452 rows: phase 3/base
+   geomean 0.9865, final/phase 3 0.9891, final/base **0.9757**. `recurse`: fib
+   46.96 → 47.14 ms (noise), ackermann 2.736 → 2.610; `tree`: binarytrees
+   25.51 → 24.70, treewalk 14.46 → 13.22. (The committed
+   `baseline/mfb-O1.log` binarytrees 13.15 ms is stale against today's base
+   compiler, 25.5 ms — pre-existing, not this change.) **`dispatch/union`
+   regresses 13.04 → 15.15 ms (+16 %),** caused by phase 3. Isolated in a
+   one-function program (`evalNode` alone: 13.1 → 16.6 ms) and proven
+   layout-independent: the base binary patched in place — `str;str` →
+   `stp;nop`, same addresses — reproduces it (13.4 → 17.3 ms), while patching
+   only the `x21/x22` pair costs nothing and only the `x23/x24` pair costs it
+   all; padding the program's layout eight ways never moves base above 13.5 ms
+   or final below 16.3. `x23` holds the left operand's result across the
+   second recursive call, so the callee's save/restore of it is on the
+   critical path; a `str`/`ldr` round trip of it is fast on this core and the
+   same round trip through `stp`/`ldp` (or `stp` + `ldr`, or `str` + `ldp`) is
+   not — consistent with M2's store-to-load bypass applying only to matching
+   single-register accesses. A same-shape assembly loop with no value on the
+   critical path shows no difference (8.2 ms all three forms). Kept as
+   designed (the plan's goal, net −2.4 %), and recorded here and in the report
+   as an open trade-off for the owner: a selective rule ("don't pair a save
+   whose register carries a value across a call") would need the
+   allocator's liveness at frame time.
+14. **Pre-existing doc drift fixed on the way:** `bugs/status.md` had no row for
+   `bug-1109` (its own check printed `['1109']` at `89a4dce2c`); added beside
+   the new `bug-1112` row (Correction 3's panic).
 ## Summary
 
 Risk sits in the epilogue `sp` fold and in load pairing's register rules; both
-land behind round-trip tests, frame unit tests and Linux execution. x86-64 and
+land behind round-trip tests, frame unit tests and Linux execution.
+
+**Landed (2026-10-25):** the census tool (`4dcdd0ef5`), the op (`2b7058db8`,
+`ad873009b`), paired frames (`dd383c356`), the Level-1 row (`2e315b138`,
+`451f8f49b`), docs (`56fad9ca2`). macos-aarch64 corpus: 27,311,174 → 26,594,781
+instructions (−2.6 %), 284,906 `stp` and 404,382 `ldp`; x86-64, Windows and
+riscv64 byte-identical. Linux aarch64 proven on box 2226 (2223 unreachable).
+Open: the `dispatch/union` regression (Correction 13) and `bug-1112`
+(Correction 3, pre-existing). x86-64 and
 riscv64 are untouched by design. B–K reuse the census tool and the
 `rt_codegen_forms` test file this letter creates.
