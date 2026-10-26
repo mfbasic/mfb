@@ -23,8 +23,11 @@ font.** Text in a presented scene that names a released font draws as nothing
 rather than faulting. Measuring a released font with `canvas::measureText` raises
 `ErrResourceClosed`.
 
-Calling `destroyFont` again on a font it already closed raises `ErrResourceClosed`,
-exactly as a second `fs::close` does, and so does any other use of a closed font.
+A closed font is never used again, exactly as with `fs::close`: naming the binding
+after `canvas::destroyFont` in the same function is the build error
+`TYPE_USE_AFTER_MOVE`, and a use the compiler cannot see — through another copy of
+a record that holds the font — raises `ErrResourceClosed`, a second
+`destroyFont` included.
 Releasing a font and then letting its binding leave scope is safe: the close at scope
 end does nothing.
 

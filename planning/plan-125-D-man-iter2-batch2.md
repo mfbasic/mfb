@@ -561,8 +561,26 @@ Commit: e5d476252 (pages), 56c0406c5 (declared errors)
         it, 14 of these examples were silently skipped.
       - **Literal scan:** a scan of every block that calls a path-taking `fs::`
         member without `tempDirectory`/`openData` finds none.
-- [ ] Handle contract wording verified by reading, not grepping
-      (`--memory-scope fs` is necessary and not sufficient).
+- [x] Handle contract wording verified by reading, not grepping
+      (`--memory-scope fs` is necessary and not sufficient). I read every
+      lifecycle sentence on the 47 fs pages (close-at-scope-end, explicit close,
+      use after close, buffer drain on close) and probed the two that make a
+      checkable claim.
+      - **Close and use after close.** `fs::close(f)` moves `f`, so naming `f`
+        again in the same function is the build error `TYPE_USE_AFTER_MOVE`.
+        `ErrResourceClosed` at run time happens only through another copy of
+        a record holding the File, after a callee closed it (probe
+        `/tmp/p125-ex/nf`: `read through the other copy: TRUE`,
+        `second close: TRUE`).
+      - **What was fixed.** The `close` page said a second `fs::close` raises,
+        and the overview said so in a sentence of its own. Both now give the
+        compile-time/run-time split.
+      - **canvas.** `canvas::destroyFont`/`destroyImage` repeated the claim
+        ("exactly as a second `fs::close` does"). They are fixed the same way;
+        the double `destroyFont` is a build error, and the record-copy
+        `destroyImage` raises `ErrResourceClosed` in a headless `--app` run.
+      - **Explicit close, then scope exit.** Safe: all 103 fs examples do it
+        and exit 0.
 - [ ] Ledger recorded.
 
 Acceptance: 43 units `exit 0`; `--reconcile` exits 0 over the whole 144-unit

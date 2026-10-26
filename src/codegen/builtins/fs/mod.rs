@@ -136,10 +136,9 @@ held in memory, so code written against a `File` can read text the program
 already has; `fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::writeAll`,
 `fs::writeAllBytes`, `fs::eof`, and `fs::seek` act on any of them. Portable open modes are
 `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A `File` is a handle that closes itself when its binding goes out of scope; call `fs::close` only to release it earlier. A
-second `fs::close` raises `ErrResourceClosed`. A `File` that has been closed —
-explicitly or when its binding ends — cannot be used again: a use the compiler
-can see is rejected at compile time, and one it cannot see raises
-`ErrResourceClosed`. A `File` may be handed to another thread with
+`File` that has been closed — explicitly or when its binding ends — cannot be
+used again, not even by a second `fs::close`: a use the compiler can see is
+rejected at compile time, and one it cannot see raises `ErrResourceClosed`. A `File` may be handed to another thread with
 `thread::transfer`; a use of it afterwards that the compiler cannot see raises
 `ErrResourceMoved`.
 

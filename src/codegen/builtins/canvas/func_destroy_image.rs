@@ -21,9 +21,11 @@ and the scope is long.
 image.** A scene names the image and keeps no copy of it, so destroying the image
 leaves the scene intact — the runtime simply stops drawing that item.
 
-Calling `destroyImage` again on an image it already closed raises
-`ErrResourceClosed`, exactly as a second `fs::close` does, and so does any other use
-of a closed image. Destroying an image and then letting its binding go out of scope
+A closed image is never used again, exactly as with `fs::close`: naming the binding
+after `canvas::destroyImage` in the same function is the build error
+`TYPE_USE_AFTER_MOVE`, and a use the compiler cannot see — through another copy of
+a record that holds the image — raises `ErrResourceClosed`, a second
+`destroyImage` included. Destroying an image and then letting its binding go out of scope
 is safe: the close at scope end does nothing.
 
 Unlike the rest of `canvas`, `destroyImage` does **not** require `app::Mode.Canvas`: a
