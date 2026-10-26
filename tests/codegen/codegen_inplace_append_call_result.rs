@@ -191,6 +191,7 @@ fn state_field_append_of_a_user_call_result_grows_in_place() {
          END FUNC\n\
          FUNC main AS Integer\n\
         \x20 RES f AS fs::File STATE Accum = fs::openFile(\"project.json\")\n\
+        \x20 LET keepFeed = feed\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -229,6 +230,7 @@ fn state_field_append_of_a_call_returning_a_list_takes_the_bulk_grow() {
          END FUNC\n\
          FUNC main AS Integer\n\
         \x20 RES f AS fs::File STATE Accum = fs::openFile(\"project.json\")\n\
+        \x20 LET keepFeed = feed\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );

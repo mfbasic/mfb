@@ -128,6 +128,7 @@ fn collection_state_field_grows_in_place() {
          END FUNC\n\
          FUNC main AS Integer\n\
         \x20 RES f AS fs::File STATE Accum = fs::openFile(\"project.json\")\n\
+        \x20 LET keepGrow = grow\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -164,6 +165,7 @@ fn whole_state_replace_still_rebuilds() {
          END FUNC\n\
          FUNC main AS Integer\n\
         \x20 RES f AS fs::File STATE Accum = fs::openFile(\"project.json\")\n\
+        \x20 LET keepReset = reset\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -194,6 +196,7 @@ fn string_state_field_still_rebuilds() {
          END FUNC\n\
          FUNC main AS Integer\n\
         \x20 RES f AS fs::File STATE Label = fs::openFile(\"project.json\")\n\
+        \x20 LET keepRename = rename\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -227,6 +230,7 @@ fn record_field_append_grows_in_place() {
         \x20 RETURN b\n\
          END FUNC\n\
          FUNC main AS Integer\n\
+        \x20 LET keepAdd = add\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -257,6 +261,7 @@ fn record_field_append_not_last_inlined_rebuilds() {
         \x20 RETURN b\n\
          END FUNC\n\
          FUNC main AS Integer\n\
+        \x20 LET keepAdd = add\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -301,6 +306,7 @@ fn state_src(state_ty: &str, field: &str, body: &str) -> String {
          END FUNC\n\
          FUNC main AS Integer\n\
         \x20 RES f AS fs::File STATE St = fs::openFile(\"project.json\")\n\
+        \x20 LET keepMutate = mutate\n\
         \x20 RETURN 0\n\
          END FUNC\n"
     )
@@ -491,6 +497,7 @@ fn a_second_updated_state_field_is_stored_beside_the_arm() {
          END FUNC\n\
          FUNC main AS Integer\n\
         \x20 RES f AS fs::File STATE St = fs::openFile(\"project.json\")\n\
+        \x20 LET keepMutate = mutate\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -565,6 +572,7 @@ fn remove_at_on_a_recursive_element_declines_in_the_state_container() {
          END FUNC\n\
          FUNC main AS Integer\n\
         \x20 RES f AS fs::File STATE St = fs::openFile(\"project.json\")\n\
+        \x20 LET keepMutate = mutate\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -738,6 +746,7 @@ fn g25_src(body: &str) -> String {
          END FUNC\n\
          FUNC main AS Integer\n\
         \x20 RES f AS fs::File STATE St = fs::openFile(\"project.json\")\n\
+        \x20 LET keepMutate = mutate\n\
         \x20 RETURN 0\n\
          END FUNC\n"
     )

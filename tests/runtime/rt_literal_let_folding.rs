@@ -169,6 +169,7 @@ END FUNC\n\
 \n\
 FUNC main() AS Nothing\n\
   io::print(toString(cell(2, 3)))\n\
+  LET keepCell = cell\n\
 END FUNC\n";
     let project = temp_project("literal_let_immediate", source);
     assert!(
