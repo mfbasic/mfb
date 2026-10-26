@@ -66,6 +66,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 960    | LOW      | `mfb build --app` bundles fail `codesign --verify` ("code has no resources but signature indicates they must be present") |
 | [ ]  | 972    | LOW      | closing an `--app` window (or Cmd-Q) ends a running program with exit status 0 and no teardown — buffered file output is lost, no `--debug` report (owner decided: new `app::shouldClose`) |
 | [ ]  | 997    | LOW      | Windows `--app` windows open at 400×300 (a 384×261 client) while macOS and Linux open at 900×640 |
+| [ ]  | 1118   | LOW      | macOS `--app` `term::drawGlyph` drops a wide glyph in the last column instead of drawing its first cell |
 
 ## Terminal and input
 
@@ -74,6 +75,8 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 969    | LOW      | `term::getForeground` / `getBackground` (all app backends) and `term::isOn` (macOS) do not raise `ErrWrongMode` outside `Mode.Console`, though they declare it (after 966) |
 | [ ]  | 971    | LOW      | the SGR mouse decoder and the key decoder accept malformed/overflowing numeric parameters |
 | [ ]  | 973    | LOW      | in an `--app` window, `io::readKey` right after `io::readLine`/`io::input` (or a canvas `readLine`) first returns the Return key's `Release`, a release whose press was never reported |
+| [ ]  | 1114   | MEDIUM   | `io::readLine` on a terminal raises `ErrEncoding` when Backspace follows a non-ASCII character |
+| [ ]  | 1117   | LOW      | a flag emoji measures and draws as one terminal cell; terminals show it as two |
 
 ## Collections
 
@@ -151,6 +154,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 855    | LOW      | walking a recursive union with `MUT cur = c.rest` deep-copies the remaining tail every step — O(n²) time and allocations |
+| [ ]  | 1115   | MEDIUM   | field access on an `AttributedString` is not type-checked — `a.text` compiles and `a.foo` crashes the lowering |
 
 ## Templates and overloads
 
@@ -215,6 +219,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1041   | LOW      | a no-match call on a file's `PRIVATE`+`PUBLIC` overload set prints `#<hash>$r`, and `PRIVATE_SHADOWS_PUBLIC` fires on that legal overload (item 2 NEEDS AN OWNER DECISION; with 836 and 881) |
 | [ ]  | 1058   | LOW      | `wantsCur(1)` (an Integer to an `fs::File STATE Cur` parameter) reports a second, misleading `TYPE_STATE_MISMATCH` after the argument mismatch |
 | [ ]  | 1062   | LOW      | `TYPE_STATE_MISMATCH` for a bare file given to an imported FUNC value (`LET j = pkg::bump`) has no file and line |
+| [ ]  | 1116   | LOW      | `AttributedString & String` reports a mismatch against the internal `#astrings_concat`, with no location |
 
 ## Codegen internals
 
