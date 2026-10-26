@@ -489,7 +489,7 @@ batch; the example ledger accounts for every example, 0 unaccounted; no
 examples confirming it).
 Commit: —
 
-### Phase 6 — pages main changed after they were reviewed (11 units)
+### Phase 6 — pages main changed after they were reviewed (39 units; was 11 — see below)
 
 Added 2026-09-25. `main` was merged into this branch mid-letter (`a24a3894b`, 812
 commits); it had changed the lowering or prose under pages Phases 1-3 had already
@@ -498,12 +498,27 @@ closed, and added two `term` members. Units:
 `readChar`, `readLine`, `setBuffered` (mouse-aware reads, plan-94-B, bug-669);
 `term` `overview`, `types`, `isOn`, and the new `enableMouse` and `pollMouse`.
 
-- [ ] 11 units reviewed and applied; ledger recorded.
+Re-derived 2026-10-26 after the fast-forward to `d58b5397a`. Baseline: the release
+`mfb` built at Phase 3's close `3be554816` (no main merge falls between Phases 1-3's
+closes: `git log --merges --first-parent 6f6c05547..3be554816` is empty), against
+the release `mfb` at HEAD. Each page of `mfb man <pkg> --all` was diffed after
+normalizing the language-wide mechanical changes (`SUB` → `FUNC … AS Nothing`,
+dropped `RES` parameter keywords, the `AttributedString` spelling) and dropping the
+derived signature lines and error tables; a page counts when any authored line
+differs (scripts: `/tmp/p125-cmp/split.py`). Units:
+`planning/plan-125-units/D-phase6-current.txt` — `io` 9 (overview, input, readLine,
+setBuffered; new readGrapheme, readKey, readRaw, readScalar, types — pollInput,
+readByte and readChar no longer exist), `astrings` 6 (overview, addAttribute,
+clearAttributes, getAttributes, removeAttribute, toMarkdown), `term` 24 (21 changed
+plus the new enableMouse, measureText, pollMouse). The first list's 11 units are all
+in it or gone from the package.
+
+- [ ] 39 units reviewed and applied; ledger recorded.
 - [ ] Every example on the 11 pages compiled and run (`term` and mouse ones on a
       pty), terminal restored.
 - [ ] `--memory-scope` and `--scope` clean for `io` and `term`.
 
-Acceptance: `--reconcile --letter D-phase6` → 11 units, 0 unaccounted; sweeps
+Acceptance: `--reconcile --letter D-phase6-current` → 39 units, 0 unaccounted; sweeps
 clean; examples run.
 Commit: —
 

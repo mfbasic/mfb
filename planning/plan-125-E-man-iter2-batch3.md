@@ -1,4 +1,4 @@
-# plan-125-E: man iteration 2, batch 3 — crypto, canvas, http, vector, os, general, bits (142 pages)
+# plan-125-E: man iteration 2, batch 3 — crypto, canvas, http, vector, os, general, bits (157 pages; was 142)
 
 Last updated: 2026-09-04
 Effort: x-large (1d–3d)
@@ -54,7 +54,7 @@ session from ending and the probe never returns.
 
 ## 1. Goal
 
-- **All 142 pages** through my per-page pass, one Fable 5.1 review each, and apply.
+- **All 157 pages** through my per-page pass, one Fable 5.1 review each, and apply.
 - **Every example compiled and run.** `http` examples that need a server are
   run by the **main thread** against a local server; the reviewer verifies the
   claim by reading code and the main thread runs the probe. (The rule came from
@@ -67,7 +67,7 @@ session from ending and the probe never returns.
 - **`canvas`'s 106 type descriptions verified one at a time** — the largest
   single block of unverified prose in the man surface.
 - Every finding has a verdict; every rejection a disproving command.
-- `--reconcile` exits 0 over the 142-unit list; sweeps clean for all seven
+- `--reconcile` exits 0 over the 157-unit list; sweeps clean for all seven
   packages.
 - "Belongs in spec" cuts appended, with `canvas` internals expected to
   dominate.
@@ -92,14 +92,14 @@ whole-package review; this letter gives it its first per-page one.
 
 | What | Count | Command |
 |---|---|---|
-| `crypto` units | 22 | 20 pages + overview + types — `./scripts/man-census.sh --fill` |
-| `canvas` units | 21 | 19 + overview + types |
+| `crypto` units | 23 (was 22) | 21 pages + overview + types — `/tmp/p125-cmp/units.sh` (Corrections 2026-10-26) |
+| `canvas` units | 28 (was 21) | 26 + overview + types |
 | `http` units | 21 | 19 + overview + types |
 | `vector` units | 21 | 19 + overview + types |
-| `os` units | 20 | 19 + overview (no types page) |
+| `os` units | 27 (was 20) | 26 + overview (no types page) |
 | `general` units | 19 | 18 + overview (no types page) |
 | `bits` units | 18 | 17 + overview (no types page) |
-| **batch total** | **142** | sum |
+| **batch total** | **157** (was 142) | sum |
 | parameter descriptions in batch | 232 | census: crypto 55, canvas 31, http 38, vector 38, os 9, general 21, bits 27 |
 | type descriptions in batch | 166 | census: **canvas 106**, crypto 28, http 25, vector 27 |
 | `canvas` file-touches since plan-108 | 99 | `git log --since=2026-08-31 --name-only --format='' -- src/codegen/builtins/canvas \| wc -l` — the highest of any package |
@@ -150,9 +150,9 @@ slowest).
 > commit as the work; `- [~]` for partial; `- [x] ~~text~~ — moot: <evidence>`
 > rather than deleting; fill `Commit:` on landing. **Unticked means NOT DONE.**
 
-### Phase 1 — bits, general, os (57 units)
+### Phase 1 — bits, general, os (64 units; was 57)
 
-- [ ] `bits` 18, `general` 19, `os` 20 — one review unit per page.
+- [ ] `bits` 18, `general` 19, `os` 27 — one review unit per page (`E-phase1.txt`).
 - [ ] Every platform-conditional `os`/`general` claim checked against
       `src/target/**` and stated with its condition on the page.
 - [ ] Every example compiled and run; ledgers recorded.
@@ -176,9 +176,9 @@ reviewer-verified from main-thread-probe-verified claims for every `http`
 network claim.
 Commit: —
 
-### Phase 3 — crypto (22 units)
+### Phase 3 — crypto (23 units; was 22)
 
-- [ ] 20 pages + overview + the 28-description types page.
+- [ ] 21 pages + overview + the types page (`E-phase3.txt`).
 - [ ] Every named-standard claim checked against published vectors; the ledger
       records the vector source per claim.
 - [ ] Every example compiled and run — and every example checked for
@@ -191,11 +191,11 @@ in the ledger names its oracle, and no claim's oracle is the implementation
 itself.
 Commit: —
 
-### Phase 4 — canvas (21 units, including the 106-description types page)
+### Phase 4 — canvas (28 units, including the types page; was 21)
 
 - [ ] Reconcile `canvas`'s 99 file-touches since plan-108 against its pages
       before reviewing them; record what changed and which pages it touched.
-- [ ] 19 function pages + overview, one unit each.
+- [ ] 26 function pages + overview, one unit each (`E-phase4.txt`).
 - [ ] **The types page: all 106 descriptions verified one at a time** against
       the `RegistryRecord`/`RegistryResource`/property descriptors they
       describe. Record the count checked, so "verified" is a number.
@@ -205,8 +205,8 @@ Commit: —
 - [ ] Every example compiled and run; ledger recorded.
 
 Acceptance: 21 units `exit 0`; the ledger records **106/106** type
-descriptions verified; `--reconcile` exits 0 over the whole 142-unit batch;
-the example ledger accounts for all 142 examples, 0 unaccounted; sweeps clean
+descriptions verified; `--reconcile` exits 0 over the whole 157-unit batch;
+the example ledger accounts for every example on the 157 pages, 0 unaccounted; sweeps clean
 for all seven packages.
 Commit: —
 
@@ -215,7 +215,7 @@ Commit: —
 - Tests: none (man prose), except `tests/cli/cli_canvas_man_examples_compile.rs` —
   which pins canvas example compilation and **must be run after Phase 4**; a
   changed canvas example updates it in the same commit.
-- Coverage check: `--reconcile` over the 142-unit list; example ledger
+- Coverage check: `--reconcile` over the 157-unit list; example ledger
   reconciled against the census function list, 0 unaccounted; the canvas type
   count reconciled against the census `106/106`.
 - Runtime proof: `scripts/man-run-examples.sh <pkg> --run` for all seven;
@@ -242,6 +242,16 @@ Commit: —
 
 <!-- Filled in DURING execution. -->
 
+- **2026-10-26: unit counts re-measured after the fast-forward to `d58b5397a` — 157
+  units, not 142.** Generated from the rendered pages (`/tmp/p125-cmp/units.sh
+  target/release/mfb <pkg>`: overview, every function whose page renders, types),
+  and each package's list length equals its page count (`mfb man <pkg> --all |
+  grep -c '^═'`): `bits` 18, `general` 19, `os` **27** (was 20), `vector` 21, `http`
+  21, `crypto` **23** (was 22), `canvas` **28** (was 21). Lists:
+  `planning/plan-125-units/E-phase{1,2,3,4}.txt` (64, 42, 23, 28). No other letter's
+  scope was derived from these numbers.
+- **2026-10-26 (owner): at most 2 agents at a time** — the fan-out runs with
+  `--jobs 2`.
 - **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
   unit now runs `claude -p --model claude-fable-5-1` through
   `scripts/doc-review-fanout.sh` (manifest banner `Claude Code v…/claude-fable-5-1`);
