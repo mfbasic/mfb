@@ -5,8 +5,8 @@ Effort: unknown
 Severity: LOW
 Class: Correctness
 
-Status: Fixed. No longer reproduces at HEAD cdecc60c1; the fixing commit was not traced. No regression test pins it.
-Regression Test: none yet
+Status: Fixed after 3745e626a (a compiler built there still fails the regression test); the fixing commit was not traced.
+Regression Test: tests/canvas/rt_canvas_frame_stats.rs::to_string_of_the_renderer_read_off_the_call_builds
 
 Found during `bug-staging-23` (2026-10-12) and placed in a later phase.
 
