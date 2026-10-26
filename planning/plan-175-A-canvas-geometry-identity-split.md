@@ -938,8 +938,14 @@ Commit: 7cdedfffb
       100,000 dots, box 206 4 / 4 → 11 / 12 pps / fps (offsets 55.9 → 16.2 ms, render
       213.6 → 63.9 ms, worker 88.8 → 57.5 ms), this Mac 34 / 35 (load 3.83 at the start,
       7.69 at the end: the rows' own builds), `builds/frame` 0 on every paint row.
-- [ ] Re-run `benchmark/canvas` in full; if the group or picture rows moved by 1.25× or
-      more, re-baseline it in its own commit with `compare.py`'s output.
+- [x] Re-run `benchmark/canvas` in full; if the group or picture rows moved by 1.25× or
+      more, re-baseline it in its own commit with `compare.py`'s output. Run attended,
+      after the fix that lets `run.sh` run at all since bug-1087 (`a9edb077b`, Correction
+      10), with plan-175-C landed, so one re-baseline serves A and C; against main's tip
+      in the same session: `group fill 10000` work 5,260 → 2,719 µs, `tile fill 10000`
+      3,178 → 2,208, every pixel hash equal. Re-baselined
+      (`benchmark/canvas/baseline/README.md` holds `compare.py`'s output and the bisected
+      `gpu` power-state note).
 - [x] `.ai/canvas-threading.md` §13 (the child-hash table and its drain) and §17 (one
       confirmation per image per frame). §13's "There is no refcount" paragraph (Phase
       5: the block read in place, the table keyed by revision and block, no clearing
@@ -1289,6 +1295,18 @@ correction is added here, dated, with the command that showed it.
    - `build_replay::replay_shard_05/08/23`: three canvas programs' `.ir` goldens, the
      change sentinels `.ai/testing-gates.md` names for the canvas runtime. Regenerated
      once, after the last code change (Phase 7's added task).
+10. 2026-10-25, Phase 7: `benchmark/canvas/run.sh` was not blocked by this session's
+    display (Correction 7 and its Phase 7 correction). It had been broken since
+    bug-1087 (`19da7eff3`, 2026-10-17) for every compiler: the window's pipeline is
+    built off the critical path, so the first frames are software, and `reduce.py`
+    refused any row with a software frame. Fixed in `a9edb077b`: the start-up prefix
+    and the first Metal frame are dropped, and every frame after must be Metal's and
+    direct. The windowed run against main's tip then showed the flat 10,000-item rows'
+    `gpu` 1.3–2.5× higher. Bisected to plan-175-D (`17b7b529e`; plan base, D, A Phase 1
+    and A Phase 2 alternated, two rounds each), whose change reaches no GPU input.
+    Headless, frames back to back, D and its base give the same GPU and fill times
+    within noise. So it is the power state of a lighter frame that still makes its
+    vsync, recorded in the baseline README rather than treated as a defect.
 
 ## Summary
 

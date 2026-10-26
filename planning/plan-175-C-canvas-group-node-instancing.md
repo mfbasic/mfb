@@ -198,10 +198,12 @@ Commit: 0040e128b
 
 ### Phase 2 — Re-baseline and docs
 
-- [ ] `./benchmark/canvas/run.sh` in full; `compare.py` against the baseline: every
-      `.sums` pixel hash unchanged, the `group` rows' draws and encode moved. Commit the
-      run as the new `benchmark/canvas/baseline/` with `compare.py`'s output in its
-      README.
+- [x] `./benchmark/canvas/run.sh` in full; `compare.py` against ~~the baseline~~ main's
+      tip in the same session (Correction 4): every `.sums` pixel hash unchanged, the
+      `group` rows' draws and encode moved. Commit the run as the new
+      `benchmark/canvas/baseline/` with `compare.py`'s output in its README. → 435
+      checksums, 2 changed: `group_fill_10000_draws` 10,001 → 2 and
+      `group_fill_100_draws` 101 → 2; `group fill 10000` encode 2,153 → 60 µs.
 - [x] `.ai/canvas-threading.md` §10: adjacent group nodes merge; why adjacency is the
       rule; a head and its followers share a pass. ("Adjacent group nodes draw as one
       call", with the solo rule and `profDraws`.)
@@ -256,7 +258,16 @@ Commit: —
      each case compares a GPU frame with the software oracle, which that suite does not
      draw. The Vulkan check runs the same scenes as rows of
      `scripts/test-canvas-gpu-rows.sh` (`nodes65537`, `mergeoverlap`, `mergecut`,
-     `mergesolo`); `scripts/test-canvas-vulkan.sh` has no row list to add them to.
+     `mergesolo`); `scripts/test-canvas-vulkan.sh` runs fixed acceptance scenes and has
+     no row list to add them to.
+4. 2026-10-25, Phase 2: the comparison is against main's tip, not the committed
+   baseline. That baseline was run at `840fa4e18` (2026-10-14), and main changed the
+   renderer's pixels and buffer bytes since (`rect_fill_1_bytes` 736 → 608 among many),
+   so a run of any later compiler differs from it on rows this plan never touched.
+   Main's tip `ba92007cd`, run windowed in the same session, is the base that isolates
+   this plan: 2 of 435 checksums changed, the two intended. The acceptance's "no other
+   row's checksum changed" is checked there. `run.sh` itself had to be fixed first
+   (`a9edb077b`): since bug-1087 it stopped at its first row with any compiler.
 
 ## Summary
 
