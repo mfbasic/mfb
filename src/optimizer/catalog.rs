@@ -227,7 +227,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Branch simplification / folding",
-            level: 2,
+            level: 1,
             stage: "NIR + MIR",
             summary: "Folds a branch whose outcome is known at compile time — \
                       `IF TRUE`/`IF FALSE` keeps only its taken arm, \
@@ -245,13 +245,34 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::JUMP_THREADING,
         },
         Row {
-            name: "Dead-code elimination (DCE)",
-            level: 2,
-            stage: "NIR + MIR",
+            name: "Dead-code elimination (DCE, NIR)",
+            level: 1,
+            stage: "NIR",
             summary: "Removes *dead* code: reachable but unused, and provably pure \
-                      and trap-free — unused scalar bindings, stranded pure \
-                      instructions. An unused `x + y` stays: it can still raise \
-                      `ErrOverflow`.",
+                      and trap-free — an unused scalar binding whose value is a \
+                      plain variable, literal, comparison or Boolean expression. \
+                      An unused `x + y` stays: it can still raise `ErrOverflow`.",
+            counter: &stats::DEAD_CODE_ELIMINATION_NIR,
+        },
+        Row {
+            name: "Interprocedural / global DCE (call-graph)",
+            level: 1,
+            stage: "NIR",
+            summary: "Removes every function the program can never call: \
+                      nothing reachable from the entry point, the module-level \
+                      initializers or a function value names it. Mutually \
+                      recursive functions nothing else calls go too. Unused \
+                      built-in package helpers are the bulk of what it removes.",
+            counter: &stats::FUNCTIONS_ELIMINATED,
+        },
+        Row {
+            name: "Dead-code elimination (DCE, MIR)",
+            level: 2,
+            stage: "MIR",
+            summary: "The precise form of dead-code elimination, on the \
+                      selected instruction stream: a pure instruction whose \
+                      result no live use reaches is removed. Instructions that \
+                      can raise an error are never candidates.",
             counter: &stats::DEAD_CODE_ELIMINATION,
         },
         Row {
@@ -362,7 +383,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Check fusion with existing comparisons",
-            level: 3,
+            level: 2,
             stage: "MIR",
             summary: "Deletes a comparison the condition flags already reflect, so a \
                       guarded region's second test reuses the guard's own compare \
@@ -444,7 +465,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Unreachable code elimination",
-            level: 2,
+            level: 1,
             stage: "NIR + MIR",
             summary: "Removes *unreachable* code — statements after a RETURN/FAIL \
                       or an always-terminating IF/MATCH, and CFG blocks nothing \
@@ -463,7 +484,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "Basic block merging",
-            level: 2,
+            level: 1,
             stage: "MIR",
             summary: "Fuses single-predecessor/single-successor block pairs \
                       back into straight-line code: a branch to the very next \
@@ -481,7 +502,7 @@ pub(crate) fn rows() -> &'static [Row] {
         },
         Row {
             name: "CFG simplification (simplifycfg)",
-            level: 2,
+            level: 1,
             stage: "MIR",
             summary: "Structural control-flow tidying: a conditional branch \
                       whose two edges land in the same place, a jump to a \

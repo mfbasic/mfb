@@ -163,6 +163,29 @@ pub(crate) fn census(module: &NirModule) -> Census {
 /// runs no user code by itself; any user function it could invoke reaches it
 /// as a value argument, which the mention rule already follows.
 pub(crate) fn initializer_reachable(module: &NirModule) -> HashSet<String> {
+    let initializer = crate::target::shared::nir::global_initializer_name(&module.project);
+    reachable_from(module, vec![initializer], std::iter::empty())
+}
+
+/// Every function name reachable from `roots` and from the function mentions in
+/// `seeds` (values that are not inside any function body, such as a global's
+/// initializer value), by the same edges as [`initializer_reachable`]: a direct
+/// call (`Call` / `CallResult`) to a module function, any mention of a function
+/// as a value (`FunctionRef`, `Closure`), and — per reached function — whatever
+/// its parameters' default values mention (plan-136-A: a computed default is a
+/// call to a hidden default function, which the NIR validator resolves against
+/// the module's functions, so a reached function keeps the functions its
+/// defaults name).
+///
+/// The one walker both the bug-747 initializer set and call-graph DCE
+/// (`opt1::callgraph`) consume, so the two cannot disagree about what a body
+/// reaches. Every root is in the result, whether or not it names a module
+/// function.
+pub(crate) fn reachable_from<'v>(
+    module: &NirModule,
+    roots: Vec<String>,
+    seeds: impl IntoIterator<Item = &'v NirValue>,
+) -> HashSet<String> {
     struct Mentions<'a> {
         functions: &'a HashSet<&'a str>,
         found: Vec<String>,
@@ -193,9 +216,16 @@ pub(crate) fn initializer_reachable(module: &NirModule) -> HashSet<String> {
         .iter()
         .map(|function| (function.name.as_str(), function))
         .collect();
-    let initializer = crate::target::shared::nir::global_initializer_name(&module.project);
+    let mut seeded = Mentions {
+        functions: &functions,
+        found: Vec::new(),
+    };
+    for value in seeds {
+        seeded.visit_value(value);
+    }
     let mut reached: HashSet<String> = HashSet::new();
-    let mut pending = vec![initializer];
+    let mut pending = roots;
+    pending.extend(seeded.found);
     while let Some(name) = pending.pop() {
         if !reached.insert(name.clone()) {
             continue;
@@ -207,6 +237,13 @@ pub(crate) fn initializer_reachable(module: &NirModule) -> HashSet<String> {
             functions: &functions,
             found: Vec::new(),
         };
+        for default in function
+            .params
+            .iter()
+            .filter_map(|param| param.default.as_ref())
+        {
+            mentions.visit_value(default);
+        }
         mentions.visit_ops(&function.body);
         pending.extend(
             mentions

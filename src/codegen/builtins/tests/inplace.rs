@@ -105,7 +105,8 @@ fn plan(source: &str) -> &'static NativeCodePlan {
 /// the part that churns when an unrelated construct is added ahead of the one
 /// under test. The stem is the stable name.
 fn label_stems(source: &str) -> BTreeSet<String> {
-    let main = code_function(plan(source), "main");
+    let lowered = crate::testutil::code_for_src_lowered(source, CodeTarget::LinuxX86_64, Console);
+    let main = code_function(lowered, "main");
     Stream::of(main)
         .labels()
         .into_iter()

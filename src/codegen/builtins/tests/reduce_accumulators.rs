@@ -18,7 +18,7 @@
 
 use crate::codegen::engine::tests::test_support::Stream;
 use crate::target::NativeBuildMode::Console;
-use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+use crate::testutil::{code_for_src_lowered, code_function, CodeTarget};
 
 const REDUCERS: &str = r#"IMPORT io
 IMPORT collections
@@ -101,7 +101,7 @@ END FUNC
 "#;
 
 fn main_labels(target: CodeTarget) -> Vec<String> {
-    let plan = code_for_src_cached(REDUCERS, target, Console);
+    let plan = code_for_src_lowered(REDUCERS, target, Console);
     Stream::of(code_function(plan, "main"))
         .labels()
         .into_iter()

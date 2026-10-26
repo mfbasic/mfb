@@ -1,4 +1,4 @@
-//! CFG simplification (simplifycfg) — a Level-2 Opt2 catalog row
+//! CFG simplification (simplifycfg) — a Level-1 Opt2 catalog row
 //! (`planning/optimizations.md`): the umbrella cleanup that keeps the control
 //! flow the other rows leave behind in canonical shape.
 //!
@@ -39,11 +39,17 @@ use crate::codegen::engine::types::CodeInstruction;
 use super::plans::mark::conditional_terminator;
 
 /// Run the CFG-simplification row over one function's selected stream, in
-/// place. Self-guarded on the row's catalog level (2).
+/// place. Self-guarded on the row's catalog level (1).
 pub(crate) fn simplify(instructions: &mut Vec<CodeInstruction>) {
-    if !crate::optimizer::level_enabled(2) {
+    if !crate::optimizer::level_enabled(1) {
         return;
     }
+    let ends_terminated = |instructions: &[CodeInstruction]| {
+        instructions
+            .last()
+            .is_none_or(|last| is_block_terminator(last.op) || last.op == CodeOp::Label)
+    };
+    let entered_terminated = ends_terminated(instructions);
     let mut fired = 0;
 
     // 1. Retarget references away from a duplicate consecutive label, then
@@ -152,11 +158,12 @@ pub(crate) fn simplify(instructions: &mut Vec<CodeInstruction>) {
     }
     // A terminator-free tail can only arise if something above deleted the
     // last instruction of the stream; the block builder tolerates it, but the
-    // assertion documents that this row never leaves one.
+    // assertion documents that this row never leaves one. It checks only a
+    // stream that arrived terminated: a stream that arrived without a
+    // terminator (a straight-line fragment, as the seam's unit tests feed) has
+    // no terminating tail for this row to lose.
     assert!(
-        instructions
-            .last()
-            .is_none_or(|last| is_block_terminator(last.op) || last.op == CodeOp::Label),
+        !entered_terminated || ends_terminated(instructions),
         "simplifycfg left a stream whose last instruction is not a terminator",
     );
     crate::optimizer::stats::count_cfg_simplifications(fired);
@@ -302,9 +309,9 @@ mod tests {
         assert_eq!(ops(&off), ops(&stream()));
     }
 
-    /// The row is off at `-O1`.
+    /// The row is off at `-O0`.
     #[test]
-    fn level_one_disables_the_row() {
+    fn level_zero_disables_the_row() {
         let stream = || {
             vec![
                 ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "0")]),
@@ -314,7 +321,7 @@ mod tests {
             ]
         };
         let mut off = stream();
-        run(&mut off, 1);
+        run(&mut off, 0);
         assert_eq!(ops(&off), ops(&stream()));
     }
 }

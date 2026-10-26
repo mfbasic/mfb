@@ -24,10 +24,12 @@
 //!
 //! Broadly: the Level-1 rows are the local identity rewrites (constant folding
 //! on both seams, algebraic simplification, non-loop strength reduction, the
-//! two machine peepholes); Level 2 is removal and deduplication (the
-//! propagation rows on the `opt2::plans::ssa` overlay, branch simplification,
-//! DCE, UCE, dead-store elimination, block merging, CFG simplification, the
-//! known-bits and global rows, and the regalloc rows); and Level 3 is
+//! two machine peepholes) plus the tidying that needs no dataflow (branch
+//! simplification, UCE, the NIR half of DCE, block merging, CFG
+//! simplification); Level 2 is removal and deduplication that does (the
+//! propagation rows on the `opt2::plans::ssa` overlay, the MIR half of DCE,
+//! dead-store elimination, check fusion, the known-bits and global rows, and
+//! the regalloc rows); and Level 3 is
 //! restructuring — value numbering, jump threading, the structured-loop rows,
 //! SCCP, induction variables, the memory rows, the range-driven check-elision
 //! cluster, PRE, sinking, and loop-nest code motion. The rows'

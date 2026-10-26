@@ -9,12 +9,14 @@ use std::collections::BTreeSet;
 use crate::codegen::engine::tests::test_support::Stream;
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::target::NativeBuildMode::Console;
-use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+use crate::testutil::{code_for_src_lowered, code_function, CodeTarget};
 
 /// `source` lowered for linux-x86_64 (named explicitly: CI measures there), shared
 /// across the suite so an assertion per property does not recompile the program.
+/// Read at `-O0`, where every route's labels are as lowering named them (see
+/// [`code_for_src_lowered`]).
 pub(super) fn plan(source: &str) -> &'static NativeCodePlan {
-    code_for_src_cached(source, CodeTarget::LinuxX86_64, Console)
+    code_for_src_lowered(source, CodeTarget::LinuxX86_64, Console)
 }
 
 /// The label stems function `name` of `source` defines.

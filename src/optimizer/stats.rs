@@ -66,8 +66,10 @@ pub(super) static JUMP_THREADING: AtomicU64 = AtomicU64::new(0);
 /// "Basic block merging" (Opt2): branches-to-next and orphaned labels fused
 /// away.
 pub(super) static BLOCK_MERGING: AtomicU64 = AtomicU64::new(0);
-/// "Dead-code elimination (DCE)" (both seams): dead binds/evals removed on NIR
-/// plus dead pure instructions removed on MIR.
+/// "Dead-code elimination (DCE, NIR)" (Opt1): dead binds/evals removed on NIR.
+pub(super) static DEAD_CODE_ELIMINATION_NIR: AtomicU64 = AtomicU64::new(0);
+/// "Dead-code elimination (DCE, MIR)" (Opt2): dead pure instructions removed
+/// on MIR.
 pub(super) static DEAD_CODE_ELIMINATION: AtomicU64 = AtomicU64::new(0);
 /// "Aggressive DCE (ADCE)" (Opt2): dead instructions + dead conditional
 /// branches removed with control-dependence marking.
@@ -93,6 +95,9 @@ pub(super) static VALUES_NARROWED: AtomicU64 = AtomicU64::new(0);
 /// "Sign/zero extension elimination" (Opt2): extensions dropped because the
 /// high bits are provably already clear.
 pub(super) static EXTENSIONS_REMOVED: AtomicU64 = AtomicU64::new(0);
+/// "Interprocedural / global DCE (call-graph)" (Opt1): functions no root
+/// reaches, removed.
+pub(super) static FUNCTIONS_ELIMINATED: AtomicU64 = AtomicU64::new(0);
 /// "Dead global elimination" (Opt1): private globals nothing mentions,
 /// removed.
 pub(super) static GLOBALS_ELIMINATED: AtomicU64 = AtomicU64::new(0);
@@ -266,6 +271,10 @@ pub(crate) fn count_blocks_merged(fired: u64) {
     add(&BLOCK_MERGING, fired);
 }
 
+pub(crate) fn count_dead_code_eliminations_nir(fired: u64) {
+    add(&DEAD_CODE_ELIMINATION_NIR, fired);
+}
+
 pub(crate) fn count_dead_code_eliminations(fired: u64) {
     add(&DEAD_CODE_ELIMINATION, fired);
 }
@@ -308,6 +317,10 @@ pub(crate) fn count_values_narrowed(fired: u64) {
 
 pub(crate) fn count_extensions_removed(fired: u64) {
     add(&EXTENSIONS_REMOVED, fired);
+}
+
+pub(crate) fn count_functions_eliminated(fired: u64) {
+    add(&FUNCTIONS_ELIMINATED, fired);
 }
 
 pub(crate) fn count_globals_eliminated(fired: u64) {

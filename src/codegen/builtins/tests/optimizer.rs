@@ -91,6 +91,38 @@ fn program_functions(plan: &NativeCodePlan) -> BTreeSet<String> {
         .collect()
 }
 
+/// The program functions of `plan` that can run: reachable from the entry symbol
+/// over code relocations (a call, or a function's address taken as a value).
+///
+/// The -O0 baseline is restricted to these because a function nothing can call
+/// is not live. A source function called only from a `TESTING` block has no
+/// caller in a `mfb build` (the blocks are dropped), and call-graph DCE (Level 1,
+/// `optimizer::opt1::callgraph`) removes it; -O0 still emits it only because no
+/// dial row runs there.
+fn live_program_functions(plan: &NativeCodePlan) -> BTreeSet<String> {
+    let by_symbol: std::collections::HashMap<&str, &crate::codegen::engine::types::CodeFunction> =
+        plan.functions
+            .iter()
+            .map(|f| (f.symbol.as_str(), f))
+            .collect();
+    let mut reached: BTreeSet<&str> = BTreeSet::new();
+    let mut pending: Vec<&str> = plan.entry_symbol.iter().map(String::as_str).collect();
+    while let Some(symbol) = pending.pop() {
+        if !reached.insert(symbol) {
+            continue;
+        }
+        if let Some(function) = by_symbol.get(symbol) {
+            pending.extend(function.relocations.iter().map(|r| r.to.as_str()));
+        }
+    }
+    let program = program_functions(plan);
+    plan.functions
+        .iter()
+        .filter(|f| reached.contains(f.symbol.as_str()) && program.contains(&f.name))
+        .map(|f| f.name.clone())
+        .collect()
+}
+
 /// Every level lowers, validates, and keeps the program's own functions.
 #[test]
 fn the_corpus_survives_every_optimization_level() {
@@ -113,17 +145,24 @@ fn the_corpus_survives_every_optimization_level() {
                  non-empty body"
             );
             match &baseline {
-                None => baseline = Some(functions),
+                None => {
+                    let live = live_program_functions(&plan);
+                    assert!(
+                        live.contains("main"),
+                        "{fixture}: the -O0 liveness walk must reach the entry function"
+                    );
+                    baseline = Some(live);
+                }
                 Some(at_zero) => {
                     // The direction that matters is what went MISSING: a pass
-                    // that drops a function the source declared, or empties its
+                    // that drops a live function the source declared, or empties its
                     // body, is a miscompile. (Gaining one is not: an inliner may
                     // split or clone.)
                     let missing: Vec<&String> = at_zero.difference(&functions).collect();
                     assert!(
                         missing.is_empty(),
                         "{fixture}: -O{level} lost {missing:?}, which -O0 emitted \
-                         with a body. A pass that drops or empties a live function \
+                         with a body and reached from the entry. A pass that drops or empties a live function \
                          is a miscompile, not an optimization"
                     );
                 }

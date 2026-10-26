@@ -9,7 +9,7 @@
 
 use crate::codegen::engine::tests::test_support::Stream;
 use crate::target::NativeBuildMode::Console;
-use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+use crate::testutil::{code_for_src_cached, code_for_src_lowered, code_function, CodeTarget};
 
 const PRELUDE: &str = "\
 IMPORT collections
@@ -53,7 +53,7 @@ END FUNC
 /// Label stems of function `name` in `body` lowered after the prelude.
 fn stems_of(body: &str, name: &str) -> Vec<String> {
     let source = format!("{PRELUDE}\n{body}");
-    let plan = code_for_src_cached(&source, CodeTarget::LinuxX86_64, Console);
+    let plan = code_for_src_lowered(&source, CodeTarget::LinuxX86_64, Console);
     let function = code_function(plan, name);
     let mut stems: Vec<String> = Stream::of(function)
         .labels()
@@ -94,7 +94,7 @@ fn has_hidden_element_slot(body: &str) -> bool {
 
 /// Whether `main` of the full `source` keeps the destination call's result.
 fn keeps_into_result(source: &str) -> bool {
-    let plan = code_for_src_cached(source, CodeTarget::LinuxX86_64, Console);
+    let plan = code_for_src_lowered(source, CodeTarget::LinuxX86_64, Console);
     let main = code_function(plan, "main");
     Stream::of(main)
         .labels()

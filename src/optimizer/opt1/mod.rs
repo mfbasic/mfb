@@ -6,8 +6,10 @@
 //! simplification, and non-loop [`strength`] reduction (Level 1, the last
 //! three composed into one scope-tracked walk by [`local_rewrites`]), and
 //! [`placefwd`]'s place copy forwarding (Level 1, right after them);
-//! tree-level [`branches`] simplification, [`uce`], and [`dce`] (Level 2, the
-//! last consuming the [`plans`] name-usage census);
+//! tree-level [`branches`] simplification, [`uce`], and [`dce`] (Level 1, the
+//! last consuming the [`plans`] name-usage census); [`callgraph`]'s
+//! call-graph DCE (Level 1, last in the seam, on the [`plans::globals`]
+//! reachability walk);
 //! and the six structured-loop rows (Level 3): [`licm`], [`unswitch`],
 //! [`fuse`], [`fission`], [`peel`], and [`rotate`], consuming the
 //! [`plans::loops`] fact base (invariance, loop-control capture, the pure
@@ -16,6 +18,7 @@
 pub(crate) mod aggcopy;
 pub(crate) mod algebraic;
 pub(crate) mod branches;
+pub(crate) mod callgraph;
 pub(crate) mod constant_folding;
 pub(crate) mod dce;
 pub(crate) mod fission;
@@ -82,14 +85,14 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
     // into the direct form, and every later row — and codegen's in-place field
     // seam — must see that direct form, not the copy.
     timed("place copy forwarding", || placefwd::forward(&mut module));
-    // After the local rewrites: branch simplification (Level 2) folds the
+    // After the local rewrites: branch simplification (Level 1) folds the
     // constant conditions folding just minted; then the loop rows (Level 3)
     // on the still-structured loops — LICM shrinks bodies, unswitching
     // splits on invariant tests, fusion/fission reshape adjacent phases,
     // peeling splits first iterations, and rotation runs last so every
     // other row saw the head-tested `WHILE` shape. Then unreachable-code
-    // truncation (Level 2), so a name whose only readers were unreachable
-    // (or in a dropped arm) is provably unused for tree-DCE (Level 2), which
+    // truncation (Level 1), so a name whose only readers were unreachable
+    // (or in a dropped arm) is provably unused for tree-DCE (Level 1), which
     // sweeps it along with the bindings the rewrites stranded.
     timed("branch simplification", || branches::simplify(&mut module));
     // The three global rows (Level 2) run on the whole module before the loop
@@ -117,5 +120,11 @@ pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule 
     timed("recovery regions", || recovery::simplify(&mut module));
     timed("UCE (NIR)", || uce::eliminate(&mut module));
     timed("DCE (NIR)", || dce::eliminate(&mut module));
+    // Call-graph DCE (Level 1) runs last: every row above can strand a callee —
+    // leaf inlining removes each call to the helper it inlines, branch
+    // simplification and UCE drop the arms and tails that held calls, DCE drops
+    // an unused binding whose value was a function — and a function is dead only
+    // once nothing left mentions it.
+    timed("call-graph DCE", || callgraph::eliminate(&mut module));
     module
 }

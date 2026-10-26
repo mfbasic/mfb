@@ -172,12 +172,12 @@ fn shadowed_names_are_never_removed() {
     assert_eq!(body.len(), 2);
 }
 
-/// Level gating: the row is off at `-O1`.
+/// Level gating: the row is off at `-O0`.
 #[test]
-fn level_one_disables_the_row() {
+fn level_zero_disables_the_row() {
     let (body, removed) = run(
         vec![bind("dead", ParameterType::Integer, Some(int_const("1")))],
-        1,
+        0,
     );
     assert_eq!(removed, 0);
     assert_eq!(body.len(), 1);

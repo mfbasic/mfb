@@ -1,5 +1,5 @@
 //! Branch simplification / folding — the Opt1 (tree-level) half of the
-//! Level-2 catalog row (`planning/optimizations.md`): fold a branch whose
+//! Level-1 catalog row (`planning/optimizations.md`): fold a branch whose
 //! condition is a compile-time Boolean constant. The CFG half lives in
 //! `opt2::branches`; both feed one "Branch simplification / folding" `-v`
 //! count.
@@ -41,10 +41,10 @@ use crate::types::ParameterType;
 use std::collections::HashMap;
 
 /// Apply the tree-level branch-simplification row to the whole module.
-/// Self-guarded on its catalog level (2); the fold count feeds
+/// Self-guarded on its catalog level (1); the fold count feeds
 /// `optimizer::stats`.
 pub(crate) fn simplify(module: &mut NirModule) {
-    if !crate::optimizer::level_enabled(2) {
+    if !crate::optimizer::level_enabled(1) {
         return;
     }
     let mut folded = 0;

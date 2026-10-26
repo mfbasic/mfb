@@ -1,4 +1,4 @@
-//! Unreachable code elimination — the Opt2 (CFG) half of the Level-2 catalog
+//! Unreachable code elimination — the Opt2 (CFG) half of the Level-1 catalog
 //! row (`planning/optimizations.md`): prune basic blocks control flow can
 //! never reach from the selected pre-regalloc stream. The tree half lives in
 //! `opt1::uce`; both feed one "Unreachable code elimination" `-v` count.
@@ -20,9 +20,9 @@ use crate::codegen::engine::regalloc::analysis::build_cfg;
 use crate::codegen::engine::types::CodeInstruction;
 
 /// Run the Opt2 UCE row over one function's selected stream, in place.
-/// Self-guarded on the row's catalog level (2).
+/// Self-guarded on the row's catalog level (1).
 pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>) {
-    if !crate::optimizer::level_enabled(2) {
+    if !crate::optimizer::level_enabled(1) {
         return;
     }
     let blocks = build_cfg(instructions);
@@ -159,9 +159,9 @@ mod tests {
         assert_eq!(ops(&stream), before);
     }
 
-    /// The row is off at `-O1`.
+    /// The row is off at `-O0`.
     #[test]
-    fn level_one_disables_the_row() {
+    fn level_zero_disables_the_row() {
         let mut stream = vec![
             ci("b", &[("target", "end")]),
             ci("label", &[("name", "orphan")]),
@@ -170,7 +170,7 @@ mod tests {
             ci("ret", &[]),
         ];
         let before = ops(&stream);
-        with_opt_level(OptLevel(1), || eliminate(&mut stream));
+        with_opt_level(OptLevel(0), || eliminate(&mut stream));
         assert_eq!(ops(&stream), before);
     }
 

@@ -42,6 +42,8 @@ END FUNC
 
 FUNC main() AS Integer
   io::print(toString(literal(1) + masked(1, 2) + unproven(1, 2) + wide(1, 2)))
+  LET keepLiteral = literal
+  LET keepUnproven = unproven
   RETURN 0
 END FUNC
 ";

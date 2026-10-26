@@ -33,8 +33,8 @@ does not run at any dial level.
 | Level | Flag | Character |
 | --- | --- | --- |
 | 0 | always on | Mandatory rewrites the language requires; not gated by the dial. |
-| 1 | `-O1` (default) | Transparent local rewrites — same operations, less waste. |
-| 2 | `-O2` | Tidying — provably useless code is removed. |
+| 1 | `-O1` (default) | Transparent local rewrites — same operations, less waste — and removal of code that can never run or provably does nothing. |
+| 2 | `-O2` | Tidying across a whole function — values tracked through every path, and provably useless code removed. |
 | 3 | `-O3` | Restructuring — dead control structure is removed too. |
 
 `-O0` turns every dial pass off (a correct but unoptimized build); `-O1` is the

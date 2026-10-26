@@ -1,4 +1,4 @@
-//! Basic block merging — a Level-2 Opt2 catalog row
+//! Basic block merging — a Level-1 Opt2 catalog row
 //! (`planning/optimizations.md`): fuse single-predecessor/single-successor
 //! block pairs back into straight-line code. On a label-and-fallthrough
 //! stream the two constituent rewrites are:
@@ -31,9 +31,9 @@ use crate::codegen::engine::regalloc::analysis::is_block_terminator;
 use crate::codegen::engine::types::CodeInstruction;
 
 /// Run the block-merging row over one function's selected stream, in place.
-/// Self-guarded on the row's catalog level (2).
+/// Self-guarded on the row's catalog level (1).
 pub(crate) fn merge_blocks(instructions: &mut Vec<CodeInstruction>) {
-    if !crate::optimizer::level_enabled(2) {
+    if !crate::optimizer::level_enabled(1) {
         return;
     }
     let mut keep = vec![true; instructions.len()];
@@ -182,16 +182,16 @@ mod tests {
         assert_eq!(ops(&stream), before);
     }
 
-    /// The row is off at `-O1`.
+    /// The row is off at `-O0`.
     #[test]
-    fn level_one_disables_the_row() {
+    fn level_zero_disables_the_row() {
         let mut stream = vec![
             ci("b", &[("target", "next")]),
             ci("label", &[("name", "next")]),
             ci("ret", &[]),
         ];
         let before = ops(&stream);
-        run(&mut stream, 1);
+        run(&mut stream, 0);
         assert_eq!(ops(&stream), before);
     }
 }

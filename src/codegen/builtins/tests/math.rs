@@ -25,7 +25,7 @@ use crate::arch::ops::CodeOp;
 use crate::codegen::engine::tests::test_support::Stream;
 use crate::codegen::engine::types::{CodeFunction, NativeCodePlan};
 use crate::target::NativeBuildMode::Console;
-use crate::testutil::{code_for_src_cached, code_function, CodeTarget};
+use crate::testutil::{code_for_src_cached, code_for_src_lowered, code_function, CodeTarget};
 
 /// Two `Float MOD Float`s in one function, so the kernel is emitted twice in a
 /// single body.
@@ -158,9 +158,17 @@ fn every_fmod_kernel_sits_behind_the_zero_divisor_rejection() {
 /// defines twenty labels. Emitting them with fixed names would define each twice
 /// in one body — an assembler failure that only a program with two
 /// `Float MOD Float`s in the *same* function produces.
+///
+/// Read at `-O0`: the count is of the labels the kernel defines, and at `-O1` CFG
+/// simplification folds a kernel label onto the one right before it
+/// (`fmod_modloop_<n>` onto `fmod_y_done_<n>`), so the names are lowering's, not
+/// the tidied stream's.
 #[test]
 fn two_float_mods_in_one_function_do_not_collide() {
-    let f = remainders();
+    let f = code_function(
+        code_for_src_lowered(FMOD_SRC, CodeTarget::LinuxX86_64, Console),
+        "remainders",
+    );
     let names: Vec<String> = Stream::of(f)
         .labels()
         .into_iter()

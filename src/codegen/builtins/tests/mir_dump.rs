@@ -16,6 +16,7 @@ END FUNC
 
 FUNC main() AS Integer
   io::print(toString(twice(21)))
+  LET keepTwice = twice
   RETURN 0
 END FUNC
 ";

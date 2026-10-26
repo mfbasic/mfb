@@ -37,7 +37,9 @@ const FIXTURES: &[&str] = &[
     "byref-capture-rt",
 ];
 
-/// The two statements no fixture above ends up carrying after lowering.
+/// The three statements no fixture above ends up carrying after lowering. `EXIT FOR`
+/// came from a builtin package's helper until call-graph DCE (Level 1) removed the
+/// helpers no fixture calls.
 const EXTRA: &str = "\
 IMPORT io
 IMPORT os
@@ -46,6 +48,9 @@ FUNC main() AS Integer
   FOR i = 1 TO 3
     IF i = 2 THEN
       CONTINUE FOR
+    END IF
+    IF i = 3 THEN
+      EXIT FOR
     END IF
     io::print(toString(i))
   NEXT

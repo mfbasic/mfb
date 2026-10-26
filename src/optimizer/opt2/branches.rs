@@ -1,5 +1,5 @@
 //! Branch simplification / folding — the Opt2 (CFG-level) half of the
-//! Level-2 catalog row (`planning/optimizations.md`): fold a conditional
+//! Level-1 catalog row (`planning/optimizations.md`): fold a conditional
 //! branch whose outcome is decided by a compare of known constants. The tree
 //! half lives in `opt1::branches`; both feed one "Branch simplification /
 //! folding" `-v` count.
@@ -34,9 +34,9 @@ use super::constant_folding::{fold_one, Step};
 use super::plans::mark::{conditional_terminator, removable_op};
 
 /// Run the Opt2 branch-folding row over one function's selected stream, in
-/// place. Self-guarded on the row's catalog level (2).
+/// place. Self-guarded on the row's catalog level (1).
 pub(crate) fn fold_branches(instructions: &mut Vec<CodeInstruction>) {
-    if !crate::optimizer::level_enabled(2) {
+    if !crate::optimizer::level_enabled(1) {
         return;
     }
     let mut known: HashMap<String, u64> = HashMap::new();
@@ -417,9 +417,9 @@ mod tests {
         assert_eq!(invalidated[3].op, CodeOp::BranchEq, "call clears the fact");
     }
 
-    /// The row is off at `-O1`.
+    /// The row is off at `-O0`.
     #[test]
-    fn level_one_disables_the_row() {
+    fn level_zero_disables_the_row() {
         let mut stream = vec![
             mov_imm("%v1", "3"),
             ci("cmp_imm", &[("lhs", "%v1"), ("rhs", "3")]),
@@ -427,7 +427,7 @@ mod tests {
             ci("label", &[("name", "t")]),
             ci("ret", &[]),
         ];
-        run(&mut stream, 1);
+        run(&mut stream, 0);
         assert_eq!(stream[2].op, CodeOp::BranchEq);
     }
 }

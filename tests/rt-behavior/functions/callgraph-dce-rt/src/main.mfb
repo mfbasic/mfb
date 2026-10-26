@@ -1,0 +1,50 @@
+IMPORT io
+
+' Call-graph DCE (Level 1): functions no root reaches are removed, the rest run
+' unchanged. `neverCalled` and the `orphanA`/`orphanB` cycle have no caller;
+' `onEach` is only ever handed out as a value and `adder`'s lambda only exists as
+' a closure, so both must survive; `scale` is reached only through a global's
+' initializer. The golden `.nir` pins which functions remain.
+
+LET FACTOR AS Integer = scale(3)
+
+FUNC scale(x AS Integer) AS Integer
+  RETURN x * 2
+END FUNC
+
+FUNC neverCalled(x AS Integer) AS Integer
+  RETURN x * 7 - 2
+END FUNC
+
+FUNC orphanA(n AS Integer) AS Integer
+  IF n = 0 THEN
+    RETURN 0
+  END IF
+  RETURN orphanB(n - 1)
+END FUNC
+
+FUNC orphanB(n AS Integer) AS Integer
+  RETURN orphanA(n)
+END FUNC
+
+FUNC onEach(x AS Integer) AS Integer
+  io::print("visit " & toString(x))
+  RETURN x + FACTOR
+END FUNC
+
+FUNC apply(f AS FUNC(Integer) AS Integer, x AS Integer) AS Integer
+  RETURN f(x)
+END FUNC
+
+FUNC adder(base AS Integer) AS FUNC(Integer) AS Integer
+  LET captured AS Integer = base
+  RETURN LAMBDA(value AS Integer) -> value + captured
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(apply(onEach, 4)))
+  LET addTen AS FUNC(Integer) AS Integer = adder(10)
+  io::print(toString(addTen(5)))
+  io::print(toString(FACTOR))
+  RETURN 0
+END FUNC

@@ -1,7 +1,8 @@
-//! Dead-code elimination — the Opt1 (tree-level) half of the Level-2 catalog
-//! row (`planning/optimizations.md`): remove unused bindings and value-less
-//! evaluations from structured NIR. The precise Opt2 half lives in
-//! `opt2::dce`; both feed one "Dead-code elimination (DCE)" `-v` count.
+//! Dead-code elimination — the Opt1 (tree-level) half of the DCE design row
+//! (`planning/optimizations.md`): remove unused bindings and value-less
+//! evaluations from structured NIR. It is its own Level-1 catalog row,
+//! "Dead-code elimination (DCE, NIR)"; the precise SSA-based half lives in
+//! `opt2::dce` as the Level-2 "Dead-code elimination (DCE, MIR)" row.
 //!
 //! Trap discipline (the same rule as every dial row): dead code may only be
 //! removed when it is **provably trap-free and effect-free**, so removal can
@@ -33,16 +34,16 @@ use super::plans::reads::NameUses;
 use crate::operators::{BinaryOp, UnaryOp};
 
 /// Apply the tree-level DCE row to the whole module. Self-guarded on its
-/// catalog level (2); the removal count feeds `optimizer::stats`.
+/// catalog level (1); the removal count feeds `optimizer::stats`.
 pub(crate) fn eliminate(module: &mut NirModule) {
-    if !crate::optimizer::level_enabled(2) {
+    if !crate::optimizer::level_enabled(1) {
         return;
     }
     let mut removed = 0;
     for function in &mut module.functions {
         removed += eliminate_in_function(function);
     }
-    crate::optimizer::stats::count_dead_code_eliminations(removed);
+    crate::optimizer::stats::count_dead_code_eliminations_nir(removed);
 }
 
 fn eliminate_in_function(function: &mut NirFunction) -> u64 {

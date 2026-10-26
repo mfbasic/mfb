@@ -160,16 +160,16 @@ fn nested_constant_branches_fold() {
     assert!(matches!(&body[0], NirOp::Eval { value: NirValue::Local(name) } if name == "kept"));
 }
 
-/// The row is off at `-O1`.
+/// The row is off at `-O0`.
 #[test]
-fn level_one_disables_the_row() {
+fn level_zero_disables_the_row() {
     let body = run(
         vec![NirOp::If {
             condition: boolean(true),
             then_body: vec![eval(local("x"))],
             else_body: vec![],
         }],
-        1,
+        0,
     );
     assert!(matches!(body[0], NirOp::If { .. }));
 }
