@@ -344,7 +344,7 @@ Acceptance: the analysis answers every unit case; nothing calls it yet.
   it yet" is not committable on its own — an uncalled `pub(crate) fn` is a
   dead-code warning (`cargo build` → "function `dead_after` is never used") —
   so the analyses land with their first caller, Phase 4's row (Correction 8).
-Commit: —
+Commit: d61948208 (the analyses landed with their caller, Correction 8)
 
 ### Phase 4 — the row, relaxation, x86 `test`
 
@@ -388,57 +388,126 @@ Commit: —
       → 3 failed, `macos-aarch64: IF x = 0`.)
 - [x] `rt_regalloc_levels_agree`: add the fixture (`-O0` forms nothing).
       (`compare_and_branch_forms_agree_at_every_level`, -O0..-O3: 1 passed.)
-- [ ] Golden re-baseline for this form family (aarch64 + x86 + rv64 where
+- [x] Golden re-baseline for this form family (aarch64 + x86 + rv64 where
       predicted), same procedure as plan-171-A Phase 3 (four questions, full suite
       first, `regen-native-goldens.sh`, classify by target).
-- [ ] Runtime: macOS acceptance; `linux-runtime-proof.sh` on 2223
+      Result: `artifact-gate.sh <row mfb> all` → `2389 golden(s) checked, 166
+      diff(s)` — every target, as predicted (riscv64 too: Correction 4's zero
+      operand and the bit tests reach every riscv64 cover): 29 each linux-aarch64,
+      linux-riscv64, linux-x86_64 `.ncodesum`, 27 windows-x86_64, 29 macos
+      `.ncodesum` + 5 raw `.ncode`, 16 `.app`, 2 macOS `.mir`. Every one rebuilt with
+      the `ba1964e81` and the row compiler and compared by a `/tmp` probe that
+      accepts only compare-and-branch folds whose register, bit, sense and target
+      match what the deleted instructions computed (`foldonly.py`/`semcheck.py`;
+      a corrupted bit is rejected): 166/166 fold-only, 394,831 + 820 folds. Full
+      `test-accept.sh` first: 1759 ran, 9 mismatches = the raw `.ncode`/`.mir`
+      among the 166, every run output matched. `regen-native-goldens.sh` → 236
+      rewritten, `git status` exactly the 166 (+ the new fixture's five sums);
+      gate re-run → `2396 golden(s) checked, 0 diff(s)`. Four questions in
+      `0a9173fa4`. The landing tier then reddened three bin tests pinned to the
+      old forms (Correction 12), corrected in `b3975fb67`.
+- [x] Runtime: macOS acceptance; `linux-runtime-proof.sh` on 2223
       (`linux-aarch64`), 2227 (`linux-x86_64`, emulated — needed because x86
       bytes changed), 2229 (`linux-riscv64`); the fixture built for
       `windows-x86_64` and run on box 206 (`scp` + `ssh test@192.168.1.206 … .\fixture.exe`),
       output compared with its golden `build.log` run section.
-- [ ] Benchmark on the macOS host (`./benchmark/language/run.sh 10`; `rank.py`); x86/rv64
+      macOS: the acceptance run above. Linux, each run twice — the row compiler
+      and the `ba1964e81` one, `VERDICTS=` lists compared: **2226** (2223 refused
+      ssh, Correction 13) linux-aarch64 glibc 900 passed / 11 failed / 1 not run,
+      verdicts identical but `http-tcp-transport-rt`, which failed for the base
+      compiler and passed for the row's (network-flaky; it passed in the row
+      compiler's earlier run too); **2227** linux-x86_64 musl 904 / 7 / 1,
+      identical; **2229** linux-riscv64 musl 903 / 8 / 1, identical. The new
+      fixture passes on all three. The failures are the environmental set
+      plan-171-A recorded (libsnd vendor library, ping, thread/fs timing).
+      Windows (box 206): the fixture's output equals its golden run section; and
+      a `/tmp` probe (`winproof.sh`) built 261 rt-behavior fixtures
+      (control-flow, collections, bits, arithmetic, strings, operators,
+      functions, generics, math, types, conversions, lexical, scope, trap, money
+      + the new one) for windows-x86_64 with both compilers and ran each on 206:
+      261 identical to the base compiler, 0 differ (252 also byte-equal to the
+      golden run section; the rest differ from it identically for both
+      compilers — stdout/stderr capture order).
+- [x] Benchmark on the macOS host (`./benchmark/language/run.sh 10`; `rank.py`); x86/rv64
       are compared by census instruction counts only (their boxes are emulated,
       so timings there measure QEMU).
+      The `-O1` benchmark binary built (as `run.sh` does, in a `/tmp` copy) by the
+      `ba1964e81` and the row compiler, `--run 10`, run alternately three times
+      each, min per row: geomean row/base **0.9865** over 450 rows (−1.35 %);
+      `recurse` fib 45.95 → 45.75 ms, ackermann 2.514 → 2.478; `tree` binarytrees
+      24.29 → 24.25, treewalk 12.79 → 12.95; `dispatch` union 15.23 → 14.67;
+      best `list (Dynamic) forEach` 3.945 → 3.285 (−17 %). Three rows are slower
+      — `list (*Dynamic) find` +28 %, `list (Record-Dynamic) window` +20 %,
+      `list (Fixed) replace` +11 % — root-caused as layout, not the form
+      (Correction 14). x86-64 and riscv64: the census counts of Correction 11.
 
 Acceptance: forms appear where predicted; all runtime outputs unchanged on
 five targets.
   Check: `cargo test --release --test rt_codegen_forms` → pass (est. 3 min);
   `linux-runtime-proof.sh` ×3 → 0 mismatches (est. 25–60 min each; the only checks that execute each ISA's new encodings).
-Commit: —
+  Result (2026-10-26): `rt_codegen_forms` 7 passed (4 new); the three Linux
+  proofs and the Windows probe give verdicts identical to the base compiler
+  (the "0 mismatches" of the check is not reachable on these boxes: their
+  environmental failures — libsnd, ping, thread/fs timing — fail the base
+  compiler identically, so identity with it is the criterion, as in plan-171-A);
+  macOS acceptance: every run output matched.
+Commit: d61948208 (row), 0a9173fa4 (goldens), b3975fb67 (the three pinned tests, Correction 12)
 
 ### Phase 5 — code-review sweep (this form)
 
-- [ ] Census diff (`census.py --diff` A-baseline vs now) per target: count of
+- [x] Census diff (`census.py --diff` A-baseline vs now) per target: count of
       remaining `cmp #0; b.eq/ne` and bit-test shapes, and why each class
       remained (flags live, not adjacent, emitted outside `finalize_frame`).
-- [ ] List emitters that never reach `finalize_frame` (hand-written physical
+      (Correction 11.)
+- [x] ~~List emitters that never reach `finalize_frame` (hand-written physical
       streams: `rg -L 'finalize_(frame|vreg_body|vreg_helper)' $(rg -l 'compare_immediate' src/codegen src/target)`
       then read each hit); for each, either route it through the row's function
-      directly (it is a pure stream transform) or record why not.
-- [ ] Read the 20 functions with the most remaining candidates (census per-function
+      directly (it is a pure stream transform) or record why not.~~ Moot: the row
+      runs after `route_function_through_mir`, which `lower_module` applies to
+      every function (Correction 5), so no emitter bypasses it. Measured: the
+      hand-written bodies plan-171-A Correction 11 found outside `finalize_frame`
+      carry the forms — macos-aarch64 corpus, v3 dumps: `_main` 163 `cbz`, 91
+      `cbnz`, 352 `tbz`, 56 `tbnz`; `_mfb_macapp_*` 2,220 / 678 / 368 / 664;
+      `_mfb_rt_thread_trampoline` 5 `cbz`.
+- [x] Read the 20 functions with the most remaining candidates (census per-function
       output); where a builder computes a bit test in a register-shifting form the
       row cannot see (`lsr; and #1; cmp`), rewrite the builder to the
       `mov_imm 2^k; and` shape or a direct bit-test constructor usable only in
       unallocated streams. "Makes sense" = the rewrite removes ≥ 2 instructions
       on the hot path and keeps the trap order. Record converted/declined sites.
+      (No site converted — Correction 11: the corpus has no `lsr; and #1; test`
+      shape at all, and the 20 functions' remaining candidates are the classes
+      below, none a builder shape.)
 
 Acceptance: every remaining candidate class is explained in Corrections.
   Check: `python3 tools/ncode-census/census.py --diff …` output pasted in Corrections (est. 15 min).
-Commit: —
+  Result (2026-10-26): Correction 11.
+Commit: this commit (the sweep found nothing to convert; its record is Correction 11)
 
 ### Phase 6 — spec and docs
 
-- [ ] `mfb spec architecture aarch64-instruction-set` (ops, imm14/imm19 patches,
+- [x] `mfb spec architecture aarch64-instruction-set` (ops, imm14/imm19 patches,
       relaxation of the new forms), `x86_64-instruction-set` (`test`/`bt`
       expansions), `riscv64-instruction-set` (bit-test expansion, relaxation),
       `mir-instruction-set` (four mirror ops; never pre-allocation).
-- [ ] `.ai/arch-abi.md` "A single function over ~1 MiB of code fails to build"
+      (In `d61948208` with the row, as plan-171-A Correction 9 did; also
+      `architecture native` (the final-stream hook) and `tooling cli-reference`
+      (`-O1` row list).)
+- [x] `.ai/arch-abi.md` "A single function over ~1 MiB of code fails to build"
       — stale since bug-445 added veneers; correct it while editing relaxation.
-- [ ] `planning/optimizations.md`: "Instruction selection / combining" note.
+      (Now "AArch64 branch reach is relaxed, not a build failure", in
+      `d61948208`; plus a `.ai/codegen-invariants.md` entry on final-stream rows
+      and what their liveness must model.)
+- [x] `planning/optimizations.md`: "Instruction selection / combining" note.
+      (And the row "Compare-with-zero branch (cbz/cbnz) formation": `Imp` `Y`,
+      the LANDED note with the measured census; `Y` count 76 → 77.)
 
 Acceptance: specs render cleanly.
   Check: `cargo test --bin mfb spec` → pass; `mfb spec architecture --all | grep -c '\[\['` → 0 (est. 2 min).
-Commit: —
+  Result (2026-10-26): the landing tier's bin tests (`spec_citations_resolve`
+  among them) passed after `b3975fb67`; `target/release/mfb spec architecture
+  --all | grep -c '\[\['` → 0; `mfb man optimizations` renders the row.
+Commit: d61948208 (specs, `.ai`), this commit (`planning/optimizations.md`)
 
 ## Validation Plan
 
@@ -548,9 +617,96 @@ Commit: —
 10. **The catalog row is named after its `optimizations.md` row**, "Compare-with-zero
    branch (cbz/cbnz) formation" — every catalog name matches its planning row —
    not "Compare-and-branch formation"; its summary covers the bit tests.
+11. **Phase 5: what the row leaves, and why.** `python3 -I tools/ncode-census/census.py
+   --diff tools/ncode-census/baseline-<target>.tsv <v3 run>.tsv` (base `ba1964e81`,
+   row at `d61948208`):
+
+   ```
+   macos-aarch64  instructions 27057789 -> 25955015 (-1102774)  cmp0_eq_branch 1052180 -> 117
+                  cmp0_sign_branch 25061 -> 52  cmpz_eq_branch 2486 -> 0  single_bit_test 5618 -> 0
+                  op:cbz 0 -> 984123  op:cbnz 0 -> 65279  op:tbz 0 -> 23937  op:tbnz 0 -> 11985
+   linux-aarch64  instructions 27024835 -> 25923444 (-1101391)  cmp0_eq_branch 1051245 -> 70
+                  cmp0_sign_branch 24863 -> 73  single_bit_test 5512 -> 0  op:cbz 0 -> 983120
+   linux-x86_64   instructions 30519671 -> 30495781 (-23890)  cmpz_eq_branch 2486 -> 0
+                  single_bit_test 4816 -> 269  op:tbz 0 -> 1764  op:tbnz 0 -> 3769  op:mov_imm -12824
+   linux-riscv64  instructions 4506516 -> 4501112 (-5404)  rv_single_bit_test 2171 -> 432
+                  rv_zero_reg_branch 505 -> 0  op:tbz 0 -> 508  op:tbnz 0 -> 1514
+   ```
+   (x86-64 keeps `cmp0_eq_branch` by design: its `cmp_imm r, 0` *is* `test r, r`,
+   4 bytes shorter each — `byte-identity/collections` text 403,447 → 397,719
+   bytes; riscv64 never had the shape.)
+   The remainder, by class:
+   (a) **flags live after the branch** — the 117 / 52 AArch64 `cmp #0` + branch
+   left are exactly the census's live-flags ones (`cmp0_eq_branch_flags_dead`
+   → 0): `share` chains (`cmp; b.eq; b.lt`), e.g. `_mfb_arena_commit` (56);
+   (b) **the masked value is still needed** — a bit test whose `t` is read on
+   one edge stays `and t; cbz t` (AArch64) / `and; test; jcc` (x86) / `and;
+   rv.br` (riscv64): macos-aarch64 661 such sites, x86-64 270, riscv64 432. A
+   `/tmp` probe (`why.py`, first event touching `t` on each edge) splits them:
+   a call to a hand-written runtime helper before any write of `t` (183 / 122 /
+   170 — such a helper may read any register, so `t` counts as live), both
+   edges reaching another branch first (179 / 44 / 91 — live further on), a
+   hand-written function's `ret` (124+16 / 12+16 / 86+13 — its caller may read
+   any register), a real read (`orr` of the bit, 56 / 56 / 43), a C call (36 /
+   13 / 2). Each is the liveness being exactly as conservative as it must be;
+   making the runtime helpers declare what they read is the only lever, and it
+   is the allocator's business too (`call_clobber_mask` treats them the same
+   way), not a builder rewrite.
+   (c) **No register-shifting bit test exists**: no `lsr_imm`/`asr_imm`, then
+   `mov_imm 1`, then an `and` of the two, then a zero test, anywhere in the
+   macos-aarch64 corpus (probe over the v3 `KEEP` dumps → 0). The loose form
+   (`lsr` then `and` with any mask then a test, 3,077 sites) is field extraction
+   — `lsr x8, x9, #52; and x8, x8, #2047; cmp x8, #2047` in
+   `_mfb_ifn_canvas_5FdrawGeometry` (528) is a float exponent check — not a
+   single bit. The top-20 functions by remaining candidates
+   (`_mfb_arena_span_free` 112, `_mfb_fn_main` 60, `_mfb_arena_commit` 56,
+   `_mfb_arena_sweep` 56, `_mfb_arena_extend` 56, `_mfb_macapp_metal_draw` 48,
+   `_mfb_fn_postMoney` 42, …, `_mfb_rt_io_io_readKey` 10) are all classes (a)
+   and (b); none converted.
+12. **Three bin tests pinned the old forms** (red in the landing tier after
+   `d61948208`; corrected in `b3975fb67` with the four questions):
+   `x86_64::encode::tests::integer::cmp_cmp_imm` and
+   `cmp_zero_token_rhs_compares_immediate_zero` pinned `cmp r, 0` as the 7-byte
+   imm32 form §4.5 replaced — only their byte lines changed (bug-397's "never r8"
+   still holds); `os::is_admin_tests_the_opposite_sense_on_windows_and_unix`'s
+   helper `Stream::branch_condition_to` did not know `cbz` — it now reads
+   `cbz`/`cbnz` and the `#63` sign tests as the conditions they replace, the
+   assertion unchanged.
+13. **Box 2223 refused ssh** (`ssh -p 2223 test@127.0.0.1` → `Connection
+   refused`, 2026-10-26, as for plan-171-A); linux-aarch64 ran on 2226 (Debian 12
+   glibc), verdict-for-verdict against the base compiler. Windows ran on 206
+   (2230 is retired, `.ai/remote_systems.md`).
+14. **Benchmark: −1.35 % overall; the `find` slowdown is layout, not `cbz`.**
+   `list (Dynamic) find` went 0.669 → 0.855 ms (min of three alternating runs,
+   all three Dynamic variants alike). Its hot loop differs in exactly one
+   instruction — `cmp x24, #0; b.eq found` became `cbz x24, found` (dumped from
+   both `-ncode`s; the rest of the 30-instruction loop is identical). Two
+   experiments put the cost on placement: (a) the *base* binary patched in place
+   — those four `cmp; b.eq` pairs rewritten to `cbz; nop` at the same addresses
+   (`/tmp` probe, re-signed) — runs the row at 0.666–0.697 ms, as fast as base;
+   (b) the same `collections::find(base, "s999")` loop alone, built by both
+   compilers at eight paddings (0–7 extra functions ahead of it): the row's
+   build is faster at every one, 665–666 µs against 695–725 µs. So the form is
+   not slower; the full benchmark binary, 544,896 bytes smaller (15,820,956 → 15,276,060), moved the loop
+   somewhere this core runs it worse. The same holds by construction for
+   `window`/`replace`, whose loops change only by folds. Kept, and recorded as a
+   measured layout effect for the owner, like plan-171-A's Correction 13.
 
 ## Summary
 
 Risk is the flags-liveness proof and `tbz`'s 32 KiB reach; both are isolated
 behind unit tests and a relaxation test that forces the trampoline. The
 register allocator never sees the new terminators.
+
+**Landed (2026-10-26):** census metrics and baselines (`ea1206a5c`), the four ops
+at every layer (`37d727b51`), the row with both liveness analyses, x86 `test`,
+relaxation, fixture, specs (`d61948208`), goldens (`0a9173fa4`), test pins
+(`b3975fb67`), docs. Every function's final stream now carries the target's
+compare-and-branch forms: macos-aarch64 −1,102,774 instructions (−4.08 %, 984,123
+`cbz`), linux-aarch64 −4.08 %, riscv64 −5,404, x86-64 −23,890 plus every compare
+with zero 4 bytes shorter; benchmark −1.35 % (one layout-sensitive row family
+slower, Correction 14). The design moved the row from `finalize_frame` to the end
+of `route_function_through_mir` (Correction 5) and added a final-stream register
+liveness (Correction 9). Open: what hand-written runtime helpers read is unknown,
+so a bit test whose scratch reaches such a call stays `and; cbz` (Correction 11
+(b)); box 2223 stays unreachable.
