@@ -85,6 +85,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1011   | MED      | reserved collection results retain source-sized capacity when outputs are smaller |
 | [ ]  | 1002   | LOW      | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` is reported twice for one collection declaration that holds a thread worker |
 | [ ]  | 1006   | LOW      | `collections::window` overflows while advancing past its last window for a large valid stride |
+| [ ]  | 1111   | LOW      | `collections::sort` of a `List OF Byte` is slower than of a `List OF Integer` with the same values (1M elements: 81–86 ms vs 66–69 ms): Byte and Scalar take the generic `<` compare, with a multiply, a stack round-trip and a Boolean per comparison |
 
 ## Strings and Unicode
 
@@ -106,6 +107,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 934    | LOW      | `math::min`/`math::max` on `Float` give a different signed zero on x86-64 than on AArch64/riscv64 (`min(-0.0, 0.0)` prints `0.00` on x86, `-0.00` elsewhere) |
 | [ ]  | 977    | LOW      | `toString`'s `precision` is a `Byte` — a number typed as data; make it an `Integer` with a checked 0..32 range (owner-confirmed language change; first of 977 → 878, 978 + 839, 945) |
 | [ ]  | 978    | LOW      | there is no `Byte` literal suffix, and an Integer literal silently becomes a `Byte` argument — add `3b` and stop the coercion (owner-confirmed language change) |
+| [ ]  | 1109   | LOW      | the general conversion `toInt` is the only `to*` builtin not named after its result type; rename it `toInteger` (mechanical but large: about 8,100 occurrences, about 330 golden files) |
 
 ## Data formats (datetime, JSON, CSV, base64)
 
@@ -220,6 +222,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 946    | MED      | `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant (together with 930; do after the behaviour fixes so its diffs are measured on a stable tree) |
 | [ ]  | 1106   | MED      | the native encoder accepts a floating-point register as the source of an integer store (`str_u64` with `d0`) and stores another register's bits |
+| [ ]  | 1110   | MED      | every `FOR` loop re-tests the sign of a constant `STEP` on each iteration (27 instructions an iteration where about 11 do the work, all targets, -O1 to -O3): the test is built after opt1, and opt2 does not fold a branch on a Boolean immediate |
 | [ ]  | 930    | LOW      | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |
 | [ ]  | 1080   | LOW      | a defaulted record updated with `WITH` costs about 27 KB of machine code a statement (the program is right; the executable is large and slower to build) |
 | [ ]  | 1084   | LOW      | `toString` of a package enum read straight off a call result fails to build ("native code string literal has no data object"); binding the record first works |
