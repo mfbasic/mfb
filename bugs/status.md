@@ -222,7 +222,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1110   | MED      | every `FOR` loop re-tests the sign of a constant `STEP` on each iteration (27 instructions an iteration where about 11 do the work, all targets, -O1 to -O3): the test is built after opt1, and opt2 does not fold a branch on a Boolean immediate |
 | [ ]  | 930    | LOW      | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |
 | [ ]  | 1080   | LOW      | a defaulted record updated with `WITH` costs about 27 KB of machine code a statement (the program is right; the executable is large and slower to build) |
-| [ ]  | 1084   | LOW      | `toString` of a package enum read straight off a call result fails to build ("native code string literal has no data object"); binding the record first works |
 
 ## Packages and registry
 
