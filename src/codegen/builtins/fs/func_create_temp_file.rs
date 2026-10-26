@@ -61,7 +61,11 @@ requires a NUL-terminated path.
 
 The returned `File` is positioned at the start of the empty file and is yours to use. It is closed when the binding that holds it goes out of
 scope, or explicitly with `fs::close`. The file itself is not deleted on close;
-removing it is the caller's responsibility, for example with `fs::deleteFile`.
+removing it is the caller's responsibility. The call does not report the name it
+chose, so to remove the file later, create it in a directory of your own (pass
+that directory as `directory`) and find it there with `fs::listDirectory` before
+calling `fs::deleteFile`; a file made by the zero-argument form in the shared
+temporary directory cannot be told apart from other programs' files by name.
 
 An empty `directory`, or one containing a NUL byte, raises `ErrInvalidArgument`.
 When the file cannot be created the error says why: `ErrPathNotFound` if
@@ -70,28 +74,46 @@ When the file cannot be created the error says why: `ErrPathNotFound` if
 name in it is too long — `ErrAlreadyExists` if the generated name is already
 taken, which the random name makes practically impossible, and `ErrWriteFailed`
 for any other failure. `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Create a temporary file in the host temporary directory and write to it:
+const EX: &str = r#"Create a temporary file in a directory of your own, write to it, and remove it.
+The call does not report the generated name, so creating the file in a scratch
+directory is what lets `fs::listDirectory` find it again for `fs::deleteFile`:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  RES f = fs::createTempFile()
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createTempFile-1"])
+  fs::createDirectories(dir)
+  RES f = fs::createTempFile(dir)
   fs::writeAll(f, "data")
-  ' f closes itself when this scope ends
+  fs::close(f)
+  FOR EACH name IN fs::listDirectory(dir)
+    io::print(fs::pathExtension(name))
+    fs::deleteFile(fs::pathJoin([dir, name]))
+  NEXT
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
-Create a temporary file in a specific directory:
+Use a temporary file as scratch space: write, go back, and read it:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  RES g = fs::createTempFile("output")
-  fs::writeAll(g, "data")
-  ' g closes itself when this scope ends
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createTempFile-2"])
+  fs::createDirectories(dir)
+  RES g = fs::createTempFile(dir)
+  fs::writeAll(g, "scratch data")
+  fs::seek(g, 0)
+  io::print(fs::readAll(g))
+  fs::close(g)
+  FOR EACH name IN fs::listDirectory(dir)
+    fs::deleteFile(fs::pathJoin([dir, name]))
+  NEXT
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

@@ -68,20 +68,26 @@ error `fs::canonicalPath` would: `ErrPathNotFound` if a component does not
 exist, `ErrAccessDenied` if a directory on the way may not be searched,
 `ErrInvalidPath` if the path cannot name an entry, and `ErrReadFailed` for any
 other failure. `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Guard against escaping a root directory:
+const EX: &str = r#"Guard against escaping a root directory. The files live in a scratch directory
+under the temporary directory and are removed afterwards:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("uploads")
-  fs::writeText("uploads/report.txt", "hi")
-  LET root AS String = fs::canonicalPath("uploads")
-  LET candidate AS String = fs::canonicalPath("uploads/report.txt")
-  IF fs::isWithin(root, candidate) THEN
+  LET root AS String = fs::pathJoin([fs::tempDirectory(), "mfb-isWithin-1"])
+  fs::createDirectories(root)
+  LET report AS String = fs::pathJoin([root, "report.txt"])
+  fs::writeText(report, "hi")
+  IF fs::isWithin(root, report) THEN
     io::print("inside")
   END IF
+  IF NOT fs::isWithin(root, root & "/..") THEN
+    io::print("its parent is outside")
+  END IF
+  fs::deleteFile(report)
+  fs::deleteDirectory(root)
 END FUNC
 ```
 
@@ -89,11 +95,18 @@ A nested file is within its base directory:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("base/nested")
-  fs::writeText("base/nested/file.txt", "hi")
-  LET inside AS Boolean = fs::isWithin("base", "base/nested/file.txt")
+  LET base AS String = fs::pathJoin([fs::tempDirectory(), "mfb-isWithin-2"])
+  LET nested AS String = fs::pathJoin([base, "nested"])
+  fs::createDirectories(nested)
+  LET file AS String = fs::pathJoin([nested, "file.txt"])
+  fs::writeText(file, "hi")
+  io::print(toString(fs::isWithin(base, file)))
+  fs::deleteFile(file)
+  fs::deleteDirectory(nested)
+  fs::deleteDirectory(base)
 END FUNC
 ```
 
@@ -101,12 +114,17 @@ A path is within itself, but a sibling is not:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("base")
-  fs::createDirectories("base2")
-  LET same AS Boolean = fs::isWithin("base", "base")
-  LET sibling AS Boolean = fs::isWithin("base", "base2")
+  LET base AS String = fs::pathJoin([fs::tempDirectory(), "mfb-isWithin-3"])
+  LET sibling AS String = base & "2"
+  fs::createDirectories(base)
+  fs::createDirectories(sibling)
+  io::print(toString(fs::isWithin(base, base)))
+  io::print(toString(fs::isWithin(base, sibling)))
+  fs::deleteDirectory(base)
+  fs::deleteDirectory(sibling)
 END FUNC
 ```"#;
 

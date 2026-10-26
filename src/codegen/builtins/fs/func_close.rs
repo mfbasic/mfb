@@ -57,16 +57,23 @@ Closing a handle that `thread::transfer` has moved to another thread raises
 this thread. A failed host close raises `ErrCloseFailed`, and a failed drain of
 the buffer raises `ErrWriteFailed`; when both fail only `ErrCloseFailed` is
 reported, although the buffered bytes were not written either."#;
-const EX: &str = r#"Open a file and release its handle explicitly:
+const EX: &str = r#"Open a file and release it explicitly, so it can be deleted. The file lives in
+a scratch directory under the temporary directory:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f = fs::openFile("data.txt")
-  LET line AS String = fs::readLine(f)
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-close-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f = fs::openFile(data)
+  io::print(fs::readLine(f))
   fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -77,12 +84,17 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  RES w = fs::open("out.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-close-2"])
+  fs::createDirectories(dir)
+  LET out AS String = fs::pathJoin([dir, "out.txt"])
+  RES w = fs::open(out, "write")
   fs::writeAll(w, "hello")
   fs::close(w)
-  RES r = fs::open("out.txt", "read")
+  RES r = fs::open(out, "read")
   io::print(fs::readAll(r))
   fs::close(r)
+  fs::deleteFile(out)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

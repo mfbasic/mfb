@@ -81,15 +81,23 @@ mode that creates the file, if a directory above it does not — and
 mode, a name in it is too long, or a file is used as a directory. Any other
 refusal raises `ErrReadFailed` for `"r"` and `ErrWriteFailed` for a mode that
 writes. `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Open a file for reading using the default mode, refusing a symlinked path:
+const EX: &str = r#"Open a file for reading using the default mode, refusing a symlinked path. The
+temporary directory is passed through `fs::canonicalPath` first, because on some
+hosts (macOS) its usual spelling runs through a symbolic link, which this call
+would refuse:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f AS fs::File = fs::openFileNoFollow("data.txt")
+  LET dir AS String = fs::pathJoin([fs::canonicalPath(fs::tempDirectory()), "mfb-openFileNoFollow-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f AS fs::File = fs::openFileNoFollow(data)
   fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -97,12 +105,19 @@ Open a file for writing; the open fails if any component of the path is a symlin
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("out.txt", "first line\nsecond line\n")
-  RES w AS fs::File = fs::openFileNoFollow("out.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::canonicalPath(fs::tempDirectory()), "mfb-openFileNoFollow-2"])
+  fs::createDirectories(dir)
+  LET out AS String = fs::pathJoin([dir, "out.txt"])
+  fs::writeText(out, "first line\nsecond line\n")
+  RES w AS fs::File = fs::openFileNoFollow(out, "write")
   fs::writeAll(w, "hello")
   fs::close(w)
+  io::print(fs::readText(out))
+  fs::deleteFile(out)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -110,12 +125,19 @@ Open a file for appending so each write lands at the end:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("app.log", "first line\nsecond line\n")
-  RES log AS fs::File = fs::openFileNoFollow("app.log", "a")
+  LET dir AS String = fs::pathJoin([fs::canonicalPath(fs::tempDirectory()), "mfb-openFileNoFollow-3"])
+  fs::createDirectories(dir)
+  LET path AS String = fs::pathJoin([dir, "app.log"])
+  fs::writeText(path, "first line\n")
+  RES log AS fs::File = fs::openFileNoFollow(path, "a")
   fs::writeAll(log, "started\n")
   fs::close(log)
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

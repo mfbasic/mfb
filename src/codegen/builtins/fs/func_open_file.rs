@@ -71,15 +71,21 @@ names a directory, in any mode, a name in it is too long, a file is used as a
 directory, or it is a loop of symbolic links. Any other refusal raises
 `ErrReadFailed` for `"r"` and `ErrWriteFailed` for a mode that writes.
 `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Open a file for reading using the default mode:
+const EX: &str = r#"Open a file for reading using the default mode. Each example works in a scratch
+directory under the temporary directory and removes it afterwards:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f AS fs::File = fs::openFile("data.txt")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-openFile-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f AS fs::File = fs::openFile(data)
   fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -87,12 +93,19 @@ Open a file for writing, truncating any previous contents:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("out.txt", "first line\nsecond line\n")
-  RES w AS fs::File = fs::openFile("out.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-openFile-2"])
+  fs::createDirectories(dir)
+  LET out AS String = fs::pathJoin([dir, "out.txt"])
+  fs::writeText(out, "first line\nsecond line\n")
+  RES w AS fs::File = fs::openFile(out, "write")
   fs::writeAll(w, "hello")
   fs::close(w)
+  io::print(fs::readText(out))
+  fs::deleteFile(out)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -100,12 +113,19 @@ Open a file for appending so each write lands at the end:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("app.log", "first line\nsecond line\n")
-  RES log AS fs::File = fs::openFile("app.log", "a")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-openFile-3"])
+  fs::createDirectories(dir)
+  LET path AS String = fs::pathJoin([dir, "app.log"])
+  fs::writeText(path, "first line\n")
+  RES log AS fs::File = fs::openFile(path, "a")
   fs::writeAll(log, "started\n")
   fs::close(log)
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

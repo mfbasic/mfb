@@ -48,20 +48,26 @@ its own enabled flag.
 
 Flushing a `File` that has been closed raises `ErrResourceClosed`, and flushing
 one handed to another thread with `thread::transfer` raises `ErrResourceMoved`."#;
-const EX: &str = r#"Force buffered data to disk at a checkpoint, then keep writing:
+const EX: &str = r#"Force buffered data to disk at a checkpoint, then keep writing. The file lives
+in a scratch directory under the temporary directory and is removed afterwards:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("report.txt", "first line\nsecond line\n")
-  LET header AS String = "id,name\n"
-  LET body AS String = "1,alice\n"
-  RES out = fs::openFile("report.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-flush-1"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.txt"])
+  RES out = fs::openFile(report, "write")
   fs::setBuffered(out, TRUE)
-  fs::writeAll(out, header)
-  fs::flush(out)             ' header reaches disk before the body is written
-  fs::writeAll(out, body)
+  fs::writeAll(out, "id,name\n")
+  fs::flush(out)             ' the header reaches the file before the body is written
+  io::print(fs::readText(report))
+  fs::writeAll(out, "1,alice\n")
+  fs::close(out)
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

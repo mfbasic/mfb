@@ -52,15 +52,19 @@ it is a loop of symbolic links. A directory is refused rather than removed, so
 use `fs::deleteDirectory` for one. Any other refusal raises `ErrWriteFailed`. An
 empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`.
 `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Remove a generated output file:
+const EX: &str = r#"Remove a generated output file, then its scratch directory under the temporary
+directory:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  fs::writeText("output/report.txt", "generated")
-  fs::deleteFile("output/report.txt")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-deleteFile-1"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.txt"])
+  fs::writeText(report, "generated")
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -68,10 +72,13 @@ Write a file and then remove it:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("scratch.txt", "temporary")
-  fs::deleteFile("scratch.txt")
+  LET scratch AS String = fs::pathJoin([fs::tempDirectory(), "mfb-deleteFile-2.txt"])
+  fs::writeText(scratch, "temporary")
+  fs::deleteFile(scratch)
+  io::print(toString(fs::exists(scratch)))
 END FUNC
 ```"#;
 

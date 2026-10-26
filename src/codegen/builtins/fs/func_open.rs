@@ -71,15 +71,21 @@ names a directory, in any mode, a name in it is too long, a file is used as a
 directory, or it is a loop of symbolic links. Any other refusal raises
 `ErrReadFailed` for `"r"` and `ErrWriteFailed` for a mode that writes.
 `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Open a file for reading and close it explicitly:
+const EX: &str = r#"Open a file for reading and close it explicitly. Each example works in a scratch
+directory under the temporary directory and removes it afterwards:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f AS fs::File = fs::open("data.txt", "read")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-open-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f AS fs::File = fs::open(data, "read")
   fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -87,11 +93,19 @@ Open a file for writing, truncating any previous contents:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  RES w AS fs::File = fs::open("out.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-open-2"])
+  fs::createDirectories(dir)
+  LET out AS String = fs::pathJoin([dir, "out.txt"])
+  fs::writeText(out, "old contents")
+  RES w AS fs::File = fs::open(out, "write")
   fs::writeAll(w, "hello")
   fs::close(w)
+  io::print(fs::readText(out))
+  fs::deleteFile(out)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -99,11 +113,18 @@ Open a file for appending so each write lands at the end:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  RES log AS fs::File = fs::open("app.log", "a")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-open-3"])
+  fs::createDirectories(dir)
+  LET path AS String = fs::pathJoin([dir, "app.log"])
+  RES log AS fs::File = fs::open(path, "a")
   fs::writeAll(log, "started\n")
   fs::close(log)
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

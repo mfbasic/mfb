@@ -70,14 +70,19 @@ in `path` does not exist, `ErrAccessDenied` if permission is refused, and
 it is too long, or a file is used as a directory. Any other refusal, and a
 failed write, flush to disk or close, raises `ErrWriteFailed`. `ErrOutOfMemory`
 means the program ran out of memory."#;
-const EX: &str = r#"Write text to a file:
+const EX: &str = r#"Write text to a file in a scratch directory under the temporary directory,
+then clean up:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  fs::writeText("output/report.txt", "Hello")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-writeText-1"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.txt"])
+  fs::writeText(report, "Hello")
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -88,9 +93,14 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("greeting.txt", "hello")
-  LET text AS String = fs::readText("greeting.txt")
-  io::print(text)
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-writeText-2"])
+  fs::createDirectories(dir)
+  LET greeting AS String = fs::pathJoin([dir, "greeting.txt"])
+  fs::writeText(greeting, "hello")
+  fs::writeText(greeting, "goodbye")
+  io::print(fs::readText(greeting))
+  fs::deleteFile(greeting)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

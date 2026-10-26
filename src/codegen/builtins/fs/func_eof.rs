@@ -51,19 +51,25 @@ functions are only called while input remains. This is the intended pattern
 because end of input is reported by those functions as an error rather than as an
 empty result: testing `fs::eof` first lets a loop stop cleanly at the end of the
 file."#;
-const EX: &str = r#"Read every line until end of input:
+const EX: &str = r#"Read every line until end of input. The file lives in a scratch directory under
+the temporary directory, and `fs::close` releases it before it is deleted:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f = fs::openFile("data.txt")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-eof-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f = fs::openFile(data)
   WHILE NOT fs::eof(f)
     io::print(fs::readLine(f))
   END WHILE
-  ' f closes itself when this scope ends
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

@@ -62,16 +62,24 @@ repositioned, or a file that shrinks while it is read — `ErrResourceClosed` th
 `file` has been closed, and `ErrResourceMoved` that it was handed to another
 thread with `thread::transfer`. `ErrOutOfMemory` means the program ran out of
 memory."#;
-const EX: &str = r#"Read all remaining text from an open file:
+const EX: &str = r#"Read all remaining text from an open file. The file lives in a scratch
+directory under the temporary directory, and `fs::close` releases it before it
+is deleted:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f = fs::openFile("data.txt")
-  LET value AS String = fs::readAll(f)
-  ' f closes itself when this scope ends
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readAll-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f = fs::openFile(data)
+  io::print(fs::readAll(f))
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -79,12 +87,20 @@ Skip the first line, then read the rest of the file:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f = fs::openFile("data.txt")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readAll-2"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "header\nfirst line\nsecond line\n")
+  RES f = fs::openFile(data)
   LET header AS String = fs::readLine(f)
   LET body AS String = fs::readAll(f)
+  io::print(body)
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

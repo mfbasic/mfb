@@ -59,17 +59,21 @@ searched, and `ErrInvalidPath` if `path` cannot name an entry — a file used as
 directory, a name that is too long, or a loop of symbolic links. Any other
 failure raises `ErrReadFailed`. `ErrOutOfMemory` means the program ran out of
 memory."#;
-const EX: &str = r#"Resolve a relative path against the working directory:
+const EX: &str = r#"Resolve a path to its real location. The file lives in a scratch directory
+under the temporary directory and is removed afterwards:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  fs::writeText("output/report.txt", "hello")
-  LET full AS String = fs::canonicalPath("output/report.txt")
-  io::print(full)
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-canonicalPath-1"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.txt"])
+  fs::writeText(report, "hello")
+  io::print(fs::canonicalPath(report))
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -80,9 +84,13 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("a/b")
-  LET real AS String = fs::canonicalPath("a/./b/../b")
-  io::print(real)
+  LET top AS String = fs::pathJoin([fs::tempDirectory(), "mfb-canonicalPath-2"])
+  fs::createDirectories(fs::pathJoin([top, "a", "b"]))
+  LET real AS String = fs::canonicalPath(top & "/a/./b/../b")
+  io::print(toString(real = fs::canonicalPath(fs::pathJoin([top, "a", "b"]))))
+  fs::deleteDirectory(fs::pathJoin([top, "a", "b"]))
+  fs::deleteDirectory(fs::pathJoin([top, "a"]))
+  fs::deleteDirectory(top)
 END FUNC
 ```"#;
 

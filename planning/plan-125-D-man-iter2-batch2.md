@@ -535,8 +535,32 @@ Commit: e5d476252 (pages), 56c0406c5 (declared errors)
 ### Phase 5 — fs (43 units)
 
 - [ ] 41 pages + overview + types page.
-- [ ] **Every example rewritten to temp paths and run**; the ledger records
+- [x] **Every example rewritten to temp paths and run**; the ledger records
       the temp path per example and confirms nothing is left behind.
+      Done before the review batch, so the reviewers read the final examples.
+      - **Paths:** every example that touches the filesystem works under
+        `fs::pathJoin([fs::tempDirectory(), "mfb-<member>-<n>"])`, where `<n>` is
+        the example's number on its page. It is a directory, or a single file
+        for `deleteFile` 2, `exists` 1 and `fileExists` 1, and the example
+        deletes everything it created.
+      - **`openFileNoFollow`** uses `fs::canonicalPath(fs::tempDirectory())`:
+        on macOS the plain spelling runs through the `/var` symlink and is
+        refused (`77030003`, probe `/tmp/p125-ex/nf`).
+      - **`createTempFile`** examples pass their own scratch directory and find
+        the file with `fs::listDirectory`. The call never reports the name it
+        chose, so the zero-argument form cannot be cleaned up; the page now
+        says so.
+      - **Touch no file:** `currentDirectory` 1-2, `tempDirectory` 1,
+        `openData` 1-3, `seek` 1 (in-memory) and the `path*` pages (string
+        operations only).
+      - **Verified:** `/tmp/p125-fsex/run.py` builds and runs each block in a
+        fresh project, then diffs `$TMPDIR` and the project tree. Result:
+        103 examples, `bad 0`, nothing new in either.
+        `MFB=… ./scripts/man-run-examples.sh fs --run` → `103 built, 103 ran,
+        0 failed`. That count needed the runner fix in `d37e122ce`: before
+        it, 14 of these examples were silently skipped.
+      - **Literal scan:** a scan of every block that calls a path-taking `fs::`
+        member without `tempDirectory`/`openData` finds none.
 - [ ] Handle contract wording verified by reading, not grepping
       (`--memory-scope fs` is necessary and not sufficient).
 - [ ] Ledger recorded.
@@ -605,6 +629,12 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **2026-10-26 (owner): merge each letter into `main` as soon as it is
+  complete,** so the branch never drifts from `main` again. D is the first
+  letter this applies to: when D's last box is ticked, merge `main` in, run the
+  landing tier, and merge into `main` before starting E. The same applies
+  after every later letter.
 
 - **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
   unit now runs `claude -p --model claude-fable-5-1` through

@@ -67,14 +67,20 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Create a temporary file under the host temporary directory:
+Make a scratch directory under it, use it, and remove it:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  RES f = fs::createTempFile()
-  ' f is created under fs::tempDirectory() and closes itself
+  LET scratch AS String = fs::pathJoin([fs::tempDirectory(), "mfb-tempDirectory-2"])
+  fs::createDirectories(scratch)
+  LET note AS String = fs::pathJoin([scratch, "note.txt"])
+  fs::writeText(note, "hello")
+  io::print(fs::readText(note))
+  fs::deleteFile(note)
+  fs::deleteDirectory(scratch)
 END FUNC
 ```"#;
 

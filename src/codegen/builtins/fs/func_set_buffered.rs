@@ -61,20 +61,28 @@ call raises `ErrWriteFailed` and the handle stays buffered with its bytes still
 pending, exactly as a failed `fs::flush` leaves it. Calling `fs::setBuffered` on
 a `File` that has been closed raises `ErrResourceClosed`, and on one handed to
 another thread with `thread::transfer`, `ErrResourceMoved`."#;
-const EX: &str = r#"Buffer a loop of small writes and let scope exit flush and close the handle:
+const EX: &str = r#"Buffer a loop of small writes; `fs::close` drains the buffer before the file is
+read back. The log lives in a scratch directory under the temporary directory
+and is removed afterwards:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("events.log", "first line\nsecond line\n")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-setBuffered-1"])
+  fs::createDirectories(dir)
+  LET path AS String = fs::pathJoin([dir, "events.log"])
   LET events AS List OF String = ["started", "ready"]
-  RES log = fs::openFile("events.log", "write")
+  RES log = fs::openFile(path, "write")
   fs::setBuffered(log, TRUE)
   FOR EACH event IN events
     fs::writeAll(log, event & "\n")
   NEXT
-  ' log is flushed and closed when this scope ends
+  fs::close(log)
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -82,16 +90,21 @@ Enable buffering for a bulk write, then flush and disable it before durable work
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("report.txt", "first line\nsecond line\n")
-  LET header AS String = "id,name\n"
-  LET body AS String = "1,alice\n"
-  RES out = fs::openFile("report.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-setBuffered-2"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.txt"])
+  RES out = fs::openFile(report, "write")
   fs::setBuffered(out, TRUE)
-  fs::writeAll(out, header)
-  fs::writeAll(out, body)
+  fs::writeAll(out, "id,name\n")
+  fs::writeAll(out, "1,alice\n")
   fs::setBuffered(out, FALSE)   ' drains the pending header and body, then disables
+  io::print(fs::readText(report))
+  fs::close(out)
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

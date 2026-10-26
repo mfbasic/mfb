@@ -57,21 +57,32 @@ const EX: &str = r#"Remove an empty directory:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch/example")
-  fs::deleteDirectory("scratch/example")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-deleteDirectory-1"])
+  fs::createDirectory(dir)
+  fs::deleteDirectory(dir)
+  io::print(toString(fs::directoryExists(dir)))
 END FUNC
 ```
 
-Create a directory and then remove it:
+A directory must be emptied before it can be removed, and its parents are left
+in place:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch/cache")
-  fs::deleteDirectory("scratch/cache")
+  LET outer AS String = fs::pathJoin([fs::tempDirectory(), "mfb-deleteDirectory-2"])
+  LET inner AS String = fs::pathJoin([outer, "cache"])
+  fs::createDirectories(inner)
+  fs::writeText(fs::pathJoin([inner, "entry.txt"]), "x")
+  fs::deleteFile(fs::pathJoin([inner, "entry.txt"]))
+  fs::deleteDirectory(inner)
+  io::print(toString(fs::directoryExists(outer)))
+  fs::deleteDirectory(outer)
 END FUNC
 ```"#;
 

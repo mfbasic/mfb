@@ -67,18 +67,25 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Re-read a file from a remembered offset:
+Re-read a file from a remembered offset. The file lives in a scratch directory
+under the temporary directory, and `fs::close` releases it before it is deleted:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("notes.txt", "header\nbody line\n")
-  RES f = fs::openFile("notes.txt")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-seek-2"])
+  fs::createDirectories(dir)
+  LET notes AS String = fs::pathJoin([dir, "notes.txt"])
+  fs::writeText(notes, "header\nbody line\n")
+  RES f = fs::openFile(notes)
   io::print(fs::readLine(f))
   fs::seek(f, 7)
   io::print(fs::readLine(f))
+  fs::close(f)
+  fs::deleteFile(notes)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

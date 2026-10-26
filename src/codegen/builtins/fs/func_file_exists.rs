@@ -58,9 +58,12 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  IF fs::fileExists("data.txt") THEN
-    io::print("found")
+  LET data AS String = fs::pathJoin([fs::tempDirectory(), "mfb-fileExists-1.txt"])
+  fs::writeText(data, "hello")
+  IF fs::fileExists(data) THEN
+    io::print(fs::readText(data))
   END IF
+  fs::deleteFile(data)
 END FUNC
 ```
 
@@ -68,9 +71,11 @@ Unicode paths are accepted:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  LET present AS Boolean = fs::fileExists("é日😀.txt")
+  LET present AS Boolean = fs::fileExists(fs::pathJoin([fs::tempDirectory(), "é日😀.txt"]))
+  io::print(toString(present))
 END FUNC
 ```"#;
 

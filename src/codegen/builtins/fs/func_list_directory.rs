@@ -71,14 +71,17 @@ const EX: &str = r#"Print every entry in a directory in sorted order:
 ```
 IMPORT fs
 IMPORT io
-IMPORT collections
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch")
-  LET names AS List OF String = fs::listDirectory("scratch")
-  FOR i = 0 TO len(names) - 1
-    io::print(collections::get(names, i))
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-listDirectory-1"])
+  fs::createDirectories(dir)
+  fs::writeText(fs::pathJoin([dir, "b.txt"]), "b")
+  fs::writeText(fs::pathJoin([dir, "a.txt"]), "a")
+  FOR EACH name IN fs::listDirectory(dir)
+    io::print(name)
+    fs::deleteFile(fs::pathJoin([dir, name]))
   NEXT
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -89,9 +92,11 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch/empty")
-  LET names AS List OF String = fs::listDirectory("scratch/empty")
+  LET empty AS String = fs::pathJoin([fs::tempDirectory(), "mfb-listDirectory-2"])
+  fs::createDirectories(empty)
+  LET names AS List OF String = fs::listDirectory(empty)
   io::print(toString(len(names)))
+  fs::deleteDirectory(empty)
 END FUNC
 ```"#;
 

@@ -57,16 +57,16 @@ directory — a name that is too long, a file used as a directory, or a loop of
 symbolic links. Any other refusal raises `ErrWriteFailed`. An empty `path`, or
 one containing a NUL byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means
 the program ran out of memory."#;
-const EX: &str = r#"Create a single output directory whose parent already exists:
+const EX: &str = r#"Create a single directory whose parent already exists — here, a directory
+directly under the temporary directory — and remove it again:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch")
-  IF NOT fs::directoryExists("scratch/example") THEN
-    fs::createDirectory("scratch/example")
-  END IF
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createDirectory-1"])
+  fs::createDirectory(dir)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -74,12 +74,18 @@ Guard against re-creating a directory that already exists:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch")
-  IF NOT fs::directoryExists("scratch/cache") THEN
-    fs::createDirectory("scratch/cache")
+  LET cache AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createDirectory-2"])
+  IF NOT fs::directoryExists(cache) THEN
+    fs::createDirectory(cache)
   END IF
+  IF NOT fs::directoryExists(cache) THEN
+    fs::createDirectory(cache)
+  END IF
+  io::print(toString(fs::directoryExists(cache)))
+  fs::deleteDirectory(cache)
 END FUNC
 ```"#;
 

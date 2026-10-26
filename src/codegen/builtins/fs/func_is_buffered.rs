@@ -43,17 +43,25 @@ observes `FALSE`.
 
 Calling it on a `File` that has been closed raises `ErrResourceClosed`, and on
 one handed to another thread with `thread::transfer`, `ErrResourceMoved`."#;
-const EX: &str = r#"Enable buffering only when it is not already on:
+const EX: &str = r#"Enable buffering only when it is not already on. The log lives in a scratch
+directory under the temporary directory and is removed afterwards:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("events.log", "first line\nsecond line\n")
-  RES log = fs::openFile("events.log", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-isBuffered-1"])
+  fs::createDirectories(dir)
+  LET path AS String = fs::pathJoin([dir, "events.log"])
+  RES log = fs::openFile(path, "write")
   IF NOT fs::isBuffered(log) THEN
     fs::setBuffered(log, TRUE)
   END IF
+  io::print(toString(fs::isBuffered(log)))
+  fs::close(log)
+  fs::deleteFile(path)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

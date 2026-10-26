@@ -75,16 +75,23 @@ UTF-8, `ErrReadFailed` that the host read failed, `ErrResourceClosed` that
 `file` has been closed, and `ErrResourceMoved` that it was handed to another
 thread with `thread::transfer`. `ErrOutOfMemory` means the program ran out of
 memory."#;
-const EX: &str = r#"Read the first line of a file:
+const EX: &str = r#"Read the first line of a file. The file lives in a scratch directory under the
+temporary directory, and `fs::close` releases it before it is deleted:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f = fs::openFile("data.txt")
-  LET line AS String = fs::readLine(f)
-  ' f closes itself when this scope ends
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readLine-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f = fs::openFile(data)
+  io::print(fs::readLine(f))
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -95,11 +102,17 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f = fs::openFile("data.txt")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readLine-2"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f = fs::openFile(data)
   WHILE NOT fs::eof(f)
     io::print(fs::readLine(f))
   END WHILE
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

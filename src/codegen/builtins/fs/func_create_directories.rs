@@ -66,13 +66,19 @@ missing — which, since the walk creates every parent, happens only when
 something removes one while the call runs. Every other refusal raises
 `ErrWriteFailed`. An empty `path`, or one containing a NUL byte, raises
 `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Create a nested directory together with its missing parents:
+const EX: &str = r#"Create a nested directory together with its missing parents under the temporary
+directory, then remove it level by level:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("target/example/nested")
+  LET top AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createDirectories-1"])
+  LET nested AS String = fs::pathJoin([top, "example", "nested"])
+  fs::createDirectories(nested)
+  fs::deleteDirectory(nested)
+  fs::deleteDirectory(fs::pathJoin([top, "example"]))
+  fs::deleteDirectory(top)
 END FUNC
 ```
 
@@ -80,10 +86,14 @@ Re-running is safe because existing directories are accepted:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("target/example/nested")
-  fs::createDirectories("target/example/nested")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createDirectories-2"])
+  fs::createDirectories(dir)
+  fs::createDirectories(dir)
+  io::print(toString(fs::directoryExists(dir)))
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

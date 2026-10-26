@@ -73,15 +73,20 @@ in `path` does not exist, `ErrAccessDenied` if permission is refused, and
 it is too long, or a file is used as a directory. Any other refusal, and a
 failed write, flush to disk or close, raises `ErrWriteFailed`. `ErrOutOfMemory`
 means the program ran out of memory."#;
-const EX: &str = r#"Append a single newline byte to a log file:
+const EX: &str = r#"Append a single newline byte to a log file in a scratch directory under the
+temporary directory, then clean up:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-appendBytes-1"])
+  fs::createDirectories(dir)
+  LET log AS String = fs::pathJoin([dir, "log.bin"])
   LET bytes AS List OF Byte = [10]
-  fs::appendBytes("output/log.bin", bytes)
+  fs::appendBytes(log, bytes)
+  fs::deleteFile(log)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -89,11 +94,20 @@ Append the contents of one file to the end of another:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("source.bin", "first line\nsecond line\n")
-  LET bytes AS List OF Byte = fs::readBytes("source.bin")
-  fs::appendBytes("combined.bin", bytes)
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-appendBytes-2"])
+  fs::createDirectories(dir)
+  LET source AS String = fs::pathJoin([dir, "source.bin"])
+  LET combined AS String = fs::pathJoin([dir, "combined.bin"])
+  fs::writeText(source, "first line\nsecond line\n")
+  fs::writeText(combined, "header\n")
+  fs::appendBytes(combined, fs::readBytes(source))
+  io::print(fs::readText(combined))
+  fs::deleteFile(source)
+  fs::deleteFile(combined)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

@@ -73,14 +73,19 @@ in `path` does not exist, `ErrAccessDenied` if permission is refused, and
 it is too long, or a file is used as a directory. Any other refusal, and a
 failed write, flush to disk or close, raises `ErrWriteFailed`. `ErrOutOfMemory`
 means the program ran out of memory."#;
-const EX: &str = r#"Append a line to a log file:
+const EX: &str = r#"Append a line to a log file in a scratch directory under the temporary
+directory, then clean up:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  fs::appendText("output/app.log", "line\n")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-appendText-1"])
+  fs::createDirectories(dir)
+  LET log AS String = fs::pathJoin([dir, "app.log"])
+  fs::appendText(log, "line\n")
+  fs::deleteFile(log)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -91,11 +96,15 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("notes.txt", "first line\nsecond line\n")
-  fs::appendText("notes.txt", "first\n")
-  fs::appendText("notes.txt", "second\n")
-  LET text AS String = fs::readText("notes.txt")
-  io::print(text)
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-appendText-2"])
+  fs::createDirectories(dir)
+  LET notes AS String = fs::pathJoin([dir, "notes.txt"])
+  fs::writeText(notes, "header\n")
+  fs::appendText(notes, "first\n")
+  fs::appendText(notes, "second\n")
+  io::print(fs::readText(notes))
+  fs::deleteFile(notes)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

@@ -80,14 +80,19 @@ cannot name a file — it names a directory, a name in it is too long, or a file
 is used as a directory. Any other refusal, and a failed write, flush to disk or
 close of the temporary file, raises `ErrWriteFailed`. `ErrOutOfMemory` means the
 program ran out of memory."#;
-const EX: &str = r#"Atomically write text to a file:
+const EX: &str = r#"Atomically write text to a file in a scratch directory under the temporary
+directory, then clean up:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  fs::writeTextAtomic("output/report.txt", "done")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-writeTextAtomic-1"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.txt"])
+  fs::writeTextAtomic(report, "done")
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -98,9 +103,14 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeTextAtomic("greeting.txt", "hello")
-  LET text AS String = fs::readText("greeting.txt")
-  io::print(text)
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-writeTextAtomic-2"])
+  fs::createDirectories(dir)
+  LET greeting AS String = fs::pathJoin([dir, "greeting.txt"])
+  fs::writeTextAtomic(greeting, "hello")
+  fs::writeTextAtomic(greeting, "goodbye")
+  io::print(fs::readText(greeting))
+  fs::deleteFile(greeting)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

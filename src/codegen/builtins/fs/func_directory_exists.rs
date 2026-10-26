@@ -58,9 +58,13 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  IF fs::directoryExists("data") THEN
-    io::print("found")
+  LET data AS String = fs::pathJoin([fs::tempDirectory(), "mfb-directoryExists-1"])
+  io::print(toString(fs::directoryExists(data)))
+  fs::createDirectory(data)
+  IF fs::directoryExists(data) THEN
+    io::print("found, " & toString(len(fs::listDirectory(data))) & " entries")
   END IF
+  fs::deleteDirectory(data)
 END FUNC
 ```
 
@@ -68,9 +72,11 @@ Unicode paths are accepted:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  LET present AS Boolean = fs::directoryExists("é日😀")
+  LET present AS Boolean = fs::directoryExists(fs::pathJoin([fs::tempDirectory(), "é日😀"]))
+  io::print(toString(present))
 END FUNC
 ```"#;
 

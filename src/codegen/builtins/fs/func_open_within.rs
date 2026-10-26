@@ -84,17 +84,23 @@ file — it names a directory, in any mode, a name in it is too long, or a file 
 used as a directory. Any other refusal raises `ErrReadFailed` for `"r"` and
 `ErrWriteFailed` for a mode that writes. `ErrOutOfMemory` means the program ran
 out of memory."#;
-const EX: &str = r#"Open a caller-supplied name beneath a fixed root, for reading:
+const EX: &str = r#"Open a caller-supplied name beneath a fixed root, for reading. The root is a
+scratch directory under the temporary directory, removed afterwards:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("srv/data")
-  fs::writeText("srv/data/alice.txt", "hi")
+  LET root AS String = fs::pathJoin([fs::tempDirectory(), "mfb-openWithin-1"])
+  fs::createDirectories(root)
+  fs::writeText(fs::pathJoin([root, "alice.txt"]), "hi")
   LET userName AS String = "alice.txt"
-  RES f AS fs::File = fs::openWithin("srv/data", userName)
+  RES f AS fs::File = fs::openWithin(root, userName)
+  io::print(fs::readAll(f))
   fs::close(f)
+  fs::deleteFile(fs::pathJoin([root, "alice.txt"]))
+  fs::deleteDirectory(root)
 END FUNC
 ```
 
@@ -106,8 +112,11 @@ IMPORT errorCode
 IMPORT io
 
 FUNC main() AS Nothing
-  RES f AS fs::File = fs::openWithin("/srv/data", "../../etc/passwd") TRAP(e)
+  LET root AS String = fs::pathJoin([fs::tempDirectory(), "mfb-openWithin-2"])
+  fs::createDirectories(root)
+  RES f AS fs::File = fs::openWithin(root, "../../etc/passwd") TRAP(e)
     io::print(toString(e.code = errorCode::ErrInvalidArgument))
+    fs::deleteDirectory(root)
     RETURN
   END TRAP
 END FUNC
@@ -117,12 +126,19 @@ Write beneath the root; a symlinked component makes the open fail:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("srv/data/reports")
-  RES w AS fs::File = fs::openWithin("srv/data", "reports/today.txt", "write")
+  LET root AS String = fs::pathJoin([fs::tempDirectory(), "mfb-openWithin-3"])
+  LET reports AS String = fs::pathJoin([root, "reports"])
+  fs::createDirectories(reports)
+  RES w AS fs::File = fs::openWithin(root, "reports/today.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
+  io::print(fs::readText(fs::pathJoin([reports, "today.txt"])))
+  fs::deleteFile(fs::pathJoin([reports, "today.txt"]))
+  fs::deleteDirectory(reports)
+  fs::deleteDirectory(root)
 END FUNC
 ```"#;
 

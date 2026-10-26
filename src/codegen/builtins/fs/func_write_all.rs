@@ -62,16 +62,21 @@ for reading — `ErrResourceClosed` that `file` has been closed, and
 `ErrResourceMoved` that it was handed to another thread with `thread::transfer`. With
 buffering enabled a failed write can surface later instead, from the
 `fs::writeAll`, `fs::flush` or `fs::close` that drains the buffer."#;
-const EX: &str = r#"Write text to an open file:
+const EX: &str = r#"Write text to an open file in a scratch directory under the temporary
+directory. `fs::close` releases the file before it is deleted:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  RES f = fs::openFile("output/report.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-writeAll-1"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.txt"])
+  RES f = fs::openFile(report, "write")
   fs::writeAll(f, "Hello")
-  ' f closes itself when this scope ends
+  fs::close(f)
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -79,12 +84,19 @@ Write a header line, then the rest of the body:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  RES f = fs::openFile("output/report.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-writeAll-2"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.txt"])
+  RES f = fs::openFile(report, "write")
   fs::writeAll(f, "title\n")
   fs::writeAll(f, "body")
+  fs::close(f)
+  io::print(fs::readText(report))
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 
