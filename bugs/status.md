@@ -272,7 +272,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 939    | LOW      | `mfb dbg` accepts a breakpoint at an address that is not a multiple of 4 and corrupts two instructions |
 | [ ]  | 942    | LOW      | debug report `perf` durations come from macOS `CLOCK_MONOTONIC`, which has microsecond resolution, so `mfb_alloc`/`mfb_free` read as 0 ns |
 
 ## Build, linker and platform

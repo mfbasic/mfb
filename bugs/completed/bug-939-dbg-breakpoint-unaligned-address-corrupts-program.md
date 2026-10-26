@@ -1,11 +1,11 @@
 # bug-939: `mfb dbg` accepts a breakpoint at an address that is not a multiple of 4 and corrupts two instructions
 
-Last updated: 2026-10-05
+Last updated: 2026-10-26
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness
 
-Status: Open
+Status: Fixed. Fixed by d9c6d15d3 ("Review debugger and fix input edge cases": `instruction_boundary` in `src/debugger/breakpoints/mod.rs`); regression test `breakpoint_addresses_must_start_on_instruction_boundaries`.
 Regression Test: src/debugger/breakpoints.rs unit test (new), beside the `set` tests; plus a `cli_dbg::macos` case
 
 `breakpoint <target>` takes an address, or a place `<name>+<offset>`, and writes
@@ -99,3 +99,10 @@ written again into the new process.
 - `Finish` return-instruction breakpoints are unaffected: their addresses come from
   decoded instruction starts.
 - The `breakerror` park breakpoint is unaffected: it sits at a function symbol.
+
+## Resolution (2026-10-26 open-bug review)
+
+Re-verified 2026-10-26 at HEAD cdecc60c1 with a signed copy of the release build, on the filed
+`dw` program (`-O0 --debug`): `bp count+2` and `bp 0x100000006` both answer
+"error: 0x… is not the start of an instruction: they start every 4 bytes" and set nothing;
+`bp count+4` sets a breakpoint and `run` stops on it.
