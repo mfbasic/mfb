@@ -954,3 +954,48 @@ impl Drop for PortGate {
         unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
     }
 }
+
+/// plan-171-A: an `-ncode` stream with every AArch64 pair (`stp`/`ldp`) written
+/// back as the single accesses it performs — `str_u64`/`ldr_u64` (or `str_q`/
+/// `ldr_q` for a 16-byte pair), lower address first, a pre-index pair preceded
+/// and a post-index pair followed by the `sub_sp`/`add_sp` its write-back is. A
+/// test that asks which words a function reads or writes reads this, so it
+/// sees the same accesses whether or not the backend paired them.
+pub fn split_pairs(instructions: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    let mut out = Vec::with_capacity(instructions.len());
+    for instruction in instructions {
+        let op = instruction["op"].as_str().unwrap_or("");
+        if op != "stp" && op != "ldp" {
+            out.push(instruction.clone());
+            continue;
+        }
+        let field = |name: &str| instruction[name].as_str().expect("pair field").to_string();
+        let width: i64 = field("width").parse().expect("pair width");
+        let offset: i64 = field("offset").parse().expect("pair offset");
+        let mode = field("addressing");
+        let (single, first, second) = match (op, width) {
+            ("stp", 8) => ("str_u64", "src", "src2"),
+            ("ldp", 8) => ("ldr_u64", "dst", "dst2"),
+            ("stp", _) => ("str_q", "src", "src2"),
+            _ => ("ldr_q", "dst", "dst2"),
+        };
+        let role = if op == "stp" { "src" } else { "dst" };
+        let base = field("base");
+        let at = if mode == "offset" { offset } else { 0 };
+        if mode == "pre" {
+            out.push(serde_json::json!({ "op": "sub_sp", "imm": (-offset).to_string() }));
+        }
+        for (half, register) in [first, second].into_iter().enumerate() {
+            out.push(serde_json::json!({
+                "op": single,
+                role: field(register),
+                "base": base,
+                "offset": (at + half as i64 * width).to_string(),
+            }));
+        }
+        if mode == "post" {
+            out.push(serde_json::json!({ "op": "add_sp", "imm": offset.to_string() }));
+        }
+    }
+    out
+}

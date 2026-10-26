@@ -162,11 +162,11 @@ fn the_revision_is_published_after_the_items_and_count() {
     let plan = app_ncode("canvas_present_order", SOURCE);
     let ins = instructions(&plan, PUBLISH);
     assert_eq!(
-        scene_stores(ins),
-        vec![16, 8, 32, 40, 0],
-        "publish order must be items(+16), count(+8), then the layered pair cleared \
-         (+32, +40), then revision(+0) LAST — the revision is what a reader gates on, \
-         so a reader must never see it bumped beside the previous frame's pointer"
+        publish_shape(&scene_stores(ins)),
+        (vec![8, 16, 32, 40], Some(0)),
+        "publish must write count(+8), items(+16) and clear the layered pair (+32, +40), \
+         each once, and then the revision(+0) LAST — the revision is what a reader gates \
+         on, so a reader must never see it bumped beside the previous frame's pointer"
     );
 }
 
@@ -204,13 +204,30 @@ fn scene_stores(ins: &[Value]) -> Vec<i64> {
     let start = label_at(&ins[publish..], "canvas_retire_nothing")
         .map(|at| publish + at)
         .expect("the retire path must end at its own label");
-    ins[start..]
+    // plan-171-A: an AArch64 `stp` is its two stores, lower address first.
+    common::split_pairs(&ins[start..])
         .iter()
         .filter(|i| i["op"].as_str() == Some("str_u64") && !common::is_stack_base(i))
         .filter_map(|i| i["offset"].as_str().and_then(|o| o.parse::<i64>().ok()))
         // Only the LIVE scene fields a reader observes.
         .filter(|offset| PUBLISHED_OFFSETS.contains(offset))
         .collect()
+}
+
+/// The scene stores before the revision, sorted, and the last store. Their order
+/// among themselves is not a contract: they sit between the sequence-lock mark and
+/// the revision (`.ai/canvas-threading.md` "The scene is read under a sequence
+/// lock"), which a reader retries across, and on AArch64 plain stores carry no
+/// order of their own — plan-171-A pairs count and items into one `stp`. What is
+/// pinned is that each is written once and the revision comes after all of them.
+fn publish_shape(stores: &[i64]) -> (Vec<i64>, Option<i64>) {
+    let (last, before) = match stores.split_last() {
+        Some((last, before)) => (Some(*last), before.to_vec()),
+        None => (None, Vec::new()),
+    };
+    let mut before = before;
+    before.sort_unstable();
+    (before, last)
 }
 
 /// The scene fields a reader observes: revision, count, items, layers, layerCount.
@@ -254,8 +271,8 @@ fn an_identical_re_present_skips_the_publish() {
     // Every scene-region store must be past the publish label, so a skipped frame
     // publishes nothing at all — the revision included, which is the whole mechanism.
     assert_eq!(
-        scene_stores(ins),
-        vec![16, 8, 32, 40, 0],
+        publish_shape(&scene_stores(ins)),
+        (vec![8, 16, 32, 40], Some(0)),
         "the publish path must be the only thing that writes the scene region"
     );
     // And nothing writes it between the skip label and the publish label — that span

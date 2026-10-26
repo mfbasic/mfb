@@ -255,7 +255,10 @@ fn app_set_color_reads_the_color_record_fields() {
                 .expect("functions array")
                 .iter()
                 .filter(|f| f["symbol"].as_str().is_some_and(|s| s.contains(member)))
-                .flat_map(|f| f["instructions"].as_array().expect("instructions").iter())
+                // plan-171-A: an AArch64 `ldp` is two of these loads.
+                .flat_map(|f| {
+                    common::split_pairs(f["instructions"].as_array().expect("instructions"))
+                })
                 .filter(|i| {
                     i["op"] == "ldr_u64"
                         && !i["base"].as_str().is_some_and(|b| STACK_BASES.contains(&b))
