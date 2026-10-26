@@ -462,8 +462,11 @@ fn the_series_rises_in_three_bursts() {
 /// in grow order, and ends on the most recent grow. Each recursion level keeps one
 /// medium string alive until the recursion unwinds, so every level carves a fresh chunk
 /// at the medium frontier (plan-183-C: a grow is a frontier extension). The committed
-/// bytes a sample records only rise, in 4 MiB steps, and the last sample's are the most
-/// the arena ever committed. A retaining list does not work as a generator: its own
+/// bytes a sample records only rise, in 4 MiB steps, while the recursion descends, and
+/// the deepest sample's are the most any sample records. The last sample is the grow
+/// `toString` makes after the unwind, by which time the sweep has retreated the freed
+/// frontier and given its memory back (plan-183-E), so it records less. A retaining
+/// list does not work as a generator: its own
 /// doubling reallocations leave space the retained values refill (plan-133-C Corrections).
 #[test]
 fn the_series_stays_bounded_and_ordered() {
@@ -497,9 +500,15 @@ fn the_series_stays_bounded_and_ordered() {
         (2..=256).contains(&count),
         "the series must stay bounded at 256 samples, got {count}:\n{stderr}"
     );
+    // The deepest sample holds the most live bytes; every grow up to it is the descent.
+    let deepest = (0..samples.len())
+        .max_by_key(|&i| samples[i][2])
+        .expect("at least two samples");
     assert!(
-        samples.windows(2).all(|pair| pair[0][1] <= pair[1][1]),
-        "committed_bytes must never fall from sample to sample: {samples:?}"
+        samples[..=deepest]
+            .windows(2)
+            .all(|pair| pair[0][1] <= pair[1][1]),
+        "committed_bytes must never fall from sample to sample while the recursion descends: {samples:?}"
     );
     assert!(
         samples[0][1] < samples[samples.len() - 1][1],
@@ -509,9 +518,13 @@ fn the_series_stays_bounded_and_ordered() {
         samples[0][0] <= samples[samples.len() - 1][0],
         "the first sample must not be later than the last: {samples:?}"
     );
-    assert_eq!(
-        samples[samples.len() - 1][1],
-        counter(case, &lines, 0, "committed_peak_bytes"),
-        "the last sample is the most recent grow, so it has the most the arena committed"
+    let peak = counter(case, &lines, 0, "committed_peak_bytes");
+    assert!(
+        samples
+            .iter()
+            .all(|sample| sample[1] <= samples[deepest][1])
+            && samples[deepest][1] <= peak,
+        "the deepest sample has the most any sample committed, and no sample exceeds \
+         committed_peak_bytes {peak}: {samples:?}"
     );
 }
