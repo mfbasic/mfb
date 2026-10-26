@@ -295,10 +295,11 @@ fn cmp_cmp_imm() {
         bytes("cmp", &[("lhs", "rax"), ("rhs", "rbx")]),
         [0x48, 0x39, 0xD8]
     );
-    // cmp rax, 0 : 48 81 F8 00 00 00 00
+    // cmp rax, 0 is encoded `test rax, rax` (plan-171-B §4.5, identical flags
+    // but the unread AF): 48 85 C0
     assert_eq!(
         bytes("cmp_imm", &[("lhs", "rax"), ("rhs", "0")]),
-        [0x48, 0x81, 0xF8, 0, 0, 0, 0]
+        [0x48, 0x85, 0xC0]
     );
 }
 
@@ -627,15 +628,16 @@ fn cmp_zero_token_rhs_compares_immediate_zero() {
     // bug-397: `cmp lhs, xzr` must compare against a true zero. The zero token is
     // sentinel 16, which the raw `alu_rr` reg field would encode as r8 (48 39 →
     // 4C 39 C0 = `cmp rax, r8`), folding a caller's leftover r8 into the compare.
-    // Route it through the immediate form instead: cmp rax, 0 = 48 81 F8 00000000.
+    // Route it through the compare with zero instead: `cmp rax, 0`, which
+    // plan-171-B encodes `test rax, rax` = 48 85 C0 (rax only, no r8).
     assert_eq!(
         bytes("cmp", &[("lhs", "rax"), ("rhs", "xzr")]),
-        [0x48, 0x81, 0xF8, 0, 0, 0, 0]
+        [0x48, 0x85, 0xC0]
     );
-    // r13 exercises a high `lhs` (REX.B on the rm): cmp r13, 0 = 49 81 FD 00000000.
+    // r13 exercises a high `lhs` (REX.R and REX.B): test r13, r13 = 4D 85 ED.
     assert_eq!(
         bytes("cmp", &[("lhs", "r13"), ("rhs", "xzr")]),
-        [0x49, 0x81, 0xFD, 0, 0, 0, 0]
+        [0x4D, 0x85, 0xED]
     );
 }
 
