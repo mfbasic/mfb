@@ -481,7 +481,51 @@ FUNC __canvas_sceneDrawsWalk() AS List OF Integer
     index = index + 1
   END WHILE
   __canvas_pushDraw(runBase, runCount, 0.0, 0.0, 0)
+  __canvas_mergeRepeats()
   RETURN __CANVAS_DRAWS
+END FUNC
+
+' plan-175-C: every maximal run of ADJACENT rows that draw the same blocks with the same
+' pipeline -- equal words 0, 1 and 4: instance base, instance count, blend mode -- becomes
+' one drawn head of repeat `R`, the run's length, and `R - 1` node-only rows of repeat 0.
+' Consecutive `canvas::Group` nodes naming one group are exactly such a run. Nothing moves
+' and every row keeps its node words, so node `k` of the run is still row `k`'s offset
+' and matrix, and the head draws all of node 0's instances, then node 1's, ... -- the
+' order the `R` rows drew them in (`local / count`, plan-175-B). Only ADJACENT rows
+' merge: a row between two nodes' rows draws between them, and merging across it would
+' draw it later. A run is at most a node region long, so it always fits an empty pass.
+FUNC __canvas_mergeRepeats() AS Nothing
+  LET rows AS Integer = len(__CANVAS_DRAWS) / __CANVAS_DRAW_ENTRY_WORDS
+  MUT cap AS Integer = __CANVAS_METAL_MAX_FRAME_NODES
+  IF __CANVAS_VULKAN_MAX_FRAME_NODES < cap THEN
+    cap = __CANVAS_VULKAN_MAX_FRAME_NODES
+  END IF
+  MUT head AS Integer = 0
+  WHILE head < rows
+    LET at AS Integer = head * __CANVAS_DRAW_ENTRY_WORDS
+    LET base AS Integer = collections::getOr(__CANVAS_DRAWS, at, 0)
+    LET count AS Integer = collections::getOr(__CANVAS_DRAWS, at + 1, 0)
+    LET mode AS Integer = collections::getOr(__CANVAS_DRAWS, at + 4, 0)
+    MUT run AS Integer = 1
+    MUT same AS Boolean = TRUE
+    WHILE same AND head + run < rows AND run < cap
+      LET following AS Integer = (head + run) * __CANVAS_DRAW_ENTRY_WORDS
+      IF collections::getOr(__CANVAS_DRAWS, following, 0) = base AND collections::getOr(__CANVAS_DRAWS, following + 1, 0) = count AND collections::getOr(__CANVAS_DRAWS, following + 4, 0) = mode THEN
+        run = run + 1
+      ELSE
+        same = FALSE
+      END IF
+    END WHILE
+    IF run > 1 THEN
+      __CANVAS_DRAWS = collections::set(__CANVAS_DRAWS, at + __CANVAS_DRAW_REPEAT_WORD, run)
+      MUT k AS Integer = 1
+      WHILE k < run
+        __CANVAS_DRAWS = collections::set(__CANVAS_DRAWS, (head + k) * __CANVAS_DRAW_ENTRY_WORDS + __CANVAS_DRAW_REPEAT_WORD, 0)
+        k = k + 1
+      END WHILE
+    END IF
+    head = head + run
+  END WHILE
 END FUNC
 
 ' A stand-in `DrawItem` for an index `__CANVAS_FRAME_ITEMS` does not hold. A group named

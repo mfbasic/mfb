@@ -28,7 +28,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-175-B is complete and archived | `ls planning/plan-175-B-* planning/completed/plan-175-B-*` → only the `completed/` path | NOT MET (2026-10-13) |
+| ~~plan-175-B is complete and archived~~ plan-175-B's node table, run and shaders have landed on every backend (its Phases 1–3 resolved), Correction 2 | `grep -c "^- \[ \]" planning/plan-175-B-canvas-draw-node-table.md` → 0 | MET once B's Phase 2 and 3 commit lands (checked 2026-10-25 before this letter's commit) |
 
 Everything below is written against the world where that holds.
 
@@ -140,11 +140,22 @@ Rejected alternatives:
 
 ### Phase 1 — Merge adjacent rows, and keep a run in one pass
 
-- [ ] `helper_render.rs`: `__canvas_mergeRepeats` (§4), called from
-      `__canvas_sceneDrawsWalk`.
-- [ ] `helper_render.rs:__canvas_passNext`: a head and its followers enter a pass
-      together (§4).
-- [ ] Tests, `tests/canvas/rt_canvas_rasteriser.rs`:
+- [x] `helper_render.rs`: `__canvas_mergeRepeats` (§4), called from
+      `__canvas_sceneDrawsWalk` (`helper_render/gpu_draw_list.rs`).
+- [x] `helper_render.rs:__canvas_passNext`: a head and its followers enter a pass
+      together (§4) — and a head a pass boundary cuts draws solo with its followers
+      (`helper_render/gpu_passes.rs`, Correction 3).
+- [x] (added, Correction 3) `profDraws` counts the draws a pass issues (`OFF_DRAWN`,
+      `app/metal.rs:emit_profile_draws`), not its rows.
+- [x] Tests, ~~`tests/canvas/rt_canvas_rasteriser.rs`~~ `tests/canvas/rt_canvas_metal/group_merge.rs`
+      (Correction 3), each a Metal frame within `GPU_DEFAULT` of the software frame →
+      all six pass (`a_thousand_adjacent_group_nodes_are_one_draw`: repeats 1,000 then 999
+      zeros, `profDraws=1`; `a_merged_draw_keeps_instance_order_where_nodes_overlap`:
+      `[2, 0]`, (150, 120) red; `group_nodes_with_an_item_between_them_stay_separate_draws`:
+      `[1, 1, 1]`; `a_run_longer_than_the_node_region_is_cut_and_drawn_in_two_passes`:
+      heads 65,536 and 4,464, `profPasses=2`;
+      `culled_nodes_merge_across_and_a_half_visible_node_stands_alone`: `[2, 0, 1, 1]`;
+      and the added `a_merged_run_cut_by_a_pass_boundary_draws_each_node_alone`):
       - 1,000 nodes of a one-rectangle group: `draws=` is one row of repeat 1,000 and
         999 of repeat 0, and the frame equals the software frame;
       - the overlap test of §2 (two nodes of a red-then-blue group, node 1's red over
@@ -170,6 +181,19 @@ Acceptance: adjacent identical rows draw as one call, every frame unchanged.
   Check: `scripts/test-canvas-vulkan.sh` on box 2226 and `scripts/test-canvas-gpu-rows.sh
   <mfb> --target windows-x86_64` on box 206 → the overlap and 70,000-node rows match
   (instance order on both real Vulkan drivers in reach).
+
+**MET 2026-10-25**, against the base compiler at `339f8e8fc`:
+- `cargo test --release --test rt_canvas_rasteriser --test rt_canvas_metal` →
+  rasteriser 111 passed (2 ignored), metal 81 passed (the six merge cases among them);
+- the benchmark's 87 rows headless on Metal (plan-175-B Correction 3) → 87 last-frame
+  hashes equal to the base's; `group fill 10000` and `group fill 100` draw 2 calls a
+  frame (`profDraws` 6 over 3 frames, against 30,003 and 303 at the base);
+  `group fill 1` 2 against 2;
+- `scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64 --keep` and `--target
+  linux-aarch64 --box 2226 --keep` with this letter's four rows added (`nodes65537`,
+  `mergeoverlap`, `mergecut`, `mergesolo`; Correction 3) → 274 `ok:` and no `FAIL` on
+  each box, the four new rows within `worst=0` of the oracle on both drivers, and every
+  one of the 124 kept frames per box equal by `cmp` to the base's.
 Commit: —
 
 ### Phase 2 — Re-baseline and docs
@@ -178,8 +202,9 @@ Commit: —
       `.sums` pixel hash unchanged, the `group` rows' draws and encode moved. Commit the
       run as the new `benchmark/canvas/baseline/` with `compare.py`'s output in its
       README.
-- [ ] `.ai/canvas-threading.md` §10: adjacent group nodes merge; why adjacency is the
-      rule; a head and its followers share a pass.
+- [x] `.ai/canvas-threading.md` §10: adjacent group nodes merge; why adjacency is the
+      rule; a head and its followers share a pass. ("Adjacent group nodes draw as one
+      call", with the solo rule and `profDraws`.)
 
 Acceptance: the baseline records the merge; the docs describe HEAD.
   Check: `./benchmark/canvas/compare.py <run>.log --base <previous baseline>` → `group
@@ -210,6 +235,28 @@ Commit: —
    walk cull offscreen blocks per node. §2 records what that does to adjacency, and
    Phase 1 gains a culling case and the rule that the other cases' nodes are in view.
    The goal is unchanged: `benchmark/canvas`'s `group` rows are all in view.
+2. 2026-10-25, at the Prerequisites gate: "plan-175-B is complete and archived" — the
+   letters are archived together, after the plan's closing gates (plan-175-B Correction
+   2), so the row checks what this letter needs: B's node table landed and verified.
+3. 2026-10-25, Phase 1: four corrections.
+   - **A head whose BLOCKS a pass boundary cuts** was not covered: §4's rule keeps a head
+     with its followers by node count, but a group larger than a pass's item region is
+     split mid-head by blocks, and a repeat cannot reach into the next pass's node
+     table. Such a run's rows draw solo from the cut on (`__CANVAS_PASS_SOLO_END`, set
+     where the boundary cuts the head, read by `__canvas_passDraw`). Added a case:
+     `a_merged_run_cut_by_a_pass_boundary_draws_each_node_alone` (two nodes of a
+     70,000-rectangle group); with the solo rule disabled it FAILS against the oracle.
+   - **The frame's node count is its ROWS** (`__canvas_framePasses`), not the sum of
+     repeats: a head's followers are rows of their own. plan-175-B Phase 1 summed
+     `max(repeat, 1)`, which equalled the row count while every repeat was 1.
+   - **`profDraws` counted rows**, "one per draw-list entry"; a node-only row draws
+     nothing, so the count would have read 1,000 for 1,000 merged nodes. Metal now counts
+     the draws it issues (`OFF_DRAWN`, `emit_profile_draws`), after the draw pass.
+   - **The tests are in `rt_canvas_metal`** (`group_merge.rs`), not `rt_canvas_rasteriser`:
+     each case compares a GPU frame with the software oracle, which that suite does not
+     draw. The Vulkan check runs the same scenes as rows of
+     `scripts/test-canvas-gpu-rows.sh` (`nodes65537`, `mergeoverlap`, `mergecut`,
+     `mergesolo`); `scripts/test-canvas-vulkan.sh` has no row list to add them to.
 
 ## Summary
 

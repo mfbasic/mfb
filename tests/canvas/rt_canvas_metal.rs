@@ -25,6 +25,8 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+#[path = "rt_canvas_metal/group_merge.rs"]
+mod group_merge;
 #[path = "rt_canvas_metal/scenes_and_passes.rs"]
 mod scenes_and_passes;
 #[path = "rt_canvas_metal/scenes_over_black.rs"]

@@ -1,0 +1,20 @@
+' plan-175-C: two nodes of a group of 70,000 rectangles -- more than one pass's item
+' region (65,536) -- so the merged head's blocks span two passes. A repeat cannot reach
+' across passes, so the run's rows draw solo from the cut on.
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT dots AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 70000
+    dots = collections::append(dots, canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(2 * (k - 450 * (k / 450))), y := toFloat(2 * (k / 450))], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 1.0, height := 1.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(80, 200, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
+    k = k + 1
+  END WHILE
+  canvas::setGroup("field", dots)
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "field"], canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 320.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "field"]])
+END FUNC

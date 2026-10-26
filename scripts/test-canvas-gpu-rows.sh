@@ -74,6 +74,11 @@
 # two passes long for its polygon edges, its gradient stops and its picture texels alone;
 # and `passes_grouped.mfb`, where a group is drawn in both passes of a frame and a run of
 # the scene's own items is cut by the end of the first.
+# `nodes65537` is plan-175-B's: one draw-list row past a pass's node region (65,536), so
+# two passes for the rows alone. The three `merge*` rows are plan-175-C's: two nodes of a
+# group merged into one draw where node 1 covers node 0 (instance order IS draw order on
+# the driver), 70,000 merged nodes cut at the node region into two heads and two passes,
+# and a merged head whose blocks span two passes, which must draw each node alone.
 #
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and five more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
@@ -217,6 +222,10 @@ passedges|past_the_edge_region_opaque|render
 passstops|many_gradient_stops|render
 passtexels|many_texels|render
 passgroups|passes_grouped|render
+nodes65537|past_the_node_region|render
+mergeoverlap|group_merge_overlap|render
+mergecut|group_merge_cut|render
+mergesolo|group_merge_solo|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo

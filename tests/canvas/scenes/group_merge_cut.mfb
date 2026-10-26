@@ -1,0 +1,20 @@
+' plan-175-C: 70,000 adjacent nodes of a one-rectangle group, every one on screen (450 a
+' row, 2 px apart; 156 rows, 4 px apart). The merged run is cut at the node region
+' (65,536), so the frame is two heads, drawn in two passes.
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  canvas::setGroup("dot", [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 1.0, height := 2.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 200, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  MUT nodes AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 70000
+    nodes = collections::append(nodes, canvas::Group[id := "", position := vector::Float2[x := toFloat(2 * (k - 450 * (k / 450))), y := toFloat(4 * (k / 450))], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "dot"])
+    k = k + 1
+  END WHILE
+  canvas::present(nodes)
+END FUNC
