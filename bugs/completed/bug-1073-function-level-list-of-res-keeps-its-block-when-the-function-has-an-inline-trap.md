@@ -1,11 +1,11 @@
 # bug-1073: a function-level `List OF RES` keeps its 48-byte block at exit when the function has any inline `TRAP`
 
-Last updated: 2026-10-11
+Last updated: 2026-10-26
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness (memory leak)
 
-Status: Open
+Status: Fixed. No longer reproduces at HEAD cdecc60c1 (after the plan-183 arena redesign); the fixing commit was not traced. No regression test pins it.
 Regression Test: (proposed) a `--debug` test over the program below asserting the same `live_bytes` as the program without the `TRAP`
 
 `MUT keepL AS List OF RES fs::File = []` in `main`, with an unrelated inline `TRAP` elsewhere in `main` (`LET k AS Integer = toInt("7") TRAP(e) RECOVER 100 END TRAP`), leaves the list's 48-byte block live at exit. The amount is constant: it does not grow with `N`.
@@ -47,3 +47,12 @@ END FUNC
 Not traced.
 
 Found during batch 22 (reported by bs22-agent-a, reproduced by the coordinator).
+
+## Resolution (2026-10-26 open-bug review)
+
+Re-verified 2026-10-26 at HEAD cdecc60c1 (release build, `mfb build -q --debug`) on
+`bugs/repro/bug-1073-function-level-list-inline-trap.mfb`: `N=10` prints `n=70 keep=0` with
+`alloc_calls 10`, `free_calls 8`, `live_bytes 96`; `N=40` prints `n=280 keep=0` with the same
+10 / 8 / 96. The same program with the inline TRAP replaced by a plain binding also ends at
+10 / 8 / 96, so the TRAP no longer keeps the function's list block (the doc recorded 10 / 6 /
+160). The 96 bytes left are the module-level values of bug-1068.

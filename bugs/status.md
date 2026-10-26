@@ -43,7 +43,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 1029   | LOW      | a call through a function value that returns a resource union leaks the 16-byte union box |
 | [ ]  | 1031   | LOW      | `RES` on a non-resource type is not refused at the top level, on a return type, or on a record field that also carries `STATE` |
-| [ ]  | 1073   | LOW      | a function-level `List OF RES` keeps its 48-byte block at exit when the function has any inline `TRAP` (constant) |
 
 ## Canvas and graphics
 
