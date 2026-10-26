@@ -49,7 +49,9 @@ The editable prose fields, and nothing else:
 | `RegistryRecord` / prop / union-variant / enum-variant / `RegistryResource` `description` | `mod.rs` | the `mfb man <pkg> types` page |
 
 Everything else on a page — Declaration, Parameters types, Errors, Constants
-(a package's registered constants, with type, value and any message), See also —
+(a package's registered constants, with type, value and any message), See also
+(every `pkg::name` the Description names that has a page: a function, or a type
+or constant shown with the `mfb man` page that lists it — `man.rs:see_also_row`) —
 is **derived from the descriptors the compiler actually executes** and is
 correct by construction. Do not try to "fix" a derived table by editing prose;
 if a derived table is wrong, the descriptor is wrong, and that is a code bug.

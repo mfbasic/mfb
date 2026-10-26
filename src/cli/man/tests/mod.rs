@@ -1095,6 +1095,48 @@ fn referenced_functions_dedupes_sorts_and_drops_self() {
     );
 }
 
+/// plan-125-D: a See also row led to `datetime::Date` or `math::pi2`, and
+/// `mfb man datetime Date` answers "unknown function" — 118 rows across the manual
+/// opened nothing. Every row must now name a page that renders: a function's own
+/// page, the types page that lists the type, or the overview that lists the
+/// constant.
+#[test]
+fn every_see_also_row_opens_a_page() {
+    let mut checked = 0;
+    for package in registry().packages() {
+        for function in package.functions().iter().filter(|f| !f.internal_only) {
+            let md = render_function_markdown(package, function);
+            let Some(section) = md.split("## See also\n\n").nth(1) else {
+                continue;
+            };
+            for row in section.lines().take_while(|l| l.starts_with("- ")) {
+                let reference = row.trim_start_matches("- `").split('`').next().unwrap();
+                let (pkg, member) = reference.split_once("::").unwrap();
+                let page = if row.ends_with(" types`") {
+                    show_man(&s(&[pkg, "types"])).map(|_| ())
+                } else if row.ends_with(&format!("`mfb man {pkg}`")) {
+                    let owner = registry().resolve_package(pkg).unwrap();
+                    assert!(
+                        owner.constants().iter().any(|c| c.name == member),
+                        "{row}: not a constant of {pkg}"
+                    );
+                    show_man(&s(&[pkg])).map(|_| ())
+                } else {
+                    show_man(&s(&[pkg, member])).map(|_| ())
+                };
+                assert!(
+                    page.is_ok(),
+                    "{}::{}: See also row {row} opens nothing",
+                    package.import_name(),
+                    function.name
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 500, "only {checked} See also rows checked");
+}
+
 /// bug-605: a record's field table spelled a package type the internal way
 /// (`color.Color`), because `render_types_markdown` called `prop.ty.name()`
 /// while every other render site converted the qualifier. Source writes

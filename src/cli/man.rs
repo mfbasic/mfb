@@ -854,24 +854,52 @@ fn render_function_markdown(package: &RegistryPackage, function: &RegistryFuncti
 /// Only a reference whose first part is a PACKAGE is one. A description may hold
 /// other things spelled `a::b` — `canvas::pollMouse`'s explains that `overID` reads
 /// `"save::label"` — and those are not links to anything.
+///
+/// Each row must lead somewhere a developer can open. A function is its own page;
+/// a type (`datetime::Date`) lives on the package's types page and a constant
+/// (`math::pi2`) on the package overview, so those rows name that page. A name
+/// with neither — an internal-only member — is not listed.
 fn render_see_also(md: &mut String, package: &RegistryPackage, function: &RegistryFunction) {
     let current = format!("{}::{}", package.import_name(), function.name);
-    let referenced: Vec<String> = referenced_functions(function.desc, &current)
+    let rows: Vec<String> = referenced_functions(function.desc, &current)
         .into_iter()
-        .filter(|reference| {
-            reference
-                .split_once("::")
-                .is_some_and(|(owner, _)| registry().resolve_package(owner).is_some())
+        .filter_map(|reference| {
+            let (owner, member) = reference.split_once("::")?;
+            let owner = registry().resolve_package(owner)?;
+            see_also_row(owner, member, &reference)
         })
         .collect();
-    if referenced.is_empty() {
+    if rows.is_empty() {
         return;
     }
     md.push_str("## See also\n\n");
-    for reference in referenced {
-        md.push_str(&format!("- `{reference}`\n"));
+    for row in rows {
+        md.push_str(&format!("- {row}\n"));
     }
     md.push('\n');
+}
+
+/// The See also row for `reference` (`member` of `owner`), or `None` when
+/// `mfb man` has no page that documents it.
+fn see_also_row(owner: &RegistryPackage, member: &str, reference: &str) -> Option<String> {
+    let pkg = owner.import_name();
+    if owner.function(member).is_some_and(|f| !f.internal_only) {
+        return Some(format!("`{reference}`"));
+    }
+    let is_type = owner.records().iter().any(|r| r.export && r.name == member)
+        || owner.unions().iter().any(|u| u.export && u.name == member)
+        || owner.enums().iter().any(|e| e.export && e.name == member)
+        || owner
+            .resources()
+            .iter()
+            .any(|r| r.export && r.name == member);
+    if is_type {
+        return Some(format!("`{reference}` — `mfb man {pkg} types`"));
+    }
+    if owner.constants().iter().any(|c| c.name == member) {
+        return Some(format!("`{reference}` — `mfb man {pkg}`"));
+    }
+    None
 }
 
 /// Scan `text` for `package::function` references and return the unique set, in
