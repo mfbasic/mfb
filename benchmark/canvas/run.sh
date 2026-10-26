@@ -74,7 +74,7 @@ vsync_env=()
 [ "$vsync" = off ] && vsync_env=(MFB_CANVAS_VSYNC=0)
 {
   echo "# Lang: canvas (Metal, windowed, --debug build)"
-  echo "# frames: $frames, frame 1 dropped; vsync: $vsync; display: $(system_profiler SPDisplaysDataType 2>/dev/null | sed -n 's/^ *Resolution: //p' | head -1)"
+  echo "# frames: $frames, the frames before the first Metal frame and that frame dropped; vsync: $vsync; display: $(system_profiler SPDisplaysDataType 2>/dev/null | sed -n 's/^ *Resolution: //p' | head -1)"
   echo "# columns: median, average, min, max (microseconds per frame)"
   echo
 } >"$log"
