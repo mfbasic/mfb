@@ -342,7 +342,7 @@ Acceptance: every canvas frame is byte-identical on Metal, box 2226 and box 206.
   `FAIL` on each box for each compiler, and 124 kept frames per box equal by `cmp`, base
   against branch. The base's kept frames also equal plan-175-A Phase 2's (124 per box),
   so plan-175-A's Phases 3–7 moved no Vulkan pixel either.
-Commit: —
+Commit: fd66b249f
 
 ### Phase 3 — Docs
 
@@ -356,7 +356,7 @@ Commit: —
 
 Acceptance: the docs describe HEAD.
   Check: `scripts/spec-census.sh --render` and `--citations` → no failures (est. 1 min).
-Commit: —
+Commit: fd66b249f
 
 ## Validation Plan
 

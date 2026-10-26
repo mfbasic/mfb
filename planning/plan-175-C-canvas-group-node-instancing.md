@@ -194,7 +194,7 @@ Acceptance: adjacent identical rows draw as one call, every frame unchanged.
   `mergeoverlap`, `mergecut`, `mergesolo`; Correction 3) → 274 `ok:` and no `FAIL` on
   each box, the four new rows within `worst=0` of the oracle on both drivers, and every
   one of the 124 kept frames per box equal by `cmp` to the base's.
-Commit: —
+Commit: 0040e128b
 
 ### Phase 2 — Re-baseline and docs
 
