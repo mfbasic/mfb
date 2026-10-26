@@ -194,6 +194,9 @@ pub(super) static PEEPHOLE_FORWARDS: AtomicU64 = AtomicU64::new(0);
 /// "Machine copy propagation / redundant-move elimination" (post-regalloc):
 /// FP shuttle pairs folded by `remove_fp_shuttles`.
 pub(super) static FP_SHUTTLES_FOLDED: AtomicU64 = AtomicU64::new(0);
+/// "Load/store pair formation (ldp/stp)" (post-frame machine row): adjacent
+/// 64-bit accesses merged into one pair by `pair_adjacent_accesses`.
+pub(super) static LOAD_STORE_PAIRS: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn count_constant_folds(fired: u64) {
     add(&CONSTANT_FOLDING, fired);
@@ -373,6 +376,10 @@ pub(crate) fn count_peephole_forwards(fired: u64) {
 
 pub(crate) fn count_fp_shuttles_folded(fired: u64) {
     add(&FP_SHUTTLES_FOLDED, fired);
+}
+
+pub(crate) fn count_load_store_pairs(fired: u64) {
+    add(&LOAD_STORE_PAIRS, fired);
 }
 
 fn add(counter: &AtomicU64, fired: u64) {

@@ -112,6 +112,8 @@ pub(crate) fn finalize_frame(
     };
     let total_stack_size = outgoing_bytes + align(save_size + local_stack_size, 16) + call_padding;
     if total_stack_size == 0 {
+        // A frameless leaf still passes through the machine finishing hook.
+        crate::optimizer::opt2::machine::finish(instructions);
         return CodeFrame {
             stack_size: 0,
             callee_saved,
@@ -192,6 +194,8 @@ pub(crate) fn finalize_frame(
         }
     }
     *instructions = rewritten;
+    // plan-171-A §4.4: the post-frame machine rows, on final offsets.
+    crate::optimizer::opt2::machine::finish(instructions);
 
     CodeFrame {
         stack_size: total_stack_size,

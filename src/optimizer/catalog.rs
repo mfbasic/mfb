@@ -630,6 +630,17 @@ pub(crate) fn rows() -> &'static [Row] {
                       the shuttle register is dead.",
             counter: &stats::FP_SHUTTLES_FOLDED,
         },
+        Row {
+            name: "Load/store pair formation (ldp/stp)",
+            level: 1,
+            stage: "machine",
+            summary: "On AArch64, merges two adjacent 8-byte loads or stores through \
+                      one base register, 8 bytes apart, into one `ldp`/`stp`. Only \
+                      instructions already next to each other are merged; nothing \
+                      is reordered. (Function prologues and epilogues save and \
+                      restore callee-saved registers in pairs at every level.)",
+            counter: &stats::LOAD_STORE_PAIRS,
+        },
     ];
     ROWS
 }

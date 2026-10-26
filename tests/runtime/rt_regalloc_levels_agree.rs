@@ -11,6 +11,11 @@
 //!
 //! The -O0 build is the oracle (no optimizer, no register sharing); the literal
 //! is the value C and Python compute for the same loop, so -O0 itself is checked.
+//!
+//! plan-171-A adds a second program, `tests/rt-behavior/functions/frame-pair-saves`:
+//! its frames save seven callee-saved registers in `stp` pairs at every level, and
+//! from -O1 the pairing row merges body accesses too, so -O0 (frame pairs only)
+//! and -O1..-O3 (frame and body pairs) must print the same checksums.
 
 #![cfg(unix)]
 
@@ -66,6 +71,31 @@ fn a_float_loop_under_register_pressure_agrees_at_every_level() {
         wrong.is_empty(),
         "bug-760: the math-simd loop must print {EXPECTED} at every level (C and Python \
          agree); got:\n  {}",
+        wrong.join("\n  ")
+    );
+}
+
+const FRAME_PAIR_SAVES: &str =
+    include_str!("../rt-behavior/functions/frame-pair-saves/src/main.mfb");
+/// The program's output, as `golden/build.log` records it (and Python computes).
+const FRAME_PAIR_SAVES_OUTPUT: &str = "65\n1714\n288228\n204026";
+
+#[test]
+fn frame_and_body_pairs_agree_at_every_level() {
+    let project = common::temp_project("frame_pair_saves_levels", FRAME_PAIR_SAVES);
+    let mut results = Vec::new();
+    for level in ["0", "1", "2", "3"] {
+        results.push((level, run_at(&project, level)));
+    }
+    let _ = std::fs::remove_dir_all(&project);
+    let wrong: Vec<String> = results
+        .iter()
+        .filter(|(_, got)| got != FRAME_PAIR_SAVES_OUTPUT)
+        .map(|(level, got)| format!("-O{level}: {got:?}"))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "plan-171-A: frame-pair-saves must print {FRAME_PAIR_SAVES_OUTPUT:?} at every level; got:\n  {}",
         wrong.join("\n  ")
     );
 }

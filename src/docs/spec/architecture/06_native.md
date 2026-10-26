@@ -218,7 +218,14 @@ sentinel `%vN`; `allocate_fp_register` mints a floating-point virtual register
 `%fN`. After a function is fully lowered, a coloring pass rewrites every virtual
 register to a physical
 register, before the peephole pass and `finalize_frame` (which expect physical
-names).[[src/codegen/engine/regalloc/mod.rs:allocate]]
+names).[[src/codegen/engine/regalloc/mod.rs:allocate]] `finalize_frame` ends — on
+its frameless path too — in the machine finishing hook, where the rows that need
+physical registers and final `sp` offsets run: on AArch64 at `-O1` and above,
+load/store pair formation merges two directly adjacent 8-byte loads or stores
+through one base, 8 bytes apart and within the pair's −512…504 reach, into one
+`ldp`/`stp` (never across a label, never a load into its own base or twice into
+one register; nothing is reordered).
+[[src/optimizer/opt2/machine.rs:finish]] [[src/optimizer/opt2/pairing.rs:pair_adjacent_accesses]]
 
 Every virtual-register id comes from one source per compilation: `allocate_register`,
 the standalone helpers' `Vregs::next` and the optimizer's GVN all draw from

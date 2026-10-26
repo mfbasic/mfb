@@ -576,28 +576,54 @@ every runtime fixture is unchanged.
   Result (2026-10-25): `bash scripts/test-fast.sh --test rt_codegen_forms --test rt_foreign_entry_callee_saved --test rt_runtime_helper_callee_saved --test app_special_keys --test codegen_canvas_metal_off_frame_path --test codegen_canvas_vulkan_off_frame_path`
   → all steps ok (`rt_codegen_forms`: 3 passed); Linux aarch64 on 2226 (2223
   refused ssh) → verdicts identical to the starting compiler (Correction 8).
-Commit: see the next commit's plan update (phase 3 landing)
+Commit: dd383c356 (preceded by `5276db06b`, the vreg_frame test motion, and `ad873009b`, the fixes of Correction 6)
 
 ### Phase 4 — body pairing row (Level 1)
 
-- [ ] `src/optimizer/opt2/pairing.rs`: `pair_adjacent_accesses` (§4.4) with unit
+- [x] `src/optimizer/opt2/pairing.rs`: `pair_adjacent_accesses` (§4.4) with unit
       tests: every legality rule as a positive/negative pair, reversed offset
       order, cross-label adjacency (not merged), different `source` (per Open
-      Decision 2).
-- [ ] `src/optimizer/opt2/machine.rs:finish` (the hook of §4.4), called at the
+      Decision 2). (`pairing/tests/mod.rs`, 8 tests; `source` is not a
+      legality rule — Correction 2 — so the test pins that the pair keeps the
+      first half's `source`. Also refused: a sentinel base, an `sp` data
+      register, an instruction carrying any other field.)
+- [x] `src/optimizer/opt2/machine.rs:finish` (the hook of §4.4), called at the
       end of `finalize_frame` on both return paths; it runs
       `pair_adjacent_accesses` gated `level_enabled(1)` and `supports_pair_access()`.
       Unit test: a frameless leaf function still reaches the hook.
-- [ ] `src/optimizer/catalog.rs`: row "Load/store pairing", level 1, stage
-      `machine`, summary; counter in `src/optimizer/stats.rs`.
-- [ ] `planning/optimizations.md`: mark "Aggregate load/store combining" `Y`
-      with the landing note (scope: adjacent only, AArch64 only).
-- [ ] `tests/runtime/rt_regalloc_levels_agree.rs`-style agreement: add the
+      (`a_frameless_leaf_reaches_the_machine_hook_and_level_zero_skips_it`.)
+- [x] `src/optimizer/catalog.rs`: row "Load/store pairing", level 1, stage
+      `machine`, summary; counter in `src/optimizer/stats.rs`. (Named "Load/store
+      pair formation (ldp/stp)" to match its `planning/optimizations.md` row,
+      as every catalog name does; counter `LOAD_STORE_PAIRS`.)
+- [x] `planning/optimizations.md`: mark "Aggregate load/store combining" `Y`
+      with the landing note (scope: adjacent only, AArch64 only). ("Load/store
+      pair formation (ldp/stp)" is the row this lands, marked `Y` with the
+      measured note; "Aggregate load/store combining" is `~` — its vector and
+      non-adjacent halves are not done; "Prologue / epilogue optimization"
+      notes the paired saves.)
+- [x] `tests/runtime/rt_regalloc_levels_agree.rs`-style agreement: add the
       Phase 3 fixture to the `-O0` vs `-O1` agreement list (or a sibling test if
-      that file's list is not extensible).
-- [ ] Golden re-baseline as Phase 3 (aarch64 goldens only), with the census diff
+      that file's list is not extensible). (The file has no list: sibling test
+      `frame_and_body_pairs_agree_at_every_level`, -O0..-O3.)
+- [x] Golden re-baseline as Phase 3 (aarch64 goldens only), with the census diff
       quoted: candidates before, pairs formed after.
-- [ ] Sweep (code review, this form): run `census.py` on the corpus; for the 20
+      Result: gate with the phase-4 compiler over the phase-3 goldens → 73
+      diffs, the same 73 aarch64 goldens (none x86-64/Windows/riscv64); each
+      rebuilt with the phase-3 and phase-4 compilers and compared by the
+      expansion probe → 73/73 equal apart from the new pairs (49,142 body
+      pairs). Full test-accept first: 1758 ran, 9 mismatches = the raw
+      goldens; every run output matched. Regenerated (73 changed), gate re-run →
+      `2389 golden(s) checked, 0 diff(s)`. Census (`ncode-census.sh`,
+      macos-aarch64, 56 projects): phase 3 → phase 4 instructions 26,938,356 →
+      26,594,781, `stp` 24,131 → 284,906, `ldp` 321,582 → 404,382, `str`
+      candidates 453,548 → 67,427, `ldr` 139,547 → 40,248. From the
+      `89a4dce2c` baseline: 27,311,174 → 26,594,781 instructions (−2.6 %);
+      linux-aarch64 27,279,152 → 26,561,935. The four questions are Phase 3's.
+      Linux aarch64 on 2226 with the phase-4 compiler: `899 passed, 11 failed,
+      1 not run`, verdict list (`VERDICTS=`) identical to the `89a4dce2c`
+      compiler's, 911 lines.
+- [x] Sweep (code review, this form): run `census.py` on the corpus; for the 20
       functions with the most remaining unpaired adjacent-candidate rejections,
       read the producing builder (`-ncode` function name → emitter) and decide per
       site: convert to `abi::store_pair_u64`/`load_pair_u64` at the builder when
@@ -605,12 +631,21 @@ Commit: see the next commit's plan update (phase 3 landing)
       header length+capacity), leave otherwise. "Makes sense" = the two
       accesses are always adjacent in that builder's output and the pair is
       legal for every register the allocator can give them. Record the list of
-      converted and declined sites in Corrections.
+      converted and declined sites in Corrections. (Correction 11: no site
+      converted.)
 
 Acceptance: `-O1` forms pairs, `-O0` forms none, and both run identically.
   Check: `cargo test --bin mfb opt2::pairing` → pass (est. 2 min);
   `mfb build -q -ncode -O0` vs `-O1` of the Phase 3 fixture → `ldp`/`stp` count 0 body pairs at `-O0`, > 0 at `-O1` (est. 1 min);
   `cargo test --release --test rt_regalloc_levels_agree` → pass (est. 6 min).
+  Result (2026-10-25): `opt2::pairing` 8 passed; the fixture's dump at `-O0` has
+  25 `stp` / 38 `ldp`, every one a frame save of a `calleeSaved` register
+  (0 body pairs), at `-O1` 42 / 163 with at least 17 body pairs (pairs whose
+  registers are not all frame saves); `bash scripts/test-fast.sh --test rt_codegen_forms --test rt_regalloc_levels_agree --test rt_foreign_entry_callee_saved --test rt_runtime_helper_callee_saved --test app_special_keys --test codegen_canvas_metal_off_frame_path --test codegen_canvas_vulkan_off_frame_path`
+  → one red, `zero_fill_tests::the_arena_fill_stores_only_zero_words`
+  (Correction 12), fixed, then that test and fmt green; every listed binary
+  passed (`rt_regalloc_levels_agree` 2 passed); optimizer sweep
+  `cargo test --bin mfb builtins_codegen::optimizer::` → 3 passed.
 Commit: —
 
 ### Phase 5 — spec and docs
@@ -716,7 +751,47 @@ Commit: —
    gated per AGENTS.md by `artifact-gate.sh … all` and a full `test-accept.sh`,
    plus `scripts/test-fast.sh`; the 60–90 min `cargo test --no-fail-fast` runs
    at the end over all phases.
+11. **Phase 4 sweep: no builder site converted.** After the row, the corpus's
+   remaining adjacent candidates (macos-aarch64, `census.py` over the
+   `KEEP=` dumps) are of two kinds, neither a builder pairing would fix:
+   (a) 100,706 rejected for `range` — the lower offset is past +504 in a large
+   frame (`_mfb_fn_main` of the examples: up to 3,116 per function,
+   `_mfb_fn_drawBug` 1,447, `_mfb_macapp_program` 933, …); a builder `stp`
+   cannot reach them either, it needs a materialized base (plan-171-G's
+   folded-offset forms) or hot-slots-first layout (plan-171-J); (b) 3,269 `str` /
+   3,575 `ldr` legal candidates, all in 71 hand-written platform bodies that are
+   not finalized by `finalize_frame` and so never reach the hook — the top 20 by
+   count: `_mfb_macapp_metal_draw` 25, `_mfb_macapp_term_drawRect` 23,
+   `_mfb_macapp_term_setFrameSize` 23, `_mfb_macapp_metal_builder` 22,
+   `_mfb_macapp_term_writeString` 20, `_mfb_macapp_term_drawText` 20,
+   `_mfb_macapp_term_drawLine` 19, `_mfb_macapp_term_fillRect` 18,
+   `_mfb_macapp_term_drawBox` 17, `_mfb_macapp_key_down` 16,
+   `_mfb_macapp_term_keyDown` 16, `_mfb_macapp_term_drawGlyph` 15,
+   `_mfb_macapp_metal_init` 14, `_main` 12, `_mfb_macapp_term_scroll` 12,
+   `_mfb_macapp_canvas_blit` 12, `_mfb_rt_thread_trampoline` 12,
+   `_mfb_macapp_key_inject` 10, `_mfb_macapp_term_init` 10,
+   `_mfb_macapp_reconcile_canvas` 10. Declined: these are the macOS app
+   backend's Objective-C IMPs, the program entry and the thread trampoline —
+   once-per-event or once-per-thread code whose frames and callee-saved
+   brackets are hand-built (bug-982's foreign-entry rules); their stores are not
+   structural header pairs, and routing them through `machine::finish` is a
+   change to the hand-written backends, not to a builder. Every
+   `finalize_frame`d function has no legal candidate left (the row merges them
+   all), so a builder-level `abi::store_pair_u64` would emit the same bytes the
+   row already does.
 
+12. **One unit test counted `str_u64` ops where it meant stored words.**
+   `codegen::memory::arena::arena::zero_fill_tests::the_arena_fill_stores_only_zero_words`
+   (plan-183-A, `260efd0d7`) required ≥ 9 `str_u64` in the AArch64 zero fill to
+   pin "the eight-word loop and the one-word tail", and that every store writes
+   the zero register. The pairing row turns the loop's eight adjacent `str xzr`
+   into four `stp xzr, xzr`, so the op count fell while the fill still stores
+   nine zero words. Four questions: (1) written by plan-183-A for the fill's
+   shape and its zero-only stores; (2) it protects "the fill writes only zero,
+   eight words a turn plus a tail"; (3) nothing else reads it; (4) the count was
+   of an op, not of words — a pair is two words. Corrected only that count: it
+   now counts words (two per `stp`) and checks both of a pair's sources are the
+   zero register, which is stricter than before.
 ## Summary
 
 Risk sits in the epilogue `sp` fold and in load pairing's register rules; both

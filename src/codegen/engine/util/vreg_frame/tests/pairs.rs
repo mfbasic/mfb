@@ -276,3 +276,37 @@ fn a_backend_without_pair_access_keeps_one_access_per_register() {
     );
     assert_eq!(rv[0], "sub_sp imm=16");
 }
+
+/// plan-171-A §4.4: the machine finishing hook runs on both of
+/// `finalize_frame`'s exits — a frameless leaf's adjacent stores pair too — and
+/// its pairing row is off at `-O0`, where only the Level-0 frame pairs remain.
+#[test]
+fn a_frameless_leaf_reaches_the_machine_hook_and_level_zero_skips_it() {
+    let body = || {
+        vec![
+            abi::store_u64(abi::mfb_arg(1), abi::mfb_arg(0), 0),
+            abi::store_u64(abi::mfb_arg(2), abi::mfb_arg(0), 8),
+        ]
+    };
+    let leaf = |level| {
+        crate::optimizer::with_opt_level(crate::optimizer::OptLevel(level), || {
+            frame(
+                &crate::arch::aarch64::backend::AARCH64_BACKEND,
+                &[],
+                0,
+                body(),
+                1,
+            )
+        })
+    };
+    let (size, paired) = leaf(1);
+    assert_eq!(size, 0);
+    assert_eq!(paired.len(), 2, "{paired:?}");
+    assert!(paired[0].starts_with("stp "), "{paired:?}");
+    let (_, single) = leaf(0);
+    assert_eq!(single.len(), 3, "{single:?}");
+    assert!(
+        single[..2].iter().all(|i| i.starts_with("str_u64 ")),
+        "{single:?}"
+    );
+}
