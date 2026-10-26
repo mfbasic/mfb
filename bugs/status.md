@@ -181,7 +181,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 900    | MED      | a runtime helper called only in a module-level initializer fails the build with "NIR runtime call requires undeclared helper" |
 | [ ]  | 901    | MED      | a module-level initializer that reads stdin fails with `ErrInvalidContext` — the main thread is subscribed only after global initialization |
 | [ ]  | 1068   | MED      | the heap values of module-level bindings (lists, strings, resource records, `STATE` payloads) are not freed at exit; owner ruled they are held until exit and must then be freed by the teardown (only what the module scope owns, never everything live), because the free overwrites the memory |
-| [ ]  | 1081   | MED      | a module-level `List OF RES` that is reassigned keeps every block it replaces, 240 bytes per assignment (OWNER QUESTION inside: should a replaced global's resources be released at the assignment, or held until teardown as spec 15.6 says?) |
 | [ ]  | 903    | LOW      | a user `FUNC __mfb_init_globals_<project>` collides with the compiler's global initializer — unlocated internal error |
 
 ## Inline TRAP and runtime errors

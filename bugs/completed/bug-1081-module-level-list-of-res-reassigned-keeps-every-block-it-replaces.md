@@ -1,11 +1,11 @@
 # bug-1081: a module-level `List OF RES` that is reassigned keeps every block it replaces
 
-Last updated: 2026-10-11
+Last updated: 2026-10-26
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Open
+Status: Fixed. No longer reproduces at HEAD cdecc60c1 (after the plan-183 arena redesign); the fixing commit was not traced. No regression test pins it.
 Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `live_bytes` does not grow between `N=10` and `N=40`
 
 `MUT gF AS List OF RES fs::File = []` at module level, assigned a fresh list on every
@@ -95,3 +95,13 @@ replaced global's resources should be released at the assignment is a language q
 owner; this document is only about the blocks.
 
 Found during batch 22 (reported by bs22-agent-d, reproduced by the coordinator).
+
+## Resolution (2026-10-26 open-bug review)
+
+Re-verified 2026-10-26 at HEAD cdecc60c1 (release build, `mfb build -q --debug`) on
+`bugs/repro/bug-1081-module-level-list-of-res-reassigned.mfb`: `N=10` gives `alloc_calls 37`,
+`free_calls 33`, `live_bytes 512`; `N=40` gives 97 / 93 / 512. Live bytes no longer grow with
+`N` (the doc recorded 2,960 and 10,160 on main), which is this document's correct behavior. The
+`gH = files` conversion form also stays flat (57 / 53 / 512 and 177 / 173 / 512). The constant
+512 bytes are the module-level values of bug-1068. The owner question in this document (release
+at the assignment or at teardown) is moot for this bug: the replaced blocks are now freed.
