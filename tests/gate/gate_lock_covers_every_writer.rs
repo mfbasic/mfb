@@ -84,6 +84,11 @@ const CLASSIFICATION: &[(&str, bool, &str)] = &[
         false,
         "copies each fixture to $WORKDIR/w$slot and builds THERE, never in-tree",
     ),
+    (
+        "tools/ncode-census/ncode-census.sh",
+        false,
+        "copies every corpus project into its own mktemp/KEEP scratch dir and builds THERE, never in-tree",
+    ),
 ];
 
 /// A script emits a codegen dump when it passes one of the dump flags to `mfb`.

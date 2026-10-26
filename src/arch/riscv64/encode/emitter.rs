@@ -150,6 +150,19 @@ impl Encoder {
         let r = |name: &str| -> Result<u8, String> { reg(field(instruction, name)?) };
         let f = |name: &str| -> Result<u8, String> { freg(field(instruction, name)?) };
         let imm = |name: &str| -> Result<u64, String> { immediate(field(instruction, name)?) };
+        // plan-171-A: RV64GC has no pair access; the producers are gated on
+        // `Backend::supports_pair_access`, which riscv64 answers `false`. Refused
+        // ahead of the dispatch, which lists only the forms this encoder emits.
+        if matches!(
+            instruction.op,
+            crate::arch::ops::CodeOp::Stp | crate::arch::ops::CodeOp::Ldp
+        ) {
+            return Err(format!(
+                "rv64 encoder: {} is an AArch64-only form (plan-171-A) that no riscv64 \
+                 producer emits",
+                instruction.op.mnemonic()
+            ));
+        }
         match instruction.op.mnemonic() {
             "label" => Ok(()),
             "mov" => {
@@ -368,13 +381,6 @@ impl Encoder {
                         | opcode,
                 )
             }
-            // plan-171-A: RV64GC has no pair access; the producers are gated on
-            // `Backend::supports_pair_access`, which riscv64 answers `false`.
-            "stp" | "ldp" => Err(format!(
-                "rv64 encoder: {} is an AArch64-only form (plan-171-A) that no riscv64 \
-                 producer emits",
-                instruction.op.mnemonic()
-            )),
             other => Err(format!(
                 "rv64 encoder does not yet support instruction '{other}' (deferred to a later phase)"
             )),

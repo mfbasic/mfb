@@ -149,7 +149,9 @@ impl Encoder {
         };
         let base = field(instruction, "base")?;
         if matches!(base.as_ref(), "xzr" | "wzr") {
-            return Err(format!("AArch64 {mnemonic} base cannot be the zero register"));
+            return Err(format!(
+                "AArch64 {mnemonic} base cannot be the zero register"
+            ));
         }
         let rn = reg(&base)?;
         let width = immediate(field(instruction, "width")?)?;
