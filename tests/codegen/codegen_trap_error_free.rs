@@ -32,6 +32,18 @@ fn ncode(name: &str, source: &str) -> Value {
     plan
 }
 
+/// [`ncode`] at `-O0`. When the `ErrorLoc` free's skip label sits directly before
+/// an assembly's closing `raw_result_err_built` label, Level-1 branch threading
+/// retargets the adopt arm's jump to that same-address skip label and block
+/// merging drops the label no branch names any more, so only the unoptimized
+/// plan still marks every assembly.
+fn ncode_unoptimized(name: &str, source: &str) -> Value {
+    let project = common::temp_project(name, source);
+    let plan = common::build_ncode_opt(&project, TARGET, name, "0");
+    let _ = std::fs::remove_dir_all(&project);
+    plan
+}
+
 fn function<'a>(plan: &'a Value, symbol: &str) -> &'a Value {
     plan["functions"]
         .as_array()
@@ -181,7 +193,7 @@ fn only_the_lowering_that_stamps_its_own_error_loc_frees_one() {
          frame allocated no ErrorLoc, so it must emit no free for one"
     );
 
-    let inline_builtin = ncode(
+    let inline_builtin = ncode_unoptimized(
         "b565_current_loc",
         "IMPORT io\n\
          IMPORT collections\n\

@@ -59,6 +59,16 @@ fn ncode(name: &str, source: &str) -> Value {
     plan
 }
 
+/// [`ncode`] at `-O0`, for a case-marker label that falls through: Level-1 basic
+/// block merging drops a label no instruction names, so only the unoptimized plan
+/// still shows where that case begins.
+fn ncode_unoptimized(name: &str, source: &str) -> Value {
+    let project = common::temp_project(name, source);
+    let plan = common::build_ncode_opt(&project, TARGET, name, "0");
+    let _ = std::fs::remove_dir_all(&project);
+    plan
+}
+
 const STRING_SET: &str = "IMPORT collections\n\
      FUNC mutate(v AS String, i AS Integer) AS Integer\n\
     \x20 MUT xs AS List OF String = [\"a\", \"bb\", \"ccc\"]\n\
@@ -94,12 +104,15 @@ fn a_variable_width_set_emits_the_in_block_resize() {
 #[test]
 fn the_resize_emits_every_case_and_the_overflow_repack() {
     let plan = ncode("p121f_shift_dirs", STRING_SET);
+    // `set_inplace_narrow` and `set_inplace_extend` are fall-through labels that
+    // no branch names, so they are read before block merging removes them.
+    let lowered = ncode_unoptimized("p121f_shift_dirs_o0", STRING_SET);
     assert!(
-        label_count(&plan, "_mfb_fn_mutate", "set_inplace_narrow") >= 1,
+        label_count(&lowered, "_mfb_fn_mutate", "set_inplace_narrow") >= 1,
         "a shorter payload must be overwritten where it lies."
     );
     assert!(
-        label_count(&plan, "_mfb_fn_mutate", "set_inplace_extend") >= 1,
+        label_count(&lowered, "_mfb_fn_mutate", "set_inplace_extend") >= 1,
         "a longer payload that is the last in the data region must grow where it lies."
     );
     assert!(
