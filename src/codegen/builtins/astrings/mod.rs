@@ -126,7 +126,7 @@ explicit overload.
 `astrings::fromString(text)` constructs an `AttributedString` whose visible text
 is `text` and whose attribute overlay is empty.
 
-Many `strings::` functions also accept an `astrings::AttributedString` at the text
+Many `strings::` functions also accept an `AttributedString` at the text
 position; each function's own page documents that overload. A function that only
 reads the text answers exactly as it does for the visible `String`. A function
 that changes the text returns an `AttributedString` whose styling follows the text

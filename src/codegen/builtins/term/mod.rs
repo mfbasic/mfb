@@ -252,7 +252,7 @@ the result. `term::LineStyle` selects the box-drawing weight for `term::drawHLin
 `term::drawVLine`, and `term::drawBox`; `term::FillStyle` selects the block or shade
 glyph for `term::fillRect`.
 
-`term::measureText` measures a `String` or an `astrings::AttributedString` in the
+`term::measureText` measures a `String` or an `AttributedString` in the
 same terminal grid cells that `term::drawText` advances; attributes do not change
 the answer. The empty string measures zero, and even a grapheme made entirely of
 zero-width characters occupies one cell. It is available only while the Console

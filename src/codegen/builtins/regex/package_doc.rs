@@ -141,7 +141,7 @@ because they were overlooked:
 
 Every `regex` **query** member — `match`, `find`, `findAll`, `findMatch`,
 `findAllMatches`, `count` and `split` — also accepts an
-`astrings::AttributedString` at the `value` position: the query runs on its
+`AttributedString` at the `value` position: the query runs on its
 visible text and returns exactly what the `String` overload returns (same value,
 type, and errors). That is the rule `strings` uses, unchanged.
 

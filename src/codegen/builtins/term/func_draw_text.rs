@@ -40,7 +40,7 @@ the next `term::sync`.
 The call is gated: while TUI mode is off it does nothing and reports no
 error.
 
-An overload accepts an `astrings::AttributedString` in the `text` position. It
+An overload accepts an `AttributedString` in the `text` position. It
 stamps the same visible text as the `String` overload but honours the per-scalar
 styling the value carries: the attributes the terminal surface can represent —
 **bold**, **underline**, **foreground colour** and **background colour** — are
