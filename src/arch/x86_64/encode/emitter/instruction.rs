@@ -1117,11 +1117,14 @@ pub(in crate::arch::x86_64::encode) fn encode_instruction(
         }
         // plan-171-A: the pair forms exist only on AArch64; their producers are
         // gated on `Backend::supports_pair_access`, which x86-64 answers `false`.
-        "stp" | "ldp" => Err(format!(
-            "x86 encode: {} is an AArch64-only form (plan-171-A) that no x86-64 \
+        // plan-171-B: so is `cbz`/`cbnz` — x86-64 encodes `cmp_imm r, 0` as
+        // `test r, r` directly, and the row forms no `cbz` for it.
+        "stp" | "ldp" | "cbz" | "cbnz" => Err(format!(
+            "x86 encode: {} is an AArch64-only form (plan-171) that no x86-64 \
              producer emits",
             instruction.op.mnemonic()
         )),
+        "tbz" | "tbnz" => bit_test_branch(instruction),
         // Still unsupported: fcvtas_v (nearest ties-away), sshl_v, ushl_v.
         other => Err(format!("x86 encode: unsupported op {other}")),
     }

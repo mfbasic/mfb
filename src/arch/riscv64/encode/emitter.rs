@@ -151,14 +151,19 @@ impl Encoder {
         let f = |name: &str| -> Result<u8, String> { freg(field(instruction, name)?) };
         let imm = |name: &str| -> Result<u64, String> { immediate(field(instruction, name)?) };
         // plan-171-A: RV64GC has no pair access; the producers are gated on
-        // `Backend::supports_pair_access`, which riscv64 answers `false`. Refused
-        // ahead of the dispatch, which lists only the forms this encoder emits.
+        // `Backend::supports_pair_access`, which riscv64 answers `false`.
+        // plan-171-B: no `cbz`/`cbnz` either — `rv.br` already compares with
+        // `zero`. Refused ahead of the dispatch, which lists only the forms this
+        // encoder emits.
         if matches!(
             instruction.op,
-            crate::arch::ops::CodeOp::Stp | crate::arch::ops::CodeOp::Ldp
+            crate::arch::ops::CodeOp::Stp
+                | crate::arch::ops::CodeOp::Ldp
+                | crate::arch::ops::CodeOp::Cbz
+                | crate::arch::ops::CodeOp::Cbnz
         ) {
             return Err(format!(
-                "rv64 encoder: {} is an AArch64-only form (plan-171-A) that no riscv64 \
+                "rv64 encoder: {} is an AArch64-only form (plan-171) that no riscv64 \
                  producer emits",
                 instruction.op.mnemonic()
             ));
@@ -284,6 +289,7 @@ impl Encoder {
             "ret" => self.emit_word(i_type(0, RA as u32, 0, ZERO as u32, JALR)),
             "rv.vop" => self.emit_rv_vop(instruction),
             "rv.br" => self.emit_rv_br(instruction),
+            "tbz" | "tbnz" => self.emit_rv_bit_branch(instruction),
             "adrp" => self.emit_auipc_ref(r("dst")?, field(instruction, "symbol")?.into_owned()),
             "add_pageoff" => self.emit_pageoff(r("dst")?, field(instruction, "symbol")?.into_owned()),
             // --- FP scalar (Phase 2) ---
@@ -792,6 +798,54 @@ impl Encoder {
         self.emit_word(b_type(8, rs2 as u32, rs1 as u32, inv_funct3, BRANCH))?;
         // jal zero, target (patched later).
         self.emit_jal_label(ZERO, target)
+    }
+
+    /// plan-171-B: `tbz`/`tbnz` — branch when bit `bit` of `register` is clear /
+    /// set, computed into the dead `scratch` register the forming row
+    /// (`optimizer::opt2::cbranch`) names: bits 0–10 by `andi scratch, register,
+    /// 1<<bit` and a zero test, any other bit by `slli scratch, register,
+    /// 63-bit` (the bit becomes the sign) and a sign test. The branch is
+    /// `rv.br`'s 12-byte-total long form: the test, an inverted short branch
+    /// over a `jal zero, target` (the `jal` sits 8 bytes in, which
+    /// `relax_rv64_branches` knows).
+    fn emit_rv_bit_branch(&mut self, instruction: &CodeInstruction) -> Result<(), String> {
+        let rs = reg(field(instruction, "register")?)?;
+        let scratch = reg(field(instruction, "scratch")?)?;
+        if scratch == ZERO {
+            return Err("rv64 tbz/tbnz scratch cannot be `zero`".to_string());
+        }
+        let bit = immediate(field(instruction, "bit")?)?;
+        if bit > 63 {
+            return Err(format!("rv64 tbz/tbnz bit {bit} is outside 0..=63"));
+        }
+        let set = instruction.op == crate::arch::ops::CodeOp::Tbnz;
+        let inv_funct3 = if bit <= 10 {
+            // andi scratch, rs, 1<<bit (imm12 reaches 1<<10 = 1024).
+            self.emit_word(i_type(1 << bit, rs as u32, 0b111, scratch as u32, OP_IMM))?;
+            // Skip the jal unless the branch is taken: tbz (zero) → bne, tbnz → beq.
+            if set {
+                0b000
+            } else {
+                0b001
+            }
+        } else {
+            // slli scratch, rs, 63-bit: the tested bit is now the sign bit.
+            self.emit_word(i_type(
+                (63 - bit) as i32,
+                rs as u32,
+                0b001,
+                scratch as u32,
+                OP_IMM,
+            ))?;
+            // tbz (sign clear, >= 0) → skip with blt; tbnz (< 0) → skip with bge.
+            if set {
+                0b101
+            } else {
+                0b100
+            }
+        };
+        self.emit_word(b_type(8, ZERO as u32, scratch as u32, inv_funct3, BRANCH))?;
+        self.emit_jal_label(ZERO, field(instruction, "target")?.into_owned())
     }
 
     /// Emit a `jal rd, <label>` whose displacement is patched once label offsets

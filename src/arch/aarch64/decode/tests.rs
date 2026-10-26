@@ -632,6 +632,30 @@ fn branches_decode_their_targets() {
     assert_eq!(ret.flow, Flow::Return);
 }
 
+/// plan-171-B: the words the encoder emits for `cbz`/`cbnz`/`tbz`/`tbnz`
+/// (`encode::tests::zero_bit_branches`, the same clang words) decode to the
+/// operands they were built from — the round trip the table cannot hold for a
+/// label branch.
+#[test]
+fn zero_and_bit_branches_decode_to_their_operands() {
+    for (word, text, target) in [
+        (0xb400_0160, "cbz    x0, 0x10000102c", PC + 0x2c),
+        (0xb500_0149, "cbnz   x9, 0x100001028", PC + 0x28),
+        (0x3600_0100, "tbz    w0, #0x0, 0x100001020", PC + 0x20),
+        (0x3750_00ef, "tbnz   w15, #0xa, 0x10000101c", PC + 0x1c),
+        (0x36f8_0083, "tbz    w3, #0x1f, 0x100001010", PC + 0x10),
+        (0xb700_007b, "tbnz   x27, #0x20, 0x10000100c", PC + 0xc),
+        (0xb7ff_fec1, "tbnz   x1, #0x3f, 0x100000fd8", PC - 0x28),
+    ] {
+        let decoded = decode(word, PC).unwrap();
+        assert_eq!(
+            (decoded.text.as_str(), decoded.flow, decoded.target),
+            (text, Flow::Branch, Some(target)),
+            "{word:#010x}"
+        );
+    }
+}
+
 #[test]
 fn an_adrp_and_its_add_carry_the_address_they_form() {
     // adrp x3, 2 (pages); add x3, x3, #0x440.
@@ -825,7 +849,8 @@ fn decodes_a_corpus_as_lldb_does() {
 }
 
 /// Every mnemonic `emit_instruction` dispatches on appears in the table (or,
-/// for the label branches and `bl`, in `branches_decode_their_targets`).
+/// for the label branches and `bl`, in `branches_decode_their_targets` and
+/// `zero_and_bit_branches_decode_to_their_operands`).
 #[test]
 fn the_table_covers_every_form_the_encoder_emits() {
     let source = include_str!("../encode/emitter/mod.rs");
@@ -850,7 +875,7 @@ fn the_table_covers_every_form_the_encoder_emits() {
         .collect::<Vec<_>>();
     let by_word = [
         "label", "b.eq", "b.ne", "b.ge", "b.lt", "b.gt", "b.le", "b.vc", "b.vs", "b.hi", "b.lo",
-        "b.mi", "b.ls", "b", "bl",
+        "b.mi", "b.ls", "b", "bl", "cbz", "cbnz", "tbz", "tbnz",
     ];
     let missing = emitted
         .iter()

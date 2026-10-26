@@ -17,6 +17,7 @@ use std::collections::HashMap;
 // `super::operand` and `super::{EncodedSection, EncodedSymbol}`, which live in `encode`.
 use super::{encode, operand, EncodedSection, EncodedSymbol};
 
+mod bit_branches;
 mod float_v128_and_ranges;
 mod image_and_coverage;
 mod integer;

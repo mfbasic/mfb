@@ -166,6 +166,21 @@ fn cases() -> Vec<(String, CodeInstruction)> {
     for name in ["branch_self", "svc", "ret"] {
         add(name.into(), op(name, &[]));
     }
+    // plan-171-B: both bit-test shapes (`andi` for bits 0–10, `slli` above).
+    for (name, bit) in [("tbz", "10"), ("tbnz", "11"), ("tbz", "63")] {
+        add(
+            format!("{name} #{bit}"),
+            op(
+                name,
+                &[
+                    ("register", "a0"),
+                    ("bit", bit),
+                    ("scratch", "t3"),
+                    ("target", "top"),
+                ],
+            ),
+        );
+    }
     for cond in ["eq", "ne", "lt", "ge", "ltu", "geu"] {
         add(
             format!("rv.br {cond}"),

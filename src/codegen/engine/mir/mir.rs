@@ -175,6 +175,9 @@ mir_ops!(
         // allocation only (`finalize_frame` and the pairing row), and only for a
         // backend that `supports_pair_access`.
         Stp, Ldp,
+        // plan-171-B: formed only after selection, on the final stream; never
+        // in MIR proper, mirrored so the exhaustive `from_code`/`to_code` hold.
+        Cbz, Cbnz, Tbz, Tbnz,
         FMovDFromD, FAddD, FSubD, FMulD, FDivD, FMinnmD, FMaxnmD, FNegD, FAbsD, FSqrtD, FCvtSFromD, FCvtDFromS, FCmpD,
         FCmpZeroD, FMaddD, FMsubD, FNmsubD, FNmaddD,
     }

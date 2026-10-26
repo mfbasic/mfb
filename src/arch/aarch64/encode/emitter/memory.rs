@@ -234,6 +234,48 @@ impl Encoder {
         Ok(())
     }
 
+    /// plan-171-B: `cbz`/`cbnz Xt, label` (`sf 011010 op imm19 Rt`, X form) and
+    /// `tbz`/`tbnz Rt, #bit, label` (`b5 011011 op b40 imm14 Rt`). The register
+    /// and bit are written now; [`Encoder::patch_labels`] ORs the displacement
+    /// into the word once the label is placed (`imm19` ±1 MiB, `imm14` ±32 KiB;
+    /// `relax_conditional_branches` keeps every one in reach).
+    pub(super) fn emit_zero_or_bit_branch(
+        &mut self,
+        instruction: &CodeInstruction,
+    ) -> Result<(), String> {
+        let name = field(instruction, "register")?;
+        if is_stack_pointer(&name) || name.starts_with('d') {
+            return Err(format!(
+                "AArch64 {} needs a general-purpose register, not '{name}'",
+                instruction.op.mnemonic()
+            ));
+        }
+        let rt = u32::from(reg(&name)?);
+        let kind = instruction.op.mnemonic();
+        let word = match instruction.op {
+            CodeOp::Cbz => 0xb400_0000 | rt,
+            CodeOp::Cbnz => 0xb500_0000 | rt,
+            CodeOp::Tbz | CodeOp::Tbnz => {
+                let bit = immediate(field(instruction, "bit")?)?;
+                if bit > 63 {
+                    return Err(format!("AArch64 {kind} bit {bit} is outside 0..=63"));
+                }
+                let bit = bit as u32;
+                let op = u32::from(instruction.op == CodeOp::Tbnz) << 24;
+                ((bit >> 5) << 31) | 0x3600_0000 | op | ((bit & 0x1f) << 19) | rt
+            }
+            other => return Err(format!("'{}' is not a cbz/tbz form", other.mnemonic())),
+        };
+        let offset = self.text.len();
+        self.emit_word(word)?;
+        self.patches.push(LabelPatch {
+            offset,
+            target: field(instruction, "target")?.into_owned(),
+            kind: kind.to_string(),
+        });
+        Ok(())
+    }
+
     pub(super) fn emit_bl(&mut self, target: String) -> Result<(), String> {
         let offset = self.text.len();
         self.emit_word(0x9400_0000)?;

@@ -280,26 +280,47 @@ Acceptance: §2 carries measured counts and §4.5 names its branch with evidence
   Check: `sed -n '/^## 2/,/^## 3/p' planning/plan-171-B-*.md | grep -c -e UNMEASURED -e UNVERIFIED`
   → 0 (Correction 3: the original whole-file grep matched its own spelling) (est. 10 min of census runs).
   Result (2026-10-26): `0`.
-Commit: —
+Commit: ea1206a5c
 
 ### Phase 2 — the four ops (no producer; byte-identical)
 
-- [ ] `src/arch/ops.rs`, `mir.rs` (`mir_ops!` mirror group), `regalloc/analysis.rs`
+- [x] `src/arch/ops.rs`, `mir.rs` (`mir_ops!` mirror group), `regalloc/analysis.rs`
       (`scratch` → `DEF_FIELDS`; the four ops → `is_block_terminator`),
-      `opt2/plans/mark.rs:flag_preserving` (x86: not preserving).
-- [ ] AArch64 encoder/sizing (`CBZ`/`CBNZ` imm19, `TBZ`/`TBNZ` b5:b40 + imm14),
-      `patch_labels` imm14 kind; decoder table rows.
-- [ ] x86 encoder: `test r,r`+jcc; `test r,imm32`/`bt r,imm8`+jcc expansions.
-- [ ] riscv64 encoder: `andi`/`slli` + long-form branch expansions; sizing.
-- [ ] A debug assertion at the head of `regalloc::allocate`: no `cbz`/`cbnz`/`tbz`/`tbnz`
-      in the input (with a `#[should_panic]` unit test).
-- [ ] Tests: per-backend encoder unit tests incl. bit 0, 10, 11, 30, 31, 63 and
+      `opt2/plans/mark.rs:flag_preserving` (x86: not preserving). (Plus the
+      required fields in `code_impl.rs:CodeInstruction::validate`.)
+- [x] AArch64 encoder/sizing (`CBZ`/`CBNZ` imm19, `TBZ`/`TBNZ` b5:b40 + imm14),
+      `patch_labels` imm14 kind; decoder table rows. (`emitter/memory.rs:
+      emit_zero_or_bit_branch` writes register and bit, `patch_labels` ORs the
+      displacement in; `sizing.rs:branch_imm14`. The decoder already decoded
+      the four; the guard lists them with the label branches and
+      `zero_and_bit_branches_decode_to_their_operands` decodes the encoder's
+      words.)
+- [x] x86 encoder: `test r,r`+jcc; `test r,imm32`/`bt r,imm8`+jcc expansions.
+      (`integer.rs:bit_test_branch`; `cbz`/`cbnz` are refused instead —
+      Correction 7 — and `test r, r` for `cmp_imm r, 0` is Phase 4's §4.5 task.)
+- [x] riscv64 encoder: `andi`/`slli` + long-form branch expansions; sizing.
+      (`emitter.rs:emit_rv_bit_branch`; sizing derives from the emitter;
+      `cbz`/`cbnz` refused; `relax.rs:jal_offset_within` knows the `jal` 8 bytes
+      in.)
+- [x] A debug assertion at the head of `regalloc::allocate`: no `cbz`/`cbnz`/`tbz`/`tbnz`
+      in the input (with a `#[should_panic]` unit test). (A release `assert!`,
+      Correction 6; `a_compare_with_zero_branch_is_refused_by_the_allocator`.)
+- [x] Tests: per-backend encoder unit tests incl. bit 0, 10, 11, 30, 31, 63 and
       registers r8–r15/x0–x30/t-regs; AArch64 decoder round trip;
       `build_cfg` test: a block ending in `cbz` has both successor edges.
+      (`aarch64/encode/tests/zero_bit_branches.rs` — clang words, bits
+      0/10/11/30/31/32/63, a backward target, the ±32 KiB boundary;
+      `x86_64/encode/tests/bit_branches.rs` and
+      `riscv64/encode/tests/bit_branches.rs` — clang / GNU as bytes; the rv64
+      decoder round trip `decodes_every_form_the_encoder_emits` gained both
+      shapes; `analysis.rs:a_block_ending_in_a_zero_or_bit_branch_has_both_edges`.)
 
 Acceptance: round trips pass; no emitted byte changes.
   Check: `cargo test --bin mfb aarch64:: x86_64::encode riscv64::encode regalloc::analysis` → pass (est. 4 min);
   `bash scripts/artifact-gate.sh target/release/mfb strings` → `0 diff(s)` (est. 1 min).
+  Result (2026-10-26): `cargo test --bin mfb -- aarch64:: x86_64::encode riscv64::encode riscv64::decode regalloc ops:: opt2::plans`
+  → 475 passed, 0 failed; `artifact-gate.sh target/release/mfb strings` → `7 golden(s) checked, 0 diff(s)`
+  (`collections` likewise).
 Commit: —
 
 ### Phase 3 — flags liveness (analysis only; byte-identical)
@@ -445,6 +466,19 @@ Commit: —
    covers the hand-written bodies that never reach `finalize_frame`
    (`_mfb_macapp_*`, `_main`, the thread trampoline; plan-171-A Correction 11),
    which Phase 5 would otherwise have to route by hand.
+6. **A release `assert!`, not a debug assertion, guards the allocator.** CI
+   builds release, so a `debug_assert!` there checks nothing
+   (`.ai/testing-gates.md`, bug-550); the predicate is one opcode compare per
+   instruction with no allocation, which that section's rule 3 puts in
+   `assert!`.
+7. **`cbz`/`cbnz` are refused by the x86-64 and riscv64 encoders** instead of
+   encoded as `test r, r; je`/`beq r, zero`: nothing forms them there (x86-64
+   gets `test r, r` from the `cmp_imm` encoding, §4.5; riscv64's `rv.br`
+   already compares with `zero`, §2.3), so an encoding would be a path no
+   producer reaches. Refusing names the form, as plan-171-A did for
+   `stp`/`ldp`. Likewise `tbz`/`tbnz` carry `scratch` only on riscv64, the one
+   backend that writes it; on AArch64 and x86-64 the field would claim a write
+   that never happens.
 
 ## Summary
 

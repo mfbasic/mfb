@@ -2,8 +2,8 @@ use super::operand::{
     field, immediate, is_stack_pointer, reg, scratch_excluding, shift, shifted_reg, vreg,
 };
 use super::sizing::{
-    add_sub_chunk_count, branch_imm19, branch_imm26, checked_imm12, encode_add_sub_imm,
-    next_add_sub_chunk, MAX_ADD_SUB_CHUNKS,
+    add_sub_chunk_count, branch_imm14, branch_imm19, branch_imm26, checked_imm12,
+    encode_add_sub_imm, next_add_sub_chunk, MAX_ADD_SUB_CHUNKS,
 };
 use super::*;
 use crate::codegen::engine::types::RelocIntent;
@@ -230,6 +230,7 @@ impl Encoder {
             "b.mi" => self.emit_label_branch("b.mi", field(instruction, "target")?.into_owned()),
             "b.ls" => self.emit_label_branch("b.ls", field(instruction, "target")?.into_owned()),
             "b" => self.emit_label_branch("b", field(instruction, "target")?.into_owned()),
+            "cbz" | "cbnz" | "tbz" | "tbnz" => self.emit_zero_or_bit_branch(instruction),
             "bl" => self.emit_bl(field(instruction, "target")?.into_owned()),
             "blr" => self.emit_blr(reg(field(instruction, "register")?)?),
             "svc" => self.emit_word(0xd400_0001),
@@ -475,12 +476,13 @@ impl Encoder {
             };
             // Reject an out-of-range displacement instead of masking it to a
             // wrong target (bug-124): unconditional `b` reaches ±128 MiB (imm26
-            // words), conditional `b.*` only ±1 MiB (imm19 words).
+            // words), conditional `b.*` and `cbz`/`cbnz` only ±1 MiB (imm19
+            // words), `tbz`/`tbnz` ±32 KiB (imm14 words, plan-171-B).
             let delta = target as isize - patch.offset as isize;
-            let (limit, span) = if patch.kind == "b" {
-                (1_isize << 27, "±128 MiB")
-            } else {
-                (1_isize << 20, "±1 MiB")
+            let (limit, span) = match patch.kind.as_str() {
+                "b" => (1_isize << 27, "±128 MiB"),
+                "tbz" | "tbnz" => (1_isize << 15, "±32 KiB"),
+                _ => (1_isize << 20, "±1 MiB"),
             };
             if delta < -limit || delta >= limit {
                 return Err(format!(
@@ -502,11 +504,29 @@ impl Encoder {
                 "b.lo" => 0x5400_0003 | (branch_imm19(patch.offset, target)? << 5),
                 "b.mi" => 0x5400_0004 | (branch_imm19(patch.offset, target)? << 5),
                 "b.ls" => 0x5400_0009 | (branch_imm19(patch.offset, target)? << 5),
+                // plan-171-B: the register (and bit) were written at emission.
+                "cbz" | "cbnz" => {
+                    self.word_at(patch.offset) | (branch_imm19(patch.offset, target)? << 5)
+                }
+                "tbz" | "tbnz" => {
+                    self.word_at(patch.offset) | (branch_imm14(patch.offset, target)? << 5)
+                }
                 other => return Err(format!("unknown AArch64 branch patch '{other}'")),
             };
             self.text[patch.offset..patch.offset + 4].copy_from_slice(&word.to_le_bytes());
         }
         Ok(())
+    }
+}
+
+impl Encoder {
+    /// The word already emitted at `offset` (a label patch ORs into it).
+    fn word_at(&self, offset: usize) -> u32 {
+        u32::from_le_bytes(
+            self.text[offset..offset + 4]
+                .try_into()
+                .expect("a patch offset names one emitted word"),
+        )
     }
 }
 
