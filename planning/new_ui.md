@@ -243,6 +243,50 @@ ask the toolkit to measure. Native widgets are absolutely positioned at
 solver-computed frames. One shared solver is also what makes the three platforms
 lay out identically and lets layout be tested headless against a fake measurer.
 
+### Solver design
+
+- **The solver is an emitted runtime helper** allocation-free, re-entrant,
+  main-thread-callable. It walks a **flat node array** (built by reconcile from
+  the published tree) plus an indirect `host_measure` fn-ptr, and produces one
+  rect per node. No allocation inside the solver, ever — it runs on the main
+  thread during reconcile and resize, and an allocation there is a UI stall.
+  Re-entrancy is a reverse dependency on the future `Table`; it cannot be
+  retrofitted into an emitted helper cheaply, so build it in from the start.
+- **The measurement contract is a fn-ptr, never a baked size.** v1 calls
+  `host_measure` once per leaf, but nothing in the contract says once — so a
+  future multi-pass flex solver (real flexbox needs two passes for wrapping and
+  content-sized cross axes) is a change of strategy, not of contract. Do not
+  cache measured sizes per node.
+- **It needs a `RuntimeHelperSpec`, a catalog entry, and usage gating** so only
+  programs that use `ui::` pay for it..
+
+### Headless host and validation
+
+- A `headless` host backend (`--app-host headless` or equivalent): a synthetic
+  deterministic `host_measure`, a `host_set_frame` that prints
+  `id kind x y w h` per node, events answered immediately-FALSE, window closes
+  after the first sync. It ships, not test-only — it is the only way to test
+  layout in CI without a display, and it costs one flag.
+- **Goldens drive the real emitted solver, never a Rust-side model of it.** One
+  golden per `Direction × Justification × Align` cell, plus grow/shrink
+  distribution, padding/margin/gap, and hidden-sibling reflow — byte-identical
+  across macOS and Linux with no display server. New golden directories must be
+  confirmed in the gate's denominator before being relied on.
+- **Correctness risk concentrates in flexible-size distribution across the
+  `Justification × Align` matrix**: it has the most interacting rules, every real
+  UI exercises it, and an off-by-one there produces a *plausible* layout rather
+  than an obviously broken one. The golden matrix is the guard.
+
+### Sizing lesson
+
+The solver is the largest single item in the old feature and its size was the one
+number nobody derived ("~1500–2500 emitter lines", baseless). The closest
+precedent, `term_grid.rs`, is ~1200 lines for a strictly simpler job (fixed grid,
+no measure callback, no nesting) — a floor, not an estimate. Before scheduling
+anything behind the solver: build a row-only, single-axis, no-grow spike, count
+its emitter lines, extrapolate, and split the work by axis (row/column, then the
+justify/align matrix, then grow/shrink + padding/margin) if it lands large.
+
 ## Events
 
     ui::pollEvent(timeoutMs AS Integer) AS ui::Event
