@@ -17,7 +17,7 @@ are unchanged.
 
 References:
 
-- `planning/plan-175-A-canvas-geometry-identity-split.md` — §2.3 (the `same` rows,
+- `planning/completed/plan-175-A-canvas-geometry-identity-split.md` — §2.3 (the `same` rows,
   finding 3), §8.1, decision 3.
 - `.ai/canvas-threading.md` §3 (the ordering of `canvas::present`), §3.1 (the content
   compare).

@@ -87,7 +87,7 @@ What was run, and what it showed:
 
 30 / 30 is NOT met, on either machine. Every frame is a GPU frame.
 
-**Deliverable 2, the hash** is `planning/plan-175-A-canvas-geometry-identity-split.md`: a
+**Deliverable 2, the hash** is `planning/completed/plan-175-A-canvas-geometry-identity-split.md`: a
 geometry key `G`, an appearance identity `A` held per cache slot, damage on
 `mix(G, A)`, and a paint-only change rewritten in place in the cached record. Its §2.3
 is the attribution this document's Phase 1 asks for, measured at 10k / 50k / 60k / 100k

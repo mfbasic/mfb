@@ -21,7 +21,7 @@ draw's offset and matrix read from the node table and no per-draw `setFragmentBy
 
 References:
 
-- `planning/plan-175-A-canvas-geometry-identity-split.md` — decision 5 (this letter),
+- `planning/completed/plan-175-A-canvas-geometry-identity-split.md` — decision 5 (this letter),
   §2.4 (the group row's 10,001 draws and 2.2 ms of encode).
 - `.ai/canvas-threading.md` §10, "A group is one instanced draw per node, with an offset
   bound to BOTH stages" (the payload and why both stages need it), "The per-item
@@ -35,7 +35,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| ~~plan-175-A is complete and archived~~ plan-175-A's code and docs have landed: every box of its Phases 1–7 resolved except the two its Phase 7 runs once after the plan's LAST code change (the change-sentinel goldens, the `benchmark/canvas` re-baseline), Correction 2 | `grep -n "^- \[ \]" planning/plan-175-A-canvas-geometry-identity-split.md` → exactly those two | MET (2026-10-25: two lines, 905 and 932, the goldens and the benchmark) |
+| ~~plan-175-A is complete and archived~~ plan-175-A's code and docs have landed: every box of its Phases 1–7 resolved except the two its Phase 7 runs once after the plan's LAST code change (the change-sentinel goldens, the `benchmark/canvas` re-baseline), Correction 2 | `grep -n "^- \[ \]" planning/completed/plan-175-A-canvas-geometry-identity-split.md` → exactly those two | MET (2026-10-25: two lines, 905 and 932, the goldens and the benchmark) |
 
 Everything below is written against the world where that holds.
 

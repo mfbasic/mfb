@@ -18,9 +18,9 @@ unchanged.
 
 References:
 
-- `planning/plan-175-B-canvas-draw-node-table.md` — the row format (word 13, repeat),
+- `planning/completed/plan-175-B-canvas-draw-node-table.md` — the row format (word 13, repeat),
   the node table, and the shaders' `local % count` / `local / count`.
-- `planning/plan-175-A-canvas-geometry-identity-split.md` — §2.4 and decision 5.
+- `planning/completed/plan-175-A-canvas-geometry-identity-split.md` — §2.4 and decision 5.
 - `.ai/canvas-threading.md` §10 (the draw list and passes).
 - `benchmark/canvas/README.md` — the `group` rows, `profDraws` and `.sums`.
 
@@ -28,7 +28,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| ~~plan-175-B is complete and archived~~ plan-175-B's node table, run and shaders have landed on every backend (its Phases 1–3 resolved), Correction 2 | `grep -c "^- \[ \]" planning/plan-175-B-canvas-draw-node-table.md` → 0 | MET once B's Phase 2 and 3 commit lands (checked 2026-10-25 before this letter's commit) |
+| ~~plan-175-B is complete and archived~~ plan-175-B's node table, run and shaders have landed on every backend (its Phases 1–3 resolved), Correction 2 | `grep -c "^- \[ \]" planning/completed/plan-175-B-canvas-draw-node-table.md` → 0 | MET once B's Phase 2 and 3 commit lands (checked 2026-10-25 before this letter's commit) |
 
 Everything below is written against the world where that holds.
 
