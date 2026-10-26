@@ -646,25 +646,33 @@ Acceptance: `-O1` forms pairs, `-O0` forms none, and both run identically.
   (Correction 12), fixed, then that test and fmt green; every listed binary
   passed (`rt_regalloc_levels_agree` 2 passed); optimizer sweep
   `cargo test --bin mfb builtins_codegen::optimizer::` → 3 passed.
-Commit: —
+Commit: 2e315b138 (with `451f8f49b`, the test correction of Correction 12)
 
 ### Phase 5 — spec and docs
 
-- [ ] `src/docs/spec/architecture/14_aarch64-instruction-set.md`: `stp`/`ldp` in
+- [x] `src/docs/spec/architecture/14_aarch64-instruction-set.md`: `stp`/`ldp` in
       the op catalog with a worked encoding; frame section notes pair saves.
-- [ ] `src/docs/spec/architecture/17_mir-instruction-set.md`: the two mirror ops
-      and the `dst2`/`src2` field roles.
-- [ ] `src/docs/spec/memory/06_native-calling-convention.md` (or whichever topic
+      (In `dd383c356`, Correction 9; the frame itself is owned by
+      `memory native-calling-convention`, which the ISA topic points to.)
+- [x] `src/docs/spec/architecture/17_mir-instruction-set.md`: the two mirror ops
+      and the `dst2`/`src2` field roles. (`dd383c356`.)
+- [x] `src/docs/spec/memory/06_native-calling-convention.md` (or whichever topic
       `mfb spec memory --all | grep -n 'callee-saved'` names as owner): save/restore
-      instructions.
-- [ ] `src/docs/spec/tooling/10_debugger.md`: the compiler frame shape the
-      backtrace reads.
-- [ ] `.ai/codegen-invariants.md`: one durable entry — pairing runs after
+      instructions. (`dd383c356`, "Stack Frame, Prologue, and Epilogue".)
+- [x] `src/docs/spec/tooling/10_debugger.md`: the compiler frame shape the
+      backtrace reads. (`dd383c356`.) The pairing row itself: `architecture
+      native` and `tooling cli-reference` in `2e315b138`.
+- [x] `.ai/codegen-invariants.md`: one durable entry — pairing runs after
       `finalize_frame` on final offsets; never pair across a label or into a base.
 
 Acceptance: specs render with no leaked `[[` and every new citation resolves.
   Check: `cargo test --bin mfb spec` → pass; `target/release/mfb spec architecture --all | grep -c '\[\['` → 0 (est. 2 min).
-Commit: —
+  Result (2026-10-25): the spec tests ran green in both landing-tier runs
+  (`spec_citations_resolve` included); `mfb spec architecture --all` and
+  `memory --all` → 0 `[[`; `tooling --all` → 1, the debugger's own
+  `[[sp+0x10]+8]` location syntax, identical with the `89a4dce2c` compiler;
+  `mfb man optimizations` renders the row "Load/store pair formation (ldp/stp)".
+Commit: this commit
 
 ## Validation Plan
 
