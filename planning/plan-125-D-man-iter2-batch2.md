@@ -530,7 +530,7 @@ Fallout fixed alongside: the `AttributedString` rewording broke `inplace_self_up
 
 Acceptance: 43 units `exit 0` (`--reconcile --letter D-phase4-current`); sweeps clean; no page advises an accumulation
 pattern the measurement contradicts.
-Commit: —
+Commit: e5d476252 (pages), 56c0406c5 (declared errors)
 
 ### Phase 5 — fs (43 units)
 
