@@ -692,6 +692,12 @@ Commit: this commit
 - Doc sync: Phase 5 topics; `mfb man optimizations` renders the new row
   (`target/release/mfb man optimizations | grep -c 'Load/store pairing'` → 1).
 - Final gate (once, after Phase 5): `cargo test --no-fail-fast > /tmp/171a.log 2>&1; echo EXIT=$?` → `EXIT=0`, `grep -c '^failures:' /tmp/171a.log` → 0 (est. 60–90 min; it includes `artifact_gate_all`).
+  Result (2026-10-25): first run at `8ec482bb4` → `EXIT=101`, 10 binaries red: two
+  were this plan's (`-ncode` readers counting single `str_u64`/`ldr_u64`, fixed in
+  `7ae9c0675`), eight failed identically at `89a4dce2c` (pre-existing since
+  call-graph DCE, plan-182 phase 3 and plan-183; fixed in `ad126c9e5`, `0153bcdd4`,
+  `c3c082861`, `3978c3616`, `a78e3f29d`). Final run at `a78e3f29d`:
+  `cargo test --workspace --no-fail-fast` → `EXIT=0`, 387 test results, 0 `failures:`.
 
 ## Open Decisions
 
