@@ -84,7 +84,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1010   | MED      | native `collections::merge` reserves for every input entry even when all keys overlap |
 | [ ]  | 1011   | MED      | reserved collection results retain source-sized capacity when outputs are smaller |
 | [ ]  | 1002   | LOW      | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` is reported twice for one collection declaration that holds a thread worker |
-| [ ]  | 1006   | LOW      | `collections::window` overflows while advancing past its last window for a large valid stride |
 | [ ]  | 1111   | LOW      | `collections::sort` of a `List OF Byte` is slower than of a `List OF Integer` with the same values (1M elements: 81–86 ms vs 66–69 ms): Byte and Scalar take the generic `<` compare, with a multiply, a stack round-trip and a Boolean per comparison |
 
 ## Strings and Unicode
