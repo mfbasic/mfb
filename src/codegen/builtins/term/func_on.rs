@@ -11,13 +11,14 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Enter TUI mode: take over the screen and reset all `term::` state"#;
 
-const DESC: &str = r#"`term::on` is the gate for the whole module. Every other `term::` call except
-`term::isOn` and `term::didResize` short-circuits while TUI mode is off — to a
-no-op, or to an inert default for the getters, or to `ErrUnsupported` for
-`term::terminalSize` — so nothing a program draws takes effect until `term::on`
-has returned. It takes no arguments.
+const DESC: &str = r#"`term::on` is the gate for the `term` package. While TUI mode is off, the
+drawing, cursor, colour and attribute calls do nothing, the getters return inert
+defaults, and `term::terminalSize` and `term::measureText` raise
+`ErrUnsupported` — so nothing a program draws takes effect until `term::on` has
+returned. Only `term::isOn`, `term::didResize` and the mouse calls work the same
+either way (`mfb man term isOn` lists every call). It takes no arguments.
 
-The call does four things, in this order.
+The call does five things, in this order.
 
 1. **Sets up the drawing surface.** It asks the terminal for its size, falling
    back to a 24-row by 80-column surface when the terminal cannot say — though
@@ -28,7 +29,9 @@ The call does four things, in this order.
    completely untouched — TUI mode is never left half-on.
 2. **Resets `term::` state to defaults**: foreground white (255, 255, 255),
    background black (0, 0, 0), bold off, underline off, cursor visible, and the
-   cursor at the home position (row 0, column 0).
+   cursor at the home position (row 0, column 0). A resize that
+   `term::didResize` has not yet reported is forgotten too, since the new
+   surface is already sized to the terminal.
 3. **Switches the terminal to its alternate screen**, so the user's previous
    shell contents are preserved and restored by `term::off`, and resets the
    terminal's own colours.
@@ -45,10 +48,14 @@ The call does four things, in this order.
    every key with its modifiers, including repeats and releases; `io::readKey`
    then returns `io::KeyEvent.Repeat` and `io::KeyEvent.Release` as well as
    `Press`. Any other terminal is left as it is, and a key there reports
-   `io::KeyEvent.NotSupported`. Ctrl+C still interrupts the program either way.
-   `term::off` turns the reporting back off. Only a program that reads keys
-   with the `io::` readers asks, and the question takes a moment only on a
-   terminal that is slow to answer it.
+   `io::KeyEvent.NotSupported`. Ctrl+C still stops the program either way, but
+   on a terminal using full key reporting it arrives as a key, so it takes
+   effect the next time the program reads with an `io::` reader rather than at
+   once. `term::off` turns the reporting back off. Only a program that reads
+   from the console with an `io::` reader — a key reader, `io::input` or
+   `io::readLine` — or polls the mouse asks. A local terminal answers at once;
+   one that never answers delays `term::on` by up to half a second, after which
+   it counts as not supporting full key reporting.
 
 Drawing is **buffered**: from here on, every drawing call — including
 `io::print` and `io::write` — updates the surface rather than the terminal.

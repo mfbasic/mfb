@@ -15,9 +15,10 @@ const INTRO: &str =
 const DESC: &str = r#"`removeAttribute` returns a new `AttributedString` with `attr` removed over the inclusive range
 `[start, endIndex]`. A stored span is affected only when its attribute **structurally matches** `attr`:
 the same member and, for the attributes that carry a value — font, font size, foreground and
-background — the same value. A matching span that straddles the range is **split**:
-its surviving left flank `[s.start, start−1]` and/or right flank `[endIndex+1, s.endIndex]` are kept and
-the overlap dropped. Because a higher start wins where spans overlap, removing a covering
+background — the same value. Every matching span is affected, not just the first, and a range that no
+matching span touches is not an error: the result carries the same attributes as `value`. A matching
+span that straddles the range is **split**: the part before `start` and/or the part after
+`endIndex` survives, and the overlap is dropped. Because a higher start wins where spans overlap, removing a covering
 winner can reveal a lower-start loser at read time.
 
 **An invalid range raises.** `start` must be zero or more and no greater than
@@ -25,8 +26,8 @@ winner can reveal a lower-start loser at read time.
 and both ends must fall inside the visible text, or it raises
 `ErrIndexOutOfRange` (`attribute range out of bounds`). Because the range is
 inclusive, **empty text has no valid range at all** — even `0, 0` is out of
-bounds on an empty `AttributedString`, so guard construction from text that
-might be empty. `ErrOutOfMemory` means the program ran out of memory."#;
+bounds on an empty `AttributedString`, so check that the text is non-empty
+before calling `removeAttribute` on it. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"```
 IMPORT astrings

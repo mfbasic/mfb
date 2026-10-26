@@ -11,8 +11,9 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Read the current background colour as a `color::Color`"#;
 
-const DESC: &str = r#"`term::getBackground` returns the colour that subsequently drawn text will be
-written in, as a `color::Color`. It takes no arguments.
+const DESC: &str = r#"`term::getBackground` returns the colour that will fill the cells behind
+subsequently drawn text — their background, not the glyph colour — as a
+`color::Color`. It takes no arguments.
 
 **A program that names the result must `IMPORT color`** as well as `term` —
 imports are not transitive and a package cannot re-export another's types. Reading a
@@ -22,13 +23,16 @@ channel off the result needs it as well: the fields belong to `color::Color`.
 nothing here to report; the field exists because a `color::Color` has four
 channels, and it is fixed fully opaque rather than left meaningless.
 
-The value is the module's current background colour. Immediately after
+The value is the `term` package's current background colour. Immediately after
 `term::on` — which resets the background to black — it is (0, 0, 0); after a
 `term::setBackground` call its red, green and blue match the colour that was set (its
 `alpha` does not: that is always `255`), until the next `term::setBackground` or the next
-`term::on`.
+`term::on`. A `term::setBackground` made while TUI mode is off is ignored, so
+`term::on` always starts from black. Each call returns a value of its own: a later
+`term::setBackground` changes what the next call returns, not a `color::Color` the
+program already holds.
 
-Unlike most of the module, this call does not simply do nothing while TUI mode is
+Unlike most `term::` calls, this one does not simply do nothing while TUI mode is
 off: it returns the **inert default**, black, (0, 0, 0). A program cannot tell "off" from "on
 with that background set" by this call alone — use `term::isOn` for that.
 

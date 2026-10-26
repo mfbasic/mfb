@@ -30,12 +30,17 @@ cursor.
 
 `term::FillStyle` selects the glyph: `Filled` (█, solid), `Light` (░), `Medium` (▒),
 `Dark` (▓), and the two quadrant patterns `Checker` (▚) and `CheckerAlt` (▞). The
-shade variants read as translucent overlays at a glance; the solid block is opaque.
+glyph is drawn in the foreground colour (with bold and underline if set) over the
+background colour, so a `Filled` region shows only the colour set by
+`term::setForeground`, not `term::setBackground`; the shades and checkers mix
+the two, with the background showing through their gaps.
 
 The call is gated: while TUI mode is off it does nothing and reports no
 error. In an `mfb build --app` program, `term::fillRect` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
-const EX: &str = r#"Paint a solid panel, then a lighter band inside it:
+const EX: &str = r#"Paint a solid navy panel, then a lighter band inside it. A `Filled` block shows
+only the foreground colour, so the panel colour is set with
+`term::setForeground`; the band's light shade mixes its two colours:
 
 ```
 IMPORT term
@@ -43,8 +48,10 @@ IMPORT color
 
 FUNC main() AS Nothing
   term::on()
-  term::setBackground(color::rgb(0, 0, 40))
+  term::setForeground(color::rgb(0, 0, 120))
   term::fillRect(term::FillStyle.Filled, 1, 2, 12, 30)
+  term::setBackground(color::rgb(0, 0, 120))
+  term::setForeground(color::rgb(120, 160, 255))
   term::fillRect(term::FillStyle.Light, 3, 4, 5, 28)
   term::sync()
   term::off()

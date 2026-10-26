@@ -22,13 +22,16 @@ channel off the result needs it as well: the fields belong to `color::Color`.
 nothing here to report; the field exists because a `color::Color` has four
 channels, and it is fixed fully opaque rather than left meaningless.
 
-The value is the module's current foreground colour. Immediately after
+The value is the `term` package's current foreground colour. Immediately after
 `term::on` — which resets the foreground to white — it is (255, 255, 255); after a
 `term::setForeground` call its red, green and blue match the colour that was set (its
 `alpha` does not: that is always `255`), until the next `term::setForeground` or the next
-`term::on`.
+`term::on`. A `term::setForeground` made while TUI mode is off is ignored, so
+`term::on` always starts from white. Each call returns a value of its own: a later
+`term::setForeground` changes what the next call returns, not a `color::Color` the
+program already holds.
 
-Unlike most of the module, this call does not simply do nothing while TUI mode is
+Unlike most `term::` calls, this one does not simply do nothing while TUI mode is
 off: it returns the **inert default**, white, (255, 255, 255). A program cannot tell "off" from "on
 with that foreground set" by this call alone — use `term::isOn` for that.
 

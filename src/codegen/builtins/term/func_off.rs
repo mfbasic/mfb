@@ -13,8 +13,10 @@ const INTRO: &str = r#"Leave TUI mode: present the final frame and restore the t
 
 const DESC: &str = r#"`term::off` tears down the TUI surface entered by `term::on` and returns the
 terminal to the state it had before. It takes no arguments and is gated: while
-TUI mode is already off the call does nothing at all and reports success — on
-every backend, in a terminal and in an `mfb build --app` window alike.
+TUI mode is already off it leaves the screen and the input mode alone and does
+not raise. One thing still happens in a terminal either way: if the program
+turned mouse reporting on with `term::enableMouse` and never turned it off,
+`term::off` turns it off, whether or not TUI mode was on.
 
 When TUI mode is on, the teardown runs in this order.
 
@@ -23,22 +25,26 @@ When TUI mode is on, the teardown runs in this order.
    `term::sync` explicitly.
 2. **Normal line input is restored**, undoing the single-key mode `term::on` put
    the terminal into, so typing echoes again and lines are submitted with
-   Return. Nothing happens here if that mode was never entered.
+   Return, and any full key reporting `term::on` turned on is turned back off.
+   Nothing happens here if that mode was never entered.
 3. **The terminal is restored**: the cursor is made visible, the alternate screen
    is left so the user's previous shell contents reappear, and the terminal's
    colour and attribute state is reset so ordinary output that follows is drawn
    normally.
 4. **TUI mode is switched off** and the drawing surface goes away.
+5. **Mouse reporting is turned off**, if `term::enableMouse` turned it on and
+   the program never turned it off.
 
 In an `mfb build --app` window there is no cursor or alternate screen to restore:
-step 3 instead swaps the window back to its scrolling text view, which regains
-keyboard focus, and typing returns to line input. Steps 1, 2 and 4 are the same.
+after the final present, the window swaps back to its scrolling text view, which
+regains keyboard focus; then typing returns to line input and TUI mode is
+switched off.
 
 After `term::off` returns, `term::isOn` reports `FALSE` and the surface is
-inactive again: every `term::` call except `term::on`, `term::isOn` and
-`term::didResize` does nothing, returns an inert default, or — for
-`term::terminalSize` — raises `ErrUnsupported` (`mfb man term isOn` lists
-which). A later `term::on` starts
+inactive again: the drawing, cursor, colour and attribute calls do nothing, the
+getters return inert defaults, and `term::terminalSize` and `term::measureText`
+raise `ErrUnsupported`; `term::isOn`, `term::didResize` and the mouse calls work
+as before (`mfb man term isOn` lists every call). A later `term::on` starts
 over with a fresh surface and the default state; nothing drawn before
 `term::off` survives it.
 
@@ -64,15 +70,19 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Leave TUI mode only if it was entered:
+Leave TUI mode before printing ordinary output — the last line lands on the
+user's normal screen, after the shell contents `term::on` set aside:
 
 ```
 IMPORT term
+IMPORT io
 
 FUNC main() AS Nothing
-  IF term::isOn() THEN
-    term::off()
-  END IF
+  term::on()
+  term::drawText(0, 0, "working...")
+  term::sync()
+  term::off()
+  io::print("finished")
 END FUNC
 ```"#;
 /// `abi_function` body for `term::off` — delegates to the shared family-generic

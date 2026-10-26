@@ -11,16 +11,22 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Report whether the terminal was resized since the last check"#;
 
-const DESC: &str = r#"`term::didResize` returns `TRUE` when the terminal (CLI) or window (`--app`) has
-changed size since the last time `term::didResize` was called, and `FALSE`
-otherwise. The flag is **cached**: once a resize is detected it stays `TRUE`
-across every intervening call until `term::didResize` observes it, so a program
-that only polls occasionally never misses a resize. Reading it clears it, so the
-very next call reports `FALSE` unless another resize has happened in between.
+const DESC: &str = r#"`term::didResize` returns `TRUE` when a size change of the terminal (CLI) or
+window (`--app`) has been noticed since the last time `term::didResize` was
+called, and `FALSE` otherwise. The flag is **cached**: once a resize is noticed
+it stays `TRUE` until `term::didResize` observes it, so a program that only
+polls occasionally never misses a resize. Reading it clears it, so the very next
+call reports `FALSE` unless another resize has been noticed in between. One
+other call clears it without reporting it: `term::on` resets every `term::`
+setting to its default, this flag included, so a resize noticed before a second
+`term::on` is not reported afterwards. `term::off` does not clear it — its final
+present can still notice a resize, and the next `term::didResize` reports it.
 
-A resize is noticed in both places a surface can live. In a terminal,
-`term::sync` re-reads the size on each frame, so a change is picked up the next
-time you present. In an `--app` build, the window reports its own size changes,
+A resize is noticed in both places a surface can live. In a terminal, only
+`term::sync` re-reads the size, once per frame, so a change is picked up the
+next time you present: a resize that happens between two `term::didResize`
+calls with no `term::sync` between them is reported after the next
+`term::sync`, not before. In an `--app` build, the window reports its own size changes,
 so live window resizes are reported the same way.
 
 Like `term::isOn`, this query is **not gated**: it reads state only and touches

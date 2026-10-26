@@ -16,7 +16,9 @@ const INTRO: &str = r#"Stamp a single glyph at a position by code point"#;
 const DESC: &str = r#"`term::drawGlyph` stamps the scalar named by `codepoint` into the cell at
 `row`/`column`, using the colours and attributes currently in effect. A scalar the
 terminal draws **double-width** also occupies the following column; at the right
-edge only its first cell is on the surface.
+edge only its first cell is on the surface. A combining mark or other zero-width
+scalar is placed in the cell by itself, one column wide; it does not combine
+with a neighbouring glyph.
 Coordinates are **zero-based** from the top-left and, like every other `term::`
 position, are written **row first, then column**. It does not move the cursor.
 This is the low-level counterpart to `term::drawText`: use it to place one
@@ -35,8 +37,8 @@ next `term::sync`.
 The call is gated: while TUI mode is off it does nothing and reports no
 error.
 
-A Linux terminal and all three app backends — macOS, Linux and Windows — draw
-this call. In an `mfb build --app` program, `term::drawGlyph` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
+A terminal on every platform and all three app backends — macOS, Linux and
+Windows — draw this call. In an `mfb build --app` program, `term::drawGlyph` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Place a marker character at the centre of the surface:
 

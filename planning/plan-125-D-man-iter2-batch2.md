@@ -596,10 +596,74 @@ clearAttributes, getAttributes, removeAttribute, toMarkdown), `term` 24 (21 chan
 plus the new enableMouse, measureText, pollMouse). The first list's 11 units are all
 in it or gone from the package.
 
-- [ ] 39 units reviewed and applied; ledger recorded.
-- [ ] Every example on the 11 pages compiled and run (`term` and mouse ones on a
-      pty), terminal restored.
-- [ ] `--memory-scope` and `--scope` clean for `io` and `term`.
+- [x] 39 units reviewed and applied; ledger recorded.
+      `--reconcile --letter D-phase6-current --units planning/plan-125-units/D-phase6-current.txt`
+      → `units=39 unaccounted=0 orphans=0`. 29 of the 39 first hit the usage
+      limit (429). They were re-run with `--jobs 2` after a fresh PONG; re-run
+      rows append, so reconcile reads each unit's last row. That batch's own
+      exit 1 is its reconcile against the 29-unit retry list, which counted
+      the 10 earlier rows as orphans.
+- [x] Every example on the 11 pages compiled and run (`term` and mouse ones on a
+      pty), terminal restored. All 39 pages, not just the 11:
+      - **io:** `/tmp/p125-fsex/ptyex.py` builds each block and runs it under a
+        pty, typing `hello⏎`, `q`, then EOF. 29/29 exit 0.
+      - **term:** `/tmp/p125-ex/d6-term/runall.py` (pty; `sync` 2 is an
+        interactive loop, so `q` is typed). 49/49 exit 0, each with TUI entered
+        and then left.
+      - **astrings:** `man-run-examples.sh astrings --run` → 17/17.
+- [x] `--memory-scope` and `--scope` clean for `io` and `term`.
+      `man-census.sh --memory-scope io term astrings` → `unclassified … 0`;
+      `--scope io term astrings` → `internals-vocabulary hits: 0`. `cli::man`
+      55 ok; `declared_errors` 31 ok.
+
+#### Phase 6 ledger — Fable iteration 2 (`planning/plan-125-findings/D-phase6-current/`)
+
+**Totals.** 131 findings: io 42, astrings 21, term 68 (`grep -c '^### '`).
+Applied by two helper agents, Sonnet for io+astrings and Opus for term, under
+the two-agent limit. Every finding was re-verified against the release binary
+before it was applied. The probes are in `/tmp/p125-ex/d6-io/` and
+`/tmp/p125-ex/d6-term/`. "App probe" means an `--app` build run with
+`MFB_HEADLESS=1`.
+
+**Dispositions.**
+- 4 out-of-scope sentences were cut → belongs-in-spec rows 93-96.
+- 11 findings turned out to be code bugs. They are listed below, and the page
+  keeps the intended contract until each is fixed.
+- 3 term pages had no findings (`drawBox`, `hideCursor`, `showCursor`).
+- Every other finding was applied, or confirmed true and left unchanged:
+  `io types` 5, `term types` 4, `drawGlyph` 5, `drawHLine` 3 and `pollMouse` 6
+  are UNVERIFIED claims that were then measured or kept with their evidence.
+
+| Page group | Findings | Main changes |
+|---|---|---|
+| io overview | 7 | piped escape sequences decode as keys; keystroke readers skip ill-formed UTF-8 while line readers raise `ErrEncoding` and resume at the next line; `readScalar` returns a `Scalar`; CR before LF stripped; ErrWriteFailed/SIGPIPE/ErrInputFailed/OOM conditions; negative timeout; app `Mode.None` → `ErrWrongMode` (measured) |
+| io input, readLine | 5 + 4 | CRLF; bad-UTF-8 line consumed whole; negative timeout raises before the prompt; error conditions; shared `TIMEOUT_DESC` |
+| io readGrapheme, readKey, readScalar, readRaw | 4 + 4 + 5 + 4 | pipe timeout rule; 128-byte cluster cap is a ceiling (201 → 127 + 74); meta reported from `\e[1;9B`; pipes can carry Release/Repeat; Ctrl with non-letters; Ctrl+H/Ctrl+M arrive as U+007F/U+000A; ESC+byte in a pipe; `readScalar` example printed `U+65` for 'A' → now "code point 65"; `readRaw` example handles `ErrEndOfFile` |
+| io setBuffered, types | 4 + 5 | the drain at exit is silent on failure (documented, `process_lifecycle.rs`); `io::isBuffered`; repeat calls harmless; `Key.grapheme`, `KeyEvent`, `shift`/`meta` qualified |
+| astrings overview, add/get/removeAttribute, clearAttributes, toMarkdown | 3 + 3 + 2 + 3 + 4 + 6 | all 14 reader overloads listed; scalar ranges vs graphemes; "check the text is non-empty"; colour attributes resolve too; non-matching remove is not an error; `clearAttributes` 1-arg declares `ErrOutOfMemory` (body calls `writeSpans`) and its example prints its output; toMarkdown escaping, empty font, unclosed final span, `::;-::` reset |
+| term overview, isOn, on, off | 5 + 4 + 5 + 5 | which calls work with TUI off, counted from the source: `on`, `isOn`, `didResize`, `enableMouse`, `pollMouse`. `measureText`/`terminalSize` raise `ErrUnsupported`. Five-step `on` list; Ctrl+C under kitty only at the next read; line readers also start the key handshake; `on` clears a pending resize; `off` while off withdraws mouse reporting; examples leave TUI mode |
+| term getters (4), clear, didResize, sync, terminalSize, types | 6 + 2 + 2 + 3 + 2 + 4 | "module" → "package"; getBackground's first sentence; getters return a value of their own; off-mode setters do not change the live state; Windows `--app` clear; resize reported after `sync`; present sends a fixed tail; `terminalSize` reads live; `MouseEvent` buildable/WITH-able |
+| term draw* (5), fillRect, measureText, enableMouse, pollMouse | 12 + 2 + 5 + 5 + 6 | half-wide-glyph clearing; empty `drawText`; colour alpha dropped; zero-width scalar takes a cell; fillRect example paints the background; control characters measure one cell; motion only while a button is held (no mode 1003); reset at exit/error/Ctrl-C; queue of 64, oldest first; `button` set during drag; each worker thread enables its own reporting |
+
+**Bugs found (11).**
+- **A** — `isOn` and the 4 getters never raised `ErrWrongMode` in `--app`.
+  Fixed in `e9aba9ac2`.
+- **B** — `drawText`/`drawGlyph` emit DEL and C1 controls raw.
+- **C** — a flag emoji measures 1 cell.
+- **D** — the macOS `--app` `drawGlyph` drops a wide glyph in the last column.
+- **E** — a failed resize still reports `didResize`.
+- **F** — a constant-false `IF` around the only `io::` call fails the build:
+  "NIR declares unused runtime helper".
+- **io 1** — `readLine` Backspace after a non-ASCII character raises
+  `ErrEncoding` on a terminal.
+- **io 2** — the most-negative timeout waits forever instead of raising.
+- **io 3** — `a.text` on an `AttributedString` compiles, and an unknown
+  field crashes the lowering.
+- **io 4** — `AttributedString & String` names `#astrings_concat` with no
+  location.
+- **io 5** — the `clearAttributes` descriptor, fixed above.
+
+Each unfixed one is fixed (or filed as a bug doc, if large) before D closes.
 
 Acceptance: `--reconcile --letter D-phase6-current` → 39 units, 0 unaccounted; sweeps
 clean; examples run.

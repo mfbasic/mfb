@@ -15,24 +15,28 @@ const DESC: &str = r#"`term::isOn` returns `TRUE` while the `term::` surface is 
 `term::on` and before the matching `term::off` — and `FALSE` otherwise, including
 before any `term::on` call. It takes no arguments.
 
-`term::on`, `term::isOn` and `term::didResize` are the three calls in the module
-that are **not gated**. Every other `term::` call short-circuits while TUI mode is
-off: the colour and attribute setters, `term::hideCursor`, `term::showCursor`,
-`term::clear`, `term::moveTo`, `term::sync` and all six drawing
-calls (`drawHLine`, `drawVLine`, `drawBox`, `fillRect`, `drawText`, `drawGlyph`)
-do nothing, `term::getForeground`/`getBackground`/`getBold`/`getUnderline` return
-inert defaults rather than live state, and `term::terminalSize` raises
-`ErrUnsupported`. That is what makes this query useful: it is the way to find out
-whether the rest of the surface will actually do anything.
+While TUI mode is off, most `term::` calls short-circuit: the colour and
+attribute setters, `term::hideCursor`, `term::showCursor`, `term::clear`,
+`term::moveTo`, `term::sync` and all six drawing calls (`drawHLine`, `drawVLine`,
+`drawBox`, `fillRect`, `drawText`, `drawGlyph`) do nothing, and
+`term::getForeground`/`getBackground`/`getBold`/`getUnderline` return inert
+defaults rather than live state. Two reads have no inert answer and raise
+`ErrUnsupported` instead: `term::terminalSize` and `term::measureText`. The rest
+work whether TUI mode is on or not: `term::on`, `term::isOn`, `term::didResize`,
+and the two mouse calls — `term::enableMouse` switches mouse reporting on or off
+at once, even before `term::on`, and `term::pollMouse` reports what arrived.
+`term::off` while off only turns off mouse reporting a program left on. That is
+what makes this query useful: it is the way to find out whether the surface will
+actually do anything.
 
 The answer changes only at `term::on` and `term::off`. `term::off` while already
 off leaves it `FALSE`; `term::on` while already on resets the surface again, but
 the answer stays `TRUE` throughout.
 
 The call reads state only: it touches neither the terminal, the alternate screen,
-nor the surface, and it cannot fail. In an `mfb build --app` program, `term::isOn` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
+nor the surface. In a terminal program it cannot fail; in an `mfb build --app` program, `term::isOn` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
-const EX: &str = r#"Enter TUI mode only once:
+const EX: &str = r#"Enter TUI mode only once, and leave it at the end:
 
 ```
 IMPORT term
@@ -41,6 +45,7 @@ FUNC main() AS Nothing
   IF NOT term::isOn() THEN
     term::on()
   END IF
+  term::off()
 END FUNC
 ```
 

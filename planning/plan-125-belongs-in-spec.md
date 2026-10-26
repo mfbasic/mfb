@@ -126,6 +126,10 @@ exists to prevent, so N's acceptance includes "no row is unresolved".
 | 90 | `strings::padLeft`, `padRight` | `You still get a new `String` back in that case, and `value` itself is never changed.` | `memory-vocab` | memory | OPEN | — |
 | 91 | `strings::stripPrefix`, `stripSuffix` | `Neither operand is modified, and you always get a new `String` back, even on the unchanged path.` | `memory-vocab` | memory | OPEN | — |
 | 92 | `strings::trim`, `trimStart`, `trimEnd`, `trimChars` | `the result is a new `String`, even when nothing was trimmed.` | `memory-vocab` | memory | OPEN | — |
+| 93 | `io::setBuffered` | `Passing `TRUE` only sets the enabled flag; the 4 KiB buffer itself is set up lazily on the first buffered write.` | `internals` | stdlib | OPEN | — |
+| 94 | `io::readRaw` | `Standard input is a per-thread broadcast log;` | `internals` | threading | OPEN | — |
+| 95 | `astrings::clearAttributes` | `(regardless of member — unlike `removeAttribute`, no structural match is required)` | `internals` | stdlib | OPEN | — |
+| 96 | `astrings::removeAttribute` | `its surviving left flank `[s.start, start−1]` and/or right flank `[endIndex+1, s.endIndex]` are kept and the overlap dropped` | `internals` | stdlib | OPEN | — |
 
 <!-- Row format:
      # ................ sequential, never reused
@@ -156,7 +160,7 @@ open      : grep -c '| OPEN |'  planning/plan-125-belongs-in-spec.md
 |---|---|---|
 | B | — | — |
 | C | 44 | 71 |
-| D | 21 | 92 |
+| D | 25 | 96 |
 | E | — | — |
 | F | — | — |
 | G | — | — |

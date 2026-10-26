@@ -158,18 +158,25 @@ source drives both. In an `--app` program the character grid exists only in
 `app::Mode.Console`: every `term::` call made while the program is in
 `app::Mode.None` or `app::Mode.Canvas` raises `ErrWrongMode`.
 
-`term::on` is the gate for the whole module. It switches the terminal into TUI
+`term::on` is the gate for the whole package. It switches the terminal into TUI
 mode and resets all `term::` state to its defaults (white foreground, black
 background, bold and underline off, cursor visible, screen cleared, cursor at
-the home position). While TUI mode is off, nearly every other `term::` call is a
-no-op, so a program must call `term::on` before any cursor, color, attribute, or
-clear call takes effect, and `term::off` later leaves TUI mode and restores the
-user's previous screen. Three calls are exceptions to the no-op rule.
-`term::isOn` and `term::didResize` are **not gated at all** and answer either way
-— `term::isOn` reports whether TUI mode is on, and `term::didResize` reports (and
-clears) a pending resize, reading `FALSE` before any `term::on`. `term::terminalSize` is
-the third: it **raises** `ErrUnsupported` rather than returning a meaningless
-size.
+the home position). While TUI mode is off, the cursor, color, attribute,
+clearing and drawing calls and `term::sync` are no-ops, so a program must call
+`term::on` before any of them takes effect, and `term::off` later leaves TUI mode
+and restores the user's previous screen. The other calls are not no-ops while
+TUI mode is off. `term::isOn` and `term::didResize` are **not gated at all** and
+answer either way — `term::isOn` reports whether TUI mode is on, and
+`term::didResize` reports (and clears) a pending resize, reading `FALSE` before
+any `term::on`. The getters (`term::getForeground`, `getBackground`, `getBold`,
+`getUnderline`) answer with the defaults. `term::terminalSize` and
+`term::measureText` **raise** `ErrUnsupported` rather than invent an answer. The
+mouse calls do not depend on TUI mode: `term::enableMouse` takes effect at once,
+on or off, and `term::pollMouse` reports what has arrived. `ErrOutOfMemory` is
+raised only when the program runs out of memory — by `term::on` while it sets up
+the surface, and by `term::getForeground`, `term::getBackground`,
+`term::pollMouse` and `term::terminalSize` while they build the value they
+return.
 
 While TUI mode is on the surface is **retained** and drawing is **buffered**:
 drawing calls (including `io::print`/`io::write`) update the surface rather
@@ -255,8 +262,9 @@ glyph for `term::fillRect`.
 `term::measureText` measures a `String` or an `AttributedString` in the
 same terminal grid cells that `term::drawText` advances; attributes do not change
 the answer. The empty string measures zero, and even a grapheme made entirely of
-zero-width characters occupies one cell. It is available only while the Console
-TUI is active; measure before `term::off` when the result is needed afterwards.
+zero-width characters occupies one cell. It raises `ErrUnsupported` while TUI
+mode is off — before `term::on` and after `term::off` — so measure before
+`term::off` when the result is needed afterwards.
 
 `term::MouseEvent` carries one thing the mouse did: `kind` (a
 `term::MouseKind` — `None`, `Down`, `Up`, `Move`, `Drag`, `ScrollUp`,
@@ -299,8 +307,10 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: TERM_SIZE_TYPE,
         export: true,
-        description: "The size of the drawing surface in whole character cells, \
-                      returned by `term::terminalSize`. A program cannot build one \
+        description: "The size of the terminal in whole character cells at the \
+                      moment `term::terminalSize` was called. The drawing surface \
+                      takes that size at the next `term::sync`, so right after a \
+                      resize the two can briefly differ. A program cannot build one \
                       or `WITH`-update it; ask `term::terminalSize` again after a \
                       resize rather than caching the first answer.",
         props: vec![
@@ -332,7 +342,9 @@ pub(crate) fn register(r: &mut Registry) {
         description: "One thing the mouse did, as reported by `term::pollMouse`. \
                       Test `kind` against `term::MouseKind.None` first: that is what \
                       an idle poll reports, and the rest of the record is \
-                      meaningless when it does.",
+                      meaningless when it does. It is an ordinary record: a program \
+                      may build one with `term::MouseEvent[…]` and make a changed \
+                      copy with `WITH`, for example to replay an event.",
         props: vec![
             RecordProp {
                 name: "kind",
@@ -343,8 +355,9 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "button",
                 ty: ParameterType::named("MouseButton"),
-                description: "Which button the event is about. `None` for motion and \
-                              wheel events, which belong to no button.",
+                description: "Which button the event is about. `None` for `Move` and \
+                              the two wheel kinds, which belong to no button; a \
+                              `Drag` reports the button being held.",
             },
             RecordProp {
                 name: "row",
@@ -385,9 +398,10 @@ pub(crate) fn register(r: &mut Registry) {
         variants: vec![
             EnumVariant {
                 name: "None",
-                description: "Nothing is pending. What an idle `term::pollMouse` \
-                              reports, and what a terminal that does not report \
-                              mouse activity always reports.",
+                description: "Nothing is pending. What `term::pollMouse` reports \
+                              when idle, before `term::enableMouse(TRUE)` has been \
+                              called, and on a terminal that does not report mouse \
+                              activity at all.",
                 advisory: None,
             },
             EnumVariant {
@@ -403,7 +417,9 @@ pub(crate) fn register(r: &mut Registry) {
             EnumVariant {
                 name: "Move",
                 description: "The mouse moved with no button held. `button` is \
-                              `None`.",
+                              `None`. A terminal never reports it: \
+                              `term::enableMouse` asks a terminal for drags, not \
+                              for motion with no button held.",
                 advisory: None,
             },
             EnumVariant {
@@ -433,7 +449,7 @@ pub(crate) fn register(r: &mut Registry) {
         variants: vec![
             EnumVariant {
                 name: "None",
-                description: "No button — what motion and wheel events report.",
+                description: "No button — what `Move` and wheel events report.",
                 advisory: None,
             },
             EnumVariant {

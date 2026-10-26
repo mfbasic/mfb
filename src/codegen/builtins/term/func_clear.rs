@@ -26,15 +26,15 @@ occupies, not into the ones the clear leaves behind.
 `term::moveTo(0, 0)` is redundant.
 
 Like the rest of the surface, `term::clear` is buffered: it changes the surface
-and sends nothing to the terminal. In a terminal and in a macOS `--app` build the
-blanked screen appears when the program calls `term::sync`; a Linux `--app` build
-repaints from the clear itself. It also leaves the *current* attributes alone — the
+and sends nothing to the terminal. In a terminal, and in a macOS or Windows
+`--app` build, the blanked screen appears when the program calls `term::sync`; a
+Linux `--app` build repaints from the clear itself. It also leaves the *current* attributes alone — the
 foreground, background, bold, underline, and cursor-visibility settings that
 subsequent drawing will use are untouched; only the cells are.
 
 The call is gated: while TUI mode is off it does nothing. `term::on` already hands
 back a cleared surface, so an explicit `term::clear` is for blanking again between
-frames — which is exactly what the canonical render loop does. In an `mfb build --app` program, `term::clear` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
+frames — which is exactly what the canonical render loop does. In an `mfb build --app` program the mode check comes first: `term::clear` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`, whether or not TUI mode is on; see `mfb man app`."#;
 
 const EX: &str = r#"Blank the surface and draw from the top of each frame:
 

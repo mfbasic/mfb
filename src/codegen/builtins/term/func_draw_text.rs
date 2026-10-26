@@ -45,7 +45,8 @@ stamps the same visible text as the `String` overload but honours the per-scalar
 styling the value carries: the attributes the terminal surface can represent —
 **bold**, **underline**, **foreground colour** and **background colour** — are
 applied per run, and every other attribute (italic, strikethrough, overline, font,
-font size) is silently ignored. Grapheme-cluster and wide-glyph handling matches the
+font size) is silently ignored. A colour is applied without its alpha: a
+half-transparent colour draws exactly as the opaque one does. Grapheme-cluster and wide-glyph handling matches the
 `String` overload exactly: a cluster is always drawn whole in its own cells, and it
 takes the style of its **first** scalar — a style that changes inside a cluster (bold
 on a combining mark, say) is not shown. Your own current bold, underline, foreground
@@ -138,7 +139,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "text",
-                    desc: "The text to stamp, one grid position per grapheme cluster (a double-width cluster takes two columns). Characters below U+0020 are skipped: each advances one column and stamps nothing. An `AttributedString` additionally applies its per-scalar bold, underline, foreground and background (other attributes ignored).",
+                    desc: "The text to stamp, one grid position per grapheme cluster (a double-width cluster takes two columns). Characters below U+0020 are skipped: each advances one column and stamps nothing. An empty string draws nothing and is not an error. An `AttributedString` additionally applies its per-scalar bold, underline, foreground and background (other attributes ignored).",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

@@ -79,26 +79,46 @@ the bytes that were sent. From a terminal or an `--app` window they read keys:
 `io::readKey` returns one key as an `io::Key` — the key's name, its text, its
 modifiers, and whether it was pressed, repeated or released — so the arrows,
 Home, End, Escape, the function keys and Ctrl or Alt combinations come out the
-same on every platform. `io::readGrapheme` and `io::readScalar` return only text,
-one user-perceived character or one Unicode scalar at a time, and skip keys that
-type nothing. From a pipe or a file the same calls read the data as it is: an
-escape byte in the data is text, not a key. `io::readRaw` returns the next byte
-exactly as it arrived, whatever the source.
+same on every platform. `io::readGrapheme` returns one user-perceived character
+as a `String` and `io::readScalar` returns one Unicode scalar as a `Scalar`
+(convert it with `toString` to join it to text); both skip keys that type
+nothing. The keystroke readers decode the same way whatever the source: from a
+pipe or a file an escape sequence is still a key (`ESC [ A` is Up, `ESC b` is
+Alt+b, a control byte is a Ctrl chord), so `io::readKey` reports it and
+`io::readGrapheme` and `io::readScalar` skip it just as they would a typed
+arrow. `io::readLine` and `io::input` are line readers and keep an escape byte
+as text, and `io::readRaw` returns the next byte exactly as it arrived,
+whatever the source.
 
 `io::input` reads a whole line with normal terminal echo and an optional prompt;
 `io::readLine` reads a line without a prompt and, on a terminal, suppresses echo
-while it reads — which is what makes it the one to use for a passphrase. Line
-and text reads reject ill-formed UTF-8 rather than substituting replacement
-characters.
+while it reads — which is what makes it the one to use for a passphrase. A line
+ends at a line feed; a carriage return just before it (a CRLF ending) is removed
+with it, so the returned `String` carries neither. `io::input` and `io::readLine`
+reject an ill-formed UTF-8 line with `ErrEncoding` rather than substituting
+replacement characters; the whole offending line is discarded, so the next read
+starts at the line after it. `io::readKey`, `io::readGrapheme` and
+`io::readScalar` skip a byte that is not valid UTF-8 and move on; use
+`io::readRaw` to see the bytes themselves.
 
 Every reader takes an optional `timeoutMs`: omitted, the call waits for as long
 as it takes; `0` makes one immediate attempt, which is how a game loop asks
 "was a key pressed?" without stopping; a positive value waits up to that many
-milliseconds. A wait that runs out raises `ErrTimeout` and loses nothing — a
+milliseconds, and a negative value raises `ErrInvalidArgument`. A wait that
+runs out raises `ErrTimeout` and loses nothing — a
 half-read line is still there for the next read. End of input is reported as an
 error, not as an empty or sentinel result, once no input is left: a final line
 with no terminator is still returned, and only the next read reports end of
 input.
+
+A write or flush that the operating system refuses raises `ErrWriteFailed`;
+buffered output not yet written stays pending for the next flush. The one
+exception is the reader of a pipeline closing early (`prog | head`): the
+program then ends with SIGPIPE (exit status 141), as any shell tool does, and no
+error is raised. A read of standard input that the operating system refuses
+raises `ErrInputFailed`, and `ErrOutOfMemory` means the program ran out of
+memory. In an `--app` build the readers take their input from the window, so
+they raise `ErrWrongMode` in `app::Mode.None`, which has no window.
 
 A program started with one of its standard streams closed, as `prog <&-` or
 `prog >&-` does in a shell, finds the null device in its place: reading a closed
@@ -216,10 +236,13 @@ fn register_key_types(pkg: &mut RegistryPackage) {
             RecordProp {
                 name: "grapheme",
                 ty: ParameterType::String,
-                description: "What the keystroke typed — what `io::readGrapheme` \
-                              would return for it — or `\"\"` for a key with no \
-                              Unicode value. For a Ctrl chord it is the key's own \
-                              character (`\"a\"` for Ctrl+A).",
+                description: "The text the key types — `\"a\"`, `\"A\"` for Shift+A, \
+                              `\"\\n\"` for Enter — or `\"\"` for a key with no \
+                              Unicode value. It is always the key's own character, \
+                              even where `io::readGrapheme` would return something \
+                              else: `\"a\"` for Ctrl+A (`io::readGrapheme` returns \
+                              U+0001), and still the character on a release \
+                              (`io::readGrapheme` skips a release).",
             },
             RecordProp {
                 name: "event",
@@ -230,7 +253,10 @@ fn register_key_types(pkg: &mut RegistryPackage) {
             RecordProp {
                 name: "shift",
                 ty: ParameterType::Boolean,
-                description: "`TRUE` when Shift was held.",
+                description: "`TRUE` when Shift was held and the input reports it. A \
+                              plain terminal reports Shift only with a named key \
+                              (Shift+Tab, Shift+Up); Shift+A arrives as `\"A\"` \
+                              with `shift` `FALSE`.",
             },
             RecordProp {
                 name: "ctrl",
@@ -246,7 +272,11 @@ fn register_key_types(pkg: &mut RegistryPackage) {
                 name: "meta",
                 ty: ParameterType::Boolean,
                 description: "`TRUE` when Meta was held — Command on macOS, the \
-                              Windows or Super key elsewhere.",
+                              Windows or Super key elsewhere. Reported by an \
+                              `--app` window, by a terminal speaking the kitty \
+                              keyboard protocol, and by a plain terminal for a \
+                              named key; a plain terminal never reports it for a \
+                              letter.",
             },
         ],
     });
@@ -275,10 +305,13 @@ fn register_key_types(pkg: &mut RegistryPackage) {
             ),
             (
                 KeyEvent::NotSupported,
-                "The input cannot tell a press from a repeat or a release — a \
-                 terminal outside the kitty keyboard protocol, a pipe, a file. \
-                 Every key is reported once, as it is typed, and no release \
-                 arrives.",
+                "The input did not say which it was: a keystroke from a terminal \
+                 that is not reporting kitty-protocol key events (one that \
+                 speaks the protocol reports them only while `term::on` is \
+                 active), or bytes from a pipe or a file that do not spell an \
+                 event. Such a key is reported once, as it is typed. Bytes \
+                 that do spell a kitty press, repeat or release are reported \
+                 as that event, whatever the source.",
             ),
         ]
         .into_iter()

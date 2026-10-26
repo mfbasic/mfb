@@ -135,11 +135,13 @@ no styling. `repeat` is the one exception: every copy carries the styling of the
 original. `upper`, `lower`, `caseFold`, and `normalizeNfc` return the changed
 text with no styling.
 
-The readers include `byteLen`, `contains`, `count`, `startsWith`,
-`endsWith`, `find`, `graphemes`, and `split`; the text-changing functions include
+The readers are `byteLen`, `contains`, `count`, `startsWith`, `startsWithAny`,
+`endsWith`, `endsWithAny`, `find`, `graphemes`, `graphemesCount`, `graphemeAt`,
+`split`, `toBytes`, and `toScalars`; the text-changing functions include
 `left`, `right`, `mid`, the `trim` family, `stripPrefix`/`stripSuffix`, the four
 padding functions, `repeat`, and `replace`. `a & b` joins two `AttributedString`
-values, text and styling together; there is no mixing with a plain `String`. See
+values, text and styling together; joining one with a plain `String`, in either
+order, is a compile error. See
 `mfb man strings`.
 
 Import the package with `IMPORT astrings`; it needs no manifest dependency.

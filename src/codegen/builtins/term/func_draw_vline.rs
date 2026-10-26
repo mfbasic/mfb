@@ -40,7 +40,10 @@ horizontal forms.
 
 Drawing a line does not move the cursor and does not change the current
 colours or attributes; it overwrites only the cells in the run, so a later draw
-over the same cell (for example a crossing horizontal line) wins. The same surface
+over the same cell (for example a crossing horizontal line) wins. One exception
+in a terminal: if a run cell lands on either half of a double-width glyph (such
+as `世`), the glyph's other half is blanked to a space as well, so no
+half-character is left on the surface. The same surface
 is rendered on the console backend and in windowed app mode.
 
 The call is gated: while TUI mode is off it does nothing and reports no

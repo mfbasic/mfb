@@ -36,11 +36,14 @@ The `line` argument is a `term::LineStyle` enum value selecting the weight and p
 `term::LineStyle.Light` (`─`), `term::LineStyle.Heavy` (`━`), `term::LineStyle.LightDash` (`┄`),
 `term::LineStyle.HeavyDash` (`┅`), `term::LineStyle.LightDot` (`┈`), `term::LineStyle.HeavyDot`
 (`┉`), and `term::LineStyle.Double` (`═`). `term::drawVLine` draws the matching vertical
-forms.
+forms, and `term::drawBox` draws a closed frame with matching corner glyphs.
 
 Drawing a line does not move the cursor and does not change the current
 colours or attributes; it overwrites only the cells in the run, so a later draw
-over the same cell (for example a crossing vertical line) wins. The same surface
+over the same cell (for example a crossing vertical line) wins. One exception
+in a terminal: if an end of the run lands on half of a double-width glyph (such
+as `漢`), the glyph's other half is blanked to a space as well, so no
+half-character is left on the surface. The same surface
 is rendered on the console backend and in windowed app mode.
 
 The call is gated: while TUI mode is off it does nothing and reports no
@@ -60,7 +63,9 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Frame a box with two horizontal and two vertical lines:
+Outline a box with two horizontal and two vertical lines. The corners come out
+as `│`, because the vertical lines are drawn last and win; `term::drawBox` draws
+a frame with real corner glyphs:
 
 ```
 IMPORT term

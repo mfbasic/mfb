@@ -46,9 +46,13 @@ read. A negative `timeoutMs` raises `ErrInvalidArgument`.
 
 End of input raises `ErrEndOfFile`, never a sentinel byte, so all 256 byte values
 are data. The readers share one queue of input, so `io::readRaw` can be mixed
-with the other `io` readers without losing or reordering a byte. Standard input
-is a per-thread broadcast log; a thread other than the main thread must subscribe
-with `thread::openStdIn` before reading, or the call raises `ErrInvalidContext`. `ErrOutOfMemory` means the program ran out of memory."#;
+with the other `io` readers without losing or reordering a byte. A worker
+thread must subscribe with `thread::openStdIn` before reading, or the call
+raises `ErrInvalidContext`. In an `--app` build the program must be in
+`app::Mode.Console` or `app::Mode.Canvas`; in `app::Mode.None` there is no
+window to take bytes from and the call raises `ErrWrongMode`. A read of standard
+input that the operating system refuses raises `ErrInputFailed`, and
+`ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read one byte and report its value:
 
 ```
@@ -61,7 +65,8 @@ FUNC main AS Integer
 END FUNC
 ```
 
-Take a byte only if one is already waiting:
+Take a byte only if one is already waiting. `ErrTimeout` means nothing has
+arrived yet; closed input is `ErrEndOfFile` and is handled separately:
 
 ```
 IMPORT errorCode
@@ -73,6 +78,10 @@ FUNC main AS Integer
       io::print("nothing waiting")
       RETURN 0
     END IF
+    IF e.code = errorCode::ErrEndOfFile THEN
+      io::print("input closed")
+      RETURN 0
+    END IF
     FAIL e
   END TRAP
   io::print("got " & toString(b))
@@ -80,7 +89,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const TIMEOUT_DESC: &str = "Optional. How long to wait for input, in milliseconds. Omit to wait for as long as it takes; `0` makes one immediate attempt; a positive value waits up to that long, then raises `ErrTimeout`. Must not be negative.";
+pub(crate) const TIMEOUT_DESC: &str = "Optional. How long to wait for input, in milliseconds. Omit to wait for as long as it takes; `0` makes one immediate attempt; a positive value waits up to that long, then raises `ErrTimeout`. A negative value raises `ErrInvalidArgument`.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
