@@ -50,12 +50,12 @@ session from ending and the probe never returns.
 | Must be true | Command | Status |
 |---|---|---|
 | plan-125-C complete | `grep -c '^- \[ \]' planning/completed/plan-125-C-man-iter2-batch1.md` → `0` | MET 2026-09-16: `0` open; all four Commit lines filled (closed `c420fec6c`) |
-| plan-125-A gate: release `mfb` at HEAD | `cargo build --release` after the last source edit | MET 2026-09-16: rebuilt after `c420fec6c` (the last source change); later commits touch only `planning/` |
+| plan-125-A gate: release `mfb` at HEAD | `cargo build --release` after the last source edit | MET 2026-10-26: rebuilt after the fast-forward to `d58b5397a` (`target/release/mfb` `Oct 26 06:43`) |
 | ~~plan-125-A gate: `codex` CLI~~ (superseded 2026-09-25) | `~/local/bin/codex --version` | MET 2026-09-16: `codex-cli 0.153.0` — Phases 1, 2 and 14 of Phase 3's 26 units ran on it |
-| reviewer gate: Claude Code CLI | `claude --version` | MET 2026-09-25: `2.1.281 (Claude Code)` |
-| reviewer gate: account can spend a request | the Fable PONG probe above, from `/tmp` | MET 2026-09-25: `PONG`, exit 0; re-run before every batch |
-| plan-125-A gate: no peer mid-flight in D's packages | recent commits on all refs touching `src/codegen/builtins/{io,astrings,term,strings,fs}`, then a content diff of the newest peer checkpoint against `main` on those paths | MET 2026-09-16: the only recent commits are a peer session's t3 checkpoints (whole-tree snapshots, newest `b9681abc8`); its content diff against `main` in these five packages is empty, so no prose edit is in flight |
-| this branch's pages are current | content diff `HEAD...main` on the same five package paths | MET 2026-09-16: 8 lines in `astrings/gen_astrings.rs` (lowering code, no page prose) |
+| reviewer gate: Claude Code CLI | `claude --version` | MET 2026-10-26: `2.1.310 (Claude Code)` |
+| reviewer gate: account can spend a request | the Fable PONG probe above, from `/tmp` | MET 2026-10-26: `PONG`, exit 0 (before the `D-phase4-current` batch); re-run before every batch |
+| plan-125-A gate: no peer mid-flight in D's packages | recent commits on all refs touching `src/codegen/builtins/{io,astrings,term,strings,fs}`, then a content diff of the newest peer checkpoint against `main` on those paths | MET 2026-09-16: the only recent commits are a peer session's t3 checkpoints (whole-tree snapshots, newest `b9681abc8`); its content diff against `main` in these five packages is empty, so no prose edit is in flight. Re-checked 2026-10-26: `git status --porcelain` on these paths is empty in every live worktree; the only unmerged commits touching them are t3 checkpoint snapshots, and the newest (`d1c6d393c`, 2026-10-17) is OLDER content than main (diffing main against it removes main's `strings::lineBreaks`), so it is not an edit in flight |
+| this branch's pages are current | content diff `HEAD...main` on the same five package paths | MET 2026-10-26: `git diff HEAD...main -- src/codegen/builtins/{io,astrings,term,strings,fs} \| wc -l` → `0` after the fast-forward |
 
 ## 1. Goal
 
@@ -461,15 +461,15 @@ Acceptance: 26 units `exit 0`; sweeps clean; every `term` example leaves the
 terminal restored (verified by running it).
 Commit: f58c14267 (Codex half, 14 of 26), 3be554816 (closed)
 
-### Phase 4 — strings (42 units)
+### Phase 4 — strings (43 units; was 42 — see Corrections 2026-10-26)
 
-- [ ] 41 pages + overview.
+- [ ] 41 pages + overview + types (`D-phase4-current.txt`).
 - [ ] Every Unicode claim probe-verified; every performance hint checked
       against memory `string-concat-beats-list-join-in-mfb` before it is left
       standing.
 - [ ] Every example compiled and run; ledger recorded.
 
-Acceptance: 42 units `exit 0`; sweeps clean; no page advises an accumulation
+Acceptance: 43 units `exit 0` (`--reconcile --letter D-phase4-current`); sweeps clean; no page advises an accumulation
 pattern the measurement contradicts.
 Commit: —
 
@@ -582,6 +582,31 @@ Commit: —
   in no worktree, and in no `completed/` directory, so they did not collide. New
   plan-125 bugs must check all refs and every worktree's `bugs/`, not just `main`.
   The historical 721 references above describe the first renumbering.
+
+- **2026-10-26: the branch was 2589 commits behind main; fast-forwarded to
+  `d58b5397a`.** `git rev-list --count HEAD..main` → 2589, `main..HEAD` → 0 (every
+  plan-125 commit was already on main), so `git merge --ff-only main` was clean.
+  Consequences, all measured with the release `mfb` at HEAD:
+  - The `D-phase4-postmerge`, `D-phase5` and `D-phase6` runs never reviewed most of
+    their units: 17 of 22, 39 of 43 and 8 of 11 rows are `FAILED` after 2-5 s, and
+    the logs say `api_error_status":429 … "You've hit your session limit"`
+    (`planning/plan-125-findings/D-phase4/man-page-strings-right.log`). The
+    findings directories for those three runs were never committed.
+  - `strings` is now **43 units**, not 42: `displayWidth` was removed
+    (`4e2ed201f refactor(strings): remove display width API`), `lineBreaks` was
+    added (`c4a3bf5c4 plan-162-E`), and a `types` page renders
+    (`mfb man strings --all`, page titles before each `═` rule). 22 non-plan-125
+    commits changed `src/codegen/builtins/strings` since `c420fec6c`
+    (`git log --no-merges c420fec6c..HEAD -- src/codegen/builtins/strings | grep -vc plan-125`).
+    Phase 4 is therefore re-run whole on the current tree as
+    `planning/plan-125-units/D-phase4-current.txt` (43 units); the older
+    `D-phase4` findings stay as the record of the first pass.
+  - `fs` is now **47 units** (45 functions + overview + types), not 43; Phase 5
+    runs `planning/plan-125-units/D-phase5-current.txt`, cross-checked against the
+    rendered page titles of `mfb man fs --all`.
+  - Phases 1-3 (`io`, `astrings`, `term`) were closed before 2589 more commits of
+    main landed; Phase 6's 11-unit list was derived from the first merge only and
+    is re-derived from a fresh diff (see Phase 6).
 
 ## Summary
 
