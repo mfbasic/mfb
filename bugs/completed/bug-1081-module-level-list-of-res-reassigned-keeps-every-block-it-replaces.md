@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Fixed. No longer reproduces at HEAD cdecc60c1 (after the plan-183 arena redesign); the fixing commit was not traced. No regression test pins it.
-Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `live_bytes` does not grow between `N=10` and `N=40`
+Status: Fixed between b6bf0327b (leaks) and 3745e626a (does not), before plan-183; the fixing commit was not bisected.
+Regression Test: tests/runtime/rt_global_list_of_res_reassigned.rs
 
 `MUT gF AS List OF RES fs::File = []` at module level, assigned a fresh list on every
 iteration (`gF = copyF(files)`, where `copyF` builds and returns a new list of its argument's
@@ -105,3 +105,6 @@ Re-verified 2026-10-26 at HEAD cdecc60c1 (release build, `mfb build -q --debug`)
 `gH = files` conversion form also stays flat (57 / 53 / 512 and 177 / 173 / 512). The constant
 512 bytes are the module-level values of bug-1068. The owner question in this document (release
 at the assignment or at teardown) is moot for this bug: the replaced blocks are now freed.
+
+Correction: an earlier note credited plan-183. A compiler built at 3745e626a (2026-10-12) already
+gives the fixed counts; one built at b6bf0327b reproduces the leak and fails the regression test.

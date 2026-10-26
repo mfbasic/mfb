@@ -805,6 +805,10 @@ name = "rt_global_self_update"
 path = "tests/runtime/rt_global_self_update.rs"
 
 [[test]]
+name = "rt_global_list_of_res_reassigned"
+path = "tests/runtime/rt_global_list_of_res_reassigned.rs"
+
+[[test]]
 name = "rt_owned_argument"
 path = "tests/runtime/rt_owned_argument.rs"
 
