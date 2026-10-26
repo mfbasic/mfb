@@ -675,7 +675,7 @@ Acceptance: specs render with no leaked `[[` and every new citation resolves.
   `memory --all` → 0 `[[`; `tooling --all` → 1, the debugger's own
   `[[sp+0x10]+8]` location syntax, identical with the `89a4dce2c` compiler;
   `mfb man optimizations` renders the row "Load/store pair formation (ldp/stp)".
-Commit: this commit
+Commit: 56fad9ca2
 
 ## Validation Plan
 
