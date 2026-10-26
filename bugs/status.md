@@ -192,7 +192,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 1035   | MED      | a function's emitted code is quadratic in its fallible statements (every exit path repeats the cleanup) and the compiler holds about 700 bytes per instruction, so 150 inline TRAPs peak at 1.14 GB (what bug-860 left; owner decided: share cleanup tails, which moves goldens, and cut the allocator's memory) |
-| [ ]  | 835    | MED      | `typeName(x)` under an inline `TRAP` fails the build with an internal error (`native code plan does not emit runtime helper '_mfb_rt_general_typeName'`) |
 | [ ]  | 838    | LOW      | `ErrStackOverflow` carries `source.line = 0`, `source.char = 0` — no usable origin location |
 
 ## Lambdas, native wrappers and function values
