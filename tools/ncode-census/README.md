@@ -52,9 +52,15 @@ function's stream (a label is an instruction, so nothing adjacent spans a label)
 | `str_pair_legal`, `ldr_pair_legal` | candidates `optimizer::opt2::pairing` may merge: lower offset in −512…504 and a multiple of 8; for loads, the first destination is not the base and the two destinations differ |
 | `pair_reject:<reason>` | candidates failing a rule: `range`, `align`, `dst_is_base`, `same_dst` |
 | `cmp0_eq_branch` | `cmp_imm r, 0` then `b.eq`/`b.ne` (`cbz`/`cbnz` shape, plan-171-B) |
+| `cmp0_eq_branch_flags_dead` | those whose condition flags are dead after the branch on every path (`flags_dead_after`: a branch reads, a compare or `adds`/`subs` writes, anything else — calls included — keeps; a branch out of the function counts as live) — the ones plan-171-B may fold |
 | `cmp0_sign_branch` | `cmp_imm r, 0` then `b.lt`/`b.ge` (sign-bit `tbz`/`tbnz` shape) |
+| `cmp0_sign_branch_flags_dead` | those with the flags dead after the branch |
+| `cmpz_eq_branch` | `mov_imm z, 0`, then `cmp` naming `z`, then `b.eq`/`b.ne` (a compare with zero through a register) |
+| `rv_zero_reg_branch` | riscv64: `mov_imm z, 0` then `rv.br eq/ne` naming `z` (`rv.br` could name `zero`) |
 | `movimm_feeds_logical` | `mov_imm R` then `and`/`orr`/`eor` reading `R` (logical-immediate shape, plan-171-C) |
 | `single_bit_test` | `mov_imm R, 2^k; and D, X, R; cmp_imm D, 0; b.eq/b.ne` (`tbz`/`tbnz` shape) |
+| `single_bit_test_reg` | the same with the zero in a register: `…; and D, X, R; mov_imm Z, 0; cmp D, Z; b.eq/b.ne` |
+| `rv_single_bit_test` | riscv64: `mov_imm R, 2^k; and D, X, R; [mov_imm Z, 0;] rv.br eq/ne D, zero/Z` |
 | `bool_diamond` | `b.cc L1; mov_imm R, 0|1; b L2; L1: mov_imm R, 1|0; L2:` (`cset` shape, plan-171-D) |
 | `match_chains`, `match_chain_compares` | runs of ≥ 3 consecutive `cmp_imm r, k; b.eq` on one register, and the compares in them (jump-table shape, plan-171-F) |
 
@@ -64,8 +70,9 @@ no metric can split candidates by it.
 
 ## Baselines
 
-`baseline-<target>.tsv`, produced at `89a4dce2c` (main, after call-graph DCE) by the
-release `mfb` of that commit:
+`baseline-<target>.tsv`, produced at `ba1964e81` (plan-171-B's starting commit: main
+after plan-171-A and plans 175/182/183) by the release `mfb` of that commit (plan-171-A's
+`89a4dce2c` baselines are in git history):
 
 ```
 tools/ncode-census/ncode-census.sh target/release/mfb <target> tools/ncode-census/baseline-<target>.tsv
@@ -76,5 +83,5 @@ build for the first three. `linux-riscv64` carries 43: twelve are app-mode proje
 compiler refuses app mode on riscv64), and `benchmark/language/mfb` fails with the
 compiler panic `rv64 v128: function needs 172 concurrent vector slots, exceeding the
 126-slot region` (`src/arch/riscv64/select.rs:select_riscv64`, pre-existing at
-`89a4dce2c`). A later letter compares its own run against these with `--diff` (or
+`89a4dce2c`, bug-1112). A later letter compares its own run against these with `--diff` (or
 re-baselines at its own starting commit and says which).

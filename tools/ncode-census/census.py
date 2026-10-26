@@ -86,6 +86,81 @@ def power_of_two(value):
     return number is not None and number > 0 and number & (number - 1) == 0
 
 
+FLAG_SETTERS = {"cmp", "cmp_imm", "adds", "subs", "fcmp_d", "fcmp_zero_d"}
+TERMINATORS = BRANCH_OPS | {
+    "b", "ret", "branch_self", "rv.br", "cbz", "cbnz", "tbz", "tbnz", "x86.jae", "x86.jp",
+    "x86.jnp", "x86.ja", "x86.jb", "x86.jbe", "x86.je", "x86.jne",
+}
+FLAG_READERS = BRANCH_OPS | {
+    "x86.jae", "x86.jp", "x86.jnp", "x86.ja", "x86.jb", "x86.jbe", "x86.je", "x86.jne",
+}
+
+
+def flags_dead_after(instructions):
+    """Per instruction, whether the condition flags are dead after it on every
+    path (the plan-171-B `flagslive` rule): a branch reads them, a compare /
+    flag-setting add or subtract writes them, everything else (calls included)
+    keeps them; `ret` and `branch_self` end dead; a branch to a label outside
+    the function counts as live."""
+    n = len(instructions)
+    leader = [False] * n
+    for k, ins in enumerate(instructions):
+        if ins["op"] == "label":
+            leader[k] = True
+        if ins["op"] in TERMINATORS and k + 1 < n:
+            leader[k + 1] = True
+    if n:
+        leader[0] = True
+    starts = [k for k in range(n) if leader[k]]
+    block_of, label_block = [0] * n, {}
+    for b, start in enumerate(starts):
+        end = starts[b + 1] if b + 1 < len(starts) else n
+        for k in range(start, end):
+            block_of[k] = b
+        if instructions[start]["op"] == "label":
+            label_block[instructions[start].get("name")] = b
+    blocks = []
+    for b, start in enumerate(starts):
+        end = starts[b + 1] if b + 1 < len(starts) else n
+        last = instructions[end - 1]["op"]
+        succ, unknown = [], False
+        if last in TERMINATORS and last not in ("ret", "branch_self"):
+            target = instructions[end - 1].get("target")
+            if target in label_block:
+                succ.append(label_block[target])
+            else:
+                unknown = True
+        if (last not in ("b", "ret", "branch_self")) and b + 1 < len(starts):
+            succ.append(b + 1)
+        blocks.append((start, end, succ, unknown))
+
+    def step(live, op):
+        if op in FLAG_READERS:
+            return True
+        if op in FLAG_SETTERS:
+            return False
+        return live
+
+    live_in = [False] * len(blocks)
+    changed = True
+    while changed:
+        changed = False
+        for b in range(len(blocks) - 1, -1, -1):
+            start, end, succ, unknown = blocks[b]
+            live = unknown or any(live_in[s] for s in succ)
+            for k in range(end - 1, start - 1, -1):
+                live = step(live, instructions[k]["op"])
+            if live != live_in[b]:
+                live_in[b], changed = live, True
+    dead = [False] * n
+    for start, end, succ, unknown in blocks:
+        live = unknown or any(live_in[s] for s in succ)
+        for k in range(end - 1, start - 1, -1):
+            dead[k] = not live
+            live = step(live, instructions[k]["op"])
+    return dead
+
+
 def census_function(instructions):
     """Pattern counts for one function's instruction stream."""
     counts = Counter()
@@ -94,6 +169,7 @@ def census_function(instructions):
     for op in ops:
         counts["op:" + op] += 1
     n = len(instructions)
+    dead = flags_dead_after(instructions) if "cmp_imm" in ops or "cmp" in ops else [False] * n
     for k in range(n - 1):
         a, b = instructions[k], instructions[k + 1]
         lower = pair_candidate(a, b)
@@ -109,11 +185,46 @@ def census_function(instructions):
         if a["op"] == "cmp_imm" and is_zero(a.get("rhs")):
             if b["op"] in ("b.eq", "b.ne"):
                 counts["cmp0_eq_branch"] += 1
+                counts["cmp0_eq_branch_flags_dead"] += dead[k + 1]
             elif b["op"] in ("b.lt", "b.ge"):
                 counts["cmp0_sign_branch"] += 1
+                counts["cmp0_sign_branch_flags_dead"] += dead[k + 1]
         if (a["op"] == "mov_imm" and b["op"] in ("and", "orr", "eor")
                 and a.get("dst") in (b.get("lhs"), b.get("rhs"))):
             counts["movimm_feeds_logical"] += 1
+    for k in range(n - 2):
+        z, c, br = instructions[k:k + 3]
+        if (z["op"] == "mov_imm" and is_zero(z.get("value"))
+                and br["op"] in ("b.eq", "b.ne") and c["op"] == "cmp"
+                and z.get("dst") in (c.get("lhs"), c.get("rhs"))):
+            counts["cmpz_eq_branch"] += 1
+        if (z["op"] == "mov_imm" and is_zero(z.get("value")) and c["op"] == "rv.br"
+                and c.get("cond") in ("eq", "ne")
+                and z.get("dst") in (c.get("lhs"), c.get("rhs"))):
+            counts["rv_zero_reg_branch"] += 1
+    for k in range(n - 4):
+        m, l, z, c, br = instructions[k:k + 5]
+        if (m["op"] == "mov_imm" and power_of_two(m.get("value"))
+                and l["op"] == "and" and m.get("dst") in (l.get("lhs"), l.get("rhs"))
+                and z["op"] == "mov_imm" and is_zero(z.get("value"))
+                and c["op"] == "cmp" and l.get("dst") in (c.get("lhs"), c.get("rhs"))
+                and z.get("dst") in (c.get("lhs"), c.get("rhs"))
+                and br["op"] in ("b.eq", "b.ne")):
+            counts["single_bit_test_reg"] += 1
+    for k in range(n - 2):
+        m, l, br = instructions[k:k + 3]
+        if (m["op"] == "mov_imm" and power_of_two(m.get("value"))
+                and l["op"] == "and" and m.get("dst") in (l.get("lhs"), l.get("rhs"))):
+            if (br["op"] == "rv.br" and br.get("cond") in ("eq", "ne")
+                    and l.get("dst") in (br.get("lhs"), br.get("rhs"))
+                    and "zero" in (br.get("lhs"), br.get("rhs"))):
+                counts["rv_single_bit_test"] += 1
+            elif (k + 3 < n and br["op"] == "mov_imm" and is_zero(br.get("value"))
+                  and instructions[k + 3]["op"] == "rv.br"
+                  and instructions[k + 3].get("cond") in ("eq", "ne")
+                  and l.get("dst") in (instructions[k + 3].get("lhs"), instructions[k + 3].get("rhs"))
+                  and br.get("dst") in (instructions[k + 3].get("lhs"), instructions[k + 3].get("rhs"))):
+                counts["rv_single_bit_test"] += 1
     for k in range(n - 3):
         m, l, c, br = instructions[k:k + 4]
         if (m["op"] == "mov_imm" and power_of_two(m.get("value"))
@@ -214,7 +325,9 @@ def diff(before_path, after_path, all_scopes):
         if key[0] != "*" and not all_scopes:
             continue
         old, new = before.get(key, 0), after.get(key, 0)
-        if old == new and not key[2].startswith(("str_pair", "ldr_pair", "op:stp", "op:ldp")):
+        if old == new and not key[2].startswith(
+                ("str_pair", "ldr_pair", "op:stp", "op:ldp", "op:cbz", "op:cbnz", "op:tbz",
+                 "op:tbnz")):
             continue
         print(f"{key[0]}\t{key[2]}\t{old}\t{new}\t{new - old:+d}")
 

@@ -53,6 +53,8 @@ examples/ai_chat	*	op:sxtw	27
 examples/ai_chat	*	op:udiv	37
 examples/ai_chat	*	op:umulh	132
 examples/ai_chat	*	pair_reject:range	2526
+examples/ai_chat	*	rv_single_bit_test	12
+examples/ai_chat	*	rv_zero_reg_branch	21
 examples/ai_chat	*	str_pair_candidates	3977
 examples/ai_chat	*	str_pair_legal	2394
 examples/brogue	*	functions	152
@@ -103,6 +105,8 @@ examples/brogue	*	op:sxtw	6
 examples/brogue	*	op:udiv	14
 examples/brogue	*	op:umulh	2088
 examples/brogue	*	pair_reject:range	595
+examples/brogue	*	rv_single_bit_test	15
+examples/brogue	*	rv_zero_reg_branch	75
 examples/brogue	*	str_pair_candidates	8532
 examples/brogue	*	str_pair_legal	7937
 examples/browser/app	*	functions	569
@@ -163,6 +167,8 @@ examples/browser/app	*	op:umulh	709
 examples/browser/app	*	pair_reject:dst_is_base	1
 examples/browser/app	*	pair_reject:range	3442
 examples/browser/app	*	pair_reject:same_dst	1
+examples/browser/app	*	rv_single_bit_test	111
+examples/browser/app	*	rv_zero_reg_branch	94
 examples/browser/app	*	str_pair_candidates	9223
 examples/browser/app	*	str_pair_legal	7187
 examples/debug	*	functions	70
@@ -220,6 +226,8 @@ examples/debug	*	op:sxtw	7
 examples/debug	*	op:udiv	21
 examples/debug	*	op:umulh	17
 examples/debug	*	pair_reject:range	53
+examples/debug	*	rv_single_bit_test	26
+examples/debug	*	rv_zero_reg_branch	1
 examples/debug	*	str_pair_candidates	528
 examples/debug	*	str_pair_legal	506
 examples/hangman	*	functions	60
@@ -268,6 +276,7 @@ examples/hangman	*	op:sxtw	6
 examples/hangman	*	op:udiv	28
 examples/hangman	*	op:umulh	4
 examples/hangman	*	pair_reject:range	572
+examples/hangman	*	rv_single_bit_test	11
 examples/hangman	*	str_pair_candidates	813
 examples/hangman	*	str_pair_legal	241
 examples/hello_input	*	functions	36
@@ -312,6 +321,7 @@ examples/hello_input	*	op:svc	7
 examples/hello_input	*	op:sxtw	6
 examples/hello_input	*	op:udiv	15
 examples/hello_input	*	pair_reject:range	540
+examples/hello_input	*	rv_single_bit_test	11
 examples/hello_input	*	str_pair_candidates	690
 examples/hello_input	*	str_pair_legal	150
 examples/hello_world	*	functions	26
@@ -354,6 +364,7 @@ examples/hello_world	*	op:svc	7
 examples/hello_world	*	op:sxtw	6
 examples/hello_world	*	op:udiv	13
 examples/hello_world	*	pair_reject:range	1
+examples/hello_world	*	rv_single_bit_test	11
 examples/hello_world	*	str_pair_candidates	94
 examples/hello_world	*	str_pair_legal	93
 examples/life	*	functions	72
@@ -405,6 +416,8 @@ examples/life	*	op:sxtw	6
 examples/life	*	op:udiv	27
 examples/life	*	op:umulh	14
 examples/life	*	pair_reject:range	632
+examples/life	*	rv_single_bit_test	11
+examples/life	*	rv_zero_reg_branch	7
 examples/life	*	str_pair_candidates	1019
 examples/life	*	str_pair_legal	387
 examples/money-demo	*	functions	170
@@ -476,6 +489,8 @@ examples/money-demo	*	op:sxtw	6
 examples/money-demo	*	op:udiv	65
 examples/money-demo	*	op:umulh	256
 examples/money-demo	*	pair_reject:range	657
+examples/money-demo	*	rv_single_bit_test	58
+examples/money-demo	*	rv_zero_reg_branch	30
 examples/money-demo	*	str_pair_candidates	2513
 examples/money-demo	*	str_pair_legal	1862
 examples/network-client	*	functions	75
@@ -527,6 +542,8 @@ examples/network-client	*	op:umulh	8
 examples/network-client	*	pair_reject:dst_is_base	2
 examples/network-client	*	pair_reject:range	209
 examples/network-client	*	pair_reject:same_dst	2
+examples/network-client	*	rv_single_bit_test	72
+examples/network-client	*	rv_zero_reg_branch	1
 examples/network-client	*	str_pair_candidates	1282
 examples/network-client	*	str_pair_legal	1138
 examples/network-server	*	functions	327
@@ -582,6 +599,8 @@ examples/network-server	*	op:umulh	695
 examples/network-server	*	pair_reject:dst_is_base	2
 examples/network-server	*	pair_reject:range	1455
 examples/network-server	*	pair_reject:same_dst	36
+examples/network-server	*	rv_single_bit_test	236
+examples/network-server	*	rv_zero_reg_branch	34
 examples/network-server	*	str_pair_candidates	6828
 examples/network-server	*	str_pair_legal	5984
 examples/snake	*	functions	78
@@ -633,6 +652,7 @@ examples/snake	*	op:sxtw	6
 examples/snake	*	op:udiv	28
 examples/snake	*	op:umulh	6
 examples/snake	*	pair_reject:range	575
+examples/snake	*	rv_single_bit_test	11
 examples/snake	*	str_pair_candidates	872
 examples/snake	*	str_pair_legal	303
 examples/swat/tui	*	functions	80
@@ -684,6 +704,8 @@ examples/swat/tui	*	op:sxtw	6
 examples/swat/tui	*	op:udiv	36
 examples/swat/tui	*	op:umulh	24
 examples/swat/tui	*	pair_reject:range	601
+examples/swat/tui	*	rv_single_bit_test	30
+examples/swat/tui	*	rv_zero_reg_branch	4
 examples/swat/tui	*	str_pair_candidates	1045
 examples/swat/tui	*	str_pair_legal	452
 examples/wide-demo	*	functions	52
@@ -731,6 +753,8 @@ examples/wide-demo	*	op:sxtw	6
 examples/wide-demo	*	op:udiv	26
 examples/wide-demo	*	op:umulh	12
 examples/wide-demo	*	pair_reject:range	573
+examples/wide-demo	*	rv_single_bit_test	11
+examples/wide-demo	*	rv_zero_reg_branch	1
 examples/wide-demo	*	str_pair_candidates	846
 examples/wide-demo	*	str_pair_legal	277
 examples/yaml-json	*	functions	225
@@ -790,6 +814,8 @@ examples/yaml-json	*	op:sxtw	7
 examples/yaml-json	*	op:udiv	32
 examples/yaml-json	*	op:umulh	99
 examples/yaml-json	*	pair_reject:range	330
+examples/yaml-json	*	rv_single_bit_test	12
+examples/yaml-json	*	rv_zero_reg_branch	21
 examples/yaml-json	*	str_pair_candidates	2393
 examples/yaml-json	*	str_pair_legal	2232
 tests/byte-identity/audio	*	functions	75
@@ -862,6 +888,8 @@ tests/byte-identity/audio	*	op:udiv	17
 tests/byte-identity/audio	*	op:umulh	43
 tests/byte-identity/audio	*	pair_reject:dst_is_base	1
 tests/byte-identity/audio	*	pair_reject:range	120
+tests/byte-identity/audio	*	rv_single_bit_test	100
+tests/byte-identity/audio	*	rv_zero_reg_branch	2
 tests/byte-identity/audio	*	str_pair_candidates	896
 tests/byte-identity/audio	*	str_pair_legal	842
 tests/byte-identity/bits	*	functions	28
@@ -911,6 +939,7 @@ tests/byte-identity/bits	*	op:svc	7
 tests/byte-identity/bits	*	op:sxtw	6
 tests/byte-identity/bits	*	op:udiv	14
 tests/byte-identity/bits	*	pair_reject:range	1
+tests/byte-identity/bits	*	rv_single_bit_test	11
 tests/byte-identity/bits	*	str_pair_candidates	100
 tests/byte-identity/bits	*	str_pair_legal	99
 tests/byte-identity/collections	*	functions	74
@@ -963,6 +992,8 @@ tests/byte-identity/collections	*	op:udiv	33
 tests/byte-identity/collections	*	op:umulh	108
 tests/byte-identity/collections	*	pair_reject:range	497
 tests/byte-identity/collections	*	pair_reject:same_dst	34
+tests/byte-identity/collections	*	rv_single_bit_test	12
+tests/byte-identity/collections	*	rv_zero_reg_branch	1
 tests/byte-identity/collections	*	str_pair_candidates	1978
 tests/byte-identity/collections	*	str_pair_legal	1737
 tests/byte-identity/compress	*	functions	72
@@ -1011,6 +1042,8 @@ tests/byte-identity/compress	*	op:sxtw	6
 tests/byte-identity/compress	*	op:udiv	14
 tests/byte-identity/compress	*	op:umulh	375
 tests/byte-identity/compress	*	pair_reject:range	14
+tests/byte-identity/compress	*	rv_single_bit_test	14
+tests/byte-identity/compress	*	rv_zero_reg_branch	34
 tests/byte-identity/compress	*	str_pair_candidates	1478
 tests/byte-identity/compress	*	str_pair_legal	1464
 tests/byte-identity/crypto	*	functions	317
@@ -1062,6 +1095,8 @@ tests/byte-identity/crypto	*	op:sxtw	6
 tests/byte-identity/crypto	*	op:udiv	14
 tests/byte-identity/crypto	*	op:umulh	644
 tests/byte-identity/crypto	*	pair_reject:range	13
+tests/byte-identity/crypto	*	rv_single_bit_test	13
+tests/byte-identity/crypto	*	rv_zero_reg_branch	28
 tests/byte-identity/crypto	*	str_pair_candidates	3335
 tests/byte-identity/crypto	*	str_pair_legal	3322
 tests/byte-identity/csv	*	functions	55
@@ -1110,6 +1145,8 @@ tests/byte-identity/csv	*	op:sxtw	10
 tests/byte-identity/csv	*	op:udiv	17
 tests/byte-identity/csv	*	op:umulh	19
 tests/byte-identity/csv	*	pair_reject:range	1
+tests/byte-identity/csv	*	rv_single_bit_test	14
+tests/byte-identity/csv	*	rv_zero_reg_branch	5
 tests/byte-identity/csv	*	str_pair_candidates	339
 tests/byte-identity/csv	*	str_pair_legal	338
 tests/byte-identity/datetime	*	functions	133
@@ -1159,6 +1196,8 @@ tests/byte-identity/datetime	*	op:sxtw	6
 tests/byte-identity/datetime	*	op:udiv	14
 tests/byte-identity/datetime	*	op:umulh	3
 tests/byte-identity/datetime	*	pair_reject:range	1
+tests/byte-identity/datetime	*	rv_single_bit_test	11
+tests/byte-identity/datetime	*	rv_zero_reg_branch	14
 tests/byte-identity/datetime	*	str_pair_candidates	415
 tests/byte-identity/datetime	*	str_pair_legal	414
 tests/byte-identity/encoding	*	functions	95
@@ -1207,6 +1246,8 @@ tests/byte-identity/encoding	*	op:sxtw	6
 tests/byte-identity/encoding	*	op:udiv	14
 tests/byte-identity/encoding	*	op:umulh	59
 tests/byte-identity/encoding	*	pair_reject:range	1
+tests/byte-identity/encoding	*	rv_single_bit_test	12
+tests/byte-identity/encoding	*	rv_zero_reg_branch	25
 tests/byte-identity/encoding	*	str_pair_candidates	507
 tests/byte-identity/encoding	*	str_pair_legal	506
 tests/byte-identity/fs	*	functions	70
@@ -1252,6 +1293,7 @@ tests/byte-identity/fs	*	op:sxtw	36
 tests/byte-identity/fs	*	op:udiv	15
 tests/byte-identity/fs	*	pair_reject:range	166
 tests/byte-identity/fs	*	pair_reject:same_dst	6
+tests/byte-identity/fs	*	rv_single_bit_test	185
 tests/byte-identity/fs	*	str_pair_candidates	1150
 tests/byte-identity/fs	*	str_pair_legal	1059
 tests/byte-identity/general	*	functions	42
@@ -1315,6 +1357,7 @@ tests/byte-identity/general	*	op:udiv	26
 tests/byte-identity/general	*	op:umulh	3
 tests/byte-identity/general	*	pair_reject:range	50
 tests/byte-identity/general	*	pair_reject:same_dst	4
+tests/byte-identity/general	*	rv_single_bit_test	18
 tests/byte-identity/general	*	str_pair_candidates	633
 tests/byte-identity/general	*	str_pair_legal	602
 tests/byte-identity/http	*	functions	187
@@ -1368,6 +1411,8 @@ tests/byte-identity/http	*	op:umulh	68
 tests/byte-identity/http	*	pair_reject:dst_is_base	1
 tests/byte-identity/http	*	pair_reject:range	419
 tests/byte-identity/http	*	pair_reject:same_dst	2
+tests/byte-identity/http	*	rv_single_bit_test	200
+tests/byte-identity/http	*	rv_zero_reg_branch	36
 tests/byte-identity/http	*	str_pair_candidates	3454
 tests/byte-identity/http	*	str_pair_legal	3259
 tests/byte-identity/io	*	functions	49
@@ -1412,6 +1457,7 @@ tests/byte-identity/io	*	op:svc	7
 tests/byte-identity/io	*	op:sxtw	6
 tests/byte-identity/io	*	op:udiv	20
 tests/byte-identity/io	*	pair_reject:range	540
+tests/byte-identity/io	*	rv_single_bit_test	11
 tests/byte-identity/io	*	str_pair_candidates	730
 tests/byte-identity/io	*	str_pair_legal	190
 tests/byte-identity/json	*	functions	113
@@ -1470,6 +1516,8 @@ tests/byte-identity/json	*	op:sxtw	6
 tests/byte-identity/json	*	op:udiv	28
 tests/byte-identity/json	*	op:umulh	23
 tests/byte-identity/json	*	pair_reject:range	78
+tests/byte-identity/json	*	rv_single_bit_test	12
+tests/byte-identity/json	*	rv_zero_reg_branch	12
 tests/byte-identity/json	*	str_pair_candidates	855
 tests/byte-identity/json	*	str_pair_legal	822
 tests/byte-identity/link-const-pins	*	functions	33
@@ -1514,6 +1562,7 @@ tests/byte-identity/link-const-pins	*	op:svc	7
 tests/byte-identity/link-const-pins	*	op:sxtw	6
 tests/byte-identity/link-const-pins	*	op:udiv	14
 tests/byte-identity/link-const-pins	*	pair_reject:range	3
+tests/byte-identity/link-const-pins	*	rv_single_bit_test	11
 tests/byte-identity/link-const-pins	*	str_pair_candidates	111
 tests/byte-identity/link-const-pins	*	str_pair_legal	108
 tests/byte-identity/math	*	functions	34
@@ -1590,6 +1639,7 @@ tests/byte-identity/math	*	op:udiv	46
 tests/byte-identity/math	*	op:umulh	68
 tests/byte-identity/math	*	pair_reject:range	492
 tests/byte-identity/math	*	pair_reject:same_dst	20
+tests/byte-identity/math	*	rv_single_bit_test	49
 tests/byte-identity/math	*	str_pair_candidates	1611
 tests/byte-identity/math	*	str_pair_legal	1368
 tests/byte-identity/money	*	functions	28
@@ -1635,6 +1685,7 @@ tests/byte-identity/money	*	op:svc	7
 tests/byte-identity/money	*	op:sxtw	6
 tests/byte-identity/money	*	op:udiv	18
 tests/byte-identity/money	*	pair_reject:range	1
+tests/byte-identity/money	*	rv_single_bit_test	17
 tests/byte-identity/money	*	str_pair_candidates	104
 tests/byte-identity/money	*	str_pair_legal	103
 tests/byte-identity/net	*	functions	60
@@ -1686,6 +1737,8 @@ tests/byte-identity/net	*	op:sxtw	18
 tests/byte-identity/net	*	op:udiv	24
 tests/byte-identity/net	*	op:umulh	16
 tests/byte-identity/net	*	pair_reject:range	12
+tests/byte-identity/net	*	rv_single_bit_test	12
+tests/byte-identity/net	*	rv_zero_reg_branch	8
 tests/byte-identity/net	*	str_pair_candidates	418
 tests/byte-identity/net	*	str_pair_legal	414
 tests/byte-identity/os	*	functions	49
@@ -1730,6 +1783,7 @@ tests/byte-identity/os	*	op:sxtw	7
 tests/byte-identity/os	*	op:udiv	14
 tests/byte-identity/os	*	op:umulh	1
 tests/byte-identity/os	*	pair_reject:range	1
+tests/byte-identity/os	*	rv_single_bit_test	11
 tests/byte-identity/os	*	str_pair_candidates	186
 tests/byte-identity/os	*	str_pair_legal	185
 tests/byte-identity/process	*	functions	52
@@ -1776,6 +1830,7 @@ tests/byte-identity/process	*	op:sxtw	45
 tests/byte-identity/process	*	op:udiv	15
 tests/byte-identity/process	*	pair_reject:range	61
 tests/byte-identity/process	*	pair_reject:same_dst	5
+tests/byte-identity/process	*	rv_single_bit_test	12
 tests/byte-identity/process	*	str_pair_candidates	526
 tests/byte-identity/process	*	str_pair_legal	499
 tests/byte-identity/regex	*	functions	133
@@ -1825,6 +1880,8 @@ tests/byte-identity/regex	*	op:sxtw	6
 tests/byte-identity/regex	*	op:udiv	22
 tests/byte-identity/regex	*	op:umulh	358
 tests/byte-identity/regex	*	pair_reject:range	11
+tests/byte-identity/regex	*	rv_single_bit_test	11
+tests/byte-identity/regex	*	rv_zero_reg_branch	32
 tests/byte-identity/regex	*	str_pair_candidates	1907
 tests/byte-identity/regex	*	str_pair_legal	1896
 tests/byte-identity/resource-xfer-slots	*	functions	58
@@ -1874,6 +1931,8 @@ tests/byte-identity/resource-xfer-slots	*	op:sxtw	20
 tests/byte-identity/resource-xfer-slots	*	op:udiv	16
 tests/byte-identity/resource-xfer-slots	*	pair_reject:range	7
 tests/byte-identity/resource-xfer-slots	*	pair_reject:same_dst	3
+tests/byte-identity/resource-xfer-slots	*	rv_single_bit_test	23
+tests/byte-identity/resource-xfer-slots	*	rv_zero_reg_branch	2
 tests/byte-identity/resource-xfer-slots	*	str_pair_candidates	350
 tests/byte-identity/resource-xfer-slots	*	str_pair_legal	346
 tests/byte-identity/strings	*	functions	37
@@ -1920,6 +1979,7 @@ tests/byte-identity/strings	*	op:udiv	14
 tests/byte-identity/strings	*	op:umulh	7
 tests/byte-identity/strings	*	pair_reject:range	211
 tests/byte-identity/strings	*	pair_reject:same_dst	21
+tests/byte-identity/strings	*	rv_single_bit_test	11
 tests/byte-identity/strings	*	str_pair_candidates	573
 tests/byte-identity/strings	*	str_pair_legal	502
 tests/byte-identity/tcp	*	functions	43
@@ -1966,6 +2026,7 @@ tests/byte-identity/tcp	*	op:udiv	17
 tests/byte-identity/tcp	*	pair_reject:dst_is_base	1
 tests/byte-identity/tcp	*	pair_reject:range	64
 tests/byte-identity/tcp	*	pair_reject:same_dst	1
+tests/byte-identity/tcp	*	rv_single_bit_test	182
 tests/byte-identity/tcp	*	str_pair_candidates	680
 tests/byte-identity/tcp	*	str_pair_legal	647
 tests/byte-identity/term	*	functions	57
@@ -2011,6 +2072,7 @@ tests/byte-identity/term	*	op:svc	7
 tests/byte-identity/term	*	op:sxtw	6
 tests/byte-identity/term	*	op:udiv	24
 tests/byte-identity/term	*	pair_reject:range	37
+tests/byte-identity/term	*	rv_single_bit_test	11
 tests/byte-identity/term	*	str_pair_candidates	224
 tests/byte-identity/term	*	str_pair_legal	195
 tests/byte-identity/thread	*	functions	70
@@ -2057,6 +2119,7 @@ tests/byte-identity/thread	*	op:svc	7
 tests/byte-identity/thread	*	op:sxtw	7
 tests/byte-identity/thread	*	op:udiv	15
 tests/byte-identity/thread	*	pair_reject:range	69
+tests/byte-identity/thread	*	rv_single_bit_test	154
 tests/byte-identity/thread	*	str_pair_candidates	659
 tests/byte-identity/thread	*	str_pair_legal	622
 tests/byte-identity/tls	*	functions	48
@@ -2103,6 +2166,8 @@ tests/byte-identity/tls	*	op:svc	7
 tests/byte-identity/tls	*	op:sxtw	32
 tests/byte-identity/tls	*	op:udiv	20
 tests/byte-identity/tls	*	pair_reject:range	87
+tests/byte-identity/tls	*	rv_single_bit_test	339
+tests/byte-identity/tls	*	rv_zero_reg_branch	2
 tests/byte-identity/tls	*	str_pair_candidates	1099
 tests/byte-identity/tls	*	str_pair_legal	1049
 tests/byte-identity/udp	*	functions	39
@@ -2149,6 +2214,7 @@ tests/byte-identity/udp	*	op:udiv	17
 tests/byte-identity/udp	*	pair_reject:dst_is_base	1
 tests/byte-identity/udp	*	pair_reject:range	36
 tests/byte-identity/udp	*	pair_reject:same_dst	2
+tests/byte-identity/udp	*	rv_single_bit_test	43
 tests/byte-identity/udp	*	str_pair_candidates	330
 tests/byte-identity/udp	*	str_pair_legal	310
 tests/byte-identity/vector	*	functions	207
@@ -2220,6 +2286,8 @@ tests/byte-identity/vector	*	op:sxtw	6
 tests/byte-identity/vector	*	op:udiv	66
 tests/byte-identity/vector	*	op:umulh	160
 tests/byte-identity/vector	*	pair_reject:range	16
+tests/byte-identity/vector	*	rv_single_bit_test	34
+tests/byte-identity/vector	*	rv_zero_reg_branch	15
 tests/byte-identity/vector	*	str_pair_candidates	801
 tests/byte-identity/vector	*	str_pair_legal	800
 *	*	functions	4435
@@ -2306,6 +2374,8 @@ tests/byte-identity/vector	*	str_pair_legal	800
 *	*	pair_reject:dst_is_base	9
 *	*	pair_reject:range	15770
 *	*	pair_reject:same_dst	137
+*	*	rv_single_bit_test	2171
+*	*	rv_zero_reg_branch	505
 *	*	str_pair_candidates	66104
 *	*	str_pair_legal	54841
 benchmark/language/mfb	*	build_failed	1
