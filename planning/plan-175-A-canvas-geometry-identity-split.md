@@ -531,19 +531,26 @@ changes a record, a key's meaning, or a pixel.
   still matches, and computes and stores them when it does not. A child's draw hash
   still folds the node's composed offset and matrix (`__canvas_noteEntry`), so damage is
   unchanged. The slot table is the graphics thread's own (`.ai/canvas-threading.md` §2:
-  arena state is per thread), and a group freed by the retirement drain of §13 there
-  clears its slot's entry.
-- **No item list is copied per node.** The arm walks the group's items in place through
-  an index (`canvas::groupItemAt(slot, k)` and a count), instead of `canvas::groupItems`
-  building a list per node per frame. The items are the retired-then-drained buffer §13
-  protects, so reading them in place is as safe within a frame as the copy is.
-- **A picture's image is confirmed once per frame.** `__canvas_pictureCached`'s answer
+  arena state is per thread), ~~and a group freed by the retirement drain of §13 there
+  clears its slot's entry~~ keyed by the revision and the items block, and never
+  cleared: a slot's revision only grows (Phase 5, the moot task).
+- **No item list is copied per node.** The arm walks the group's items in place
+  ~~through an index (`canvas::groupItemAt(slot, k)` and a count)~~ through the slot's
+  items block, taken once per node (`canvas::groupItemsBlock`, `groupBlockCount`,
+  `groupBlockItem`; Correction 7: an index by slot would read two lists in one node),
+  instead of `canvas::groupItems` building a list per node per frame. The items are the
+  retired-then-drained buffer §13 protects, so reading them in place is as safe within
+  a frame as the copy is.
+- ~~**A picture's image is confirmed once per frame.** `__canvas_pictureCached`'s answer
   for an image's pixel-block address is remembered for the frame, keyed by that address;
-  the 2nd to 10,000th picture of one image reuse it. `__canvas_noteEntry` still folds
+  the 2nd to 10,000th picture of one image reuse it.~~ **A cached picture or tile is laid
+  out without being copied** (Correction 8: the confirmation is per record and is not
+  the cost; the copy and the lists were). `canvas::itemImageShadow` reads the image's
+  block from the item, and `__canvas_imageCached` resolves every cached record before
+  the `MATCH` would copy the variant. `__canvas_noteEntry` still folds
   each picture's block address into its draw hash, so a `setBytes` still damages every
-  picture of the image. The same answer serves every `Tile` of the atlas, through the
-  same function (`__canvas_tileGeometry`); a tilemap is the case where one image is
-  named most often.
+  picture of the image. The same path serves every `Tile` of the atlas; a tilemap is
+  the case where one image is named most often.
 - **Viewport culling is untouched, and it is part of the group walk's cost.** Since
   plan-173, `__canvas_pushDraw` calls `__canvas_boundsMeetViewport` for every block of
   every node (two `__canvas_drawBound` corner hulls under the node's matrix). The cost
@@ -552,7 +559,10 @@ changes a record, a key's meaning, or a pixel.
 - **Fewer allocations is the measure.** Each change above removes a per-node or
   per-picture list. Phase 5 and 6 record `perf.mfb_alloc.count` and
   `perf.mfb_free.count` from the `--debug` report (`mfb spec tooling debug-report`, the
-  perf section) for their row before and after, alongside the walk time.
+  perf section) for their row before and after, alongside the walk time — and the
+  graphics arena's `arena.<n>.alloc_calls` from the same report, because
+  `perf.mfb_alloc.count` does not count that arena (Phase 6: unchanged at 349,096
+  while the graphics arena's calls fell 6,810,176 → 2,040,176; Correction 8).
 
 ## Compatibility / Format Impact
 
@@ -888,7 +898,7 @@ the headless probe of Correction 7:
   3,853,459 → 1,473,459 (tile), and the bytes it scrubs on free 2.76 → 1.75 GB and
   1.28 → 0.98 GB. What is left is about one allocation an item a frame, the frame's
   copy of the scene (`__canvas_flatScene`) and its element copy in pass 2.
-Commit: —
+Commit: 7cdedfffb
 
 ### Phase 7 — Spec, threading notes, closeout
 
@@ -900,14 +910,29 @@ Commit: —
       helper text's lines and globals moved). Classify against main with
       `scripts/artifact-gate.sh <mfb> all` from a detached main-tip worktree, then
       regenerate every flagged fixture, and run `scripts/test-accept.sh` in full.
-- [ ] The text of §4.7.
-- [ ] `scripts/spec-census.sh --render` and `--citations`.
+- [x] The text of §4.7. `.ai/canvas-threading.md` §14 (Phases 1–2), §16 (an
+      `AutoPaint`'s one identity) and §17 (the keys; a cached picture or tile laid out
+      without a copy); `06_canvas.md`: "Retained, not immediate" (Phase 2), "The item
+      unions" and a new "Item identity" heading (the cache's branches, the damage diff,
+      the hit cache), "Named groups" (the in-place block and per-slot identities),
+      "Hit-testing" (keyed by `G`), "One frame" (`__canvas_autoGeoHash` is both
+      identities), "A picture is drawn inside a shape" (the keys, `itemImageShadow`).
+- [x] `scripts/spec-census.sh --render` and `--citations`. → render: 0 leaks in every
+      package; citations: 2,846 unique, `MISS-PATH 0`, `MISS-LINE 0`, `MISS-SYMBOL 0`,
+      after repointing two citations this plan did not write but the run found stale
+      (`10_debugger.md` `Breakpoints::set` → `instruction_boundary`, the refusal the
+      sentence cites; `12_monomorphization.md` `Monomorphizer::new` ×2 →
+      `overload_names`, the map the sentences describe — the literal text left those
+      files in earlier refactors, `git log -S`).
 - [ ] Re-run §2.3's rows on box 206 and this Mac alone (load under 4) and record them
       in bug-765.
 - [ ] Re-run `benchmark/canvas` in full; if the group or picture rows moved by 1.25× or
       more, re-baseline it in its own commit with `compare.py`'s output.
-- [ ] `.ai/canvas-threading.md` §13 (the child-hash table and its drain) and §17 (one
-      confirmation per image per frame).
+- [x] `.ai/canvas-threading.md` §13 (the child-hash table and its drain) and §17 (one
+      confirmation per image per frame). §13's "There is no refcount" paragraph (Phase
+      5: the block read in place, the table keyed by revision and block, no clearing
+      because a revision only grows); §17 per Correction 8: the confirmation stays per
+      record, and what Phase 6 removed is the copy (`canvas::itemImageShadow`).
 - [ ] The arena free scrub's share of the busy graphics thread in `group fill 10000`
       and `picture fill 10000`, re-profiled as in §9, recorded here against §2.4's
       20.8% and 18.1% (decision 6).

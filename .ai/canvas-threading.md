@@ -1596,7 +1596,9 @@ Three things that are easy to get wrong here:
   cache without the MFBASIC walk seeing it — and an instance the walk does not see has
   no state. So the shape's record is cached under the hash stepped by 16
   (`__canvas_autoGeoHash`), the item's own hash is always a miss, and an `AutoPaint` is
-  always walked, as a `Picture` is.
+  always walked, as a `Picture` is. An `AutoPaint` is hashed in one lane, so its
+  geometry identity is its damage identity (plan-175-A, §14): its state records are
+  keyed and held by that one hash and are never refreshed in place.
 * **The GPU draw list is a second walk and must be told.** It lays out from
   `__CANVAS_TOP_OFFSETS` (so the resolve writes the swapped offset there too), and a
   group's run is memoised ONCE per frame and shared by every node that draws the group
@@ -1705,12 +1707,21 @@ with no fill. The rules that keep that sound:
   one record, and the walk never sees the item. A shaped picture's records are under the
   hash stepped (`__canvas_pictureKey`); only a plain picture's is under the hash, and a
   test reads the source to keep it so
-  (`canvas_picture_only_the_plain_record_is_cached_under_the_item_hash`).
-- **Inside a group the two walks each ask.** `__canvas_appendDraw` (the entries) and
-  `__canvas_memoGroup` (the group's GPU run, shared by its uses) both get a picture's
-  records from `__canvas_pictureQuick` / `__canvas_pictureBlocksOf`, which decide "is
-  this entry there" from the cached record's kind, not from the item — the same answer
-  unless the image changed in between, as it always could for a picture in a group.
+  (`canvas_picture_only_the_plain_record_is_cached_under_the_item_hash`). Since
+  plan-175-A the key is the picture's geometry identity `G` (stepped) and the slot holds
+  its damage identity `D` (stepped the same way), so a tint change finds the records and
+  rewrites them in place (`__canvas_pictureCachedOf`).
+- **A cached picture or tile is laid out without copying it** (plan-175-A Phase 6).
+  `__canvas_appendDraw` reads the image's pixel block from the item in place
+  (`canvas::itemImageShadow`) and, when every record is cached and confirmed against
+  that block (`__canvas_imageCached`), appends the entries before the `MATCH` whose
+  `CASE Picture(pic)` / `CASE Tile(tile)` would copy the variant. A miss, and a picture
+  on an `AutoPaint`, take the `MATCH`.
+- **Inside a group the two walks each ask.** `__canvas_appendDraw` (the entries, above)
+  and `__canvas_memoGroup` (the group's GPU run, shared by its uses, through
+  `__canvas_pictureQuick` / `__canvas_pictureBlocksOf`) both decide "is this entry
+  there" from the cached record's kind, not from the item — the same answer unless the
+  image changed in between, as it always could for a picture in a group.
 - **A record's coverage is its shape's TIMES its clip's.** Where a picture rectangle's
   edge lies along its clip's, a half-covered pixel comes out a quarter covered. The
   image record therefore lets the clip alone draw the edge: its radius slot (6) is 1
