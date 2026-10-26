@@ -27,6 +27,16 @@
 //! the bug-774 regressions. Code-shape assertions below remain independent of
 //! allocator performance.
 //!
+//! The plan-183 arena redesign (`260efd0d7`..`1c84f6ef3`, A–D) sped the reference up
+//! again. A/B of this PROGRAM's release binaries from `f89707d6c` (before plan-183),
+//! `1c84f6ef3` and `7ae9c0675`, three interleaved runs each: CRC medians 905–929 us at
+//! all three, reference medians 62–67 us before and 50–53 us after (1.29x, 67/52).
+//! The CRC ratio went from 13.5–14.9 to 17.1–18.1, inside 18.5 by too little to
+//! survive the four code-shape builds this binary runs beside it (18.96x and 19.68x
+//! measured). Scale only the CRC bound by that speedup (rounded down to 23.5); the
+//! inflate (40–42) and tiny (2.0–2.1) ratios still hold theirs. The pre-fix CRC ratio
+//! scaled the same way is 36.5, 1.55x above the new bound.
+//!
 //! Every bound is at least 1.5x below the pre-fix ratio.
 //!
 //! **Shape.** On every target: the CRC loop's constant-count shifts carry no range
@@ -132,7 +142,7 @@ fn crc32_and_inflate_run_within_their_bounds_of_a_native_copy() {
             .collect()
     };
     let reference = median(times("ref ")) as f64;
-    for (label, bound) in [("crc ", 18.5), ("inflate ", 68.0), ("tiny ", 5.0)] {
+    for (label, bound) in [("crc ", 23.5), ("inflate ", 68.0), ("tiny ", 5.0)] {
         let runs = times(label);
         assert_eq!(runs.len(), 5, "{stdout}");
         let ratio = median(runs.clone()) as f64 / reference;
