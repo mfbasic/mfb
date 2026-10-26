@@ -583,6 +583,96 @@ pub(super) fn emit_fill_record(
     Ok(())
 }
 
+/// plan-175-A Phase 2: rewrite the APPEARANCE slots of the record at `out` for the
+/// `DrawItem` at `item`, whose record it is up to its paint — found by the item's
+/// geometry identity, so every slot the geometry decides already holds what a fresh
+/// build writes. The slots are what `emit_paint_header` writes from appearance fields
+/// (`func_item_lanes.rs`): both colours, faded by the transparency (8–15), the blend mode
+/// (26), and the gradient's kind and points (42–46, written whatever the stop count; a
+/// natively built item has fewer than two). A `Line` is drawn from its stroke, so its
+/// fill slots are the stroke's (`__canvas_strokeAsFill`). A `PolyLine` keeps colours in
+/// its tail too, so it is rebuilt whole, in place. Allocates nothing and calls nothing.
+///
+/// The verifier (`MFB_CANVAS_GEO_VERIFY`) checks every resolved record against a fresh
+/// build, refreshed ones included: that is what holds this to "bit-identical".
+///
+/// It branches to `declined` for an item `canvas::geoBuild` does not build — the
+/// MFBASIC walk's to rebuild in place — and, for a `PolyLine`, when the record the
+/// item builds is not `count` floats. Whether an item is built here is decided by its
+/// kind, its transform, its stop count and a rectangle's corners
+/// ([`emit_record_size`]'s checks), all of them geometry, so a record found by the
+/// item's geometry identity was built the way the item would be now; only those checks
+/// are made, not the sizing.
+pub(super) fn emit_refresh_record(
+    builder: &mut CodeBuilder,
+    item: &VirtualRegister,
+    out: &VirtualRegister,
+    count: &VirtualRegister,
+    declined: &str,
+) -> Result<(), String> {
+    let paint_type = record_type(builder, &ParameterType::named("Paint"))?;
+    let kinds = native_kinds(builder)?;
+    let done = builder.label("canvas_geo_refresh_done");
+    let offset = (
+        builder.allocate_stack_object("canvas_geo_refresh_ox", 8),
+        builder.allocate_stack_object("canvas_geo_refresh_oy", 8),
+    );
+    let tag = builder.temporary_vreg();
+    let rec = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&tag, item, 0));
+    builder.emit(abi::add_immediate(&rec, item, 16));
+    let labels: Vec<String> = kinds
+        .iter()
+        .map(|_| builder.label("canvas_geo_refresh_kind"))
+        .collect();
+    for ((_, kind_tag, _), label) in kinds.iter().zip(&labels) {
+        builder.emit(abi::compare_immediate(&tag, &kind_tag.to_string()));
+        builder.emit(abi::branch_eq(label));
+    }
+    builder.emit(abi::branch(declined));
+    for ((kind, _, record), label) in kinds.iter().zip(&labels) {
+        builder.emit(abi::label(label));
+        if *kind == Kind::PolyLine {
+            let n = builder.temporary_vreg();
+            emit_record_size(builder, item, &n)?;
+            builder.emit(abi::compare_immediate(&n, "0"));
+            builder.emit(abi::branch_eq(declined));
+            builder.emit(abi::compare_registers(&n, count));
+            builder.emit(abi::branch_ne(declined));
+            emit_fill_record(builder, item, out)?;
+            builder.emit(abi::branch(&done));
+            continue;
+        }
+        let paint = builder.temporary_vreg();
+        emit_field_block(builder, &paint, &rec, record, "paint")?;
+        let view = PaintView {
+            paint,
+            paint_type: paint_type.clone(),
+            offset,
+        };
+        emit_paint_supported(builder, &view, &rec, record, declined)?;
+        if *kind == Kind::Rect {
+            emit_rect_inputs(builder, &rec, record, Some(declined))?;
+        }
+        // An empty record (`put_empty`: a degenerate size, a stroke-only kind whose
+        // stroke is not drawn) writes no paint, so it has nothing to refresh.
+        let kind_f = fload(builder, out, 0);
+        let none = fconst(builder, KIND_NONE);
+        builder.emit(abi::float_compare_d(&kind_f, &none));
+        builder.emit(abi::branch_eq(&done));
+        emit_paint_appearance(builder, out, &view)?;
+        if *kind == Kind::Line {
+            for k in 0..4 {
+                let v = fload(builder, out, (12 + k) * 8);
+                put(builder, out, 8 + k, &v);
+            }
+        }
+        builder.emit(abi::branch(&done));
+    }
+    builder.emit(abi::label(&done));
+    Ok(())
+}
+
 pub(crate) fn lower_geo_build(
     builder: &mut CodeBuilder,
     args: &[ValueResult],

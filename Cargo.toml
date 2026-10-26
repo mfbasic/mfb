@@ -302,6 +302,10 @@ name = "rt_canvas_damage"
 path = "tests/canvas/rt_canvas_damage.rs"
 
 [[test]]
+name = "rt_canvas_damage_groups"
+path = "tests/canvas/rt_canvas_damage_groups.rs"
+
+[[test]]
 name = "rt_canvas_font"
 path = "tests/canvas/rt_canvas_font.rs"
 

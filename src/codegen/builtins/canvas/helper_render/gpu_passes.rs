@@ -45,6 +45,11 @@ LET __CANVAS_METAL_MAX_FRAME_DASH_WORDS AS Integer = @METAL_MAX_FRAME_DASH_WORDS
 LET __CANVAS_VULKAN_MAX_FRAME_EDGES AS Integer = @VULKAN_MAX_FRAME_EDGES@
 LET __CANVAS_VULKAN_MAX_GLYPH_SAMPLES AS Integer = @VULKAN_MAX_FRAME_GLYPH_SAMPLES@
 
+' plan-175-B: the draw-list rows -- nodes -- one pass may carry, the size of each
+' backend's node region.
+LET __CANVAS_METAL_MAX_FRAME_NODES AS Integer = @METAL_MAX_FRAME_NODES@
+LET __CANVAS_VULKAN_MAX_FRAME_NODES AS Integer = @VULKAN_MAX_FRAME_NODES@
+
 ' The words one item puts in the frame buffer's dash region: its dash tail and the
 ' phase, or nothing for a solid stroke.
 FUNC __canvas_dashWords(offset AS Integer) AS Integer
@@ -158,6 +163,7 @@ MUT __CANVAS_PASS_MAX_SAMPLES AS Integer = 0
 MUT __CANVAS_PASS_MAX_EDGES AS Integer = 0
 MUT __CANVAS_PASS_MAX_STOPS AS Integer = 0
 MUT __CANVAS_PASS_MAX_DASH AS Integer = 0
+MUT __CANVAS_PASS_MAX_NODES AS Integer = 0
 
 ' bug-765: how a backend whose frame buffer has these region sizes draws the frame's
 ' blocks (`__CANVAS_DRAW_BLOCKS`, what an emitter writes into the buffer):
@@ -185,19 +191,24 @@ MUT __CANVAS_PASS_MAX_DASH AS Integer = 0
 ' sees the block list the walk has expanded every group away, so a search finds
 ' nothing (`.ai/canvas-threading.md` section 10). Both backends draw a group from the
 ' draw entry's offset, sent to BOTH shader stages.
-FUNC __canvas_framePasses(blocks AS List OF Integer, maxItems AS Integer, maxSamples AS Integer, maxEdges AS Integer, maxStops AS Integer, maxDash AS Integer) AS Integer
+'
+' plan-175-B: and the frame's draw-list ROWS, each a node of the frame buffer's node
+' region: a frame of more than `maxNodes` rows is several passes too. (A merged head's
+' followers are rows of their own, so rows -- not repeats -- are what the region holds.)
+FUNC __canvas_framePasses(blocks AS List OF Integer, maxItems AS Integer, maxSamples AS Integer, maxEdges AS Integer, maxStops AS Integer, maxDash AS Integer, maxNodes AS Integer) AS Integer
   __CANVAS_PASS_MAX_ITEMS = maxItems
   __CANVAS_PASS_MAX_SAMPLES = maxSamples
   __CANVAS_PASS_MAX_EDGES = maxEdges
   __CANVAS_PASS_MAX_STOPS = maxStops
   __CANVAS_PASS_MAX_DASH = maxDash
+  __CANVAS_PASS_MAX_NODES = maxNodes
   MUT quads AS Integer = 0
   MUT samples AS Integer = 0
   MUT edges AS Integer = 0
   MUT stops AS Integer = 0
   MUT dash AS Integer = 0
   MUT pictures AS Set OF Integer = Set OF Integer { }
-  MUT several AS Boolean = FALSE
+  MUT several AS Boolean = len(__CANVAS_DRAWS) / __CANVAS_DRAW_ENTRY_WORDS > maxNodes
   FOR EACH offset IN blocks
     LET own AS Integer = __canvas_blockCost(offset)
     IF NOT several THEN
@@ -229,11 +240,22 @@ END FUNC
 ' frame buffer regions. Two names because the region sizes are each backend's own
 ' constants, and a backend must be handed its own.
 FUNC __canvas_metalRenderable(blocks AS List OF Integer) AS Integer
-  RETURN __canvas_framePasses(blocks, __CANVAS_METAL_MAX_FRAME_ITEMS, __CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES, __CANVAS_METAL_MAX_FRAME_EDGES, __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS, __CANVAS_METAL_MAX_FRAME_DASH_WORDS)
+  RETURN __canvas_framePasses(blocks, __CANVAS_METAL_MAX_FRAME_ITEMS, __CANVAS_METAL_MAX_FRAME_GLYPH_SAMPLES, __CANVAS_METAL_MAX_FRAME_EDGES, __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS, __CANVAS_METAL_MAX_FRAME_DASH_WORDS, __CANVAS_METAL_MAX_FRAME_NODES)
 END FUNC
 
 FUNC __canvas_vulkanRenderable(blocks AS List OF Integer) AS Integer
-  RETURN __canvas_framePasses(blocks, __CANVAS_VULKAN_MAX_FRAME_ITEMS, __CANVAS_VULKAN_MAX_GLYPH_SAMPLES, __CANVAS_VULKAN_MAX_FRAME_EDGES, __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS, __CANVAS_VULKAN_MAX_FRAME_DASH_WORDS)
+  RETURN __canvas_framePasses(blocks, __CANVAS_VULKAN_MAX_FRAME_ITEMS, __CANVAS_VULKAN_MAX_GLYPH_SAMPLES, __CANVAS_VULKAN_MAX_FRAME_EDGES, __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS, __CANVAS_VULKAN_MAX_FRAME_DASH_WORDS, __CANVAS_VULKAN_MAX_FRAME_NODES)
+END FUNC
+
+' plan-175-B: the nodes a pass must have room for before it takes the row at `at`: one,
+' or, for a merged head of repeat `R` (plan-175-C), `R` -- itself and the `R - 1`
+' node-only rows after it, which must land in the same pass.
+FUNC __canvas_rowNodes(at AS Integer) AS Integer
+  LET repeat AS Integer = collections::getOr(__CANVAS_DRAWS, at + __CANVAS_DRAW_REPEAT_WORD, 1)
+  IF repeat > 1 THEN
+    RETURN repeat
+  END IF
+  RETURN 1
 END FUNC
 
 ' bug-765: a PASS is a run of the frame's draw list that fits one frame buffer -- the
@@ -246,6 +268,12 @@ MUT __CANVAS_PASS_BLOCKS AS List OF Integer = []
 MUT __CANVAS_PASS_DRAWS AS List OF Integer = []
 MUT __CANVAS_PASS_ENTRY AS Integer = 0
 MUT __CANVAS_PASS_BLOCK AS Integer = 0 - 1
+' plan-175-C: the frame's rows before this one are drawn SOLO -- repeat 1, each under its
+' own node -- whatever their repeat word says. A merged head whose blocks a pass boundary
+' cuts sets it past its last follower: the head's two halves and its followers then land
+' in different passes, and a repeat that reached across them would read another pass's
+' nodes, so each row of the run draws itself instead, exactly as before the merge.
+MUT __CANVAS_PASS_SOLO_END AS Integer = 0
 
 ' The width of a draw entry, and the word of a pass's FIRST entry that tells an emitter
 ' where the pass stands in its frame (`CANVAS_DRAW_PASS_WORD`): `CONTINUES` when a pass
@@ -256,11 +284,13 @@ LET __CANVAS_DRAW_ENTRY_WORDS AS Integer = @DRAW_ENTRY_WORDS@
 LET __CANVAS_DRAW_PASS_WORD AS Integer = @DRAW_PASS_WORD@
 LET __CANVAS_PASS_CONTINUES AS Integer = @DRAW_PASS_CONTINUES@
 LET __CANVAS_PASS_MORE AS Integer = @DRAW_PASS_MORE@
+LET __CANVAS_DRAW_REPEAT_WORD AS Integer = @DRAW_REPEAT_WORD@
 
 ' Start the frame's passes over, from its first draw entry.
 FUNC __canvas_passBegin() AS Nothing
   __CANVAS_PASS_ENTRY = 0
   __CANVAS_PASS_BLOCK = 0 - 1
+  __CANVAS_PASS_SOLO_END = 0
 END FUNC
 
 ' The frame's block whose instances start at `instance`: the last block starting at or
@@ -295,6 +325,10 @@ FUNC __canvas_passDraw(at AS Integer, base AS Integer, count AS Integer) AS Noth
     __CANVAS_PASS_DRAWS = collections::append(__CANVAS_PASS_DRAWS, collections::getOr(__CANVAS_DRAWS, at + word, 0))
     word = word + 1
   END WHILE
+  ' plan-175-C: a row of a run a pass boundary cut draws itself (`__CANVAS_PASS_SOLO_END`).
+  IF at / __CANVAS_DRAW_ENTRY_WORDS < __CANVAS_PASS_SOLO_END THEN
+    __CANVAS_PASS_DRAWS = collections::set(__CANVAS_PASS_DRAWS, len(__CANVAS_PASS_DRAWS) - __CANVAS_DRAW_ENTRY_WORDS + __CANVAS_DRAW_REPEAT_WORD, 1)
+  END IF
 END FUNC
 
 ' Where in this pass the frame's instances `base`..`base + count` already are, or -1.
@@ -370,7 +404,13 @@ FUNC __canvas_passNext() AS Boolean
     IF __CANVAS_PASS_BLOCK < 0 THEN
       held = __canvas_passFind(whole, base, count)
     END IF
-    IF held >= 0 THEN
+    ' plan-175-B: a row is a node of the pass's node region, so the rows a pass holds
+    ' are bounded like its blocks. A pass full of nodes ends before this row, which opens
+    ' the next one; an empty pass always takes it (a row is at most the region).
+    LET rows AS Integer = len(__CANVAS_PASS_DRAWS) / __CANVAS_DRAW_ENTRY_WORDS
+    IF rows > 0 AND rows + __canvas_rowNodes(at) > __CANVAS_PASS_MAX_NODES THEN
+      more = TRUE
+    ELSEIF held >= 0 THEN
       __canvas_passDraw(at, held, count)
     ELSE
       MUT here AS Integer = __CANVAS_PASS_BLOCK
@@ -390,6 +430,12 @@ FUNC __canvas_passNext() AS Boolean
         END IF
         IF quads + own > __CANVAS_PASS_MAX_ITEMS OR samples + texels > __CANVAS_PASS_MAX_SAMPLES OR edges + __CANVAS_COST_EDGES > __CANVAS_PASS_MAX_EDGES OR stops + __CANVAS_COST_STOPS > __CANVAS_PASS_MAX_STOPS OR dash + __CANVAS_COST_DASH > __CANVAS_PASS_MAX_DASH THEN
           more = TRUE
+          ' plan-175-C: the boundary cuts this row. If it heads a merged run, the run
+          ' cannot stay one draw: its rows draw solo from here on.
+          LET repeat AS Integer = collections::getOr(__CANVAS_DRAWS, at + __CANVAS_DRAW_REPEAT_WORD, 1)
+          IF repeat > 1 AND __CANVAS_PASS_ENTRY + repeat > __CANVAS_PASS_SOLO_END THEN
+            __CANVAS_PASS_SOLO_END = __CANVAS_PASS_ENTRY + repeat
+          END IF
         ELSE
           __CANVAS_PASS_BLOCKS = collections::append(__CANVAS_PASS_BLOCKS, offset)
           quads = quads + own

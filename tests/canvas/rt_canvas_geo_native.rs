@@ -248,3 +248,181 @@ fn a_frame_never_draws_one_scenes_geometry_for_anothers_items() {
          taken by the hash published for that scene.\n{last}"
     );
 }
+
+/// [`stats`] with the last frame kept too (`MFB_CANVAS_DUMP`), drawn by the software
+/// renderer or, with `gpu`, by the GPU backend.
+fn stats_and_frame(name: &str, source: &str, gpu: bool) -> (Vec<String>, Vec<u8>) {
+    let project = common::temp_project(name, source);
+    let binary = common::build_app_debug(&project, name);
+    let stats = project.join("stats.txt");
+    let frame = project.join("frame.rgba");
+    let mut command = Command::new(&binary);
+    command
+        .current_dir(&project)
+        .env("MFB_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_STATS", &stats)
+        .env("MFB_CANVAS_DUMP", &frame)
+        .env("MFB_CANVAS_GEO_VERIFY", "1");
+    if gpu {
+        command.env("MFB_CANVAS_GPU", "1");
+    }
+    let run = command
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&run.status),
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr),
+    );
+    let lines: Vec<String> = std::fs::read_to_string(&stats)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let pixels = std::fs::read(&frame).expect("canvas dump written");
+    let _ = std::fs::remove_dir_all(&project);
+    (lines, pixels)
+}
+
+/// plan-175-A Phase 2: A, B, A, where B changes only paint, of every kind the walk
+/// handles -- the natively resolved ones and the ones the MFBASIC walk rebuilds.
+const REPAINT: &str = include_str!("scenes/canvas_geo_native_repaint.mfb");
+
+/// A change of paint alone builds no record and inserts none: every record is found by
+/// its item's geometry identity and rewritten in place (`refreshes=`), and every
+/// rewritten record is bit-identical to a fresh build of the item (the verifier).
+#[test]
+fn a_paint_only_change_builds_nothing_and_refreshes_every_record() {
+    let lines = stats("canvas_geo_native_repaint", REPAINT);
+    assert_eq!(lines.len(), 3, "one frame per present: {lines:?}");
+    let built = field(&lines[0], "generations");
+    let entries = field(&lines[0], "entries");
+    assert!(
+        built > 400,
+        "the first frame builds every record.\n{}",
+        lines[0]
+    );
+    for pair in lines.windows(2) {
+        assert_eq!(
+            field(&pair[1], "generations"),
+            built,
+            "a frame that changed only paint built a record: its key is not geometry \
+             alone.\nbefore: {}\nafter:  {}",
+            pair[0],
+            pair[1],
+        );
+        assert_eq!(
+            field(&pair[1], "entries"),
+            entries,
+            "a frame that changed only paint added a cache entry.\n{}",
+            pair[1],
+        );
+        assert_eq!(
+            field(&pair[1], "refreshes") - field(&pair[0], "refreshes"),
+            entries,
+            "every record of a frame that changed every item's paint is refreshed.\n\
+             before: {}\nafter:  {}",
+            pair[0],
+            pair[1],
+        );
+    }
+    let last = lines.last().unwrap();
+    assert_eq!(field(last, "geoVerifyMismatches"), 0, "{last}");
+    assert!(field(last, "geoResolvedChecked") > 0, "{last}");
+}
+
+/// A frame drawn from refreshed records is the frame a fresh run on that scene draws,
+/// byte for byte, on the software renderer and on the GPU: the run that went A, B, A
+/// ends on records refreshed twice; the other draws A once, from records built once.
+#[test]
+fn a_frame_after_a_refresh_is_the_fresh_runs_frame() {
+    let once = REPAINT.replace(
+        "  canvas::present(scene(img, FALSE))\n  canvas::present(scene(img, TRUE))\n  canvas::present(scene(img, FALSE))\n",
+        "  canvas::present(scene(img, FALSE))\n",
+    );
+    assert_ne!(once, REPAINT, "the scene presents A, B, A");
+    for gpu in [false, true] {
+        let (refreshed_lines, refreshed) =
+            stats_and_frame(&format!("canvas_geo_native_refreshed_{gpu}"), REPAINT, gpu);
+        let (fresh_lines, fresh) =
+            stats_and_frame(&format!("canvas_geo_native_fresh_{gpu}"), &once, gpu);
+        assert!(
+            field(refreshed_lines.last().unwrap(), "refreshes") > 0,
+            "the A, B, A run refreshed nothing.\n{refreshed_lines:?}"
+        );
+        assert_eq!(field(fresh_lines.last().unwrap(), "refreshes"), 0);
+        assert!(
+            refreshed == fresh,
+            "gpu={gpu}: the frame drawn from refreshed records differs from a fresh \
+             run's in {} bytes",
+            refreshed.iter().zip(&fresh).filter(|(a, b)| a != b).count()
+        );
+    }
+}
+
+/// Each appearance field alone, then each geometry predicate alone, one per frame:
+/// frame `f` changes the one thing its `IF f >= ...` line says.
+const LANES: &str = include_str!("scenes/canvas_geo_native_lanes.mfb");
+
+/// plan-175-A Phase 2, and the value tests Phase 1 left here (its Correction 4): what
+/// the geometry identity folds. A change of one appearance field alone -- fill, stroke
+/// colour with the stroke still drawn, blend, transparency, a ramp's colours -- builds
+/// nothing (the record is refreshed); a change of one geometry predicate alone -- the
+/// stroke's alpha leaving zero, one stop becoming two, `FillOnly` becoming
+/// `FillAndStroke` on a `Line`, a `PolyLine` gaining colours -- builds one record.
+#[test]
+fn appearance_fields_refresh_and_geometry_predicates_build() {
+    let lines = stats("canvas_geo_native_lanes", LANES);
+    assert_eq!(lines.len(), 10, "one frame per present: {lines:?}");
+    let expected = [
+        (2, "fill", 0),
+        (3, "stroke colour", 0),
+        (4, "blend", 0),
+        (5, "transparency", 0),
+        (6, "a ramp's colours", 0),
+        (7, "stroke alpha 0 -> 255", 1),
+        (8, "one stop -> two", 1),
+        (9, "FillOnly -> FillAndStroke", 1),
+        (10, "no colours -> three", 1),
+    ];
+    for (frame, what, builds) in expected {
+        let before = &lines[frame - 2];
+        let after = &lines[frame - 1];
+        assert_eq!(
+            field(after, "generations") - field(before, "generations"),
+            builds,
+            "frame {frame} changed {what} alone and should build {builds} record(s).\n\
+             before: {before}\nafter:  {after}",
+        );
+    }
+    for line in &lines {
+        assert_eq!(field(line, "geoVerifyMismatches"), 0, "{line}");
+    }
+}
+
+/// Two items of one geometry and two paints in one frame share no record: the second
+/// one this frame resolves is resolved under its damage identity. Swapping which comes
+/// first each frame exercises a refresh of the record the other used last frame. Each
+/// frame draws the later item's colour on top, and every record verifies.
+#[test]
+fn two_items_of_one_geometry_and_two_paints_draw_right_in_either_order() {
+    let source = include_str!("scenes/canvas_geo_native_shared_record.mfb");
+    for gpu in [false, true] {
+        let (lines, frame) =
+            stats_and_frame(&format!("canvas_geo_native_shared_{gpu}"), source, gpu);
+        assert_eq!(lines.len(), 4, "one frame per present: {lines:?}");
+        for line in &lines {
+            assert_eq!(field(line, "geoVerifyMismatches"), 0, "{line}");
+        }
+        // The last frame is [blue, red]: red on top.
+        let i = (120 * 900 + 120) * 4;
+        assert_eq!(
+            &frame[i..i + 4],
+            &[255, 0, 0, 255],
+            "gpu={gpu}: the last frame's top item is the red disc"
+        );
+    }
+}

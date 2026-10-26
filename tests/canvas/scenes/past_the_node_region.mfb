@@ -1,0 +1,25 @@
+' plan-175-B: 65,537 `canvas::Group` nodes naming one one-rectangle group -- one
+' draw-list row each, one row past a pass's node region (`METAL_MAX_FRAME_NODES` and
+' `VULKAN_MAX_FRAME_NODES`, 65,536), so the frame is two passes although its one block
+' fits any region. Every node is on screen (450 a row, 2 px apart; 146 rows, 4 px
+' apart), so viewport culling drops no row.
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET dot AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 1.0, height := 2.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 200, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::setGroup("dot", [dot])
+  MUT nodes AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 65537
+    LET x AS Float = toFloat(2 * (k - 450 * (k / 450)))
+    LET y AS Float = toFloat(4 * (k / 450))
+    nodes = collections::append(nodes, canvas::Group[id := "", position := vector::Float2[x := x, y := y], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "dot"])
+    k = k + 1
+  END WHILE
+  canvas::present(nodes)
+END FUNC

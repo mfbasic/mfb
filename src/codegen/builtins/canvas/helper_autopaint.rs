@@ -427,7 +427,7 @@ END FUNC
 FUNC __canvas_autoAppend(offsets AS List OF Integer, a AS AutoPaint, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   MUT out AS List OF Integer = offsets
   __canvas_autoNote(a, hash, len(out), depth, path, index, 0 - 1)
-  out = __canvas_appendDraw(out, __canvas_autoItem(a), __canvas_autoGeoHash(hash, 0), gdx, gdy, mat, depth, path, index)
+  out = __canvas_appendDraw(out, __canvas_autoItem(a), __canvas_autoGeoHash(hash, 0), __canvas_autoGeoHash(hash, 0), gdx, gdy, mat, depth, path, index)
   RETURN out
 END FUNC
 
@@ -871,7 +871,7 @@ FUNC __canvas_autoPath(path AS Integer, index AS Integer, slot AS Integer) AS In
 END FUNC
 
 FUNC __canvas_autoAppend(offsets AS List OF Integer, a AS AutoPaint, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
-  RETURN __canvas_appendDraw(offsets, __canvas_autoItem(a), hash, gdx, gdy, mat, depth, path, index)
+  RETURN __canvas_appendDraw(offsets, __canvas_autoItem(a), hash, hash, gdx, gdy, mat, depth, path, index)
 END FUNC
 
 FUNC __canvas_autoBlock(a AS AutoPaint, hash AS Integer, path AS Integer, index AS Integer) AS Integer

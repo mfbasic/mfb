@@ -43,11 +43,11 @@ const ABSENT: &str =
 r#"IMPORT canvas
 IMPORT collections
 
-FUNC __canvas_pictureAppend(offsets AS List OF Integer, pic AS Picture, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
+FUNC __canvas_pictureAppend(offsets AS List OF Integer, pic AS Picture, geo AS Integer, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   RETURN offsets
 END FUNC
 
-FUNC __canvas_pictureBlocks(pic AS Picture, hash AS Integer, path AS Integer, index AS Integer) AS List OF Integer
+FUNC __canvas_pictureBlocks(pic AS Picture, geo AS Integer, hash AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   RETURN []
 END FUNC
 
@@ -56,6 +56,10 @@ FUNC __canvas_pictureAutoBlocks(host AS Integer, a AS AutoPaint, hash AS Integer
 END FUNC
 
 FUNC __canvas_pictureHash(pic AS Picture) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC __canvas_pictureGeoHash(pic AS Picture) AS Integer
   RETURN 0
 END FUNC
 
@@ -71,8 +75,12 @@ FUNC __canvas_pictureNamesFont(pic AS Picture, handle AS Integer) AS Boolean
   RETURN FALSE
 END FUNC
 
-FUNC __canvas_tileGeometry(tile AS Tile, hash AS Integer) AS Integer
+FUNC __canvas_tileGeometry(tile AS Tile, g AS Integer, d AS Integer) AS Integer
   RETURN 0 - 1
+END FUNC
+
+FUNC __canvas_imageCached(geo AS Integer, hash AS Integer, shadow AS Integer) AS Boolean
+  RETURN FALSE
 END FUNC
 
 FUNC __canvas_pictureCloseFont(pic AS Picture, scene AS List OF DrawItem) AS Nothing
@@ -81,11 +89,13 @@ END FUNC"#;
 /// The names the unconditional source calls: each is defined once in [`PICTURE`] and
 /// once in [`ABSENT`], and exactly one of the two chunks is in any canvas program.
 #[cfg(test)]
-const HOOKS: [&str; 9] = [
+const HOOKS: [&str; 11] = [
+    "__canvas_imageCached",
     "__canvas_pictureAppend",
     "__canvas_pictureBlocks",
     "__canvas_pictureAutoBlocks",
     "__canvas_pictureHash",
+    "__canvas_pictureGeoHash",
     "__canvas_pictureHitItem",
     "__canvas_pictureShapeId",
     "__canvas_pictureNamesFont",

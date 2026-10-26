@@ -21,7 +21,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-use super::gen_present::{emit_publish, SceneShape};
+use super::gen_present::{emit_publish, emit_scene_unchanged, SceneShape};
 
 pub(crate) fn lower_publish_scene(
     builder: &mut CodeBuilder,
@@ -29,6 +29,14 @@ pub(crate) fn lower_publish_scene(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     emit_publish(builder, args, ctx, SceneShape::Flat)
+}
+
+pub(crate) fn lower_scene_unchanged(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    emit_scene_unchanged(builder, args, ctx)
 }
 
 pub(crate) fn lower_publish_layers(
@@ -48,6 +56,38 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: None,
         internal_only: true,
         implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "items",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::named("DrawItem")),
+                    default: DefaultValue::None,
+                },
+                // plan-175-D: FALSE when the caller has compared already
+                // (`sceneUnchanged`) and found a change.
+                Parameter {
+                    name: "compare",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::Boolean,
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::Boolean,
+            errors: vec!["ErrWrongMode", "ErrOutOfMemory"],
+            body: Body::abi_function(lower_publish_scene),
+        }],
+    });
+
+    pkg.add_function(RegistryFunction {
+        name: "sceneUnchanged",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "items",
                 desc: "",
@@ -56,8 +96,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Boolean,
-            errors: vec!["ErrWrongMode", "ErrOutOfMemory"],
-            body: Body::abi_function(lower_publish_scene),
+            errors: vec!["ErrWrongMode"],
+            body: Body::abi_function(lower_scene_unchanged),
         }],
     });
 

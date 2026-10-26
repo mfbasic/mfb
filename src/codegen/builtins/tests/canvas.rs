@@ -293,7 +293,18 @@ fn the_skip_reports_false_and_the_publish_reports_true() {
             f.name
         );
         let (skip_reg, skip_value) = exit_result(f, skip);
-        let (publish_reg, publish_value) = exit_result(f, publish);
+        // plan-175-D: the scene copy comes after the publish label now, and its own
+        // out-of-memory exit is the first `ret` past it. The publish exit is the LAST
+        // `ret` before the retire-OOM cold path, which is laid out after it.
+        let cold = stream.index_of("the retire-OOM cold path", |i| {
+            i.op == CodeOp::Label && i.get("name").is_some_and(|n| n.contains("_retire_oom"))
+        });
+        let publish_ret = f.instructions[publish..cold]
+            .iter()
+            .rposition(|i| i.op == CodeOp::Ret)
+            .map(|at| publish + at)
+            .expect("a `ret` between the publish label and the cold path");
+        let (publish_reg, publish_value) = exit_result_at(f, publish, publish_ret);
         // The same register in both exits, so the pair cannot pass by having one
         // exit set the *tag* register to the value this test wants to see.
         assert_eq!(
@@ -328,6 +339,11 @@ fn the_skip_reports_false_and_the_publish_reports_true() {
 fn exit_result(f: &CodeFunction, from: usize) -> (String, String) {
     let stream = Stream::of(f);
     let ret = stream.index_after(from, "`ret` closing this exit", |i| i.op == CodeOp::Ret);
+    exit_result_at(f, from, ret)
+}
+
+/// As [`exit_result`], for the exit closed by the `ret` at `ret`.
+fn exit_result_at(f: &CodeFunction, from: usize, ret: usize) -> (String, String) {
     let mut immediates: Vec<&_> = f.instructions[from..ret]
         .iter()
         .filter(|i| i.op == CodeOp::MovImm)
@@ -383,9 +399,9 @@ fn the_wrong_mode_gate_precedes_the_scene_copys_allocation() {
 /// * **Four frees behind the gate, not three.** Retirement is a list now, so a
 ///   drained node costs its three blocks plus the node itself. All four are behind
 ///   the same gate.
-/// * **One free ahead of it, on the frame-skip path.** The skip frees the copy it
-///   made for the comparison (bug-683 leak 1) — a block allocated in this call and
-///   never stored into the scene region, so no renderer can have seen it.
+/// * **None ahead of it, on the frame-skip path.** bug-683's skip freed the copy it
+///   made for the comparison; since plan-175-D the skip compares before copying, so
+///   it has nothing to give back.
 /// * **One more past the publish exit,** on the cold path where the retirement node
 ///   could not be allocated: the same fresh copy, given back before the raise.
 ///
@@ -433,11 +449,14 @@ fn retired_scene_blocks_are_freed_only_after_a_frame_completes() {
              graphics thread may still be reading it",
             f.name
         );
+        // plan-175-D: the skip compares the caller's list with the installed one before
+        // anything is copied, so it allocates nothing and frees nothing (bug-683's leak
+        // was a copy made ahead of the skip; there is none to leak now).
         assert_eq!(
             frees(0, publish_at),
-            1,
-            "{}: the frame skip frees exactly the copy it made to compare with \
-             (bug-683), and nothing else may be freed ahead of the gate",
+            0,
+            "{}: nothing may be freed ahead of the publish label — the skip makes no \
+             copy, and anything else there would be freed ahead of the gate",
             f.name
         );
         assert_eq!(

@@ -50,14 +50,14 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [*]  | 688    | HIGH     | Vulkan canvas parity with Metal: V1 to V4 fixed and Windows presents through a swapchain. The 10,000-item render on the Intel GPU (box 206) is down from 106 to 58 ms a frame for squares and circles and from 108 to 92 for the sweep's polygon quads (bug-staging-23: the coverage shader's centre sample is straight-line code), still as large as the program's own 94 ms a present, so not closed; what is left is the size of the one live shader and the polygon edge walk. The cold pipeline compile went from 35 s to 67 s (bug-996 takes it off the first frame). Linux present is bug-1082 |
-| [*]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots under 30 PPS / 30 FPS. The frame cap is gone (2026-10-12: a frame past one frame buffer is drawn in passes, every frame a GPU frame on Metal and Vulkan): 15 to 19 FPS on Metal, 4 to 5 on box 206. Left: the worker's copy and compare, geometry rebuilt on a fill-only change (planning/plan-175-A), the per-frame block upload, and the Intel GPU's own draw time |
+| [*]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots under 30 PPS / 30 FPS. The frame cap is gone (2026-10-12: a frame past one frame buffer is drawn in passes, every frame a GPU frame on Metal and Vulkan): plan-175 (A to D) made a paint-only change a refresh in place and an unchanged `present` copy-free: 34 PPS / 35 FPS on Metal and 11 / 12 on box 206, both headless. Left: confirm 30 / 30 on Metal in a real window, the worker's compare and per-frame block upload (57 ms a `present` at 100,000 on box 206), and the Intel GPU's own draw time |
 | [ ]  | 1082   | MED      | on Linux a windowed Vulkan canvas frame is read back and blitted, never presented through a swapchain (split from 688; blocked on a real-GPU Linux box and the GTK4 surface decision) |
 | [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024) |
 | [ ]  | 1090   | LOW      | under a huge magnification the zero-gradient coverage fallback lights a stray column of pixels far from the shape (191 pixels at x = 450 for two off-surface squares at a 14,000 times transform); software and Metal |
 | [ ]  | 1103   | LOW      | a banded polygon drawn under a group matrix renders about 1.4x slower on Metal since bug-1085 (owner accepted the cost; speed-up wanted) |
 
 * Partial fix landed: 10,000 squares 110 → 58 ms on box 206. Render is still about 93 ms at 10,000 moving quads.
-* Frames draw in passes, so 100,000 dots run on the GPU: 20 FPS on Metal, 4 to 5 on box 206. `planning/plan-175-A-canvas-geometry-identity-split.md` has all four decisions recorded.
+* 765: after plan-175 (`planning/completed/plan-175-A-canvas-geometry-identity-split.md`), 100,000 changing dots run at 34 / 35 on Metal and 11 / 12 on box 206, headless (bug-765, "Re-measured after plan-175-A and plan-175-D"). Box 206's goal is set from the Intel draw cost, not 30 (owner ruling 2026-10-12).
 
 ## App windows and GTK
 
@@ -85,6 +85,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1011   | MED      | reserved collection results retain source-sized capacity when outputs are smaller |
 | [ ]  | 1002   | LOW      | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` is reported twice for one collection declaration that holds a thread worker |
 | [ ]  | 1006   | LOW      | `collections::window` overflows while advancing past its last window for a large valid stride |
+| [ ]  | 1111   | LOW      | `collections::sort` of a `List OF Byte` is slower than of a `List OF Integer` with the same values (1M elements: 81–86 ms vs 66–69 ms): Byte and Scalar take the generic `<` compare, with a multiply, a stack round-trip and a Boolean per comparison |
 
 ## Strings and Unicode
 
@@ -106,6 +107,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 934    | LOW      | `math::min`/`math::max` on `Float` give a different signed zero on x86-64 than on AArch64/riscv64 (`min(-0.0, 0.0)` prints `0.00` on x86, `-0.00` elsewhere) |
 | [ ]  | 977    | LOW      | `toString`'s `precision` is a `Byte` — a number typed as data; make it an `Integer` with a checked 0..32 range (owner-confirmed language change; first of 977 → 878, 978 + 839, 945) |
 | [ ]  | 978    | LOW      | there is no `Byte` literal suffix, and an Integer literal silently becomes a `Byte` argument — add `3b` and stop the coercion (owner-confirmed language change) |
+| [ ]  | 1109   | LOW      | the general conversion `toInt` is the only `to*` builtin not named after its result type; rename it `toInteger` (mechanical but large: about 8,100 occurrences, about 330 golden files) |
 
 ## Data formats (datetime, JSON, CSV, base64)
 
@@ -221,6 +223,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1112   | HIGH     | a linux-riscv64 build of `benchmark/language/mfb` panics: a function needs 172 concurrent `v128` slots and the per-thread region holds 126 (pre-existing; found by plan-171-A's census) |
 | [ ]  | 946    | MED      | `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant (together with 930; do after the behaviour fixes so its diffs are measured on a stable tree) |
 | [ ]  | 1106   | MED      | the native encoder accepts a floating-point register as the source of an integer store (`str_u64` with `d0`) and stores another register's bits |
+| [ ]  | 1110   | MED      | every `FOR` loop re-tests the sign of a constant `STEP` on each iteration (27 instructions an iteration where about 11 do the work, all targets, -O1 to -O3): the test is built after opt1, and opt2 does not fold a branch on a Boolean immediate |
 | [ ]  | 930    | LOW      | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |
 | [ ]  | 1080   | LOW      | a defaulted record updated with `WITH` costs about 27 KB of machine code a statement (the program is right; the executable is large and slower to build) |
 | [ ]  | 1084   | LOW      | `toString` of a package enum read straight off a call result fails to build ("native code string literal has no data object"); binding the record first works |

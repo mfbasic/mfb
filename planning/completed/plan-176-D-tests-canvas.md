@@ -15,7 +15,7 @@ It is pure code motion. The only edits beyond motion are decided ones:
 - 56 `include_str!("scenes/…")` paths in the two `rt_canvas_metal` topics gain a `../`;
 - fixing two pre-existing stale `tests/rt_canvas_*.rs` paths (`.ai/testing-gates.md:332`,
   `scripts/man-run-examples.sh:260`);
-- repointing one live plan line (`planning/plan-175-B-canvas-draw-node-table.md:260`) whose
+- repointing one live plan line (`planning/completed/plan-175-B-canvas-draw-node-table.md:260`) whose
   `draws=` assertions move into a topic, if that plan is still open when Phase 4 lands.
 
 No shared helper changes visibility: every helper used by more than one part stays in the root,
@@ -48,7 +48,7 @@ References:
 |---|---|---|
 | plan-176-C is complete and archived | `ls planning/plan-176-C-* planning/completed/plan-176-C-*` → only `planning/completed/plan-176-C-tests-runtime-b.md` | MET (2026-10-18, HEAD d4c18d5ea: `ls planning/completed/ \| grep plan-176-C` → `plan-176-C-tests-runtime-b.md`; `ls planning \| grep plan-176-C` → none) |
 | The guard and the oracle exist (plan-176-A) | `cargo test --test file_size_budget` → passes; `python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_rasteriser.rs` → `0 4712` | MET (2026-10-18: guard `test result: ok. 35 passed`; the census → `0 4712`) |
-| This letter's files have no uncommitted changes | `git status --porcelain -- tests/canvas/rt_canvas_curves.rs tests/canvas/rt_canvas_font.rs tests/canvas/rt_canvas_golden.rs tests/canvas/rt_canvas_metal.rs tests/canvas/rt_canvas_particles.rs tests/canvas/rt_canvas_rasteriser.rs tests/canvas/scenes src/docs/spec/app/06_canvas.md scripts/man-run-examples.sh .ai/testing-gates.md planning/plan-175-B-canvas-draw-node-table.md tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-18, HEAD d4c18d5ea: empty) |
+| This letter's files have no uncommitted changes | `git status --porcelain -- tests/canvas/rt_canvas_curves.rs tests/canvas/rt_canvas_font.rs tests/canvas/rt_canvas_golden.rs tests/canvas/rt_canvas_metal.rs tests/canvas/rt_canvas_particles.rs tests/canvas/rt_canvas_rasteriser.rs tests/canvas/scenes src/docs/spec/app/06_canvas.md scripts/man-run-examples.sh .ai/testing-gates.md planning/completed/plan-175-B-canvas-draw-node-table.md tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-18, HEAD d4c18d5ea: empty) |
 | The six files still measure as mapped (§2). Any drift means re-running the part sums before splitting | `for f in curves font golden metal particles rasteriser; do python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_$f.rs; grep -cE '^\s*#\[test' tests/canvas/rt_canvas_$f.rs; done` → `0 2432` 40, `0 3547` 60, `0 1182` 28, `0 1758` 74, `0 1214` 29, `0 4712` 113 | MET (2026-10-18, HEAD d4c18d5ea: the command → exactly those six LOC pairs and counts) |
 
 Everything below is written against the world where these hold.
@@ -165,13 +165,13 @@ spacing, decoration, carets, ligatures) and bug-1091; its layout below is re-map
   `No such file or directory`. These are the only `tests/rt_canvas_*.rs` references in
   `.ai scripts AGENTS.md src/docs .github` (`grep -rn 'tests/rt_canvas'`).
 - **Live documents naming a symbol in a D file** (`grep -rnoE 'rt_canvas_(curves|font|golden|metal|particles|rasteriser)\.rs\`?(::|:|\`'"'"'s )' .ai scripts AGENTS.md src/docs .github planning/*.md bugs/*.md`,
-  minus plan-176): the five citations above and `planning/plan-175-B-canvas-draw-node-table.md:260`
+  minus plan-176): the five citations above and `planning/completed/plan-175-B-canvas-draw-node-table.md:260`
   ("`tests/canvas/rt_canvas_rasteriser.rs`'s `draws=` assertions"). Those assertions live in
   `scene_draws_shares_one_base_between_a_diamonds_two_draws` (L5688–5795 at `ce7a995ca`), which
   moves to `rt_canvas_rasteriser/groups.rs`. Every other live reference names a root path or a
   target (`scripts/remote-common.sh:47` and `scripts/test-canvas-vulkan.sh:88` name the font
   fixture builder in `tests/canvas/rt_canvas_font.rs`, and the builder stays in that root;
-  `planning/plan-175-C-canvas-group-node-instancing.md:147` adds tests to the rasteriser target) and stays valid.
+  `planning/completed/plan-175-C-canvas-group-node-instancing.md:147` adds tests to the rasteriser target) and stays valid.
 - No D file respawns itself, reads its own source, or uses `module_path!`/`file!()`
   (`grep -nE 'current_exe|--exact|module_path!|file!\(\)'` → none). No D path is in
   `scripts/coverage-exceptions.txt` or a guard allowlist. No `tests/canvas/<name>/` directory
@@ -481,7 +481,7 @@ Sweeps: citations: none (`grep -rnoE "tests/canvas/rt_canvas_font.rs(::|:)\w+" s
   resource_lifetime_mid_frame (5); local helpers: render_stdout, stat
 
 Surface: root declares 6 topics as `#[path = "rt_canvas_rasteriser/<name>.rs"] mod <name>;`; target name `rt_canvas_rasteriser` unchanged; no visibility change. Both `#[ignore]`d measurements stay runnable with `cargo test --test rt_canvas_rasteriser -- --ignored` (filter unchanged).
-Sweeps: citations `06_canvas.md:266` `path_placement_a_clipped_polygon_moves_whole_with_its_position`, `:1536` `group_affine_a_nested_group_composes_with_its_parent` and `:1548` `group_affine_a_scaled_group_scales_its_strokes` stay in the root (K6) | includes: none | `planning/plan-175-B-canvas-draw-node-table.md:260` "`tests/canvas/rt_canvas_rasteriser.rs`'s `draws=` assertions" → "`tests/canvas/rt_canvas_rasteriser/groups.rs`'s `draws=` assertions" if plan-175-B is still under `planning/` (not `planning/completed/`) when Phase 4 lands; `planning/plan-175-C-canvas-group-node-instancing.md:147` names the target for new tests and stays valid.
+Sweeps: citations `06_canvas.md:266` `path_placement_a_clipped_polygon_moves_whole_with_its_position`, `:1536` `group_affine_a_nested_group_composes_with_its_parent` and `:1548` `group_affine_a_scaled_group_scales_its_strokes` stay in the root (K6) | includes: none | `planning/completed/plan-175-B-canvas-draw-node-table.md:260` "`tests/canvas/rt_canvas_rasteriser.rs`'s `draws=` assertions" → "`tests/canvas/rt_canvas_rasteriser/groups.rs`'s `draws=` assertions" if plan-175-B is still under `planning/` (not `planning/completed/`) when Phase 4 lands; `planning/completed/plan-175-C-canvas-group-node-instancing.md:147` names the target for new tests and stays valid.
 
 ## Phases
 
@@ -619,10 +619,10 @@ The largest split: 113 tests in 7 parts, and three citations that stay in the ro
 - [x] Declaration check: `grep -c '^#\[path = "rt_canvas_rasteriser/' tests/canvas/rt_canvas_rasteriser.rs` → `6`;
       `ls tests/canvas/rt_canvas_rasteriser/*.rs | wc -l` → `6`.
       Done: → `6`, `6`.
-- [x] `planning/plan-175-B-canvas-draw-node-table.md:260`: if the file is still under `planning/`
-      Done: `ls planning/plan-175-B-canvas-draw-node-table.md` → exists; line 260 repointed to `…/groups.rs`
+- [x] `planning/completed/plan-175-B-canvas-draw-node-table.md:260`: if the file is still under `planning/`
+      Done: `ls planning/completed/plan-175-B-canvas-draw-node-table.md` → exists; line 260 repointed to `…/groups.rs`
       (`grep -c 'draws=' tests/canvas/rt_canvas_rasteriser/groups.rs` → 5).
-      (`ls planning/plan-175-B-canvas-draw-node-table.md` → exists), repoint
+      (`ls planning/completed/plan-175-B-canvas-draw-node-table.md` → exists), repoint
       "`tests/canvas/rt_canvas_rasteriser.rs`'s `draws=` assertions" to
       "`tests/canvas/rt_canvas_rasteriser/groups.rs`'s `draws=` assertions"; if it has moved to
       `planning/completed/`, mark this task moot with that `ls` as evidence.
@@ -655,7 +655,7 @@ Commit: fb3762558
   `GROUPS`/`POLYLINES` `sed` extraction) are checked in Phase 1 without a Linux run, because the
   extracted text is unchanged.
 - Doc sync: `.ai/testing-gates.md:332`, `scripts/man-run-examples.sh:260`, and (if still open)
-  `planning/plan-175-B-canvas-draw-node-table.md:260`. No `mfb spec` text changes. Citation
+  `planning/completed/plan-175-B-canvas-draw-node-table.md:260`. No `mfb spec` text changes. Citation
   count check: `grep -cE '\[\[tests/canvas/rt_canvas_(rasteriser|golden|metal)\.rs:' src/docs/spec/app/06_canvas.md`
   → `5` before Phase 1 and after Phase 4.
 - Final gate (once, after Phase 4):

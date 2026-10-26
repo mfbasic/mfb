@@ -181,6 +181,12 @@ pub(super) fn emit_fade_alpha(
     alpha: &VirtualRegister,
     step: &VirtualRegister,
 ) {
+    // plan-175-A: at step 0 -- every paint with no transparency -- the fade is the
+    // identity, `(a * 255 + 127) / 255 = a` for every byte `a`, so the divide (the
+    // costliest instruction of a refresh) is skipped.
+    let same = builder.label("canvas_geo_fade_same");
+    builder.emit(abi::compare_immediate(step, "0"));
+    builder.emit(abi::branch_eq(&same));
     let keep = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&keep, "Integer", "255"));
     builder.emit(abi::subtract_registers(&keep, &keep, step));
@@ -189,6 +195,7 @@ pub(super) fn emit_fade_alpha(
     let d = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&d, "Integer", "255"));
     builder.emit(abi::signed_divide_registers(alpha, alpha, &d));
+    builder.emit(abi::label(&same));
 }
 
 /// The paint's clip as `__canvas_clipHeader` classifies it on an untransformed item:
@@ -428,10 +435,7 @@ pub(super) fn emit_paint_header(
     stroke_half: &VirtualRegister,
 ) -> Result<(), String> {
     put(builder, out, 7, stroke_half);
-    // plan-163-C: both alphas faded by `transparency` (`__canvas_fadeAlpha`).
-    let step = emit_transparency_step(builder, view)?;
-    put_color(builder, out, 8, view, "fill", &step)?;
-    put_color(builder, out, 12, view, "stroke", &step)?;
+    emit_paint_appearance(builder, out, view)?;
 
     // plan-163-C: `__canvas_clipHeader` on an untransformed item -- nothing for the empty
     // ring list; else the rule, then the rectangle in slots 22-25 (mode 1) or a path's
@@ -523,6 +527,28 @@ pub(super) fn emit_paint_header(
     put(builder, out, 25, &by1);
     builder.emit(abi::label(&unclipped));
 
+    put_const(builder, out, 27, IDENTITY_ONE_BITS);
+    put_const(builder, out, 30, IDENTITY_ONE_BITS);
+    Ok(())
+}
+
+/// plan-175-A: the APPEARANCE slots `__canvas_paintHeader` writes, for a natively built
+/// paint (no transform, fewer than two stops): both colours, the alphas faded by the
+/// transparency (8–15), the blend mode's tag (26), and the gradient's kind and two
+/// points (42–46, written whatever the stop count). Every slot here comes from a
+/// field `func_item_lanes.rs` puts in the appearance lane and nothing else does, which
+/// is what lets a record found by its geometry identity be refreshed by this alone
+/// (`emit_refresh_record`).
+pub(super) fn emit_paint_appearance(
+    builder: &mut CodeBuilder,
+    out: &VirtualRegister,
+    view: &PaintView,
+) -> Result<(), String> {
+    // plan-163-C: both alphas faded by `transparency` (`__canvas_fadeAlpha`).
+    let step = emit_transparency_step(builder, view)?;
+    put_color(builder, out, 8, view, "fill", &step)?;
+    put_color(builder, out, 12, view, "stroke", &step)?;
+
     // The blend mode's tag: Normal 0, Multiply 1, Screen 2, Add 3.
     let (blend_index, blend_type) = field(builder, &view.paint_type, "blend")?;
     let blend = builder.temporary_vreg();
@@ -578,9 +604,6 @@ pub(super) fn emit_paint_header(
         put_field(builder, out, slot, &p, xo);
         put_field(builder, out, slot + 1, &p, yo);
     }
-
-    put_const(builder, out, 27, IDENTITY_ONE_BITS);
-    put_const(builder, out, 30, IDENTITY_ONE_BITS);
     Ok(())
 }
 

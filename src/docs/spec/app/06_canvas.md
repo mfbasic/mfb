@@ -43,7 +43,11 @@ present-diff. The consequences are the point:
   make the renderer redraw.
 - **Per-item geometry can be cached on content**, because an item's identity is
   its contents rather than a call ordering. Re-presenting an unchanged item
-  re-uses its cached geometry.
+  re-uses its cached geometry. The cache is keyed by the item's GEOMETRY identity
+  (*The item unions*, below), so an item whose paint alone changed keeps its record
+  and has only the record's paint slots rewritten in place; the damage diff compares
+  the identity that folds the paint too, so such an item still repaints.
+  [[src/codegen/builtins/canvas/func_geo_cache/resolve.rs:lower_scene_resolve]]
 
 The comparison is exact rather than hashed, so there are no collisions to reason
 about. It is of CONTENT, not of bytes: the two lists' counts, then each element,
@@ -146,6 +150,32 @@ falls out of the dispatch as −1, as it would on its own, and the picture is ha
 MFBASIC (`__canvas_pictureHash`).
 [[src/codegen/builtins/canvas/func_item_hash.rs:emit_item_hash]]
 
+### Item identity
+
+The walk folds every field into one of two lanes, and so gives an item two identities:
+its GEOMETRY identity `G` — what decides the shape of its geometry record: the kind's
+own fields, its transform, and the paint's stroke width, cap, join, miter limit, dashes
+and clip, plus whether the stroke's alpha is zero, the gradient's stop count and whether
+the ramp paints the stroke — and its damage identity `D`, mixed from `G` and the
+APPEARANCE lane (both colours, the blend mode, the ramp, the transparency). `D` changes
+exactly when either does; it is what the damage diff compares. An item's `id` is in
+neither: it is only for `overID`, so renaming an item redraws nothing (the scene is
+still published, so the poll answers the new name). Which lane each field folds into is
+one table for `Paint` — a field it does not name fails the build — and a rule for the
+kinds' own fields. [[src/codegen/builtins/canvas/func_item_lanes.rs:item_field]]
+The published hashes are both: every item's `D`, then every item's `G`, one list under
+the one hashes revision. [[src/codegen/builtins/canvas/func_item_hash.rs:lower_scene_hashes]]
+
+Each identity has one job. The geometry cache is keyed by `G` and each of its slots
+holds the `D` its record was last written for: `G` holding the item's `D` is a hit; `G`
+holding another `D`, in a slot no entry of this frame uses yet, is a refresh — the
+record's appearance slots rewritten in place, counted as `refreshes=`; `G` already used
+this frame under another `D` (two equal shapes, two paints) resolves under `D` instead;
+`G` absent builds. The damage diff compares `D`. The worker's hit cache (*Hit-testing*)
+is keyed by `G`, because a hit test reads the shape alone. A `Group` node, an
+`AutoPaint` and a `ParticleSystem` are hashed in one lane, so their `G` is their `D`.
+[[src/codegen/builtins/canvas/func_geo_cache/resolve.rs:lower_scene_resolve]]
+
 ## A published scene points at nothing caller-owned
 
 `present` **deep-copies the scene transitively** into runtime-owned storage:
@@ -163,6 +193,15 @@ records and nested collections are inlined into it, not referenced from it.
 The copy's cost is charged to the calling program's frame budget, by design.
 Animated content calls `present` every frame and pays for it there; the renderer's
 own per-frame cost stays constant.
+
+The copy is made only for a scene that will be published. `present` first compares
+the caller's list with the installed scene by content — the frame skip's compare,
+which reads neither copy's headroom — and an unchanged scene is neither copied nor
+published. Nor does an unchanged present carry the installed hashes, or walk the
+scene item by item for its group signature: that walk acts only on `Group` nodes and
+`ParticleSystem`s, and a native scan of the top-level tags skips it for a scene with
+neither. [[src/codegen/builtins/canvas/gen_present.rs:emit_publish]]
+[[src/codegen/builtins/canvas/func_present.rs:BODY]]
 
 ## Paint is a value, not ambient state
 
@@ -409,7 +448,8 @@ is drawn in passes.** Every per-item payload travels in one frame buffer whose r
 are fixed in size, the same sizes on Metal and Vulkan: 65,536 item quads (a glyph is a
 quad of its own, and a blended item that both fills and strokes is two), 262,144
 polygon edges, 131,072 gradient stops, 1,048,576 dash words (a dashed item's dash tail
-plus one) and 8M picture-and-glyph texels (each distinct image counted once). A
+plus one), 8M picture-and-glyph texels (each distinct image counted once) and 65,536
+draw-list entries, each a node of the node table. A
 `PolyLine`'s segments take the edge region, one edge each, a curve shape's pieces two
 each, a stroke's join records two each and a path clip's edges one each. Those are the
 size of one PASS. A frame whose blocks fit is one pass, drawn as it always was. A
@@ -1566,7 +1606,13 @@ kept as a translation and, only when some node on the path has a transform in ef
   gradient;
 * a draw entry's hash folds in the linear part when it has one, so a group turned in
   place — no geometry and no translation changed — is repainted.
-  [[tests/canvas/rt_canvas_damage.rs:turning_a_group_repaints_and_matches_a_full_redraw]]
+  [[tests/canvas/rt_canvas_damage_groups.rs:turning_a_group_repaints_and_matches_a_full_redraw]]
+* a group's children are read where they are, not copied per node: each node takes its
+  slot's items block once, after the slot's revision, and reads every child from that
+  block, so a `setGroup` landing mid-walk cannot give one node two lists. Their
+  identities (`D` and `G` per child) are kept per slot, keyed by the revision AND the
+  block, and computed once per `setGroup` rather than once per node per frame.
+  [[src/codegen/builtins/canvas/func_group_block.rs:lower_group_items_block]]
 
 A composed linear part with no area (`|det| < 1e-12`, reached only by scaling something
 out of existence through several nodes) draws nothing: the node and everything under it
@@ -1575,18 +1621,24 @@ is skipped.
 **A GPU draw entry is sixteen 64-bit words.** Base and count, the translation as two
 float32 bit patterns and the blend mode are words 0–4; words 5–6 are reserved and zero.
 Word 7 is 1 when the entry has a matrix, words 8–11 are the inverse linear part as
-float32 bit patterns, word 12 is the pass word and words 13–15 are zero.
+float32 bit patterns, word 12 is the pass word, word 13 the REPEAT — 1 in every entry
+the walk and the native flat list write — and words 14–15 are zero.
 [[src/codegen/runtime/canvas/scene_layout.rs:CANVAS_DRAW_ENTRY_WORDS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:CANVAS_DRAW_REPEAT_WORD]]
 
-**Both GPU backends bind 32 bytes per draw, to both stages.** The entry's four
-translation words, then the four words of the inverse linear part: `MfbDraw` on Metal,
-sent with `setVertexBytes:` and `setFragmentBytes:`, and one push-constant range on
-Vulkan that both stages declare. `hasMatrix` is not sent — an inverse is never all
+**Every draw entry is a node of a node table both stages read.** The entry's four
+translation words, then the four words of the inverse linear part — 32 bytes, `MfbDraw`
+on Metal — are written once a pass into the frame buffer's node region, entry `i` at
+node `i`. A draw sends only a 16-byte run `{ base, count, node, repeat }` to the vertex
+stage (`setVertexBytes:` on Metal, a vertex-only push constant on Vulkan) and draws
+`count * repeat` instances from `base`: the vertex stage reads item `base + local % count`
+under node `node + local / count`, `local` the instance less `base`, and hands the node to
+the fragment stage as a flat varying. `hasMatrix` is not read — an inverse is never all
 zero, so all-zero bits mean the groups only translate, and the shaders then take the
 branch they took before a group could have a matrix.
 [[src/target/macos_aarch64/app/metal.rs:emit_draw_list_pass]]
 [[src/codegen/runtime/canvas/vulkan/publish.rs:emit_draw_list_pass]]
-[[src/codegen/runtime/canvas/vulkan/mod.rs:PUSH_OFFSET_BYTES]]
+[[src/codegen/runtime/canvas/vulkan/mod.rs:PUSH_RUN_BYTES]]
 
 With a matrix:
 
@@ -1651,7 +1703,7 @@ is not a `canvas::DrawItem`, and cannot be. A `DrawItem` variant holding a `Draw
 is a type cycle, and a type that reaches a cycle is not laid out as one flat block
 [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:flatness_walk]] — for
 every value of the type, in every program. A scene is one flat block by construction:
-`present` copies it with one block copy, compares it to the installed scene by content,
+`present` compares it to the installed scene by content, copies it with one block copy,
 and the native walks step through it by offset (*A published scene points at nothing
 caller-owned*). So a `Picture`, a `Group` or another `ParticleSystem` as a template is
 refused by the type checker, and a test holds that no canvas type reaches itself.
@@ -2066,8 +2118,9 @@ not empty.
 **`overID` is resolved at the poll, on the worker, against the scene the worker last
 presented** — not at the moment the event happened, and not from a frame. The worker
 builds its own draw list from `canvas::installedItems()` and `installedLayers()` into
-its own thread-local geometry cache (`.ai/canvas-threading.md` section 2); nothing is
-read from the graphics thread. `__canvas_overId` decides how much of that to do:
+its own thread-local geometry cache (`.ai/canvas-threading.md` section 2), keyed by
+each item's geometry identity (*Item identity*), so a paint-only change re-uses the
+records; nothing is read from the graphics thread. `__canvas_overId` decides how much of that to do:
 
 | Condition | Cost |
 |---|---|
@@ -2300,7 +2353,8 @@ parent path — rebuilt each frame from the instances that frame saw.
 
 `__canvas_appendDraw`'s `AutoPaint` arm calls `__canvas_autoAppend`, which notes the
 instance and appends its shape's draw entry built from the shape's OWN paint. That
-entry's geometry is cached under the item's hash stepped by 16 (`__canvas_autoGeoHash`),
+entry's geometry is cached under the item's hash stepped by 16 (`__canvas_autoGeoHash`)
+— an `AutoPaint` is hashed in one lane, so that hash is both its identities —
 never under the item's hash itself: the scene's published hashes name `AutoPaint`s, and
 a record cached under one would let the native pass
 (`canvas::sceneResolve`) resolve the item without the walk seeing it. An `AutoPaint` is
@@ -2447,7 +2501,7 @@ hit target or per-item transform. A group transform carries it like every other 
 Like a `ParticleSystem` it is never hit: `canvas::sceneIdBits` and
 `__canvas_hitAppend` skip it, so `overID` never names it and it hides nothing beneath
 it from the mouse. Its geometry is an image record, so the native resolver leaves a cache
-hit on it to `__canvas_pictureCached`, which confirms the image's current pixel block
+hit on it to `__canvas_pictureCachedOf`, which confirms the image's current pixel block
 as it does a picture's. [[src/codegen/builtins/canvas/func_item_hash.rs:NEVER_HIT]]
 
 The source rectangle is in image pixels and maps directly onto the destination
@@ -2490,7 +2544,7 @@ picture: what the three renderers draw is records they already drew.
   corners, and either `clip` is `ClipAndTransform` or the rectangle's transform is not
   in effect — is ONE picture record: the rectangle's own, re-kinded, carrying its
   stroke and its `paint.clip` (`__canvas_picturePlain`). It is cached under the item's
-  hash like any item's record.
+  geometry identity, holding its damage identity, like any item's record.
 - **A shaped picture** is the **image**, a picture record over the fitted destination
   rectangle with the outline for its clip, and then the **outline**, the shape itself
   with a transparent fill and no gradient (`__canvas_pictureOutlineItem`) — an
@@ -2498,8 +2552,9 @@ picture: what the three renderers draw is records they already drew.
   outline is there when the stroke draws, and under `Contain`, where the image may not
   reach the shape's edge. An entry whose record is the empty one is left out.
 
-A shaped picture's two records are cached under the item's hash stepped
-(`__canvas_pictureKey`), never under the hash itself: a record there would let
+A shaped picture's two records are cached under the item's geometry identity stepped
+(`__canvas_pictureKey`), each holding its damage identity stepped the same way, so a
+tint change rewrites them in place; never under the identity itself: a record there would let
 `canvas::sceneResolve` resolve the item to ONE record without the walk seeing it. A
 top-level item that became other than one entry is −2 in `__CANVAS_TOP_OFFSETS` (a
 group node is −1), which sends the frame to `__canvas_sceneDrawsWalk`. That walk takes
@@ -2509,8 +2564,12 @@ image may be refilled or closed between the two walks, and a frame draws from on
 reading of it. A picture inside a group is laid out by `__canvas_memoGroup`
 (`__canvas_pictureBlocks`). Either
 way a picture record is confirmed against the image's current pixel block before it is
-used (`__canvas_pictureCached`) — `canvas::setBytes` swaps the block without changing
-the item, so it is the one cached kind a hash cannot vouch for.
+used (`__canvas_pictureCachedOf`) — `canvas::setBytes` swaps the block without changing
+the item, so it is the one cached kind a hash cannot vouch for. The block is read from
+the item in place (`canvas::itemImageShadow`), and a picture or a `Tile` whose records
+are all cached and confirmed is laid out from that word and its identities before the
+walk's `MATCH` would copy the variant (`__canvas_imageCached`).
+[[src/codegen/builtins/canvas/func_item_image.rs:lower_item_image_shadow]]
 
 **The outline** is rings and a fill rule: a `Rectangle`'s `__canvas_rrectRing`; a
 `Circle`'s or an `Ellipse`'s flattened so no chord is more than 0.05 px from the curve,
@@ -2590,8 +2649,8 @@ eight one-line bodies). On macOS AArch64 (`__text`): a canvas program with no pi
 is 16,904 bytes smaller than before a picture had a shape, because the picture record
 builder left the unconditional source; a program with pictures is 226,012 larger, most
 of it the image builder, the outline item, and the intersection. A plain picture costs
-a frame what it did: one cache probe under its hash, with no list made and the shape
-not copied out of the item (`__canvas_picturePlainOffset`).
+a frame one cache probe under its geometry identity, with no list made and neither the
+picture nor its shape copied out of the item (`__canvas_imageCached`).
 
 **Naming a resource in a scene does not keep it alive.** The scene draws through
 the image you still own, and closing it is still yours to do — `canvas::destroyImage`

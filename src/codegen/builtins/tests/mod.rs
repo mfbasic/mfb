@@ -44,6 +44,7 @@ mod canvas;
 mod canvas_argument_refusals;
 mod canvas_geo_layout_guards;
 mod canvas_item_hash_guards;
+mod canvas_item_lanes;
 mod closure_env_forms;
 mod collection_compare;
 mod collection_element_widths;

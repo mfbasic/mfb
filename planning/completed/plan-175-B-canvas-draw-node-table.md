@@ -21,7 +21,7 @@ draw's offset and matrix read from the node table and no per-draw `setFragmentBy
 
 References:
 
-- `planning/plan-175-A-canvas-geometry-identity-split.md` — decision 5 (this letter),
+- `planning/completed/plan-175-A-canvas-geometry-identity-split.md` — decision 5 (this letter),
   §2.4 (the group row's 10,001 draws and 2.2 ms of encode).
 - `.ai/canvas-threading.md` §10, "A group is one instanced draw per node, with an offset
   bound to BOTH stages" (the payload and why both stages need it), "The per-item
@@ -35,7 +35,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-175-A is complete and archived | `ls planning/plan-175-A-* planning/completed/plan-175-A-*` → only the `completed/` path | NOT MET (2026-10-13) |
+| ~~plan-175-A is complete and archived~~ plan-175-A's code and docs have landed: every box of its Phases 1–7 resolved except the two its Phase 7 runs once after the plan's LAST code change (the change-sentinel goldens, the `benchmark/canvas` re-baseline), Correction 2 | `grep -n "^- \[ \]" planning/completed/plan-175-A-canvas-geometry-identity-split.md` → exactly those two | MET (2026-10-25: two lines, 905 and 932, the goldens and the benchmark) |
 
 Everything below is written against the world where that holds.
 
@@ -250,18 +250,28 @@ Rejected alternatives:
 MFBASIC and the native flat list only; no emitter reads word 13 yet, so no frame can
 change.
 
-- [ ] `helper_render.rs:__canvas_pushOneDraw`: word 13 = 1.
-- [ ] `func_geo_cache.rs:lower_scene_draws_flat`: word 13 = 1.
-- [ ] `helper_render.rs`: `__CANVAS_PASS_MAX_NODES`; `__canvas_passNext` and
+- [x] `helper_render.rs:__canvas_pushOneDraw`: word 13 = 1
+      (`helper_render/gpu_draw_list.rs`).
+- [x] `func_geo_cache.rs:lower_scene_draws_flat`: word 13 = 1
+      (`func_geo_cache/layout.rs`, `CANVAS_DRAW_REPEAT_WORD`).
+- [x] `helper_render.rs`: `__CANVAS_PASS_MAX_NODES`; `__canvas_passNext` and
       `__canvas_framePasses` count rows (§4.1); the two renderable gates pass
       `METAL_MAX_FRAME_NODES` / `VULKAN_MAX_FRAME_NODES`, added to `runtime/canvas/mod.rs`
-      and to `RENDER_CAPS`.
-- [ ] `helper_surface.rs:__canvas_drawsText`: `:repeat` per row;
-      `tests/canvas/rt_canvas_rasteriser/groups.rs`'s `draws=` assertions read five fields.
-- [ ] Tests: a unit test in `helper_render/tests/mod.rs` that `__canvas_pushOneDraw`
+      and to `RENDER_CAPS`. (`helper_render/gpu_passes.rs`; the constants in
+      `runtime/canvas/scene_layout.rs`; a row's nodes are `__canvas_rowNodes`,
+      `max(repeat, 1)`.)
+- [x] `helper_surface.rs:__canvas_drawsText`: `:repeat` per row;
+      `tests/canvas/rt_canvas_rasteriser/groups.rs`'s `draws=` assertions read ~~five~~
+      six fields (the mode was already the fifth, Correction 3).
+- [x] Tests: a unit test in `helper_render/tests/mod.rs` that `__canvas_pushOneDraw`
       and `lower_scene_draws_flat` both write word 13; a runtime test of 65,537 group
       nodes naming one one-rectangle group that draws in two passes and matches the
-      software frame.
+      software frame. `every_row_push_one_draw_writes_has_repeat_one` and
+      `the_renderable_gates_pass_each_backends_node_cap` (the native flat list's word 13
+      is read back at run time: `groups.rs` case 1 is a flat frame, `0:2:0:0:0:1`);
+      `rt_canvas_metal`'s `a_frame_of_more_rows_than_the_node_region_draws_in_two_passes`
+      (`scenes/past_the_node_region.mfb`: `profPasses=2`, within `GPU_DEFAULT` of the
+      oracle) → pass.
 
 Acceptance: rows carry repeat 1; a frame past 65,536 rows draws in passes and matches
 the oracle; no other frame changes.
@@ -270,24 +280,45 @@ the oracle; no other frame changes.
   `rt_canvas_geo_native`).
   Check: `./benchmark/canvas/run.sh --only 'group|rect fill'` then `compare.py` → `.sums`
   unchanged (est. 2 min).
-Commit: —
+
+**MET 2026-10-25**, against the base compiler at `339f8e8fc` (a detached worktree):
+- `cargo test --release --test rt_canvas_rasteriser --test rt_canvas_geo_native` →
+  rasteriser 111 passed (2 ignored), geo_native 8 passed; `cargo test --release --bin
+  mfb -- helper_render` → 15 passed;
+- the benchmark's rows, headless on Metal (Correction 3): ALL 87 of them, not only
+  `group|rect fill` — the last frame of a 2-frame GPU run hashed, as `run.sh` hashes its
+  dump (a one-off probe of `run.sh`'s row list) → 87 hashes equal to the base's, every
+  run `gpuFrames=2`.
+Commit: 05211f7cf
 
 ### Phase 2 — Both emitters and both shaders read the node table
 
-- [ ] `runtime/canvas/mod.rs`: the Metal and Vulkan node-region constants (§4.2, §4.3);
-      `METAL_BUFFER_BYTES` and `VULKAN_BUFFER_BYTES` grow.
-- [ ] `app/metal.rs`: the MSL of §4.2; `emit_draw_list_pass` writes the node region,
+- [x] `runtime/canvas/mod.rs`: the Metal and Vulkan node-region constants (§4.2, §4.3);
+      `METAL_BUFFER_BYTES` and `VULKAN_BUFFER_BYTES` grow. (`scene_layout.rs`:
+      `NODE_BYTES`, `METAL_NODE_BYTES`, `METAL_NODE_OFFSET` with a compile-time
+      256-alignment assert, `VULKAN_NODE_BASE_WORDS`, spec constant 5.)
+- [x] `app/metal.rs`: the MSL of §4.2; `emit_draw_list_pass` writes the node region,
       binds it at index 2 on both stages, sends the 16-byte run, sends no fragment
-      bytes, draws `count * repeat`; selector lookups hoisted out of the row loop.
-- [ ] `runtime/canvas/vulkan.rs`: binding 0's stages, the vertex stage's specialization
-      info, the 16-byte vertex-only push range, `emit_draw_list_pass` as §4.3.
-- [ ] `shaders/mfb_canvas.vert`, `shaders/mfb_canvas.frag`: §4.3; the stale comment
-      fixed. `scripts/regen-spirv.sh` (box 2228) regenerates the `.spv` files.
-- [ ] Tests: `the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it`
+      bytes, draws `count * repeat`; selector lookups hoisted out of the row loop
+      (`OFF_SEL_*`; `SEL_SET_FRAGMENT_BYTES`, now unsent, removed). The MSL is
+      `shaders/mfb_canvas.metal`.
+- [x] `runtime/canvas/vulkan.rs`: binding 0's stages, the vertex stage's specialization
+      info, the 16-byte vertex-only push range, `emit_draw_list_pass` as §4.3
+      (`vulkan/descriptors.rs`, `vulkan/pipeline.rs`, `vulkan/publish.rs`,
+      `PUSH_RUN_BYTES`).
+- [x] `shaders/mfb_canvas.vert`, `shaders/mfb_canvas.frag`: §4.3; the stale comment
+      fixed. ~~`scripts/regen-spirv.sh` (box 2228)~~ `MFB_SPIRV_PORT=2226
+      scripts/regen-spirv.sh` regenerated both `.spv` files (Correction 4).
+- [x] Tests: `the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it`
       (app/metal.rs) becomes the node table's binding test (index 2 both stages, run at
       vertex index 1, no fragment bytes); the Vulkan unit tests that pin the push range
       and binding 0's stages are updated to 16 bytes / vertex-and-fragment;
       `the_embedded_spirv_is_well_formed` passes on the new blobs.
+      (`the_metal_shader_binds_the_node_table_where_the_emitter_sends_it`; the Metal and
+      Vulkan region-chain tests extended with the node table;
+      `the_pipeline_specializes_every_region_base` checks NODE_BASE and the vertex blob's
+      SpecId 5. `cargo test --release --bin mfb` → 6,160 passed, the 3 failures the
+      change-sentinel `build_replay` shards plan-175-A Phase 7 regenerates.)
 
 Acceptance: every canvas frame is byte-identical on Metal, box 2226 and box 206.
   Check: `cargo test --release --test rt_canvas_metal --test rt_canvas_golden --test
@@ -299,19 +330,33 @@ Acceptance: every canvas frame is byte-identical on Metal, box 2226 and box 206.
   `scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64 --keep <dir>` on box 206
   against the base compiler's `--keep` → every `*-gpu.rgba` equal by `cmp` (the only
   real-GPU Vulkan box).
-Commit: —
+
+**MET 2026-10-25**, against the base compiler at `339f8e8fc`:
+- `cargo test --release --test rt_canvas_metal --test rt_canvas_golden --test
+  rt_canvas_rasteriser --test rt_canvas_graphics_thread` → metal 75, golden 28,
+  rasteriser 111 (2 ignored), graphics_thread 21 passed;
+- the benchmark's 87 rows headless on Metal (Correction 3) → 87 last-frame hashes equal
+  to the base's, `gpuFrames=2` each;
+- `scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64 --keep` and `--target
+  linux-aarch64 --box 2226 --keep`, base and branch (Correction 4) → 258 `ok:` and no
+  `FAIL` on each box for each compiler, and 124 kept frames per box equal by `cmp`, base
+  against branch. The base's kept frames also equal plan-175-A Phase 2's (124 per box),
+  so plan-175-A's Phases 3–7 moved no Vulkan pixel either.
+Commit: fd66b249f
 
 ### Phase 3 — Docs
 
-- [ ] `.ai/canvas-threading.md` §10: the node table, the run, why both stages read the
+- [x] `.ai/canvas-threading.md` §10: the node table, the run, why both stages read the
       node by index, the per-pass row cap; the "offset bound to BOTH stages" text
       rewritten for nodes.
-- [ ] `mfb spec app canvas` (`src/docs/spec/app/06_canvas.md`) where it describes the
-      group draw and the frame buffer regions.
+- [x] `mfb spec app canvas` (`src/docs/spec/app/06_canvas.md`) where it describes the
+      group draw and the frame buffer regions. (The draw entry's repeat word, "Every draw
+      entry is a node of a node table both stages read", the 65,536 entries a pass holds;
+      `scripts/spec-census.sh --citations` → `MISS-SYMBOL 0`.)
 
 Acceptance: the docs describe HEAD.
   Check: `scripts/spec-census.sh --render` and `--citations` → no failures (est. 1 min).
-Commit: —
+Commit: fd66b249f
 
 ## Validation Plan
 
@@ -341,6 +386,35 @@ Commit: —
    and "Verified properties" records why the node table is unaffected. No goal, task or
    check changed; `benchmark/canvas`'s `group` rows are all in view, so their row counts
    (10,001, 101) still hold.
+2. 2026-10-25, at the Prerequisites gate: "plan-175-A is complete and archived" cannot
+   be met while this letter is unstarted. A's Phase 7 holds two tasks that must follow
+   the plan's last code change, this letter's and plan-175-C's included: regenerating
+   the canvas change-sentinel goldens (`build_replay` shards 05/08/23, which every
+   canvas change moves) and re-baselining `benchmark/canvas` (which this letter's
+   Phase 2 also re-runs). Archiving A first would mean doing both twice. The row now
+   checks what this letter needs from A: its walk changes landed, and its docs.
+   Measured: `grep -n "^- \[ \]"` on A → lines 905 and 932, those two.
+3. 2026-10-25, Phase 1: two corrections, none to the design.
+   - `__canvas_drawsText` already printed five fields, `base:count:dx:dy:mode` (the mode
+     since plan-116-H Phase 2), so the repeat is the SIXTH, and `groups.rs`'s two exact
+     strings gain `:1`.
+   - `benchmark/canvas/run.sh` stops at its first row on this machine, with this
+     branch and with the plan's base alike: the first two frames are drawn before the
+     window's Metal pipeline is ready (plan-175-A Correction 7). The `.sums` check is
+     made headless instead, over every row: each row's last-frame hash from a 2-frame
+     GPU run (the readback path), base against branch. The direct-present path it leaves
+     unproven is re-checked by the plan's closing `run.sh` (plan-175-A Phase 7).
+4. 2026-10-25, Phase 2: three corrections.
+   - Box 2228 refused ssh (`ssh -p 2228` → connection refused), so the SPIR-V was
+     regenerated on box 2226, the alternative `.ai/remote_systems.md` names. Its glslang
+     (11:12.0.0) differs from 2228's, which matters only for a blob whose GLSL did not
+     change; both did.
+   - The Vulkan check is `test-canvas-gpu-rows.sh` on BOTH boxes, base `--keep` against
+     branch `--keep`: box 2226's lavapipe as well as box 206's Intel driver, instead of
+     `test-canvas-vulkan.sh` on 2226, whose fixed scenes the GPU rows include.
+   - Every stage is given the whole specialization list (`VULKAN_SPEC_CONSTANTS`, now
+     five): Vulkan ignores an id a stage does not declare, so the vertex stage needs no
+     list of its own.
 
 ## Summary
 

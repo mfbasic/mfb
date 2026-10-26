@@ -84,10 +84,14 @@ pub(crate) fn lower_carried_hashes(
     builder.emit(abi::load_u64(&items, abi::stack_pointer(), items_slot));
     builder.emit(abi::load_u64(&count, &items, COLLECTION_OFFSET_COUNT));
     builder.emit(abi::store_u64(&count, abi::stack_pointer(), n_slot));
+    let words_slot = builder.allocate_stack_object("canvas_carry_out_words", 8);
+    builder.emit(abi::add_registers(&count, &count, &count));
+    builder.emit(abi::store_u64(&count, abi::stack_pointer(), words_slot));
 
-    // The result, one word per incoming item. The only call this function makes, so
+    // The result, two words per incoming item (plan-175-A): its `D` at `i` and its `G`
+    // at `n + i`, the published list's layout. The only call this function makes, so
     // everything after it lives in registers.
-    let out = builder.reserve_integer_index_list(n_slot)?;
+    let out = builder.reserve_integer_index_list(words_slot)?;
     let out_slot = builder.allocate_stack_object("canvas_carry_out", 8);
     builder.emit(abi::store_u64(
         &out.location,
@@ -122,7 +126,9 @@ pub(crate) fn lower_carried_hashes(
         &old_hashes,
         COLLECTION_OFFSET_COUNT,
     ));
-    // m = min(old.count, oldHashes.count, n)
+    // The installed list is the installed scene's `D`s, then its `G`s.
+    builder.emit(abi::shift_right_immediate(&scratch, &scratch, 1));
+    // m = min(old.count, oldHashes.count / 2, n)
     let m_ok1 = builder.label("canvas_carry_m1");
     builder.emit(abi::compare_registers(&scratch, &m));
     builder.emit(abi::branch_ge(&m_ok1));
@@ -146,7 +152,9 @@ pub(crate) fn lower_carried_hashes(
     let old_entries = builder.temporary_vreg();
     let old_data = builder.temporary_vreg();
     let hash_words = builder.temporary_vreg();
+    let geo_words = builder.temporary_vreg();
     let out_words = builder.temporary_vreg();
+    let out_geo = builder.temporary_vreg();
     let stride_v = builder.temporary_vreg();
     builder.emit(abi::move_immediate(
         &stride_v,
@@ -178,6 +186,15 @@ pub(crate) fn lower_carried_hashes(
         &old_hashes,
         COLLECTION_HEADER_SIZE,
     ));
+    // The installed `G`s start half-way along the installed list.
+    builder.emit(abi::load_u64(
+        &scratch,
+        &old_hashes,
+        COLLECTION_OFFSET_COUNT,
+    ));
+    builder.emit(abi::shift_right_immediate(&scratch, &scratch, 1));
+    builder.emit(abi::shift_left_immediate(&scratch, &scratch, 3));
+    builder.emit(abi::add_registers(&geo_words, &hash_words, &scratch));
     builder.emit(abi::label(&skip_old));
     builder.emit(abi::load_u64(&out_words, abi::stack_pointer(), out_slot));
     builder.emit(abi::add_immediate(
@@ -185,10 +202,14 @@ pub(crate) fn lower_carried_hashes(
         &out_words,
         COLLECTION_HEADER_SIZE,
     ));
+    // ...and the result's at `n` words.
+    builder.emit(abi::shift_left_immediate(&scratch, &n, 3));
+    builder.emit(abi::add_registers(&out_geo, &out_words, &scratch));
 
-    // for i in 0..n: out[i] = carried hash, or -1.
+    // for i in 0..n: out[i] = carried D, out[n + i] = carried G, or -1 for both.
     let i = builder.temporary_vreg();
     let result = builder.temporary_vreg();
+    let geo = builder.temporary_vreg();
     let ne = builder.temporary_vreg();
     let oe = builder.temporary_vreg();
     let nlen = builder.temporary_vreg();
@@ -210,6 +231,7 @@ pub(crate) fn lower_carried_hashes(
     // -1, built as 0 - 1: the immediate encoder takes no negative literal.
     builder.emit(abi::move_immediate(&result, "Integer", "0"));
     builder.emit(abi::subtract_immediate(&result, &result, 1));
+    builder.emit(abi::move_register(&geo, &result));
     builder.emit(abi::compare_registers(&i, &m));
     builder.emit(abi::branch_ge(&store));
     // The two entries: same payload length, or not the same value.
@@ -269,12 +291,16 @@ pub(crate) fn lower_carried_hashes(
     builder.emit_compare_bytes_branch(&np, &op, &nlen, &same, &store, "canvas_carry_tail");
     builder.emit(abi::label(&same));
     builder.emit(abi::shift_left_immediate(&scratch, &i, 3));
-    builder.emit(abi::add_registers(&scratch, &hash_words, &scratch));
-    builder.emit(abi::load_u64(&result, &scratch, 0));
+    builder.emit(abi::add_registers(&lw, &hash_words, &scratch));
+    builder.emit(abi::load_u64(&result, &lw, 0));
+    builder.emit(abi::add_registers(&lw, &geo_words, &scratch));
+    builder.emit(abi::load_u64(&geo, &lw, 0));
     builder.emit(abi::label(&store));
     builder.emit(abi::shift_left_immediate(&scratch, &i, 3));
-    builder.emit(abi::add_registers(&scratch, &out_words, &scratch));
-    builder.emit(abi::store_u64(&result, &scratch, 0));
+    builder.emit(abi::add_registers(&lw, &out_words, &scratch));
+    builder.emit(abi::store_u64(&result, &lw, 0));
+    builder.emit(abi::add_registers(&lw, &out_geo, &scratch));
+    builder.emit(abi::store_u64(&geo, &lw, 0));
     builder.emit(abi::add_immediate(&i, &i, 1));
     builder.emit(abi::branch(&head));
     builder.emit(abi::label(&done));
@@ -296,7 +322,114 @@ pub(crate) fn lower_carried_hashes(
     })
 }
 
+/// `canvas::sceneNamesGroups(items) AS Boolean` (plan-175-D): TRUE when the list's top
+/// level holds a `Group` node or a `ParticleSystem` — the only two variants
+/// `__canvas_groupSignature`'s `MATCH` acts on. For any other list that walk answers `[]`
+/// and raises nothing, so `__canvas_present` skips it: an MFBASIC `FOR EACH` over every
+/// item of the scene, every present, for nothing.
+///
+/// One tag load an item, no allocation, stops at the first hit.
+pub(crate) fn lower_scene_names_groups(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let incoming = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the scene list argument"))?
+        .location
+        .clone();
+    let group_tag = variant_tag(builder, "Group")?;
+    let particles_tag = variant_tag(builder, "ParticleSystem")?;
+    let stride = list_entry_stride(&ParameterType::named("DrawItem"));
+
+    let items = builder.temporary_vreg();
+    let n = builder.temporary_vreg();
+    let entries = builder.temporary_vreg();
+    let data = builder.temporary_vreg();
+    let scratch = builder.temporary_vreg();
+    let stride_v = builder.temporary_vreg();
+    let i = builder.temporary_vreg();
+    let entry = builder.temporary_vreg();
+    let word = builder.temporary_vreg();
+    let result = builder.temporary_vreg();
+    let head = builder.label("canvas_names_groups_head");
+    let found = builder.label("canvas_names_groups_found");
+    let done = builder.label("canvas_names_groups_done");
+    builder.emit(abi::move_register(&items, &incoming));
+    builder.emit(abi::load_u64(&n, &items, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::move_immediate(
+        &stride_v,
+        "Integer",
+        &stride.to_string(),
+    ));
+    // A variable-width list's data region starts past `capacity` entries, not `count`:
+    // the caller's list may carry headroom (`.ai/collections.md`).
+    builder.emit(abi::add_immediate(&entries, &items, COLLECTION_HEADER_SIZE));
+    builder.emit(abi::load_u64(&scratch, &items, COLLECTION_OFFSET_CAPACITY));
+    builder.emit(abi::multiply_registers(&scratch, &scratch, &stride_v));
+    builder.emit(abi::add_registers(&data, &entries, &scratch));
+    builder.emit(abi::move_immediate(&result, "Integer", "0"));
+    builder.emit(abi::move_immediate(&i, "Integer", "0"));
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(&i, &n));
+    builder.emit(abi::branch_ge(&done));
+    builder.emit(abi::multiply_registers(&scratch, &i, &stride_v));
+    builder.emit(abi::add_registers(&entry, &entries, &scratch));
+    builder.emit(abi::load_u64(
+        &scratch,
+        &entry,
+        COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+    ));
+    builder.emit(abi::add_registers(&scratch, &data, &scratch));
+    // A data union's tag is its first word.
+    builder.emit(abi::load_u64(&word, &scratch, 0));
+    builder.emit(abi::compare_immediate(&word, &group_tag.to_string()));
+    builder.emit(abi::branch_eq(&found));
+    builder.emit(abi::compare_immediate(&word, &particles_tag.to_string()));
+    builder.emit(abi::branch_eq(&found));
+    builder.emit(abi::add_immediate(&i, &i, 1));
+    builder.emit(abi::branch(&head));
+    builder.emit(abi::label(&found));
+    builder.emit(abi::move_immediate(&result, "Integer", "1"));
+    builder.emit(abi::label(&done));
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &result));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: "canvas.sceneNamesGroups".to_string(),
+    })
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "sceneNamesGroups",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "items",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::list_of(ParameterType::named("DrawItem")),
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Boolean,
+            errors: vec![],
+            body: Body::abi_function(lower_scene_names_groups),
+        }],
+    });
     pkg.add_function(RegistryFunction {
         name: "carriedHashes",
         intro: "",

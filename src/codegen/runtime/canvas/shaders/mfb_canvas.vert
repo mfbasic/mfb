@@ -56,36 +56,54 @@ layout(std430, set = 0, binding = 1) readonly buffer Items {
 // the fragment stage would have had to be given anyway — `gl_InstanceIndex` is not
 // available there.
 layout(location = 0) flat out int vItem;
+// plan-175-B: and the NODE this instance is drawn under, for the same reason.
+layout(location = 1) flat out int vNode;
 
-// plan-116-H: the group translation for THIS draw, as float32 bits.
-//
-// Per-draw rather than per-item, which is the whole point: a group referenced twice is
-// one set of item blocks and two draws differing only by this. Both stages declare it —
-// the fragment stage subtracts it before evaluating the distance field — because a
-// range no stage consumes is a layout the validation layers reject, which is why
-// plan-116-A deleted the range rather than leaving it empty (H4).
-//
-// `zw` are reserved and zero.
-//
-// plan-172-H: `inverse` is the linear part of the INVERSE of the enclosing groups'
-// composed affine, as four float32 bit patterns — `ia`, `ib`, `ic`, `id`, so a point
-// maps as `(ia * x + ic * y, ib * x + id * y)` — and all-zero bits when the groups only
-// translate, the convention every `canvas::Transform` has. 32 bytes, both stages.
-layout(push_constant) uniform Draw {
+// plan-175-B: what one draw pushes, to this stage only — 16 bytes. The draw is
+// `count * repeat` instances from `base`: instance `gl_InstanceIndex` (which includes
+// `firstInstance`) is item `base + local % count` under node `node + local / count`,
+// `local = gl_InstanceIndex - base`, so a run of `repeat` nodes draws the same `count`
+// blocks once under each.
+layout(push_constant) uniform Run {
+    int base;
+    int count;
+    int node;
+    int repeat;
+} run;
+
+// plan-175-B: the shared buffer (binding 0, the fragment stage's `Edges`), whose node
+// region holds every row's NODE — eight words at `NODE_BASE + 8 * node`: the group
+// translation as float32 bits and two zero words, then (plan-172-H) the linear part of
+// the INVERSE of the enclosing groups' composed affine as four float32 bit patterns —
+// `ia`, `ib`, `ic`, `id`, so a point maps as `(ia * x + ic * y, ib * x + id * y)` — and
+// all-zero bits when the groups only translate, the convention every `canvas::Transform`
+// has. Per node rather than per item, which is the whole point: a group referenced
+// twice is one set of item blocks and two nodes.
+layout(std430, set = 0, binding = 0) readonly buffer Edges {
+    int values[];
+} edges;
+layout(constant_id = 5) const int NODE_BASE = 0;
+
+struct Node {
     ivec4 offset;
     ivec4 inverse;
-} draw;
+};
+Node draw;
 
 // A word as the float32 it holds: every position reaches the GPU as float32 bits.
 float fx(int v) { return intBitsToFloat(v); }
 
 void main() {
-    // `gl_InstanceIndex` includes `firstInstance`, so a run of consecutive items drawn
-    // as one instanced `vkCmdDraw(cmd, 4, count, 0, base)` reads blocks `base ..
-    // base+count-1` with no other index arithmetic. (Metal's `[[instance_id]]` does
-    // NOT include the base instance, which is why that backend offsets the *binding*
-    // instead — the one place the two emitters genuinely differ.)
-    vItem = gl_InstanceIndex;
+    // `gl_InstanceIndex` includes `firstInstance`, so a run drawn as one instanced
+    // `vkCmdDraw(cmd, 4, count * repeat, 0, base)` reads blocks from `base` with no other
+    // index arithmetic than the run's. Metal's `[[instance_id]]` includes the base
+    // instance too (plan-116-A Correction C5, measured), so the two shaders index alike.
+    int local = gl_InstanceIndex - run.base;
+    vItem = run.base + local % run.count;
+    vNode = run.node + local / run.count;
+    int at = NODE_BASE + 8 * vNode;
+    draw.offset = ivec4(edges.values[at], edges.values[at + 1], edges.values[at + 2], edges.values[at + 3]);
+    draw.inverse = ivec4(edges.values[at + 4], edges.values[at + 5], edges.values[at + 6], edges.values[at + 7]);
     ItemBlock item = itemBuf.blocks[vItem];
 
     // Four corners of the item's bounds, expanded from gl_VertexIndex — no vertex

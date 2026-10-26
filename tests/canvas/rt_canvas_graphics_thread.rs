@@ -486,9 +486,9 @@ fn stat_field(line: &str, name: &str) -> String {
 /// list handed to `present` is byte-for-byte the one already published.
 ///
 /// This is plan-116-G §4.4's least obvious requirement and the reason it is written
-/// before any of the feature exists. `publishScene` decides whether to redraw by
-/// comparing the raw bytes of the `DrawItem` list's data region
-/// (`emit_compare_bytes_branch` in `gen_present.rs`). A `Group` node is `dx`, `dy` and
+/// before any of the feature exists. `present` decides whether to redraw by comparing
+/// the `DrawItem` list's content with the installed scene's (`canvas::sceneUnchanged`,
+/// `gen_present.rs`). A `Group` node is `dx`, `dy` and
 /// `name` — and after `setGroup("panel", …)` installs *different* items under the same
 /// name, all three of those are unchanged. Two presents of the same list therefore
 /// compare equal and the second is skipped, so the program draws the OLD panel forever
@@ -503,11 +503,13 @@ fn stat_field(line: &str, name: &str) -> String {
 /// signature is missing, this fails at the frame count; if the signature exists but is
 /// compared instead of the items rather than as well, the sibling below fails.
 ///
-/// Un-ignored by **Phase 4**, which lands the resolution pass. Until then `setGroup`
-/// does not exist and this cannot compile as a program, which is why it is `#[ignore]`d
-/// rather than merely failing.
+/// Written `#[ignore]`d by plan-116-G Phase 1 and never un-ignored when Phase 4 landed:
+/// its pixel-reading twin in `rt_canvas_rasteriser` (`groups.rs`) was. Un-ignored by
+/// plan-175, with `MFB_CANVAS_DAMAGE=1`: without it a `--debug` frame reports the whole
+/// surface as `damage=` (the damage diff is that switch's), so the two regions could
+/// never differ and the assertion below could never pass. With it, this is the damage
+/// path's half of the pair: the second frame damages `A` and `A'`, not `A` again.
 #[test]
-#[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
     let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
@@ -516,7 +518,12 @@ fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
          LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 700.0, y := 500.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [b])\n  \
          canvas::present([node])\n  io::print(\"done\")\n";
-    let (_, frames) = run("canvas_group_revision", &program(body), true);
+    let (_, frames) = run_env(
+        "canvas_group_revision",
+        &program(body),
+        true,
+        &[("MFB_CANVAS_DAMAGE", "1")],
+    );
 
     assert_eq!(
         frames.len(),
@@ -547,9 +554,9 @@ fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
 /// `an_identical_re_present_draws_no_second_frame` protects for group-free scenes.
 /// Pairing the two is what makes the requirement two-sided.
 ///
-/// Un-ignored by **Phase 4**, with its sibling.
+/// Un-ignored by plan-175 with its sibling (plan-116-G Phase 4 un-ignored only the
+/// rasteriser twins).
 #[test]
-#[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn two_identical_presents_of_an_unchanged_group_draw_one_frame() {
     let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
@@ -886,5 +893,60 @@ fn auto_wait_frame_is_not_cut_short_by_a_window_ending() {
         vec!["0", "1", "3"],
         "the window did not end inside the loop:\n{}",
         lines.join("\n")
+    );
+}
+
+/// plan-175-A Phase 5, R13 and R15 for the in-place group walk: a `setGroup` landing
+/// while a frame holds the group draws, in that frame, what the frame resolved — and the
+/// next frame draws the replacement.
+///
+/// The walk reads a slot's items block where it is (`canvas::groupItemsBlock`) and files
+/// the children's identities under the slot's revision and that block. The held frame
+/// must keep drawing the block it took: the displaced one is retired, not freed, until a
+/// frame completes (`.ai/canvas-threading.md` §13). The next frame must see the new
+/// revision, take the new block, and not reuse the identities of the old: `wide` differs
+/// from `box` in both colour and size, so a stale identity shows in either pixel.
+const GROUP_HELD: &str = "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+     LET wide AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+     canvas::setGroup(\"panel\", [box])\n  \
+     LET node AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := 300.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n  \
+     canvas::present([node, mark])\n  os::sleep(120)\n  canvas::setGroup(\"panel\", [wide])\n  os::sleep(1200)\n";
+
+#[test]
+fn a_group_replaced_while_a_frame_holds_it_draws_what_the_frame_resolved() {
+    let hold = [("MFB_CANVAS_FRAME_HOLD_MS", "600")];
+    let held = picture_frame("canvas_group_held", GROUP_HELD, &hold);
+    assert_eq!(
+        rgba_at(&held, 320, 320),
+        (0, 0, 255, 255),
+        "the frame already holding the group must draw the items it resolved, not the \
+         replacement that landed during the hold"
+    );
+    assert_eq!(
+        rgba_at(&held, 380, 380),
+        (0, 0, 0, 255),
+        "the held frame drew the replacement's extent"
+    );
+    assert_eq!(
+        rgba_at(&held, 700, 500),
+        (255, 0, 0, 255),
+        "the rest of the frame was lost"
+    );
+
+    let next = picture_frame(
+        "canvas_group_held_next",
+        &format!("{GROUP_HELD}  canvas::present([node, mark])\n  os::sleep(1200)\n"),
+        &hold,
+    );
+    assert_eq!(
+        rgba_at(&next, 320, 320),
+        (255, 255, 0, 255),
+        "the frame after the replacement drew the old group: its children's identities \
+         were reused across the revision"
+    );
+    assert_eq!(
+        rgba_at(&next, 380, 380),
+        (255, 255, 0, 255),
+        "the replacement drew at the old size"
     );
 }

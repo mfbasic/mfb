@@ -155,21 +155,19 @@ pub(super) fn emit_vulkan_pipeline(
         abi::stack_pointer(),
         off_set_layout_handle,
     ));
-    // plan-116-H: one push-constant range, consumed by BOTH stages. `emit_struct` zeroes
-    // the struct first, so the fields not named here are already 0 — which is what
-    // `offset` must be, this being the only range.
+    // plan-175-B: one push-constant range, the draw's RUN, consumed by the vertex stage
+    // only — the fragment stage reads its node by index. `emit_struct` zeroes the struct
+    // first, so the fields not named here are already 0 — which is what `offset` must
+    // be, this being the only range.
     let off_push_range = builder.allocate_stack_object("vk_push_range", PUSH_RANGE_SIZE);
     emit_struct(
         builder,
         off_push_range,
         PUSH_RANGE_SIZE,
         &[
-            (
-                PUSH_RANGE_STAGES,
-                Field::U32(SHADER_STAGE_VERTEX_AND_FRAGMENT),
-            ),
+            (PUSH_RANGE_STAGES, Field::U32(SHADER_STAGE_VERTEX)),
             (PUSH_RANGE_OFFSET, Field::U32("0")),
-            (PUSH_RANGE_BYTES, Field::U32(&PUSH_OFFSET_BYTES.to_string())),
+            (PUSH_RANGE_BYTES, Field::U32(&PUSH_RUN_BYTES.to_string())),
         ],
     );
     emit_struct(
@@ -408,14 +406,14 @@ pub(super) fn emit_vulkan_pipeline(
             abi::stack_pointer(),
             base + STAGE_INFO_NAME,
         ));
-        if stage == SHADER_STAGE_FRAGMENT {
-            emit_struct(
-                builder,
-                base + STAGE_INFO_SPECIALIZATION,
-                8,
-                &[(0, Field::Addr(off_spec_info))],
-            );
-        }
+        // plan-175-B: both stages are specialized — the vertex stage reads the node
+        // region's base (constant 5) as the fragment stage does, and ignores the rest.
+        emit_struct(
+            builder,
+            base + STAGE_INFO_SPECIALIZATION,
+            8,
+            &[(0, Field::Addr(off_spec_info))],
+        );
     }
 
     emit_struct(

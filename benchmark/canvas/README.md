@@ -45,8 +45,11 @@ stroked.
 ## Reading the log
 
 The log has the language suite's shape: one block per row, one line per column, and the
-median, average, min and max over the frames, in **microseconds per frame**. Frame 1 is
-dropped: it compiles the pipeline and fills every cache.
+median, average, min and max over the frames, in **microseconds per frame**. The frames
+drawn before the window's Metal pipeline is ready are dropped — since bug-1087 the
+pipeline is built off the frame's critical path, so a window's first frames are the
+software renderer's — and so is the first Metal frame, which compiles the pipeline's
+caches.
 
 | Column | Field (`mfb spec tooling debug-report`, "The canvas frame profile") | What it is |
 |---|---|---|
@@ -82,9 +85,10 @@ with `MFB_CANVAS_DUMP` (a dumped frame is read back rather than presented, so it
 be the timed run). Dumps are byte-identical from run to run, so a changed hash is a
 change in what was drawn.
 
-`run.sh` stops at the first row a frame of which was not drawn by Metal straight to the
-window (`gpuFrames`, `directFrames`): a frame declined to software, or read back, is
-not the thing being measured.
+`run.sh` stops at the first row a frame of which, from the first Metal frame on, was not
+drawn by Metal straight to the window (`gpuFrames`, `directFrames`): a frame declined to
+software, or read back, is not the thing being measured. (The frames before the first
+Metal frame are the pipeline's start-up, above; `reduce.py` checks they are a prefix.)
 
 ## Display sync
 

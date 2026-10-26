@@ -34,17 +34,56 @@ fn canvas_picture_hooks_are_declared_alike_in_both_chunks() {
 /// exact count remains pinned so a shaped-picture path cannot join them.
 #[test]
 fn canvas_picture_only_the_plain_record_is_cached_under_the_item_hash() {
-    assert_eq!(PICTURE.matches("__canvas_pictureInsert(hash,").count(), 2);
+    // plan-175-A: a record is stored under the key its LOOKUP chose
+    // (`__canvas_pictureCachedOf(g, …)` plans `g`; `__canvas_pictureStore` stores), so
+    // the key a record lands under is the lookup's first argument. Under the item's own
+    // geometry identity: the plain probe and the walk's cached-item probe
+    // (`__canvas_imageCached`), which store only through the plain build...
+    assert_eq!(
+        PICTURE
+            .matches("__canvas_pictureCachedOf(geo, hash, shadow)")
+            .count(),
+        2
+    );
+    assert_eq!(
+        PICTURE
+            .matches("__canvas_pictureStore(hash, __canvas_picturePlain(")
+            .count(),
+        1
+    );
+    // ...and the Tile's one record, under its own.
     let tile = PICTURE
         .split("FUNC __canvas_tileGeometry")
         .nth(1)
         .and_then(|s| s.split("END FUNC").next())
         .expect("Tile geometry helper");
-    assert_eq!(tile.matches("__canvas_pictureInsert(hash,").count(), 1);
+    assert_eq!(
+        tile.matches("__canvas_pictureCachedOf(g, d, shadow)")
+            .count(),
+        1
+    );
+    // Every other lookup is under a stepped key (`__canvas_pictureKey`, directly or as
+    // `imageGeo`/`outlineGeo`), so a shaped picture's records cannot join them.
     for line in PICTURE
         .lines()
-        .filter(|l| l.contains("__canvas_geometryFor("))
+        .filter(|l| l.contains("= __canvas_pictureCachedOf("))
     {
-        assert!(line.trim_end().ends_with(", outlineKey)"), "{line}");
+        let stepped = [
+            "(geo, hash, shadow)",
+            "(g, d, shadow)",
+            "(__canvas_pictureKey(",
+            "(imageGeo,",
+            "(outlineGeo,",
+        ];
+        assert!(stepped.iter().any(|s| line.contains(s)), "{line}");
+    }
+    for line in PICTURE
+        .lines()
+        .filter(|l| l.contains("__canvas_geometryOf("))
+    {
+        assert!(
+            line.trim_end().ends_with(", outlineGeo, outlineKey)"),
+            "{line}"
+        );
     }
 }

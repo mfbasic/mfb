@@ -9,8 +9,10 @@ to LOG and the checksum lines to SUMS. Exits non-zero, naming the row, when a fr
 not drawn by Metal straight to the window, or when the layer's display sync is not what
 VSYNC says: such a row measured something else, and its numbers must not be kept.
 
-Every `prof…` field is cumulative, so a frame is one line minus the line before. Frame 1
-is dropped: it compiles the pipeline and fills every cache. The walk column is the
+Every `prof…` field is cumulative, so a frame is one line minus the line before. The
+frames before the window's Metal pipeline is ready are the software renderer's
+(bug-1087), and the first Metal frame compiles the pipeline's caches; all of them are
+dropped, and from that frame on every frame must be Metal's, straight to the window. The walk column is the
 graphics thread's scene walk and draw list (`phaseOffsetsMs` + `phaseDrawsMs`); those
 phases run before the render, so a line includes its own frame's, as it does its
 `prof…` fields. They are whole milliseconds on the line, so one frame's walk is only
@@ -41,14 +43,25 @@ COUNTS = [("draws", "profDraws"), ("bytes", "profBytes"), ("texels", "profTexels
 def main():
     row, stats_path, dump_path, vsync, log_path, sums_path = sys.argv[1:7]
     lines = [dict(re.findall(r"(\w+)=(-?[\d.]+)", l)) for l in open(stats_path)]
+    # bug-1087: a window's Metal pipeline is built off the frame's critical path, so the
+    # frames drawn before it is ready are the software renderer's -- a PREFIX of the run.
+    # The first GPU frame then compiles the pipeline's caches, as frame 1 always did, so
+    # it is dropped too; from it on, every frame must be Metal's and go straight to the
+    # window.
+    first = next((i for i, l in enumerate(lines) if int(l.get("gpuFrames", 0)) > 0), None)
+    if first is None:
+        sys.exit("%s: no frame was drawn by Metal" % row)
+    lines = lines[first:]
     if len(lines) < 4:
-        sys.exit("%s: %d stats lines, need at least 4" % (row, len(lines)))
-    last = lines[-1]
-    frames = int(last["frames"])
+        sys.exit("%s: %d stats lines from the first Metal frame, need at least 4"
+                 % (row, len(lines)))
+    head, last = lines[0], lines[-1]
+    frames = int(last["frames"]) - int(head["frames"])
     for field in ("gpuFrames", "directFrames"):
-        if int(last[field]) != frames:
-            sys.exit("%s: %s=%s of frames=%d -- not every frame went straight to the "
-                     "window on Metal" % (row, field, last[field], frames))
+        got = int(last[field]) - int(head[field])
+        if got != frames:
+            sys.exit("%s: %s=%d of frames=%d after the first Metal frame -- not every frame "
+                     "went straight to the window on Metal" % (row, field, got, frames))
     want = "1" if vsync == "off" else "0"
     if last.get("profVsyncOff") != want:
         sys.exit("%s: profVsyncOff=%s, but this run asked for vsync %s"

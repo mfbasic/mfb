@@ -6,6 +6,10 @@ Overall Effort: huge (>3d) — plan-175 is three letters: A (this file), then
 `plan-175-C-canvas-group-node-instancing.md` (medium), landed in that order.
 Effort: huge (>3d) over seven phases; each phase is large (3h–1d) and lands alone
 Depends on: nothing (its Phase 2 waits on §8.1, decision 3)
+Dependency graph (Correction 3): A Phase 1 → D → A Phases 2–7 → B → C. `plan-175-D`
+(`planning/completed/plan-175-D-canvas-worker-present-copy-compare.md`, landed at
+17b7b529e) is §8.1's worker copy and compare, which decision 3 put before Phase 2 and no
+letter covered.
 
 A canvas item has ONE 62-bit content hash. It is the key of the geometry cache and it
 is the damage identity (`.ai/canvas-threading.md` §14). It folds the item's whole
@@ -68,8 +72,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| bug-765's first deliverable is on the branch: 100,000 dots are GPU frames | `tools/canvas-bench/bench.sh target/release/mfb dots 100000 5` → `gpuFrames` equals `frames` | MET since `61c75308e` (`frames=69 gpuFrames=69`) |
-| The geometry verifier is green at the base | `cargo test --release --test rt_canvas_geo_native` → 4 passed | MET at `ab9061ff8` |
+| bug-765's first deliverable is on the branch: 100,000 dots are GPU frames | `tools/canvas-bench/bench.sh target/release/mfb dots 100000 5` → `gpuFrames` equals `frames` | MET 2026-10-25 at `2f281c5e7` (`frames=119 gpuFrames=119`, Metal) |
+| The geometry verifier is green at the base | `cargo test --release --test rt_canvas_geo_native` → 4 passed | MET 2026-10-25 at `2f281c5e7` (`4 passed`) |
 
 ## 1. Goal
 
@@ -527,19 +531,26 @@ changes a record, a key's meaning, or a pixel.
   still matches, and computes and stores them when it does not. A child's draw hash
   still folds the node's composed offset and matrix (`__canvas_noteEntry`), so damage is
   unchanged. The slot table is the graphics thread's own (`.ai/canvas-threading.md` §2:
-  arena state is per thread), and a group freed by the retirement drain of §13 there
-  clears its slot's entry.
-- **No item list is copied per node.** The arm walks the group's items in place through
-  an index (`canvas::groupItemAt(slot, k)` and a count), instead of `canvas::groupItems`
-  building a list per node per frame. The items are the retired-then-drained buffer §13
-  protects, so reading them in place is as safe within a frame as the copy is.
-- **A picture's image is confirmed once per frame.** `__canvas_pictureCached`'s answer
+  arena state is per thread), ~~and a group freed by the retirement drain of §13 there
+  clears its slot's entry~~ keyed by the revision and the items block, and never
+  cleared: a slot's revision only grows (Phase 5, the moot task).
+- **No item list is copied per node.** The arm walks the group's items in place
+  ~~through an index (`canvas::groupItemAt(slot, k)` and a count)~~ through the slot's
+  items block, taken once per node (`canvas::groupItemsBlock`, `groupBlockCount`,
+  `groupBlockItem`; Correction 7: an index by slot would read two lists in one node),
+  instead of `canvas::groupItems` building a list per node per frame. The items are the
+  retired-then-drained buffer §13 protects, so reading them in place is as safe within
+  a frame as the copy is.
+- ~~**A picture's image is confirmed once per frame.** `__canvas_pictureCached`'s answer
   for an image's pixel-block address is remembered for the frame, keyed by that address;
-  the 2nd to 10,000th picture of one image reuse it. `__canvas_noteEntry` still folds
+  the 2nd to 10,000th picture of one image reuse it.~~ **A cached picture or tile is laid
+  out without being copied** (Correction 8: the confirmation is per record and is not
+  the cost; the copy and the lists were). `canvas::itemImageShadow` reads the image's
+  block from the item, and `__canvas_imageCached` resolves every cached record before
+  the `MATCH` would copy the variant. `__canvas_noteEntry` still folds
   each picture's block address into its draw hash, so a `setBytes` still damages every
-  picture of the image. The same answer serves every `Tile` of the atlas, through the
-  same function (`__canvas_tileGeometry`); a tilemap is the case where one image is
-  named most often.
+  picture of the image. The same path serves every `Tile` of the atlas; a tilemap is
+  the case where one image is named most often.
 - **Viewport culling is untouched, and it is part of the group walk's cost.** Since
   plan-173, `__canvas_pushDraw` calls `__canvas_boundsMeetViewport` for every block of
   every node (two `__canvas_drawBound` corner hulls under the node's matrix). The cost
@@ -548,7 +559,10 @@ changes a record, a key's meaning, or a pixel.
 - **Fewer allocations is the measure.** Each change above removes a per-node or
   per-picture list. Phase 5 and 6 record `perf.mfb_alloc.count` and
   `perf.mfb_free.count` from the `--debug` report (`mfb spec tooling debug-report`, the
-  perf section) for their row before and after, alongside the walk time.
+  perf section) for their row before and after, alongside the walk time — and the
+  graphics arena's `arena.<n>.alloc_calls` from the same report, because
+  `perf.mfb_alloc.count` does not count that arena (Phase 6: unchanged at 349,096
+  while the graphics arena's calls fell 6,810,176 → 2,040,176; Correction 8).
 
 ## Compatibility / Format Impact
 
@@ -573,20 +587,35 @@ The classification table and its build-time guard; the native walk and the MFBAS
 walk each produce `(G, A)`; the worker publishes both and carries both; every consumer
 is handed `D = mix(G, A)` and behaves as now. The cache is still keyed by `D`.
 
-- [ ] `func_item_hash.rs`: the field classification, `fold_field` by lane, the three
-      geometry predicates from the builders' own functions, `mix`.
-- [ ] `helper_geometry.rs`: `__canvas_hashItem` and `__canvas_hashPaint` return the
-      pair for `Text`, `Group`, `AutoPaint`; `__canvas_pictureHash` likewise; the
-      `Tile` arm (the native walk hashes it, the arm is the fallback) gives `(G, empty A)`.
-- [ ] `func_carried_hashes.rs`, `func_scene_hashes.rs`, `func_present.rs`,
-      `func_present_layers.rs`, `func_geo_cache.rs:lower_scene_snapshot`: 2N words under
-      the one revision.
-- [ ] Unit tests: every `Paint` field and every item field is classified, including the
-      five of `Tile`; two paints
-      that differ only in an appearance field have one `G`; each geometry predicate
-      (stroke alpha 0 against 1, one stop against two, `FillOnly` against
-      `FillAndStroke`, empty against non-empty `colors`) changes `G`.
-- [ ] The collision argument of §4.5 in the module doc and `.ai/canvas-threading.md` §14.
+- [x] `func_item_hash.rs`: the field classification (`func_item_lanes.rs`), `fold_field`
+      by lane (`fold_item_field`, `fold_paint`), the three geometry predicates (the
+      stroke alpha's zero-ness, the stop count, `strokeApply`, each folded into `G` as
+      its own word — `__canvas_strokeHalf`'s inputs, Correction 4's notes), `D =
+      finish(fold(fold(SEED_DRAW, G), A))`; `canvas::itemGeoHash` answers `G`.
+- [x] `helper_geometry/cache.rs`: `__canvas_hashPaintGeometry` /
+      `__canvas_hashPaintAppearance` (and `__canvas_hashPaint`, both in one lane, for the
+      kinds hashed whole); `__canvas_geoHash` (G), `__canvas_drawHashOf` (D from G),
+      `__canvas_mixHash`; `Text` is `mix(textGeo, appearance)` with no `id`;
+      `__canvas_pictureHash` is `D` and `__canvas_pictureGeoHash` (new hook, both chunks)
+      `G`, neither with the `id`. A `Group` node, an `AutoPaint` and a `ParticleSystem`
+      fold everything in one lane, so their `G` is their `D`. The `Tile` arm is the
+      native walk's (`Tile` has no appearance field: its `A` is the empty lane's seed).
+- [x] `func_carried_hashes.rs` (carries both words), `func_item_hash.rs:
+      lower_scene_hashes` and `helper_render/scene.rs:__canvas_hashScene` /
+      `__canvas_hashLayers` (2n words: every `D`, then every `G`),
+      `func_geo_cache/resolve.rs` (the index count is half the list). `func_present*.rs`
+      and `lower_scene_snapshot` needed no change: they pass the list whole.
+- [x] Unit tests: `builtins/tests/canvas_item_lanes.rs` — every `Paint` field and every
+      field of the eleven kinds, the five of `Tile` included, has its lane, and an
+      unclassified `Paint` field fails (`cargo test --release --bin mfb -- canvas_item`
+      → 10 passed, the 7 guard tests of `canvas_item_hash_guards.rs` among them). The
+      value tests of `G` are Phase 2's (Correction 4). Decision 1's obligation:
+      `rt_canvas_hit.rs:over_id_answers_a_renamed_item` (passes) and
+      `rt_canvas_damage.rs:an_id_only_change_damages_nothing` (passes; at the base the
+      rename rebuilt, `generations=3`, and repainted, `partial=1`).
+- [x] The collision argument of §4.5 in the module doc (`func_item_hash.rs`) and
+      `.ai/canvas-threading.md` §14; the spec's "The item unions" paragraph on the two
+      identities.
 
 Acceptance: frames are byte-identical to the base on Metal, box 2226 and box 206, and
 `generations` is unchanged for every bench row.
@@ -596,24 +625,64 @@ Acceptance: frames are byte-identical to the base on Metal, box 2226 and box 206
   and `--target linux-aarch64 --keep <dir>` against the base compiler's `--keep`: every
   `*-gpu.rgba` equal by `cmp`.
   Check: `tools/canvas-bench/bench.sh <mfb> dots 60000 5` → `builds/frame=60000`.
-Commit: —
+
+**MET 2026-10-25**, against the base compiler at `2f281c5e7` (a detached worktree):
+- the five suites → autopaint 23, damage 12, geo_native 4, hit 15, metal 74 passed;
+- `scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64 --keep` and
+  `--target linux-aarch64 --keep`, base and Phase 1 → box 206 and box 2226 each 124
+  kept frames (62 render rows, software and GPU) equal by `cmp`, `generations=` equal
+  on all 66 rows, 256 `ok:` and no `FAIL` either way;
+- Metal: the same 62 render rows drawn headless on this Mac's GPU with both compilers
+  (`MFB_CANVAS_GPU=1 MFB_CANVAS_GEO_VERIFY=1 MFB_CANVAS_SYNC=1`, a one-off probe of the
+  script's row list) → 62 GPU frames equal by `cmp`, every row's `gpuFrames`,
+  `generations` and `geoVerifyMismatches=0` equal. (`benchmark/canvas`, which would
+  have been the Metal check, needs a live display, which this session has not: its first
+  row stops with `gpuFrames=0 of frames=120`.)
+- `tools/canvas-bench/bench.sh target/release/mfb dots 60000 5` → `builds/frame=60000`.
+Commit: 6d98d7e3c
 
 ### Phase 2 — The cache keyed by `G`; native refresh for solid paints
 
-- [ ] `func_geo_cache.rs`: the fifth slot word; `lower_scene_resolve` branches 2 to 5
-      of §4.3; refresh through `emit_paint_header`'s appearance half; compaction and
-      `emit_rebuild` carry the fifth word.
-- [ ] `helper_geometry.rs:__canvas_geometryFor`: branches 3 (rebuild in place) and 4.
-- [ ] `refreshes=` on the stats line, if decision 2 is yes.
-- [ ] `tests/canvas/rt_canvas_geo_native.rs`: a paint-only change builds nothing and
-      refreshes every item; a stroke alpha going 0 to 1 builds; two items of one
-      geometry and two paints in one frame, alternating which is first, draw right and
-      verify clean; a frame after a refresh is byte-identical to a fresh run that
-      starts on that scene.
-- [ ] `tests/canvas/rt_canvas_damage.rs`: a paint-only change under `MFB_CANVAS_DAMAGE`
-      damages the item's bounds (the regression of spike experiment 1).
-- [ ] `scripts/test-canvas-gpu-rows.sh`: a `repaint` row (the dots scene, two frames,
-      `MFB_CANVAS_GEO_VERIFY=1`) so the refresh is verified on x86-64 and Linux.
+- [x] `func_geo_cache/`: the slot's damage identity as the parallel list
+      `__CANVAS_GEO_DRAWS` (Correction 5), appended by `emit_add_slot` and moved by the
+      compaction; `lower_scene_resolve` branches 2 to 5 of §4.3 (`resolve.rs`); refresh
+      through `emit_paint_appearance`, split out of `emit_paint_header`
+      (`func_geo_build/mod.rs:emit_refresh_record`); `canvas::geoInsert(hash, draw, ...)`
+      and the new `canvas::geoRefresh`. `emit_rebuild` reads keys only, so it needs no
+      change. Dots under the verifier: `generations=2000 refreshes=240000
+      geoVerifyMismatches=0 geoResolvedChecked=242000` over 121 frames of 2,000 dots.
+- [x] `helper_geometry/cache.rs`: `__canvas_geoLookup` / `__canvas_geoStore` (branches 2
+      to 5 in MFBASIC; branch 3 rebuilds in place through `canvas::geoRefresh`),
+      `__canvas_geometryOf(item, geo, draw)`; `__canvas_geometryFor(item, key)` is it
+      with `geo = draw = key`, for the callers whose key is their damage identity. The
+      picture and tile records use the same protocol (`__canvas_pictureCachedOf`,
+      Correction 5); `__canvas_appendDraw` carries `geo` beside `hash`.
+- [x] `refreshes=` on the stats line (decision 2), after `generations=`; the debug-report
+      spec's `MFB_CANVAS_STATS` row names it.
+- [x] `tests/canvas/rt_canvas_geo_native.rs`:
+      `a_paint_only_change_builds_nothing_and_refreshes_every_record` (scene
+      `canvas_geo_native_repaint.mfb`: every kind, A, B, A),
+      `two_items_of_one_geometry_and_two_paints_draw_right_in_either_order` (software and
+      Metal), `a_frame_after_a_refresh_is_the_fresh_runs_frame` (software and Metal,
+      byte for byte); the stroke alpha 0 to 1 case is the next task's frame 7. All pass
+      (`cargo test --release --test rt_canvas_geo_native` → 8 passed).
+- [x] Moved from Phase 1 (Correction 4), the same file:
+      `appearance_fields_refresh_and_geometry_predicates_build` (scene
+      `canvas_geo_native_lanes.mfb`): fill, stroke colour, blend, transparency and a
+      ramp's colours each build 0; stroke alpha 0 → 255, one stop → two, `FillOnly` →
+      `FillAndStroke` on a `Line` and no colours → three on a `PolyLine` each build 1.
+      Passes.
+- [x] `tests/canvas/rt_canvas_damage.rs`: `a_paint_only_change_damages_the_items_box`
+      (partial repaint, damage the rectangle's box, `generations` unchanged, the new
+      colour drawn). Passes (`rt_canvas_damage` → 14 passed).
+- [x] `scripts/test-canvas-gpu-rows.sh`: a `repaint` row (`canvas_geo_native_repaint`,
+      kind `geo`: one GPU run under `MFB_CANVAS_SYNC`, every record verified).
+- [x] Found doing this: the alpha fade divided at transparency 0, where it is the
+      identity (`emit_fade_alpha` now skips it; the dots row's offsets 8.74 → 7.76 ms on
+      this Mac, verifier clean).
+- [x] Found doing this: `rt_canvas_autopaint:an_autopaint_frame_costs_linear_in_its_
+      instances` failed at the base too (26.0x, bound 25) because it measured whole
+      milliseconds over five frames; fixed to sixty (8def521d9: base 21.7x, here 21.9x).
 
 Acceptance: the dots scene builds no geometry after its first two frames, verifies
 clean, and no pixel moves.
@@ -621,49 +690,119 @@ clean, and no pixel moves.
   Check: `MFB_CANVAS_GEO_VERIFY=1` rows of `scripts/test-canvas-gpu-rows.sh` on box 206
   and box 2226 → `geoVerifyMismatches=0` on every row.
   Check: every `tests/canvas` target passes; the `--keep` frames equal the base's.
-  Check, by measurement: `phaseOffsetsMs` per frame at 100,000 on box 206 is within
-  25% of the spike's 11.0 ms (the refresh's own cost is what the 25% allows).
-Commit: —
+  Check, by measurement: ~~`phaseOffsetsMs` per frame at 100,000 on box 206 is within
+  25% of the spike's 11.0 ms (the refresh's own cost is what the 25% allows)~~ — a
+  prediction the measurements refuse (Correction 6): on box 206 the paint row's
+  `phaseOffsetsMs` at most twice the base compiler's all-hit row and at least three
+  times under the base compiler's paint row; on this Mac within 10% of the touch-only
+  floor.
+
+**MET 2026-10-25** (compiler of this phase frozen as one binary for every check):
+- `dots 100000 5` on box 206 → `builds/frame=0 refreshes/frame=100000`; this Mac the same.
+- `scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64 --keep` and
+  `--target linux-aarch64 --keep` → 258 `ok:` and no `FAIL` on each box, the new
+  `repaint` row `geoVerifyMismatches=0` (806 refreshes on 206), and all 124 kept
+  frames of each box equal by `cmp` to the base's; Metal (the 62 render rows, headless)
+  → 62 GPU frames equal by `cmp` to the base's, every row `geoVerifyMismatches=0`.
+- every `tests/canvas` target → 24 of 24 `test result: ok`.
+- Correction 6's bar: box 206 paint row 16.45 ms ≤ 18.0 (twice the base all-hit 9.00)
+  and 3.3 times under the base paint row's 54.93; this Mac 7.76 ms ≤ 8.0.
+Commit: f7c605784
 
 ### Phase 3 — Refresh for gradients, pictures and text (only where measured)
 
-- [ ] A bench row per case (`dots` with a two-stop gradient whose colours alternate; a
-      tilemap of `Picture`s whose tint alternates -- a `Tile` has no tint, so a tilemap of
-      tiles has no paint-only change to measure; a page of text whose colour alternates), first, to
-      show the rebuild-in-place cost of Phase 2 for each.
-- [ ] Refresh for each case whose row shows the rebuild above 10% of its frame: the
-      gradient header words and stops tail (same count), a picture's tint and
-      transparency, a text run's colour.
+- [x] A bench row per case: `tools/canvas-bench/bench.sh <mfb> dots N --kind
+      gradient|picture|text`, each with a `--control` row (one paint, a moving marker:
+      every record the last frame's). Rebuild in place (Phase 2), 10,000 items, this Mac
+      (load 21), `phaseOffsetsMs` paint / control, and the frame (offsets + draws +
+      render) of the paint row:
+      | case | paint | control | rebuild | of the frame |
+      |---|---:|---:|---:|---:|
+      | two-stop ramp's colours | 94.28 | 0.89 | 93.4 | 82% of 113.7 |
+      | picture tint | 41.04 | 8.62 | 32.4 | 66% of 48.9 |
+      | text colour | 124.00 | 0.46 | 123.5 | 85% of 145.4 |
+- [x] Refresh for each case whose row shows the rebuild above 10% of its frame — all
+      three are:
+      - **the ramp and the text: implemented.** `__canvas_geoRepaint` builds only the
+        kind's header (`__canvas_circleItem`, `__canvas_ellipseHeader`,
+        `__canvas_rectItem`; for a `Text` the builder's own `__canvas_paintHeader` call
+        and `__canvas_autoTextBox`) and the ramp's stops (`__canvas_gradientTail`), and
+        the native `canvas::geoRepaint` copies the header's appearance slots (8–15, 26,
+        42–46, 55–66) and the stops over the record — no edges, dashes or glyph run.
+        `__canvas_geometryOf` tries it before rebuilding; other kinds rebuild whole.
+        After (load 13): ramp 31.84 against control 0.37; text 34.49 against 0.34 —
+        3.0 and 3.6 times less than the rebuild. Under the verifier, 1,000 items each
+        (`dots.sh` with `KIND=...`, `MFB_CANVAS_GEO_VERIFY=1`): gradient 97,000
+        refreshes, text 94,000, `geoVerifyMismatches=0` both.
+      - **the picture tint: not implemented, cost recorded.** 42.42 against a control
+        of 10.05 after (41.04 / 8.62 before): a picture's record is a header with no
+        tail (`__canvas_picturePlain`, `__canvas_pictureStamp`), so its rebuild in place
+        already is header-only, and what a refresh would save is the MFBASIC picture
+        walk around it (`__canvas_pictureAppend`, two cache probes a picture), which is
+        Phase 6's subject. Verifier clean (111,000 refreshes, 1,000 pictures).
 
 Acceptance: each implemented case builds nothing on a paint-only change and verifies
 clean; a case not implemented is recorded here with its measured cost.
   Check: the new bench rows; `cargo test --release --test rt_canvas_font --test
   rt_canvas_picture --test rt_canvas_golden`.
-Commit: —
+
+**MET 2026-10-25**: `builds/frame=0` on every paint row above; the verifier runs above;
+`rt_canvas_font` 61, `rt_canvas_golden` 28, `rt_canvas_picture` 16 passed;
+`rt_canvas_geo_native` 8 passed (its repaint scene's ramped circle, ellipse and turned
+rectangle take the new path).
+Commit: e0142e34a
 
 ### Phase 4 — The worker's hit cache keyed by `G`
 
-- [ ] `helper_hit.rs:__canvas_hitGeometry`, `__canvas_hitAppend`: key by `G`.
-- [ ] `tools/canvas-bench/bench.sh <mfb> hit`: a paint-changing row.
+- [x] `helper_hit.rs:__canvas_hitGeometry`, `__canvas_hitAppend`: key by `G`
+      (`__canvas_geoHash`; an `AutoPaint` by its shape's `G`). A hit record reads no
+      appearance slot (§2.2), so it is never refreshed: its key is its whole identity.
+- [x] `tools/canvas-bench/bench.sh <mfb> hit`: the `1p` row (ids, every item recoloured
+      a frame; `gen/hit.sh PAINT=1`).
 
 Acceptance: a paint-only frame builds nothing on the worker; `overID` is unchanged.
   Check: `cargo test --release --test rt_canvas_hit --test rt_canvas_pointer`.
-Commit: —
+
+**MET 2026-10-25**: `rt_canvas_hit` 16 passed, `rt_canvas_pointer` 2 passed.
+`tools/canvas-bench/bench.sh <mfb> hit` (this Mac, load 15 to 20), poll-first median at
+10,000 items: the `1p` row 5,471 µs against the `1` row's 5,313 (one item moved, so one
+rebuilt), where the base compiler took 17,463 against 11,758 — a paint-only frame costs
+the worker what one changed item does, so it builds nothing; `overID` `[i484]` on every
+row, 60 events each.
+Commit: 6c96fa40e
 
 ### Phase 5 — The group walk: children hashed once per revision, no list per node
 
 Depends on Phase 2 (the walk hashes `(G, A)` and resolves through §4.3).
 
-- [ ] `helper_render.rs:__canvas_appendDraw`, `Group` arm: the per-slot child-hash table
-      of §4.8, read while `canvas::groupRevision(slot)` matches; children walked through
-      `canvas::groupItemAt` with no list copied.
-- [ ] `canvas::groupItemAt(slot, k)` (native, beside `canvas::groupItems`), and the
-      table's entry cleared where §13's drain frees a group buffer.
-- [ ] `tests/canvas/rt_canvas_damage.rs` and `rt_canvas_graphics_thread.rs`: a
+- [x] `helper_render/gpu_groups.rs:__canvas_appendDraw`, `Group` arm: the per-slot
+      child-hash table of §4.8 (`__canvas_groupHashes`: every child's `D`, then every
+      `G`), read while the slot's revision AND items block both match; children walked
+      in place with no list copied. `gpu_draw_list.rs:__canvas_memoGroup` reads the same
+      table and block, and `__canvas_drawGroup` copies out only the nested `Group`
+      children (`canvas::groupBlockIsGroup`, a tag test). Correction 7.
+- [x] ~~`canvas::groupItemAt(slot, k)`~~ `canvas::groupItemsBlock(slot)`,
+      `groupBlockCount(block)`, `groupBlockItem(block, k, none)` and
+      `groupBlockIsGroup(block, k)` (native, `func_group_block.rs`, beside
+      `canvas::groupItems`) — Correction 7.
+- [x] ~~the table's entry cleared where §13's drain frees a group buffer~~ — moot: a
+      slot's `CANVAS_GROUP_REVISION` has one writer, `gen_group.rs`'s `setGroup`
+      lowering (`load`, `+ 1`, `store`; `grep -rn CANVAS_GROUP_REVISION src/` → that
+      store, the `groupRevision` read and a layout test), and `removeGroup` zeroes only
+      the name (`store_u64(&zero, &found, CANVAS_GROUP_NAME)`), so a slot refilled after
+      a drain carries a revision no entry was filed under. The entry is also keyed by the
+      block address, so even a revision collision would need the same block.
+- [x] `tests/canvas/rt_canvas_damage.rs` and `rt_canvas_graphics_thread.rs`: a
       `setGroup` that changes one child's paint and another's geometry redraws both,
       under `MFB_CANVAS_GEO_VERIFY=1` and under `MFB_CANVAS_DAMAGE=1`; a group replaced
       while a frame holds it (R13 to R15 of `.ai/canvas-threading.md` §8) still draws
       what it resolved.
+      `rt_canvas_damage_groups.rs:a_set_group_changing_one_childs_paint_and_anothers_geometry_redraws_both`
+      (damage on and off, byte-equal, `geoVerifyMismatches=0`, and on Metal) and
+      `a_group_replaced_while_a_frame_holds_it_draws_what_the_frame_resolved` (the held
+      frame draws the old block, the next the new) → both pass. With the table's key
+      cut to "any entry" (revision and block ignored), the first FAILS
+      (`panicked at tests/canvas/rt_canvas_damage.rs:1195`, inside its `check`, before the split).
 
 Acceptance: no pixel moves; the group row allocates less and walks faster.
   Check: `cargo test --release --test rt_canvas_geo_native --test rt_canvas_damage
@@ -674,25 +813,59 @@ Acceptance: no pixel moves; the group row allocates less and walks faster.
   Check: `perf.mfb_alloc.count` from the `--debug` report of a 120-frame
   `KIND=group COUNT=10000` run of `benchmark/canvas/mfb`,
   before and after, recorded here.
-Commit: —
+
+**MET 2026-10-25**, against the base compiler at `e0142e34a` (a detached worktree):
+- the four suites → damage 14 (now 15), geo_native 8, graphics_thread 20 (now 21),
+  group_ownership 19 passed, before the two new tests; the new tests pass on their own;
+- the `group fill 10000` row, headless on Metal (Correction 7), five interleaved runs
+  each: walk 15.017, 13.504, 13.769, 13.547, 13.547 ms a frame at the base (median
+  13.55) against 12.752, 12.658, 12.735, 12.821, 15.650 (median 12.75), so below both
+  the base and the baseline's 14.1; the frame hash `d9a59c34efd34ce3` on every run of
+  both compilers; 120 GPU frames each;
+- `perf.mfb_alloc.count` 349,089 → 344,092 (`perf.mfb_free.count` 348,911 → 353,908).
+  The graphics arena's allocation calls are unchanged (14,438,551 → 14,438,686): the
+  list copy per node is gone, but each child is still copied out of the block once per
+  node (`canvas::groupBlockItem`), which is one allocation where the list copy was
+  one. The bytes it scrubs on free fall 5.87 GB → 4.24 GB over the run.
+Commit: 44925e237
 
 ### Phase 6 — The picture walk: one confirmation per image per frame
 
 Depends on Phase 2 (pictures and tiles are keyed by `G`, §4.6).
 
-- [ ] `helper_picture.rs`: `__canvas_pictureCached`'s answer remembered per frame by
+- [x] ~~`helper_picture.rs`: `__canvas_pictureCached`'s answer remembered per frame by
       pixel-block address (§4.8), reset at the frame's start. Both `__canvas_pictureCached`
-      callers use it: the picture paths and `__canvas_tileGeometry`.
-- [ ] `tests/canvas/rt_canvas_picture.rs`: many pictures of one image, then a `setBytes`
+      callers use it: the picture paths and `__canvas_tileGeometry`.~~ — moot: there is no
+      per-image answer to share, and the confirmation is not the cost. Each record stamps
+      the block itself (`__canvas_pictureStamp`), so the check is per record, three reads.
+      `sample` of `picture fill 10000` at this phase's base (Correction 8):
+      `__canvas_pictureCachedOf` 41 and `__canvas_geoStamp` 15 of the graphics thread's
+      ~2,630 busy samples, against 880 in the `--debug` timers around each allocation.
+      Replaced by the task below.
+- [x] (added, Correction 8) The walk lays out a cached tile or picture with no
+      allocation of its own: `canvas::itemImageShadow(item)` (native,
+      `func_item_image.rs`) reads the image's pixel block from the item in place, and
+      `__canvas_appendDraw` resolves a cached one through `__canvas_imageCached` (plain
+      record, then a shaped picture's two) before the `MATCH` that would copy the
+      variant; the shaped hit fills `__CANVAS_PIC_*` instead of making a list
+      (`__canvas_pictureShapedHit`), and `__canvas_pictureAppend` no longer makes an
+      empty list per call or probes the plain record twice.
+- [x] `tests/canvas/rt_canvas_picture.rs`: many pictures of one image, then a `setBytes`
       on it, redraw every one of them with the new pixels (R9 and R10 of
       `.ai/canvas-threading.md` §8 still hold); a closed image draws nothing in every
-      picture that named it (R11).
-- [ ] `tests/canvas/rt_canvas_tile.rs`: many directly presented tiles of one atlas,
+      picture that named it (R11). `set_bytes_repaints_every_picture_of_the_image` (and
+      R10), `set_bytes_twice_leaves_the_last_on_every_picture` (R9),
+      `a_closed_image_draws_nothing_in_every_picture` (R11; 100 pictures, half plain,
+      half in a circle) → pass. With the hit's block confirmation removed, the first
+      FAILS.
+- [x] `tests/canvas/rt_canvas_tile.rs`: many directly presented tiles of one atlas,
       then a `setBytes` on it, redraw every one of them with the new pixels (the
       many-tile twin of `set_bytes_on_a_presented_tile_image_repaints`).
-- [ ] Measure `tile fill 10000` at this phase's base and after, because the committed
+      `set_bytes_repaints_every_tile_of_the_atlas` (200 tiles, `GEO_VERIFY`) → passes;
+      FAILS with the confirmation removed.
+- [x] Measure `tile fill 10000` at this phase's base and after, because the committed
       `benchmark/canvas` baseline has no `tile` row (plan-173 added it after the baseline
-      run).
+      run). Below.
 
 Acceptance: no pixel moves; the picture row allocates less and walks faster.
   Check: `cargo test --release --test rt_canvas_picture --test rt_canvas_damage
@@ -706,24 +879,103 @@ Acceptance: no pixel moves; the picture row allocates less and walks faster.
   Check: `perf.mfb_alloc.count` from the `--debug` report of a 120-frame
   `KIND=picture COUNT=10000` run of `benchmark/canvas/mfb`, and of the same with
   `KIND=tile`, before and after, recorded here.
-Commit: —
+
+**MET 2026-10-25**, against the base compiler at `44925e237` (a detached worktree), with
+the headless probe of Correction 7:
+- `cargo test --release --test rt_canvas_picture --test rt_canvas_damage --test
+  rt_canvas_geo_native` (and `rt_canvas_tile`, `rt_canvas_graphics_thread`,
+  `rt_canvas_damage_groups`, `rt_canvas_particles`, `rt_canvas_autopaint`) → picture 19,
+  damage 11, geo_native 8, tile 7, graphics_thread 21, damage_groups 4, particles 29,
+  autopaint 23 passed;
+- `picture fill 10000`, three interleaved runs each: walk 12.949, 12.607, 13.513 ms a
+  frame at the base (median 12.95, the baseline's 12.0 being a windowed number) against
+  7.692, 7.470, 7.043 (median 7.47); frame hash `318834a94296f27b` on every run;
+- `tile fill 10000`: 6.530, 5.487, 5.350 (median 5.49) against 3.821, 3.718, 3.667
+  (median 3.72); frame hash `88bef16356cbf73c` on every run;
+- allocations: `perf.mfb_alloc.count` is unchanged (picture 349,096 → 349,098, tile
+  349,097 → 349,097): it does not count the graphics thread's arena. That arena's
+  `alloc_calls` from the same report falls 6,810,176 → 2,040,176 (picture) and
+  3,853,459 → 1,473,459 (tile), and the bytes it scrubs on free 2.76 → 1.75 GB and
+  1.28 → 0.98 GB. What is left is about one allocation an item a frame, the frame's
+  copy of the scene (`__canvas_flatScene`) and its element copy in pass 2.
+Commit: 7cdedfffb
 
 ### Phase 7 — Spec, threading notes, closeout
 
-- [ ] The text of §4.7.
-- [ ] `scripts/spec-census.sh --render` and `--citations`.
-- [ ] Re-run §2.3's rows on box 206 and this Mac alone (load under 4) and record them
-      in bug-765.
-- [ ] Re-run `benchmark/canvas` in full; if the group or picture rows moved by 1.25× or
-      more, re-baseline it in its own commit with `compare.py`'s output.
-- [ ] `.ai/canvas-threading.md` §13 (the child-hash table and its drain) and §17 (one
-      confirmation per image per frame).
-- [ ] The arena free scrub's share of the busy graphics thread in `group fill 10000`
+- [x] (added, Correction 9) Regenerate the canvas change-sentinel goldens after the
+      plan's last code change (letters B and C move them again): `cargo test --release
+      --bin mfb` → `replay_shard_05/08/23` fail on `syntax/app/app-mouse-surface`,
+      `syntax/resources/canvas-append-unconsumed-valid` and
+      `syntax/resources/loop-body-resource-reference-valid` (`.ir` differs: the canvas
+      helper text's lines and globals moved). Classify against main with
+      `scripts/artifact-gate.sh <mfb> all` from a detached main-tip worktree, then
+      regenerate every flagged fixture, and run `scripts/test-accept.sh` in full.
+      Main's tip `ba92007cd` (merged into this branch at `e0d3b08b0`, no file changed on
+      both sides) → `2387 golden(s) checked, 0 diff(s)`. The merged branch → 10 diffs in
+      four fixtures, all canvas programs: `app-mouse-surface`'s `.ir`, macOS `.nir`,
+      `.nplan` and four `.app.ncode` sums (the walk helpers and both emitters);
+      `app-window-surface`'s macOS `.app.ncode` sum only (the Metal emitter — its `.ir`
+      did not move); and the two `syntax/resources` canvas fixtures' `.ir`. Those ten
+      regenerated with the gate's own build flags; then the gate → `0 diff(s)` over
+      2,387; `scripts/test-accept.sh <mfb> target/accept-actual` → `acceptance tests
+      passed (1757 test(s) ran)`; `replay_shard_05/08/23` → 3 passed.
+- [x] The text of §4.7. `.ai/canvas-threading.md` §14 (Phases 1–2), §16 (an
+      `AutoPaint`'s one identity) and §17 (the keys; a cached picture or tile laid out
+      without a copy); `06_canvas.md`: "Retained, not immediate" (Phase 2), "The item
+      unions" and a new "Item identity" heading (the cache's branches, the damage diff,
+      the hit cache), "Named groups" (the in-place block and per-slot identities),
+      "Hit-testing" (keyed by `G`), "One frame" (`__canvas_autoGeoHash` is both
+      identities), "A picture is drawn inside a shape" (the keys, `itemImageShadow`).
+- [x] `scripts/spec-census.sh --render` and `--citations`. → render: 0 leaks in every
+      package; citations: 2,846 unique, `MISS-PATH 0`, `MISS-LINE 0`, `MISS-SYMBOL 0`,
+      after repointing two citations this plan did not write but the run found stale
+      (`10_debugger.md` `Breakpoints::set` → `instruction_boundary`, the refusal the
+      sentence cites; `12_monomorphization.md` `Monomorphizer::new` ×2 →
+      `overload_names`, the map the sentences describe — the literal text left those
+      files in earlier refactors, `git log -S`).
+- [x] Re-run §2.3's rows on box 206 and this Mac alone (load under 4) and record them
+      in bug-765. Recorded there ("Re-measured after plan-175-A and plan-175-D"): at
+      100,000 dots, box 206 4 / 4 → 11 / 12 pps / fps (offsets 55.9 → 16.2 ms, render
+      213.6 → 63.9 ms, worker 88.8 → 57.5 ms), this Mac 34 / 35 (load 3.83 at the start,
+      7.69 at the end: the rows' own builds), `builds/frame` 0 on every paint row.
+- [x] Re-run `benchmark/canvas` in full; if the group or picture rows moved by 1.25× or
+      more, re-baseline it in its own commit with `compare.py`'s output. Run attended,
+      after the fix that lets `run.sh` run at all since bug-1087 (`a9edb077b`, Correction
+      10), with plan-175-C landed, so one re-baseline serves A and C; against main's tip
+      in the same session: `group fill 10000` work 5,260 → 2,719 µs, `tile fill 10000`
+      3,178 → 2,208, every pixel hash equal. Re-baselined
+      (`benchmark/canvas/baseline/README.md` holds `compare.py`'s output and the bisected
+      `gpu` power-state note).
+- [x] `.ai/canvas-threading.md` §13 (the child-hash table and its drain) and §17 (one
+      confirmation per image per frame). §13's "There is no refcount" paragraph (Phase
+      5: the block read in place, the table keyed by revision and block, no clearing
+      because a revision only grows); §17 per Correction 8: the confirmation stays per
+      record, and what Phase 6 removed is the copy (`canvas::itemImageShadow`).
+- [x] The arena free scrub's share of the busy graphics thread in `group fill 10000`
       and `picture fill 10000`, re-profiled as in §9, recorded here against §2.4's
-      20.8% and 18.1% (decision 6).
+      20.8% and 18.1% (decision 6). At `7cdedfffb`, windowed, `FRAMES=2000`, `sample
+      <pid> 8` (self time on the thread holding `__canvas_sceneOffsets`, grouped as
+      §2.4 groups it, by a one-off parser of the sample file). The scrub is
+      `mfb_arena_fill_zero` now, a zero fill since `4bb55ea8c`, which predates this
+      plan; §2.4's profile was of `mfb_arena_fill_random`.
+
+      | Share of the busy graphics thread | `group fill 10000` | `picture fill 10000` |
+      |---|---:|---:|
+      | `--debug` perf timers | 53.1% | 7.6% |
+      | arena free scrub (`mfb_arena_fill_zero`) | 1.0% | 0.6% |
+      | arena alloc, free and drops | 5.1% | 1.7% |
+      | canvas walk code | 25.9% | 61.9% |
+      | renderer, Metal, objc | 8.3% | 8.5% |
+      | the rest | 6.5% | 19.6% |
+
+      Busy samples: 5,194 of 6,880 (group) and 3,621 of 6,940 (picture). The scrub has
+      stopped being a cost: the zero fill made it about a twentieth of what §2.4
+      measured, and the walks allocate less. In the group row the timers' 53% are the
+      per-child copy (`canvas::groupBlockItem`, Phase 5's record) under the `--debug`
+      build's per-allocation timing, which a release build does not pay.
 
 Acceptance: the spec describes the implementation at HEAD.
-Commit: —
+Commit: 2cfee6f74 (docs), 339f8e8fc (rows, scrub), f22e9c033 (goldens), 29f049ff9 (benchmark)
 
 ## Validation Plan
 
@@ -880,6 +1132,181 @@ correction is added here, dated, with the command that showed it.
    `an_autopaint_frame_costs_linear_in_its_instances`). Corrected in place in the
    2026-10-13 paragraph at the top; this plan's group and picture walks and §8.5 are
    otherwise unaffected.
+3. 2026-10-25, at the Prerequisites gate: decision 3 orders §8.1 (the worker's copy and
+   compare) before Phase 2, but no letter covered it — a log search of commit messages
+   since 2026-10-12 for "copy and compare" finds only this plan's own commits, and
+   `emit_publish` still copies before it compares (`grep -n copy_flat_block
+   src/codegen/builtins/canvas/gen_present.rs`). It is a missing prerequisite, landed as
+   the new letter `plan-175-D`, with the edge D → Phase 2 in the header. Its §2 measures
+   what §8.1 left unmeasured: on this Mac at 100,000 dots the worker spends its present in
+   `carriedHashes`, `publishScene`, `sceneHashes` and (for an unchanged scene)
+   `__canvas_groupSignature` (`sample`, plan-175-D §2).
+4. 2026-10-25, Phase 1: three corrections to §4.1 and §4.2, none to the design's effect.
+   - **The published pair is `(D, G)`, not `(G, A)`.** Every use of `A` in §4.3 compares
+     it with the `A` of the slot `G` already chose, and for one `G`, `D = mix(G, A)`
+     equal is `A` equal (up to the 2^-62 of §4.5). So the list holds every item's `D`
+     at `i` and its `G` at `n + i` (2n words, one revision): every reader that wants
+     "the item's hash" keeps reading index `i` and gets `D`, with no change, and the
+     slot's fifth word (Phase 2) holds `D`. `A` itself is never stored.
+   - **An item field's lane is a rule, not a table row.** §4.1 already says every item
+     field is geometry except `id` and a resource; `func_item_lanes.rs:item_field` is
+     that rule, plus a `PolyLine`'s colours. A table whose missing row failed the build
+     would have refused the synthetic kinds of `canvas_item_hash_guards.rs` (fields `n`,
+     `bytes`, `holder`, ...) before the refusals those tests pin. The rule is total and
+     defaults to `G`, the lane where a mistake can only rebuild a record. The class of
+     every canvas field is pinned by `builtins/tests/canvas_item_lanes.rs` instead.
+     `Paint` keeps the strict table: a field `PAINT_FIELDS` does not name fails the
+     build.
+   - **`G`'s value tests move to Phase 2.** In Phase 1 the cache is keyed by `D`, and
+     no test can call an internal member, so nothing at run time observes `G`. "Two
+     paints differing only in appearance have one `G`" and "each geometry predicate
+     changes `G`" are asserted in Phase 2 through `generations=` and `refreshes=`, where
+     they are the behaviour (Phase 2's test task lists each).
+5. 2026-10-25, Phase 2: four corrections to §4.3, none to its effect.
+   - **The slot's damage identity is a parallel list, not a fifth slot word.** Slots
+     are indexed `slot << 2` / `slot * 4` in the native table, the compaction, the
+     resolve and five MFBASIC readers (`__canvas_geoStamp`, `__canvas_geometryOf`, the
+     picture lookups, the hit path, the stats line's `entries=`). `__CANVAS_GEO_DRAWS`
+     holds one word a slot in slot order, appended by `emit_add_slot` and moved by the
+     compaction with its slot; nothing that reads a slot changes.
+   - **Branch 4's second key is `D` itself**, not a new `mix(G, A)`: `D` already is that
+     mix, and it never equals a `G` but by a 62-bit collision.
+   - **The native refresh is `emit_paint_header`'s appearance half, as §4.3 says — a
+     first cut that rebuilt the whole record in place was measured and refused.** The
+     first cut wrote `emit_fill_record` over the slot's floats, on the theory that
+     §2.3's cost was the churn and not the build. On box 206 at 100,000 dots it gave
+     `builds/frame=0` and `phaseOffsetsMs=22.4` against the 13.75 the acceptance allows
+     (`tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host
+     test@192.168.1.206 dots 100000 5`); dropping its needless push onto the verifier's
+     built-list (the verifier re-checks every resolved index anyway) gave 18.8. So the
+     refresh writes only `emit_paint_appearance` (slots 8–15, 26, 42–46, split out of
+     `emit_paint_header`), a `Line`'s stroke-as-fill copy, and nothing for an empty
+     record; a `PolyLine` alone, whose tail holds colours, is rebuilt whole in place.
+     It decides "built natively" by `emit_record_size`'s support checks without the
+     sizing: the kind, the transform, the stop count and a rectangle's corners are all
+     geometry, so a record found by `G` was built the way the item would be now. The
+     MFBASIC path rebuilds in place (`canvas::geoRefresh` writes the builders' fresh
+     record over the slot's floats, length checked), which is §4.3's "rebuild in place".
+6. 2026-10-25, Phase 2's last check: "within 25% of the spike's 11.0 ms" is a prediction
+   the measurements refuse, and it is replaced by a bar they ground. The spike's `geo`
+   variant read no item on a paint change; a correct refresh must read every changed
+   item to learn its new paint, and that alone exceeds 25%. Measured (`dots 100000 4`,
+   this Mac, `phaseOffsetsMs`):
+   - every item a hit (`--control`: both scenes one paint, a marker moving): 5.08;
+   - the refresh path doing nothing but its slot bookkeeping (a throwaway build): 6.42
+     (+26%); touching each item's paint and nothing else: 7.27 (+43%);
+   - the shipped refresh: 7.76 (+53%), after the fade fast path (8.74 before it);
+     without its colour writes at all (throwaway): 8.55 of the 8.74.
+   On box 206 (`--target windows-x86_64 --host test@192.168.1.206 dots 100000 5`),
+   against the base compiler at `2f281c5e7`: paint 54.93 → 16.45 ms, all-hit control
+   9.00 → 10.03 ms (the 2n-word hash list and the draw-identity check), release pps/fps
+   8/9 → 12/13. The spike's 11.0 was taken at `ab9061ff8` and is not this code's floor.
+   The check becomes: on box 206 at 100,000 dots, the paint row's `phaseOffsetsMs` is at
+   most twice the base compiler's all-hit row (18.0 ms) and at least three times under
+   the base compiler's paint row (18.3 ms); and on this Mac within 10% of the
+   touch-only floor above (8.0 ms). Measured: 16.45, 3.3 times under, and 7.76.
+   - **Pictures and tiles go through the same protocol** (`__canvas_pictureCachedOf`,
+     replacing `__canvas_pictureCached`): keyed by `G` (stepped by
+     `__canvas_pictureKey`), holding `D` (stepped the same way), with the pixel block
+     confirmed before a hit is trusted, and a stale-pixel or recoloured record rebuilt
+     in place. The keys handed to `__canvas_noteEntry` stay the `D` ones, so a tint
+     change still damages. A picture on an `AutoPaint` keeps `G = D` (§4.6). This is
+     §4.6's design landing with Phase 2 rather than waiting for Phase 3, because the
+     picture walk calls the same lookup.
+7. 2026-10-25, Phase 5: two corrections to §4.8 and one to the Phase 5 checks.
+   - **`canvas::groupItemAt(slot, k)` would read two lists in one node.** Read by slot,
+     each `k` re-reads the slot's items pointer, so a `setGroup` landing between child
+     2 and child 3 of one node hands the node the old list's head and the new list's
+     tail, filed under whichever revision was read. The walk instead takes the slot's
+     block ONCE per node (`canvas::groupItemsBlock`, after `canvas::groupRevision`) and
+     reads children from that block (`canvas::groupBlockCount`,
+     `canvas::groupBlockItem`); the cache entry is keyed by the revision AND the block,
+     so an entry filed while a replacement raced the two reads is never reused against
+     the other block. The block is safe to hold for the frame for §13's reason — a
+     displaced block is retired, not freed, until a frame completes.
+   - **The first cut was slower than the copy it replaced** (28.6 against 15.0 ms
+     walk): a `__canvas_noItem()` default built per node, and `__canvas_drawGroup`
+     copying out every child only to skip the non-groups. One shared default
+     (`__CANVAS_BLOCK_NONE`) and a tag test (`canvas::groupBlockIsGroup`) fixed both.
+   - **`benchmark/canvas/run.sh` cannot run here**: its rows are windowed and
+     display-synced ("attended, every window unobstructed", `baseline/README.md`), and
+     ~~this session has no display~~ (corrected in Phase 7: windows do open from this
+     session, but `run.sh --only '^rect fill 1$'` stops with `gpuFrames=118 of
+     frames=120` — the first two frames are drawn before the window's Metal pipeline,
+     built on its own thread, is ready — with the base compiler `2f281c5e7` exactly as
+     with this branch, at load 4 to 12). The check is made with a headless probe of the same
+     program instead (`benchmark/canvas/mfb`, `--debug`, `MFB_HEADLESS=1
+     MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 KIND=group COUNT=10000 SIZE=small`, Metal),
+     base compiler and Phase 5 alike: the walk is `phaseOffsetsMs + phaseDrawsMs` a
+     frame over frames 3–120, the frame hash is the sha256 of a 2-frame run's dump (as
+     `run.sh` makes its `.sums`), and the allocation counts come from the 120-frame
+     run's `--debug` report. The baseline's 14.1 ms is a windowed number and is not
+     comparable to the probe's; the base-compiler comparison is the one that holds.
+8. 2026-10-25, Phase 6: §4.8's "a picture's image is confirmed once per frame" rested on
+   the confirmation being the picture walk's cost, and it is not. `sample <pid> 6` of a
+   headless 1,500-frame `KIND=picture COUNT=10000` run of `benchmark/canvas/mfb` built at
+   this phase's base: of the graphics thread's 4,694 samples, 2,063 wait (GPU, redraw);
+   of the ~2,630 busy, `mfb_rt_perf_perf_start`/`_end` (the `--debug` timers around every
+   arena alloc and free) take 880, `__canvas_pictureKey` and its `__canvas_hashStep` 243,
+   `__canvas_pictureCachedOf` 41 and `__canvas_geoStamp` 15. And there is no per-image
+   answer to remember: each record stamps the block address itself
+   (`__canvas_pictureStamp`), so confirming one says nothing about the next. What the
+   walk did per cached picture per frame was allocate 5.7 times (`arena.<graphics>.
+   alloc_calls` 6,810,176 over 120 frames, 10,000 pictures), against 0.2 for a native row
+   (`rect fill 10000`: 23,012). Phase 6 removes the allocations instead: the variant copy
+   that only read `image` (`canvas::itemImageShadow` reads it in place), the per-picture
+   result list, and the empty list per call. Measured: 6.81M → 2.04M allocations and
+   12.95 → 7.47 ms for pictures, 3.85M → 1.47M and 5.49 → 3.72 ms for tiles. Removing the
+   duplicate plain probe alone measured no change (12.385 → 12.496 ms). The plan's
+   per-frame memo task is marked moot with this evidence.
+   - **The R11 row needs a changed scene.** A `destroyImage` signals no redraw (it is not
+     one of §4's triggers) and a re-present of the same items is skipped, so
+     `destroyImage` then `present(items)` draws no frame at this phase's base, at HEAD
+     and at the plan's base `2f281c5e7` alike (one stats line; the picture's pixel still
+     red). That is the frame-skip contract, not a defect; the 100-picture R11 test makes
+     its frame as `set_bytes_then_destroy_then_a_frame_draws_nothing` does, with one
+     more item.
+9. 2026-10-25, Phase 6's check: `cargo test --release --bin mfb` had not been run since
+   Phase 1, and six of its tests had gone red under this plan. Each is answered from
+   evidence.
+   - `helper_picture::tests::canvas_picture_only_the_plain_record_is_cached_under_the_item_hash`
+     counted `__canvas_pictureInsert(hash,`, a function Phase 2 (`f7c605784`) replaced
+     by the lookup that plans the key (`__canvas_pictureCachedOf(g, …)`) and
+     `__canvas_pictureStore` (`git grep pictureInsert f7c605784 -- src` → only the test).
+     Its invariant is restated in those names: only the plain probe and the Tile store
+     under the item's own identity, and every other lookup is under a stepped key.
+   - `builtins_codegen::canvas::the_skip_reports_false_and_the_publish_reports_true` read
+     "the first `ret` after the publish label". plan-175-D moved the scene copy after
+     that label, and `copy_flat_block`'s out-of-memory raise (`payload_copy.rs`) is now
+     that first `ret`. The publish exit is the last `ret` before the `_retire_oom` cold
+     path, and it reads `1`.
+   - `…::retired_scene_blocks_are_freed_only_after_a_frame_completes` required ONE free
+     ahead of the publish label: bug-683's skip freed the copy it compared. plan-175-D's
+     skip makes no copy (`rt_canvas_present_leak.rs:an_unchanged_re_present_copies_nothing`),
+     so the count is 0. The gate's own counts (4 behind it, 0 on the publish path before
+     it, 1 on the cold path) are unchanged and pass.
+   - `declared_errors_all::every_canvas_member_declares_exactly_the_errors_its_lowering_raises`:
+     Phase 5's `canvas::groupBlockItem` declared `ErrOutOfMemory`, which its lowering
+     never raises — the descriptor was wrong, now `[]`.
+   - `raw_result_block_ownership::every_block_returning_runtime_helper_is_classified`:
+     `canvas.groupBlockItem` returns a `DrawItem` that `lower_list_get_or` copies on the
+     calling thread, in the caller's arena, so it is registered in
+     `CALLER_ARENA_BLOCK_RESULTS`.
+   - `build_replay::replay_shard_05/08/23`: three canvas programs' `.ir` goldens, the
+     change sentinels `.ai/testing-gates.md` names for the canvas runtime. Regenerated
+     once, after the last code change (Phase 7's added task).
+10. 2026-10-25, Phase 7: `benchmark/canvas/run.sh` was not blocked by this session's
+    display (Correction 7 and its Phase 7 correction). It had been broken since
+    bug-1087 (`19da7eff3`, 2026-10-17) for every compiler: the window's pipeline is
+    built off the critical path, so the first frames are software, and `reduce.py`
+    refused any row with a software frame. Fixed in `a9edb077b`: the start-up prefix
+    and the first Metal frame are dropped, and every frame after must be Metal's and
+    direct. The windowed run against main's tip then showed the flat 10,000-item rows'
+    `gpu` 1.3–2.5× higher. Bisected to plan-175-D (`17b7b529e`; plan base, D, A Phase 1
+    and A Phase 2 alternated, two rounds each), whose change reaches no GPU input.
+    Headless, frames back to back, D and its base give the same GPU and fill times
+    within noise. So it is the power state of a lighter frame that still makes its
+    vsync, recorded in the baseline README rather than treated as a defect.
 
 ## Summary
 

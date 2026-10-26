@@ -837,3 +837,121 @@ fn a_shaped_picture_with_a_clip_shows_only_where_both_cover() {
     }
     assert!(compared > 3000, "only {compared} pixels compared");
 }
+
+// ---- plan-175-A Phase 6: many pictures of one image -------------------------------
+
+/// 100 pictures of `img`, a 1×1 red image, on a 20 × 5 grid at 40 px: the even ones
+/// plain (stretched over a 24 px square), the odd ones in a circle of radius 12. The
+/// walk lays every cached one out from its identities and its image's pixel block, read
+/// in place (`canvas::itemImageShadow`); these check that every one of them still
+/// follows the block.
+fn many_pictures(tail: &str) -> String {
+    scene(&format!(
+        "  RES img AS canvas::Image = canvas::createImage(1, 1, {red})\n  \
+         RES other AS canvas::Image = canvas::createImage(1, 1, {red})\n  \
+         MUT items AS List OF canvas::DrawItem = []\n  \
+         MUT i AS Integer = 0\n  \
+         WHILE i < 100\n    \
+           LET x AS Float = toFloat(20 + 40 * (i - 20 * (i / 20)))\n    \
+           LET y AS Float = toFloat(20 + 40 * (i / 20))\n    \
+           IF i - 2 * (i / 2) = 0 THEN\n      \
+             items = collections::append(items, canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 24.0, height := 24.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img])\n    \
+           ELSE\n      \
+             items = collections::append(items, canvas::Picture[id := \"\", shape := canvas::Circle[id := \"\", position := vector::Float2[x := x + 12.0, y := y + 12.0], radius := 12.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img])\n    \
+           END IF\n    \
+           i = i + 1\n  \
+         END WHILE\n  \
+         canvas::present(items)\n{tail}",
+        red = pixels(&[(255, 0, 0, 255)]),
+    ))
+}
+
+/// Every picture's centre in `frame` is `want`.
+fn every_picture_is(frame: &[u8], want: (u8, u8, u8, u8), what: &str) {
+    for i in 0..100 {
+        let (x, y) = (20 + 40 * (i % 20) + 12, 20 + 40 * (i / 20) + 12);
+        assert_eq!(
+            pixel(frame, x, y),
+            want,
+            "picture {i} at ({x}, {y}): {what}"
+        );
+    }
+}
+
+/// `setBytes` on an image 100 pictures draw repaints every one of them with the new
+/// pixels, and a `setBytes` on an image none of them draws repaints nothing (R10).
+#[test]
+fn set_bytes_repaints_every_picture_of_the_image() {
+    let (frame, stats) = render(
+        "canvas_picture_many_set_bytes",
+        &many_pictures(&format!(
+            "  canvas::setBytes(img, {})\n  canvas::setBytes(other, {})\n",
+            pixels(&[(0, 255, 0, 255)]),
+            pixels(&[(0, 0, 255, 255)])
+        )),
+    );
+    every_picture_is(&frame, GREEN, "the new pixels");
+    assert_eq!(
+        stats.len(),
+        2,
+        "the present and the first setBytes each rendered a frame, the second none: {stats:?}"
+    );
+}
+
+/// R9 over 100 pictures: two `setBytes` with no frame between them leave the last on
+/// every picture. Not synchronous, as `set_bytes_twice_between_frames_shows_the_last`.
+#[test]
+fn set_bytes_twice_leaves_the_last_on_every_picture() {
+    let source = many_pictures(&format!(
+        "  canvas::setBytes(img, {})\n  canvas::setBytes(img, {})\n  os::sleep(1500)\n",
+        pixels(&[(0, 0, 255, 255)]),
+        pixels(&[(0, 255, 0, 255)])
+    ))
+    .replace("IMPORT io", "IMPORT io\nIMPORT os");
+    let project = common::temp_project("canvas_picture_many_r9", &source);
+    let frame = project.join("frame.rgba");
+    let binary = common::build_app_debug(&project, "canvas_picture_many_r9");
+    let run = Command::new(&binary)
+        .env("MFB_HEADLESS", "1")
+        .env("MFB_CANVAS_DUMP", &frame)
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let pixels = std::fs::read(&frame).expect("dump");
+    let _ = std::fs::remove_dir_all(&project);
+    every_picture_is(&pixels, GREEN, "the last setBytes wins");
+}
+
+/// R11 over 100 pictures: `setBytes`, then `destroyImage`, then a frame — it draws
+/// nothing in any picture that named the image. A close signals no redraw (it is not
+/// one of `.ai/canvas-threading.md` §4's triggers) and an identical re-present is
+/// skipped, so the frame is made as `set_bytes_then_destroy_then_a_frame_draws_nothing`
+/// makes it: with one more item.
+#[test]
+fn a_closed_image_draws_nothing_in_every_picture() {
+    let (frame, stats) = render(
+        "canvas_picture_many_closed",
+        &many_pictures(&format!(
+            "  canvas::setBytes(img, {})\n  \
+             canvas::destroyImage(img)\n  \
+             LET mark AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 600.0, y := 400.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             canvas::present(collections::append(items, mark))\n",
+            pixels(&[(0, 0, 255, 255)])
+        )),
+    );
+    every_picture_is(&frame, BLACK, "a closed image draws nothing");
+    assert_eq!(
+        pixel(&frame, 616, 416),
+        RED,
+        "the frame around them rendered"
+    );
+    assert_eq!(
+        stats.len(),
+        3,
+        "the present, the setBytes and the last present each drew a frame: {stats:?}"
+    );
+}

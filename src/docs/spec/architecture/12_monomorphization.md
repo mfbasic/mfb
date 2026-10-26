@@ -70,7 +70,7 @@ beside `PUBLIC f(Integer, Integer)` is emitted as `f` (the PUBLIC one as
 byte-for-byte unchanged. A non-exported member is mangled whenever any sibling exists,
 so its symbol cannot equal an export's. Intra-package calls are unaffected: they
 resolve through `overload_names`, which maps each declaration to the symbol it was
-given. [[src/monomorph/lower/mod.rs:Monomorphizer::new]]
+given. [[src/monomorph/lower/mod.rs:overload_names]]
 
 **A `PRIVATE` member's set is its file's.** File-private scoping renames a `PRIVATE
 FUNC f` to `#<hash>$f`, and every reference to `f` inside that file with it, but
@@ -87,7 +87,7 @@ helper never renames them — `EXPORT r(Integer)` beside `PRIVATE r(String)` is
 exported as `r`. When the file's `PRIVATE f` is a template and its `PUBLIC f` is
 not (or the reverse), the file-scoped name reaches the `PUBLIC` declaration too,
 instantiated or called under its own name.
-[[src/monomorph/lower/mod.rs:Monomorphizer::new]]
+[[src/monomorph/lower/mod.rs:overload_names]]
 [[src/monomorph/lower/resolve.rs:resolve_overload]]
 [[src/monomorph/lower/resolve.rs:template_name]]
 

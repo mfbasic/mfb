@@ -74,14 +74,22 @@
 # two passes long for its polygon edges, its gradient stops and its picture texels alone;
 # and `passes_grouped.mfb`, where a group is drawn in both passes of a frame and a run of
 # the scene's own items is cut by the end of the first.
+# `nodes65537` is plan-175-B's: one draw-list row past a pass's node region (65,536), so
+# two passes for the rows alone. The three `merge*` rows are plan-175-C's: two nodes of a
+# group merged into one draw where node 1 covers node 0 (instance order IS draw order on
+# the driver), 70,000 merged nodes cut at the node region into two heads and two passes,
+# and a merged head whose blocks span two passes, which must draw each node alone.
 #
-# Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
+# Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and five more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
 # item hash, frame pass and scene sequence lock are emitted through arch-neutral code and
 # were only ever run on macOS AArch64; this is where they run on x86-64 (Windows, Linux)
 # and on Linux AArch64, and `geoVerifyMismatches` must be 0 on every one. The publish-race
 # row runs WITHOUT `MFB_CANVAS_SYNC`, so the graphics thread renders while the worker
-# publishes — the case the sequence lock exists for.
+# publishes — the case the sequence lock exists for. The fifth, `repaint`, is
+# plan-175-A's: a scene presented A, B, A where B changes only paint, so its records are
+# refreshed in place on frames 2 and 3, and the verifier checks each one against a fresh
+# build of its item.
 #
 # Usage: scripts/test-canvas-gpu-rows.sh <mfb-exe> [--target <t>] [--box <port>]
 #                                        [--libc glibc|musl] [--icd auto|<manifest>]
@@ -214,9 +222,14 @@ passedges|past_the_edge_region_opaque|render
 passstops|many_gradient_stops|render
 passtexels|many_texels|render
 passgroups|passes_grouped|render
+nodes65537|past_the_node_region|render
+mergeoverlap|group_merge_overlap|render
+mergecut|group_merge_cut|render
+mergesolo|group_merge_solo|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo
+repaint|canvas_geo_native_repaint|geo
 race|canvas_geo_native_publish_race|race
 "
 

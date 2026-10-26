@@ -130,6 +130,11 @@ const LOOSE: u64 = 4096;
 /// in, and the only one permitted to free it (`.ai/canvas-threading.md` §3 "Who
 /// frees"). The graphics thread's arena is `arena.1` and is not this bug.
 fn live_bytes(name: &str, source: &str, frames: usize, sync: bool) -> u64 {
+    arena_counter(name, source, frames, sync, "live_bytes")
+}
+
+/// `arena.0.<counter>` at exit for `source` with `{N}` replaced by `frames`.
+fn arena_counter(name: &str, source: &str, frames: usize, sync: bool, counter: &str) -> u64 {
     let program = source.replace("{N}", &frames.to_string());
     let project = common::temp_project(name, &program);
     let binary = common::build_app_debug(&project, name);
@@ -149,7 +154,7 @@ fn live_bytes(name: &str, source: &str, frames: usize, sync: bool) -> u64 {
         common::exit_description(&output.status),
     );
     let lines = common::debug_report::arena_lines(name, &stderr);
-    let bytes = common::debug_report::counter(name, &lines, 0, "live_bytes");
+    let bytes = common::debug_report::counter(name, &lines, 0, counter);
     let _ = std::fs::remove_dir_all(&project);
     bytes
 }
@@ -298,9 +303,11 @@ fn changing_layers() -> String {
 /// Leak 1: re-presenting an unchanged scene frees the copy it made to compare with.
 ///
 /// `mfb man canvas` promises "re-presenting an unchanged scene is a no-op". It was the
-/// most expensive call in the library: the deep copy still happens (that is the design
-/// — the comparison needs something to compare), but the `skip` exit returned without
-/// giving it back. Run under `MFB_CANVAS_SYNC` so retirement is never the explanation.
+/// most expensive call in the library: the deep copy was made to compare with, and the
+/// `skip` exit returned without giving it back. Since plan-175-D the comparison reads
+/// the caller's list and no copy is made on that exit at all
+/// ([`an_unchanged_re_present_copies_nothing`]); this row still holds the memory flat.
+/// Run under `MFB_CANVAS_SYNC` so retirement is never the explanation.
 #[test]
 fn re_presenting_an_unchanged_scene_holds_steady_memory() {
     assert_flat(
@@ -311,6 +318,31 @@ fn re_presenting_an_unchanged_scene_holds_steady_memory() {
         "The frame skip deep-copies the scene to compare it, then returns from the \
          `skip` label without freeing the copy, so every no-op re-present leaks a \
          whole scene.",
+    );
+}
+
+/// plan-175-D: an unchanged re-present ALLOCATES nothing. The compare reads the
+/// caller's list, so the copy it used to make (and free, scrubbing every byte) is not
+/// made; nor are the carried hashes, which only a publish uses; nor, for a scene with
+/// no group, a signature list.
+///
+/// Measured by `arena.0.alloc_bytes`, which counts what was allocated whether or not it
+/// was freed again — the quantity `live_bytes` cannot see. The scene is [`ITEMS`]
+/// rectangles, 16,048 bytes a copy (bug-683's measurement); before this letter every
+/// extra present allocated at least that.
+#[test]
+fn an_unchanged_re_present_copies_nothing() {
+    let name = "canvas_present_unchanged_alloc";
+    let source = unchanged();
+    let few = arena_counter(name, &source, FEW, true, "alloc_bytes");
+    let many = arena_counter(name, &source, MANY, true, "alloc_bytes");
+    let per_present = many.saturating_sub(few) / (MANY - FEW) as u64;
+    assert_eq!(
+        many, few,
+        "{name}: {few} bytes allocated after {FEW} presents of one unchanged scene and \
+         {many} after {MANY}: {per_present} a present. An unchanged re-present must not \
+         copy the scene (or carry its hashes, or build a signature) only to throw the \
+         result away."
     );
 }
 

@@ -105,7 +105,8 @@ END FUNC
 ' just as happily for a rectangle covering the whole window.
 ' plan-116-H: the GPU draw list, rendered compactly for `MFB_CANVAS_STATS`.
 '
-' `base:count:dx:dy` per entry, `|`-separated, offsets in 16.16 as they are stored. The
+' `base:count:dx:dy:mode:repeat` per entry, `|`-separated, offsets as the float32 bits
+' they are stored as. The
 ' draw list is built on the graphics thread and consumed by an emitter; a test has no
 ' other way to see it, which is the same reason `groups=` and `groupBytes=` exist
 ' (`.ai/canvas-threading.md` section 11).
@@ -119,9 +120,10 @@ FUNC __canvas_drawsText() AS String
     IF i > 0 THEN
       out = out & "|"
     END IF
-    ' base:count:dx:dy:mode. The mode is word 4 and it selects the PIPELINE, so a draw
-    ' list that reads correct in the first four fields can still bind the wrong program.
-    out = out & toString(collections::getOr(__CANVAS_DRAWS, i, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 1, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 2, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 3, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 4, 0))
+    ' base:count:dx:dy:mode:repeat. The mode is word 4 and it selects the PIPELINE, so a
+    ' draw list that reads correct in the first four fields can still bind the wrong
+    ' program. The repeat is word 13 (plan-175-B): how many consecutive nodes the row draws.
+    out = out & toString(collections::getOr(__CANVAS_DRAWS, i, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 1, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 2, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 3, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 4, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 13, 0))
     i = i + 16
   END WHILE
   RETURN out
@@ -139,7 +141,7 @@ END FUNC
 FUNC __canvas_writeStats() AS Nothing
   LET path AS String = os::getEnvOr("MFB_CANVAS_STATS", "")
   IF len(path) > 0 THEN
-    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " entries=" & toString(len(__CANVAS_GEO_SLOTS) / 4) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " geoCompactions=" & toString(__CANVAS_GEO_COMPACTIONS) & " metal=" & toString(canvas::metalAvailable()) & " gpuSelected=" & toString(canvas::useGpu()) & " gpuFrames=" & toString(__CANVAS_GPU_FRAMES) & " directFrames=" & toString(__CANVAS_DIRECT_FRAMES) & " metalReady=" & toString(canvas::metalReady()) & " vulkanReady=" & toString(canvas::vulkanReady()) & " glyphs=" & toString(len(__CANVAS_GLYPH_KEYS)) & " glyphBytes=" & toString(len(__CANVAS_GLYPH_COV)) & " glyphEvictions=" & toString(__CANVAS_GLYPH_EVICTIONS) & " groups=" & toString(canvas::groupCount()) & " groupBytes=" & toString(canvas::groupBytes()) & " blocks=" & toString(len(__CANVAS_DRAW_BLOCKS)) & " draws=" & __canvas_drawsText() & " frames=" & toString(__CANVAS_FRAMES) & " skipped=" & toString(__CANVAS_SKIPPED) & " partial=" & toString(__CANVAS_PARTIAL) & " damage=" & __canvas_damageText() & " displayHz=" & toString(toFloat(canvas::displayMilliHz()) / 1000.0) & __canvas_phaseText() & __canvas_geoVerifyText() & __canvas_pointerText() & __canvas_autoText() & "\n"
+    LET line AS String = "generations=" & toString(__CANVAS_GEO_GENERATIONS) & " refreshes=" & toString(__CANVAS_GEO_REFRESHES) & " entries=" & toString(len(__CANVAS_GEO_SLOTS) / 4) & " floats=" & toString(len(__CANVAS_GEO_DATA)) & " geoCompactions=" & toString(__CANVAS_GEO_COMPACTIONS) & " metal=" & toString(canvas::metalAvailable()) & " gpuSelected=" & toString(canvas::useGpu()) & " gpuFrames=" & toString(__CANVAS_GPU_FRAMES) & " directFrames=" & toString(__CANVAS_DIRECT_FRAMES) & " metalReady=" & toString(canvas::metalReady()) & " vulkanReady=" & toString(canvas::vulkanReady()) & " glyphs=" & toString(len(__CANVAS_GLYPH_KEYS)) & " glyphBytes=" & toString(len(__CANVAS_GLYPH_COV)) & " glyphEvictions=" & toString(__CANVAS_GLYPH_EVICTIONS) & " groups=" & toString(canvas::groupCount()) & " groupBytes=" & toString(canvas::groupBytes()) & " blocks=" & toString(len(__CANVAS_DRAW_BLOCKS)) & " draws=" & __canvas_drawsText() & " frames=" & toString(__CANVAS_FRAMES) & " skipped=" & toString(__CANVAS_SKIPPED) & " partial=" & toString(__CANVAS_PARTIAL) & " damage=" & __canvas_damageText() & " displayHz=" & toString(toFloat(canvas::displayMilliHz()) / 1000.0) & __canvas_phaseText() & __canvas_geoVerifyText() & __canvas_pointerText() & __canvas_autoText() & "\n"
     fs::appendText(path, line) TRAP(err)
       RETURN
     END TRAP

@@ -98,9 +98,14 @@ r#"' bug-686: `carried` is `canvas::carriedHashes(items)`, taken before the publ
 ' worker one native call and never extracts an item from the list. `items` and
 ' `carried` have the same length by construction; `sceneHashes` treats a short
 ' `carried` as all `-1`.
+'
+' plan-175-A: the list is `2n` words for `n` items -- every item's damage identity `D`
+' at `i`, then every item's geometry identity `G` at `n + i`, one list under the one
+' hashes revision, so the sequence lock covers both. Every reader that wants today's
+' "the item's hash" reads index `i` and gets `D`.
 FUNC __canvas_hashScene(items AS List OF DrawItem, carried AS List OF Integer) AS List OF Integer
   MUT out AS List OF Integer = canvas::sceneHashes(items, carried)
-  LET count AS Integer = len(out)
+  LET count AS Integer = len(out) / 2
   MUT i AS Integer = 0
   WHILE i < count
     IF collections::getOr(out, i, 0) < 0 THEN
@@ -108,19 +113,26 @@ FUNC __canvas_hashScene(items AS List OF DrawItem, carried AS List OF Integer) A
       ' would draw nothing, so it is also a harmless value if it ever were.
       LET none AS DrawItem = Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := __canvas_noTransform(), name := ""]
       LET item AS DrawItem = collections::getOr(items, i, none)
-      out = collections::set(out, i, __canvas_hashItem(item))
+      LET g AS Integer = __canvas_geoHash(item)
+      out = collections::set(out, i, __canvas_drawHashOf(item, g))
+      out = collections::set(out, count + i, g)
     END IF
     i = i + 1
   END WHILE
   RETURN out
 END FUNC
 
+' A layered scene's hashes, in draw order, laid out as `__canvas_hashScene`'s: every
+' item's `D`, then every item's `G`.
 FUNC __canvas_hashLayers(layers AS List OF DrawLayer) AS List OF Integer
-  MUT out AS List OF Integer = []
+  MUT draws AS List OF Integer = []
+  MUT geos AS List OF Integer = []
   FOR EACH layer IN layers
     FOR EACH item IN layer.items
-      out = collections::append(out, __canvas_hashItem(item))
+      LET g AS Integer = __canvas_geoHash(item)
+      draws = collections::append(draws, __canvas_drawHashOf(item, g))
+      geos = collections::append(geos, g)
     NEXT
   NEXT
-  RETURN out
+  RETURN collections::append(draws, geos)
 END FUNC"#;

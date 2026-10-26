@@ -211,7 +211,7 @@ FUNC __canvas_renderFrame() AS Nothing
   '
   ' Here rather than anywhere else in the frame because this is the point after which
   ' the renderer is committed: `__canvas_sceneOffsets` has resolved every group name and
-  ' copied out each group's items, so a `removeGroup` arriving during the hold is
+  ' read each group's items block, so a `removeGroup` arriving during the hold is
   ' exactly the race the drain gate exists for -- the block is retired while a frame is
   ' demonstrably still working from it.
   '

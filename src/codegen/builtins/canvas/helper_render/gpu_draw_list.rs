@@ -194,8 +194,7 @@ FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS 
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
   ' plan-172-G: word 7 is `hasMatrix`, words 8-11 the inverse linear part of the groups'
-  ' composed affine as float32 bits, words 12-15 reserved. The translation stays in
-  ' words 2-3 either way.
+  ' composed affine as float32 bits. The translation stays in words 2-3 either way.
   MUT hasMatrix AS Integer = 0
   MUT inverseA AS Integer = 0
   MUT inverseB AS Integer = 0
@@ -214,8 +213,10 @@ FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS 
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseB)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseC)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseD)
+  ' Word 12 is the pass word (0: a frame of one pass), word 13 the REPEAT (plan-175-B:
+  ' one draw over this row's own node), words 14-15 reserved.
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
-  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 1)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
 END FUNC
@@ -304,7 +305,15 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
 
   MUT count AS Integer = 0
   MUT k AS Integer = 0
-  FOR EACH child IN canvas::groupItems(slot)
+  ' plan-175-A Phase 5: the children in place and their identities from the slot's cache
+  ' (`__canvas_groupHashes`), as `__canvas_appendDraw` reads them.
+  LET block AS Integer = __canvas_groupBlock(slot)
+  LET childHashes AS List OF Integer = __canvas_groupHashes(slot, block)
+  LET n AS Integer = canvas::groupBlockCount(block)
+  WHILE k < n
+    LET child AS DrawItem = canvas::groupBlockItem(block, k, __CANVAS_BLOCK_NONE)
+    LET childD AS Integer = collections::getOr(childHashes, k, 0)
+    LET childG AS Integer = collections::getOr(childHashes, n + k, 0)
     MATCH child
       CASE Group(g)
         ' A nested group is NOT part of this group's own run -- it gets its own memoised
@@ -314,7 +323,7 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
       ' use of the group is showing, the record the frame's resolve put in the draw
       ' entries, so the two walks name one record.
       CASE AutoPaint(a)
-        LET autoOffset AS Integer = __canvas_autoBlock(a, __canvas_hashItem(child), path, k)
+        LET autoOffset AS Integer = __canvas_autoBlock(a, childD, path, k)
         __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, autoOffset)
         __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(autoOffset)
@@ -322,7 +331,7 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
       ' plan-172-L: a `Picture` child is a block for each record it draws from -- the
       ' ones `__canvas_pictureAppend` made its entries of.
       CASE Picture(pic)
-        LET picBlocks AS List OF Integer = __canvas_pictureBlocks(pic, __canvas_hashItem(child), path, k)
+        LET picBlocks AS List OF Integer = __canvas_pictureBlocks(pic, childG, childD, path, k)
         MUT b AS Integer = 0
         WHILE b + 1 < len(picBlocks)
           __canvas_pushBlock(collections::getOr(picBlocks, b, 0))
@@ -333,14 +342,14 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
       CASE ParticleSystem(ps)
         count = count + __canvas_particleBlocks(ps)
       CASE ELSE
-        LET childOffset AS Integer = __canvas_geometryFor(child, __canvas_hashItem(child))
+        LET childOffset AS Integer = __canvas_geometryOf(child, childG, childD)
         __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, childOffset)
         __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(childOffset)
         count = count + 1
     END MATCH
     k = k + 1
-  NEXT
+  END WHILE
   __CANVAS_DRAW_MEMO_COUNT = collections::set(__CANVAS_DRAW_MEMO_COUNT, row, count)
   RETURN row
 END FUNC
@@ -354,25 +363,30 @@ FUNC __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float
   LET row AS Integer = __canvas_memoGroup(slot, hashes, depth, path)
   __canvas_pushDraw(collections::getOr(__CANVAS_DRAW_MEMO_BASE, row, 0), collections::getOr(__CANVAS_DRAW_MEMO_COUNT, row, 0), gdx, gdy, mat)
   MUT k AS Integer = 0
-  FOR EACH child IN canvas::groupItems(slot)
-    MATCH child
-      CASE Group(g)
-        ' plan-172-G: the same composition the software walk makes.
-        LET childMat AS Integer = __canvas_composeGroup(gdx, gdy, mat, g.position, g.transform)
-        IF childMat >= 0 THEN
-          LET childX AS Float = __CANVAS_COMPOSED_X
-          LET childY AS Float = __CANVAS_COMPOSED_Y
-          LET nested AS Integer = canvas::groupResolve(g.name)
-          ' plan-172-K: the path `__canvas_appendDraw` gave the same node.
-          __canvas_drawGroup(nested, hashes, childX, childY, childMat, depth + 1, __canvas_autoPath(path, k, nested))
-        END IF
-      CASE ELSE
-        ' A non-group child contributes no draw entry of its own: its block is already
-        ' inside the run this group's memo laid out.
-        LET skipped AS Integer = 0
-    END MATCH
+  ' plan-175-A Phase 5: read in place, not a copy of the list per node -- and only the
+  ' nested groups copied out at all: a non-group child contributes no draw entry of its
+  ' own, its block being already inside the run this group's memo laid out.
+  LET block AS Integer = canvas::groupItemsBlock(slot)
+  LET n AS Integer = canvas::groupBlockCount(block)
+  WHILE k < n
+    IF canvas::groupBlockIsGroup(block, k) THEN
+      MATCH canvas::groupBlockItem(block, k, __CANVAS_BLOCK_NONE)
+        CASE Group(g)
+          ' plan-172-G: the same composition the software walk makes.
+          LET childMat AS Integer = __canvas_composeGroup(gdx, gdy, mat, g.position, g.transform)
+          IF childMat >= 0 THEN
+            LET childX AS Float = __CANVAS_COMPOSED_X
+            LET childY AS Float = __CANVAS_COMPOSED_Y
+            LET nested AS Integer = canvas::groupResolve(g.name)
+            ' plan-172-K: the path `__canvas_appendDraw` gave the same node.
+            __canvas_drawGroup(nested, hashes, childX, childY, childMat, depth + 1, __canvas_autoPath(path, k, nested))
+          END IF
+        CASE ELSE
+          LET skipped AS Integer = 0
+      END MATCH
+    END IF
     k = k + 1
-  NEXT
+  END WHILE
 END FUNC
 
 FUNC __canvas_sceneDraws() AS List OF Integer
@@ -467,7 +481,51 @@ FUNC __canvas_sceneDrawsWalk() AS List OF Integer
     index = index + 1
   END WHILE
   __canvas_pushDraw(runBase, runCount, 0.0, 0.0, 0)
+  __canvas_mergeRepeats()
   RETURN __CANVAS_DRAWS
+END FUNC
+
+' plan-175-C: every maximal run of ADJACENT rows that draw the same blocks with the same
+' pipeline -- equal words 0, 1 and 4: instance base, instance count, blend mode -- becomes
+' one drawn head of repeat `R`, the run's length, and `R - 1` node-only rows of repeat 0.
+' Consecutive `canvas::Group` nodes naming one group are exactly such a run. Nothing moves
+' and every row keeps its node words, so node `k` of the run is still row `k`'s offset
+' and matrix, and the head draws all of node 0's instances, then node 1's, ... -- the
+' order the `R` rows drew them in (`local / count`, plan-175-B). Only ADJACENT rows
+' merge: a row between two nodes' rows draws between them, and merging across it would
+' draw it later. A run is at most a node region long, so it always fits an empty pass.
+FUNC __canvas_mergeRepeats() AS Nothing
+  LET rows AS Integer = len(__CANVAS_DRAWS) / __CANVAS_DRAW_ENTRY_WORDS
+  MUT cap AS Integer = __CANVAS_METAL_MAX_FRAME_NODES
+  IF __CANVAS_VULKAN_MAX_FRAME_NODES < cap THEN
+    cap = __CANVAS_VULKAN_MAX_FRAME_NODES
+  END IF
+  MUT head AS Integer = 0
+  WHILE head < rows
+    LET at AS Integer = head * __CANVAS_DRAW_ENTRY_WORDS
+    LET base AS Integer = collections::getOr(__CANVAS_DRAWS, at, 0)
+    LET count AS Integer = collections::getOr(__CANVAS_DRAWS, at + 1, 0)
+    LET mode AS Integer = collections::getOr(__CANVAS_DRAWS, at + 4, 0)
+    MUT run AS Integer = 1
+    MUT same AS Boolean = TRUE
+    WHILE same AND head + run < rows AND run < cap
+      LET following AS Integer = (head + run) * __CANVAS_DRAW_ENTRY_WORDS
+      IF collections::getOr(__CANVAS_DRAWS, following, 0) = base AND collections::getOr(__CANVAS_DRAWS, following + 1, 0) = count AND collections::getOr(__CANVAS_DRAWS, following + 4, 0) = mode THEN
+        run = run + 1
+      ELSE
+        same = FALSE
+      END IF
+    END WHILE
+    IF run > 1 THEN
+      __CANVAS_DRAWS = collections::set(__CANVAS_DRAWS, at + __CANVAS_DRAW_REPEAT_WORD, run)
+      MUT k AS Integer = 1
+      WHILE k < run
+        __CANVAS_DRAWS = collections::set(__CANVAS_DRAWS, (head + k) * __CANVAS_DRAW_ENTRY_WORDS + __CANVAS_DRAW_REPEAT_WORD, 0)
+        k = k + 1
+      END WHILE
+    END IF
+    head = head + run
+  END WHILE
 END FUNC
 
 ' A stand-in `DrawItem` for an index `__CANVAS_FRAME_ITEMS` does not hold. A group named
@@ -553,7 +611,8 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
       IF collections::getOr(__CANVAS_TOP_OFFSETS, i, 0) < 0 THEN
         LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
         LET before AS Integer = len(side)
-        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), 0.0, 0.0, 0, 0, 0, i)
+        ' plan-175-A: the frame's hashes are every index's `D`, then every index's `G`.
+        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), collections::getOr(__CANVAS_FRAME_HASHES, count + i, 0), 0.0, 0.0, 0, 0, 0, i)
         ' plan-150-B: any particle system that walk expanded belongs to this index.
         __canvas_particleOwned(i, before)
         spans = collections::append(spans, i)

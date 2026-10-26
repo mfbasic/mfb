@@ -846,9 +846,23 @@ pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 /// and zero, so a translate-only entry is its first five words followed by zeros. Word 7 says
 /// whether the entry carries a matrix, and words 8–11 are that matrix: the linear part
 /// of the INVERSE of the enclosing groups' composed affine, as float32 bit patterns.
-/// Word 12 is the pass word ([`CANVAS_DRAW_PASS_WORD`]); words 13–15 are reserved and
-/// zero.
+/// Word 12 is the pass word ([`CANVAS_DRAW_PASS_WORD`]), word 13 the repeat
+/// ([`CANVAS_DRAW_REPEAT_WORD`]); words 14–15 are reserved and zero.
 pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 16;
+
+/// plan-175-B: the word of a draw-list row that is its REPEAT. Every row is also a
+/// NODE — its words 2, 3, 5, 6 and 8–11 are the node payload, the offset and inverse a
+/// shader reads — and a row of repeat `R >= 1` is a draw of `count * R` instances over
+/// `R` consecutive nodes starting at its own. `__canvas_pushOneDraw` and
+/// `canvas::sceneDrawsFlat` write 1 (plan-175-C writes more, and 0 for a node-only row).
+pub(crate) const CANVAS_DRAW_REPEAT_WORD: usize = 13;
+
+/// plan-175-B: the most draw-list rows — NODES — one Metal pass may carry, the size of
+/// the frame buffer's node region in nodes (32 bytes each). A frame of more rows is drawn
+/// in passes, as a frame of too many blocks is (`__canvas_passNext`).
+pub(crate) const METAL_MAX_FRAME_NODES: usize = 65536;
+/// `METAL_MAX_FRAME_NODES`'s Vulkan twin.
+pub(crate) const VULKAN_MAX_FRAME_NODES: usize = 65536;
 
 /// bug-765: the word of a draw list's FIRST entry that says where the list stands in
 /// its frame, for a frame drawn as several passes (`__canvas_passNext`). An emitter is
@@ -1022,7 +1036,24 @@ pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
     + METAL_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
     + METAL_MAX_FRAME_DASH_WORDS * 4
     + METAL_MAX_FRAME_GLYPH_SAMPLES * 4
-    + METAL_PICTURE_TABLE_BYTES;
+    + METAL_PICTURE_TABLE_BYTES
+    + METAL_NODE_BYTES;
+
+/// plan-175-B: the bytes of one draw-list NODE, the MSL's `MfbDraw` and GLSL's eight
+/// words: the translation's two float32 bit patterns, two zero words, the inverse
+/// linear part's four (rows' words 2, 3, 5, 6 and 8–11).
+pub(crate) const NODE_BYTES: usize = 32;
+/// The Metal frame buffer's node region: one node per draw-list row of the pass, written
+/// by `emit_draw_list_pass` and bound to both stages at `buffer(2)`. The last region.
+pub(crate) const METAL_NODE_BYTES: usize = METAL_MAX_FRAME_NODES * NODE_BYTES;
+/// Where the node region starts, in bytes — after the picture table. A binding offset,
+/// so it must meet `MTLBuffer`'s constant-address-space alignment (256 bytes on macOS).
+pub(crate) const METAL_NODE_OFFSET: usize =
+    METAL_PICTURE_INDEX_OFFSET + METAL_PICTURE_INDEX_SLOTS * 4;
+const _: () = assert!(
+    METAL_NODE_OFFSET % 256 == 0,
+    "a constant buffer is bound at a 256-byte-aligned offset on macOS"
+);
 
 /// The per-frame **picture table**: which image blocks this frame has already copied
 /// into the glyph region, and where (bug-686). The last region of the Metal frame
@@ -1150,15 +1181,27 @@ pub(crate) const VULKAN_BUFFER_BYTES: usize = VULKAN_EDGE_BYTES
     + VULKAN_MAX_FRAME_GRADIENT_STOPS * GRADIENT_STOP_WORDS * 4
     + VULKAN_MAX_FRAME_DASH_WORDS * 4
     + VULKAN_MAX_FRAME_GLYPH_SAMPLES * 4
-    + VULKAN_PICTURE_TABLE_BYTES;
+    + VULKAN_PICTURE_TABLE_BYTES
+    + VULKAN_MAX_FRAME_NODES * NODE_BYTES;
+/// plan-175-B: the shared buffer's node region, in WORDS — after the picture table. Both
+/// shader stages read a node's eight words from `binding = 0` at `NODE_BASE + 8 * node`
+/// (specialization constant 5).
+pub(crate) const VULKAN_NODE_BASE_WORDS: usize =
+    (VULKAN_PICTURE_INDEX_OFFSET + VULKAN_PICTURE_INDEX_SLOTS * 4) / 4;
 /// The fragment shader's specialization constants, as `(constant_id, value)`: the
 /// region bases it reads, in words. The ids are the `layout(constant_id = N)` numbers in
 /// `shaders/mfb_canvas.frag`; `the_pipeline_specializes_every_region_base` pins the two
 /// lists to each other. Id 3 was the edge residual region's base until the shaders went
 /// to fp32; the dash base keeps id 4 rather than renumbering.
-pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 4] = [
+///
+/// plan-175-B: id 5 is the node region's base, and since the vertex stage reads nodes
+/// too, BOTH stages are given the whole list. Vulkan ignores a map entry whose id a
+/// stage does not declare (`VkSpecializationMapEntry`), so the vertex stage's four
+/// unused ids cost nothing.
+pub(crate) const VULKAN_SPEC_CONSTANTS: [(u32, usize); 5] = [
     (0, VULKAN_GLYPH_BASE_WORDS),
     (1, VULKAN_GRADIENT_BASE_WORDS),
     (2, VULKAN_BAND_BASE_WORDS),
     (4, VULKAN_DASH_BASE_WORDS),
+    (5, VULKAN_NODE_BASE_WORDS),
 ];

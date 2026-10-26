@@ -508,6 +508,24 @@ fn over_id_follows_the_scene_last_presented() {
     );
 }
 
+/// plan-175-A decision 1: an `id` is in no item identity -- a renamed item redraws
+/// nothing -- but a scene that differs only in an `id` is still PUBLISHED (the content
+/// compare sees it), so `overID` answers the new name. Its "redraws nothing" half is
+/// `rt_canvas_damage.rs:an_id_only_change_damages_nothing`.
+#[test]
+fn over_id_answers_a_renamed_item() {
+    let reports = over(
+        "canvas_hit_rename",
+        r#"  canvas::present([rect("before", 100.0, 100.0, 50.0, 50.0)])
+  report("over")
+  canvas::present([rect("after", 100.0, 100.0, 50.0, 50.0)])
+  report("over")
+"#,
+        &[(120, 120)],
+    );
+    assert_eq!(reports, vec![vec!["before"], vec!["after"]]);
+}
+
 /// A scene whose only `id` is somewhere `present` cannot see from the scene's own
 /// items must still resolve `overID`: the check that lets an id-less scene skip the
 /// whole test must not skip these.

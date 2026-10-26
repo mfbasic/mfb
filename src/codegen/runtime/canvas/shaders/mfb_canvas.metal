@@ -43,11 +43,14 @@ struct MfbItem {
 // `[[instance_id]]` does not exist there. `[[flat]]` and not the default: the value
 // is an index, and interpolating an index across a quad produces a *plausible*
 // picture drawn from the wrong blocks rather than a failure.
-struct VOut { float4 pos [[position]]; uint item [[flat]]; };
+// plan-175-B: `node` travels the same way, for the same reason -- the fragment stage
+// reads the draw's offset and inverse from the node table by it.
+struct VOut { float4 pos [[position]]; uint item [[flat]]; uint node [[flat]]; };
 // A word of the item block or the edge region as the float32 it holds -- every position
 // reaches the GPU as float32 bits (`emit_f32_bits`).
 static float fx(int v) { return as_type<float>(v); }
-// plan-172-H: what one draw binds, to both stages -- 32 bytes. `offset` is the
+// plan-172-H: one NODE of the node table (plan-175-B: what one draw bound, to both
+// stages, until the payload moved into the frame buffer) -- 32 bytes. `offset` is the
 // translation of the enclosing groups' composed affine: two float32 bit patterns, then
 // two reserved zero words. `inverse` is the linear part of that affine's
 // INVERSE as four float32 bit patterns -- `ia`, `ib`, `ic`, `id`, so a point maps as
@@ -55,6 +58,11 @@ static float fx(int v) { return as_type<float>(v); }
 // translate, the convention every `canvas::Transform` has. An inverse is never all
 // zero, so the test cannot mistake one.
 struct MfbDraw { int4 offset; int4 inverse; };
+// plan-175-B: what one draw sends, to the vertex stage only -- 16 bytes. The draw is
+// `count * repeat` instances from `base`: instance `iid` (which includes `baseInstance`,
+// below) is item `base + (iid - base) % count` under node `node + (iid - base) / count`,
+// so a run of `repeat` nodes draws the same `count` blocks once under each.
+struct MfbRun { uint base; uint count; uint node; uint repeat; };
 static bool drawGrouped(constant MfbDraw &draw) {
   return (draw.inverse.x | draw.inverse.y | draw.inverse.z | draw.inverse.w) != 0;
 }
@@ -82,14 +90,19 @@ static float4 drawInverse(constant MfbDraw &draw) {
 // what falls outside clip space; clamping would shrink a quad the fragment stage
 // still expects to span the item's full extent.
 //
-// `buffer(1)` and not a bigger `MfbItem`: the offset varies per DRAW while the item
+// A node table and not a bigger `MfbItem`: the offset varies per NODE while the item
 // varies per instance, so putting it in the item block would mean rewriting every
-// block whenever a group moved.
+// block whenever a group moved -- and one group's blocks are shared by every node that
+// draws it.
 vertex VOut mfbVertex(uint vid [[vertex_id]],
                       uint iid [[instance_id]],
                       constant MfbItem *items [[buffer(0)]],
-                      constant MfbDraw &draw [[buffer(1)]]) {
-  uint index = iid;
+                      constant MfbRun &run [[buffer(1)]],
+                      constant MfbDraw *nodes [[buffer(2)]]) {
+  uint local = iid - run.base;
+  uint index = run.base + local % run.count;
+  uint node = run.node + local / run.count;
+  constant MfbDraw &draw = nodes[node];
   constant MfbItem &item = items[index];
   float2 corner = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z),
                          fx((vid & 2) == 0 ? item.quad.y : item.quad.w))
@@ -125,6 +138,7 @@ vertex VOut mfbVertex(uint vid [[vertex_id]],
   }
   VOut o;
   o.item = index;
+  o.node = node;
   o.pos = float4(corner.x / float(item.surface.x) * 2.0 - 1.0,
                  1.0 - corner.y / float(item.surface.y) * 2.0, 0.0, 1.0);
   return o;
@@ -1330,8 +1344,9 @@ static float4 covered(int4 rgba, int coverage) {
 fragment float4 mfbFragment(VOut in [[stage_in]],
                             constant MfbItem *items [[buffer(0)]],
                             constant int *edges [[buffer(1)]],
-                            constant MfbDraw &draw [[buffer(3)]]) {
+                            constant MfbDraw *nodes [[buffer(2)]]) {
   constant MfbItem &item = items[in.item];
+  constant MfbDraw &draw = nodes[in.node];
   // plan-116-H: `p` is the SHAPE-space point -- the surface point with the group's
   // offset taken back off -- and every distance, gradient, glyph lookup and (since
   // plan-163-C) the clip below uses it.

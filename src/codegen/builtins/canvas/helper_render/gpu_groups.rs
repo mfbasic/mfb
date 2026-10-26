@@ -104,6 +104,73 @@ MUT __CANVAS_DRAW_HASHES AS List OF Integer = []
 
 LET __CANVAS_GROUP_MAX_DEPTH AS Integer = 64
 
+' plan-175-A Phase 5: per group slot, its children's identities -- every child's `D`,
+' then every child's `G`, as the published hash list lays out a scene -- and the
+' revision and items block they were computed from. Graphics-thread globals (section 2:
+' arena state is per thread). A slot's revision only ever grows (`setGroup` is its one
+' writer, `+ 1`), so a slot emptied and filled again never matches an old entry, and
+' nothing has to clear one when the worker frees a group buffer.
+MUT __CANVAS_GROUP_HASH_REV AS List OF Integer = []
+MUT __CANVAS_GROUP_HASH_BLOCK AS List OF Integer = []
+MUT __CANVAS_GROUP_HASHES AS List OF List OF Integer = []
+' The revision `__canvas_groupBlock` read the block under, for `__canvas_groupHashes`.
+MUT __CANVAS_GROUP_BLOCK_REV AS Integer = 0
+' The item `canvas::groupBlockItem` answers for an index past the block -- never one a
+' walk asks for, since every walk stops at the block's count. One value, made once,
+' rather than a `__canvas_noItem()` per node.
+MUT __CANVAS_BLOCK_NONE AS DrawItem = Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := ""]
+
+' plan-175-A Phase 6: the records `__canvas_imageCached` found for a tile or a picture --
+' each one's offset, -1 for none to draw (a shaped picture's empty record), and the key
+' its draw entry carries. Graphics-thread globals, read straight after the call.
+MUT __CANVAS_PIC_IMAGE AS Integer = 0
+MUT __CANVAS_PIC_IMAGE_KEY AS Integer = 0
+MUT __CANVAS_PIC_OUTLINE AS Integer = 0
+MUT __CANVAS_PIC_OUTLINE_KEY AS Integer = 0
+
+' A group slot's items block, read AFTER its revision, so the block is at least as new
+' as the revision `__canvas_groupHashes` files its identities under.
+FUNC __canvas_groupBlock(slot AS Integer) AS Integer
+  __CANVAS_GROUP_BLOCK_REV = canvas::groupRevision(slot)
+  RETURN canvas::groupItemsBlock(slot)
+END FUNC
+
+' The identities of the children in `block`, the items block of group `slot` as
+' `__canvas_groupBlock` just read it: from the slot's cache when it holds that revision
+' and that block, else computed -- one `__canvas_geoHash` and one `__canvas_drawHashOf` a
+' child -- and kept.
+FUNC __canvas_groupHashes(slot AS Integer, block AS Integer) AS List OF Integer
+  LET rev AS Integer = __CANVAS_GROUP_BLOCK_REV
+  WHILE len(__CANVAS_GROUP_HASH_REV) <= slot
+    __CANVAS_GROUP_HASH_REV = collections::append(__CANVAS_GROUP_HASH_REV, 0 - 1)
+    __CANVAS_GROUP_HASH_BLOCK = collections::append(__CANVAS_GROUP_HASH_BLOCK, 0)
+    LET empty AS List OF Integer = []
+    __CANVAS_GROUP_HASHES = collections::append(__CANVAS_GROUP_HASHES, empty)
+  END WHILE
+  IF slot >= 0 AND collections::getOr(__CANVAS_GROUP_HASH_REV, slot, 0 - 1) = rev AND collections::getOr(__CANVAS_GROUP_HASH_BLOCK, slot, 0) = block THEN
+    LET none AS List OF Integer = []
+    RETURN collections::getOr(__CANVAS_GROUP_HASHES, slot, none)
+  END IF
+  LET n AS Integer = canvas::groupBlockCount(block)
+  MUT draws AS List OF Integer = []
+  MUT geos AS List OF Integer = []
+  MUT k AS Integer = 0
+  WHILE k < n
+    LET child AS DrawItem = canvas::groupBlockItem(block, k, __CANVAS_BLOCK_NONE)
+    LET geo AS Integer = __canvas_geoHash(child)
+    draws = collections::append(draws, __canvas_drawHashOf(child, geo))
+    geos = collections::append(geos, geo)
+    k = k + 1
+  END WHILE
+  LET out AS List OF Integer = collections::append(draws, geos)
+  IF slot >= 0 THEN
+    __CANVAS_GROUP_HASH_REV = collections::set(__CANVAS_GROUP_HASH_REV, slot, rev)
+    __CANVAS_GROUP_HASH_BLOCK = collections::set(__CANVAS_GROUP_HASH_BLOCK, slot, block)
+    __CANVAS_GROUP_HASHES = collections::set(__CANVAS_GROUP_HASHES, slot, out)
+  END IF
+  RETURN out
+END FUNC
+
 ' One draw entry, or a whole group's worth of them.
 '
 ' The recursion section 4.4 describes, done where the draw list is built rather than as
@@ -116,8 +183,29 @@ LET __CANVAS_GROUP_MAX_DEPTH AS Integer = 64
 ' `__canvas_autoPath` of the group node that was expanded. Nothing here reads them; they
 ' are handed on, and an `AutoPaint` is told them (`__canvas_autoAppend`), because its
 ' state belongs to that place and not to its contents or its `id`.
-FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
+'
+' plan-175-A: `hash` is the item's damage identity `D` -- what its draw hash folds -- and
+' `geo` its geometry identity `G`, which keys its record (`__canvas_geometryOf`).
+FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, geo AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   MUT out AS List OF Integer = offsets
+  ' plan-175-A Phase 6: a `Tile` or a `Picture` whose records are all cached is laid out
+  ' from its identities and its image's pixel block, read in place -- extracting the
+  ' variant below copies it, and on every frame after the first this is all a cached one
+  ' needs. Anything else, and a miss, goes through the `MATCH`.
+  LET shadow AS Integer = canvas::itemImageShadow(item)
+  IF shadow >= 0 THEN
+    IF __canvas_imageCached(geo, hash, shadow) THEN
+      IF __CANVAS_PIC_IMAGE >= 0 THEN
+        out = collections::append(out, __CANVAS_PIC_IMAGE)
+        __canvas_noteEntry(__CANVAS_PIC_IMAGE, __CANVAS_PIC_IMAGE_KEY, gdx, gdy, mat)
+      END IF
+      IF __CANVAS_PIC_OUTLINE >= 0 THEN
+        out = collections::append(out, __CANVAS_PIC_OUTLINE)
+        __canvas_noteEntry(__CANVAS_PIC_OUTLINE, __CANVAS_PIC_OUTLINE_KEY, gdx, gdy, mat)
+      END IF
+      RETURN out
+    END IF
+  END IF
   MATCH item
     CASE Group(g)
       ' Depth is counted per PATH, so a diamond -- two parents naming one child -- is
@@ -146,11 +234,18 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
       LET childY AS Float = __CANVAS_COMPOSED_Y
       LET slot AS Integer = canvas::groupResolve(g.name)
       LET childPath AS Integer = __canvas_autoPath(path, index, slot)
+      ' plan-175-A Phase 5: the children read where they are, through the slot's items
+      ' block taken once for this node, and their identities from the slot's cache --
+      ' computed once per `setGroup` of the group, not once per node per frame.
+      LET block AS Integer = __canvas_groupBlock(slot)
+      LET hashes AS List OF Integer = __canvas_groupHashes(slot, block)
+      LET n AS Integer = canvas::groupBlockCount(block)
       MUT k AS Integer = 0
-      FOR EACH child IN canvas::groupItems(slot)
-        out = __canvas_appendDraw(out, child, __canvas_hashItem(child), childX, childY, childMat, depth + 1, childPath, k)
+      WHILE k < n
+        LET child AS DrawItem = canvas::groupBlockItem(block, k, __CANVAS_BLOCK_NONE)
+        out = __canvas_appendDraw(out, child, collections::getOr(hashes, k, 0), collections::getOr(hashes, n + k, 0), childX, childY, childMat, depth + 1, childPath, k)
         k = k + 1
-      NEXT
+      END WHILE
       RETURN out
     ' plan-172-K: an `AutoPaint` draws its shape, and is noted as an instance at this
     ' place for the frame's resolve (`helper_autopaint.rs`). The entry appended here is
@@ -161,14 +256,14 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
     ' plan-172-L: a `Picture` is the entries its shape and image make -- one, two or
     ' none (`helper_picture.rs`).
     CASE Picture(pic)
-      RETURN __canvas_pictureAppend(out, pic, hash, gdx, gdy, mat, depth, path, index)
+      RETURN __canvas_pictureAppend(out, pic, geo, hash, gdx, gdy, mat, depth, path, index)
     ' plan-150-A: a `ParticleSystem` is the entries its live particles make -- any
     ' number, each an ordinary shape that comes back through this function
     ' (`helper_particles.rs`).
     CASE ParticleSystem(ps)
       RETURN __canvas_particleAppend(out, ps, gdx, gdy, mat, depth, path, index)
     CASE ELSE
-      LET offset AS Integer = __canvas_geometryFor(item, hash)
+      LET offset AS Integer = __canvas_geometryOf(item, geo, hash)
       out = collections::append(out, offset)
       __canvas_noteEntry(offset, hash, gdx, gdy, mat)
       RETURN out

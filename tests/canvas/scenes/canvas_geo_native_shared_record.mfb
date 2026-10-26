@@ -1,0 +1,24 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT io
+
+' plan-175-A: two items of one geometry and two paints in one frame, in either order.
+' The second of them a frame resolves cannot use the record the first holds; it is
+' resolved under its damage identity instead.
+
+FUNC disc(c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Circle[id := "", position := vector::Float2[x := 120.0, y := 120.0], radius := 40.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET red AS canvas::DrawItem = disc(color::rgb(255, 0, 0))
+  LET blue AS canvas::DrawItem = disc(color::rgb(0, 0, 255))
+  canvas::present([red, blue])
+  canvas::present([blue, red])
+  canvas::present([red, blue])
+  canvas::present([blue, red])
+  io::print("rendered")
+END FUNC

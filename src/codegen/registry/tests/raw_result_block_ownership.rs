@@ -85,6 +85,7 @@ const CALLER_ARENA_BLOCK_RESULTS: &[&str] = &[
     "canvas.geoBuild",          // List OF Float (bug-686)
     "canvas.getBytes",          // List OF Byte
     "canvas.getSize",           // canvas.Size
+    "canvas.groupBlockItem",    // canvas.DrawItem, `lower_list_get_or`'s copy (plan-175-A)
     "canvas.groupItems",        // List OF canvas.DrawItem
     "canvas.installedHashes",   // List OF Integer
     "canvas.installedItems",    // List OF canvas.DrawItem

@@ -230,17 +230,25 @@ pub(super) fn emit_stamp(builder: &mut CodeBuilder, g: &Globals, slot: &VirtualR
 }
 
 /// Append a slot `(hash, offset, count, FRAME)` for floats already in
-/// `__CANVAS_GEO_DATA`, count it as used and generated, and index it.
+/// `__CANVAS_GEO_DATA`, with `draw` (the damage identity its record holds) beside it in
+/// `__CANVAS_GEO_DRAWS`, count it as used and generated, and index it.
 pub(super) fn emit_add_slot(
     builder: &mut CodeBuilder,
     g: &Globals,
     hash: &VirtualRegister,
+    draw: &VirtualRegister,
     offset: &VirtualRegister,
     count: &VirtualRegister,
 ) -> Result<VirtualRegister, String> {
     let hash_slot = builder.spill_to_slot("canvas_geo_add_hash", hash);
+    let draw_slot = builder.spill_to_slot("canvas_geo_add_draw", draw);
     let offset_slot = builder.spill_to_slot("canvas_geo_add_offset", offset);
     let count_slot = builder.spill_to_slot("canvas_geo_add_count", count);
+    let one = imm(builder, 1);
+    emit_reserve(builder, g.draws, &one, &int_list())?;
+    let d = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&d, abi::stack_pointer(), draw_slot));
+    emit_push(builder, g.draws, &d);
     let four = imm(builder, SLOT_WORDS as i64);
     emit_reserve(builder, g.slots, &four, &int_list())?;
     let slots = gload(builder, g.slots);
@@ -314,9 +322,9 @@ pub(super) fn lower_geo_find(
     Ok(finish(builder, Some(&slot), "canvas.geoFind"))
 }
 
-/// `canvas::geoInsert(hash, header, tail) AS Integer`: append `header` then `tail` to
-/// `__CANVAS_GEO_DATA` as a new slot used by this frame, index it under `hash`, and
-/// answer its offset. Counts one generation.
+/// `canvas::geoInsert(hash, draw, header, tail) AS Integer`: append `header` then `tail`
+/// to `__CANVAS_GEO_DATA` as a new slot used by this frame, holding the damage identity
+/// `draw`, index it under `hash`, and answer its offset. Counts one generation.
 pub(super) fn lower_geo_insert(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -324,8 +332,9 @@ pub(super) fn lower_geo_insert(
 ) -> Result<ValueResult, String> {
     let g = Globals::of(builder)?;
     let hash_slot = builder.spill_to_slot("canvas_geo_ins_hash", &args[0].location);
-    let header_slot = builder.spill_to_slot("canvas_geo_ins_header", &args[1].location);
-    let tail_slot = builder.spill_to_slot("canvas_geo_ins_tail", &args[2].location);
+    let draw_slot = builder.spill_to_slot("canvas_geo_ins_draw", &args[1].location);
+    let header_slot = builder.spill_to_slot("canvas_geo_ins_header", &args[2].location);
+    let tail_slot = builder.spill_to_slot("canvas_geo_ins_tail", &args[3].location);
     let header = builder.temporary_vreg();
     let tail = builder.temporary_vreg();
     builder.emit(abi::load_u64(&header, abi::stack_pointer(), header_slot));
@@ -360,11 +369,235 @@ pub(super) fn lower_geo_insert(
     builder.emit(abi::add_registers(&total, &offset, &n));
     emit_set_count(builder, g.data, &total);
     let hash = builder.temporary_vreg();
+    let draw = builder.temporary_vreg();
     builder.emit(abi::load_u64(&hash, abi::stack_pointer(), hash_slot));
-    emit_add_slot(builder, &g, &hash, &offset, &n)?;
+    builder.emit(abi::load_u64(&draw, abi::stack_pointer(), draw_slot));
+    emit_add_slot(builder, &g, &hash, &draw, &offset, &n)?;
     let offset = builder.temporary_vreg();
     builder.emit(abi::load_u64(&offset, abi::stack_pointer(), offset_slot));
     Ok(finish(builder, Some(&offset), "canvas.geoInsert"))
+}
+
+/// `canvas::geoRefresh(slot, draw, header, tail) AS Integer` (plan-175-A): rewrite
+/// `slot`'s record IN PLACE with `header` then `tail` — the record a fresh build of the
+/// item makes now — mark it as holding `draw`, stamp it, and answer its offset. No
+/// allocation, no slot, no generation: `__CANVAS_GEO_REFRESHES` counts it.
+///
+/// The caller found `slot` by the item's geometry identity, so the fresh record has the
+/// slot's length by construction (`func_item_lanes.rs`: everything that sizes a record
+/// is geometry). It is checked anyway, because a record written past its slot would
+/// overwrite the next one: a length that differs takes the insert instead, under the
+/// slot's own key, which the index then maps to the new slot.
+pub(super) fn lower_geo_refresh(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let g = Globals::of(builder)?;
+    let slot_slot = builder.spill_to_slot("canvas_geo_ref_slot", &args[0].location);
+    let draw_slot = builder.spill_to_slot("canvas_geo_ref_draw", &args[1].location);
+    let header_slot = builder.spill_to_slot("canvas_geo_ref_header", &args[2].location);
+    let tail_slot = builder.spill_to_slot("canvas_geo_ref_tail", &args[3].location);
+    let offset_slot = builder.allocate_stack_object("canvas_geo_ref_offset", 8);
+    let header = builder.temporary_vreg();
+    let tail = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&header, abi::stack_pointer(), header_slot));
+    builder.emit(abi::load_u64(&tail, abi::stack_pointer(), tail_slot));
+    let n = builder.temporary_vreg();
+    let nt = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&n, &header, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::load_u64(&nt, &tail, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::add_registers(&n, &n, &nt));
+    let slot = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&slot, abi::stack_pointer(), slot_slot));
+    let slots = gload(builder, g.slots);
+    let base = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(&base, &slot, 2));
+    let count = load_word(builder, &slots, &base, 2);
+    let offset = load_word(builder, &slots, &base, 1);
+    builder.emit(abi::store_u64(&offset, abi::stack_pointer(), offset_slot));
+    let insert = builder.label("canvas_geo_ref_insert");
+    let done = builder.label("canvas_geo_ref_done");
+    builder.emit(abi::compare_registers(&n, &count));
+    builder.emit(abi::branch_ne(&insert));
+    let data = gload(builder, g.data);
+    let dst = word_addr(builder, &data, &offset);
+    for list_slot in [header_slot, tail_slot] {
+        let list = builder.temporary_vreg();
+        let bytes = builder.temporary_vreg();
+        let scratch = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&list, abi::stack_pointer(), list_slot));
+        builder.emit(abi::load_u64(&bytes, &list, COLLECTION_OFFSET_COUNT));
+        builder.emit(abi::shift_left_immediate(&bytes, &bytes, 3));
+        builder.emit(abi::add_immediate(&list, &list, COLLECTION_HEADER_SIZE));
+        builder.emit_block_copy_advance(&dst, &list, &bytes, &scratch, "canvas_geo_ref_copy");
+    }
+    let slot = builder.temporary_vreg();
+    let draw = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&slot, abi::stack_pointer(), slot_slot));
+    builder.emit(abi::load_u64(&draw, abi::stack_pointer(), draw_slot));
+    emit_refreshed(builder, &g, &slot, &draw);
+    builder.emit(abi::branch(&done));
+    // A length the slot does not have: a new slot under the slot's own key.
+    builder.emit(abi::label(&insert));
+    {
+        let n = builder.temporary_vreg();
+        let nt = builder.temporary_vreg();
+        let header = builder.temporary_vreg();
+        let tail = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&header, abi::stack_pointer(), header_slot));
+        builder.emit(abi::load_u64(&tail, abi::stack_pointer(), tail_slot));
+        builder.emit(abi::load_u64(&n, &header, COLLECTION_OFFSET_COUNT));
+        builder.emit(abi::load_u64(&nt, &tail, COLLECTION_OFFSET_COUNT));
+        builder.emit(abi::add_registers(&n, &n, &nt));
+        let n_slot = builder.spill_to_slot("canvas_geo_ref_n", &n);
+        emit_reserve(builder, g.data, &n, &float_list())?;
+        let data = gload(builder, g.data);
+        let offset = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&offset, &data, COLLECTION_OFFSET_COUNT));
+        builder.emit(abi::store_u64(&offset, abi::stack_pointer(), offset_slot));
+        let dst = word_addr(builder, &data, &offset);
+        for list_slot in [header_slot, tail_slot] {
+            let list = builder.temporary_vreg();
+            let bytes = builder.temporary_vreg();
+            let scratch = builder.temporary_vreg();
+            builder.emit(abi::load_u64(&list, abi::stack_pointer(), list_slot));
+            builder.emit(abi::load_u64(&bytes, &list, COLLECTION_OFFSET_COUNT));
+            builder.emit(abi::shift_left_immediate(&bytes, &bytes, 3));
+            builder.emit(abi::add_immediate(&list, &list, COLLECTION_HEADER_SIZE));
+            builder.emit_block_copy_advance(
+                &dst,
+                &list,
+                &bytes,
+                &scratch,
+                "canvas_geo_ref_ins_copy",
+            );
+        }
+        let n = builder.temporary_vreg();
+        let offset = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+        builder.emit(abi::load_u64(&offset, abi::stack_pointer(), offset_slot));
+        let total = builder.temporary_vreg();
+        builder.emit(abi::add_registers(&total, &offset, &n));
+        emit_set_count(builder, g.data, &total);
+        let slot = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&slot, abi::stack_pointer(), slot_slot));
+        let slots = gload(builder, g.slots);
+        let base = builder.temporary_vreg();
+        builder.emit(abi::shift_left_immediate(&base, &slot, 2));
+        let key = load_word(builder, &slots, &base, 0);
+        let draw = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&draw, abi::stack_pointer(), draw_slot));
+        let offset = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&offset, abi::stack_pointer(), offset_slot));
+        let n = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+        emit_add_slot(builder, &g, &key, &draw, &offset, &n)?;
+    }
+    builder.emit(abi::label(&done));
+    let offset = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&offset, abi::stack_pointer(), offset_slot));
+    Ok(finish(builder, Some(&offset), "canvas.geoRefresh"))
+}
+
+/// The header slots `__canvas_paintHeader` writes from appearance fields
+/// (`func_item_lanes.rs`): both colours (8–15), the blend mode (26), the gradient's kind
+/// and points — or a text record's layout box, which its builder writes in their place
+/// (42–46) — and the ramp's spread, apply, inverse and focal words (55–66).
+const APPEARANCE_SLOTS: [std::ops::Range<usize>; 4] = [8..16, 26..27, 42..47, 55..67];
+
+/// `canvas::geoRepaint(slot, draw, header, stops) AS Integer` (plan-175-A Phase 3): a
+/// cheaper refresh of a record the MFBASIC builders made. `header` is that kind's header
+/// built afresh from the item (its header builder alone, none of its tail), and
+/// `stops` the gradient's stop floats as the builder appends them (empty when it has
+/// none). The record takes the header's [`APPEARANCE_SLOTS`] and, when there are stops,
+/// those `5 * count` floats at the end of its tail, where they always are
+/// (`__canvas_gradientStopBase`); everything else it holds is geometry. Answers the
+/// record's offset, or -1 — nothing written — when `stops` is not the record's stop
+/// count (the caller then rebuilds it whole).
+pub(super) fn lower_geo_repaint(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let g = Globals::of(builder)?;
+    let slot = builder.temporary_vreg();
+    let draw = builder.temporary_vreg();
+    let header = builder.temporary_vreg();
+    let stops = builder.temporary_vreg();
+    builder.emit(abi::move_register(&slot, &args[0].location));
+    builder.emit(abi::move_register(&draw, &args[1].location));
+    builder.emit(abi::move_register(&header, &args[2].location));
+    builder.emit(abi::move_register(&stops, &args[3].location));
+    let result = imm(builder, -1);
+    let done = builder.label("canvas_geo_repaint_done");
+    let slots = gload(builder, g.slots);
+    let base = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(&base, &slot, 2));
+    let offset = load_word(builder, &slots, &base, 1);
+    let data = gload(builder, g.data);
+    let record = word_addr(builder, &data, &offset);
+    // The stops: as many as the record holds, or nothing is written.
+    let floats = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&floats, &stops, COLLECTION_OFFSET_COUNT));
+    let count_f = builder.temporary_fp_vreg();
+    builder.emit(abi::load_double(
+        &count_f,
+        &record,
+        8 * 41, // __CANVAS_GEO_GRADIENT_COUNT
+    ));
+    let count = builder.temporary_vreg();
+    builder.emit(abi::float_convert_to_signed_x(&count, &count_f));
+    let want = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&want, "Integer", "5"));
+    builder.emit(abi::multiply_registers(&want, &want, &count));
+    builder.emit(abi::compare_registers(&want, &floats));
+    builder.emit(abi::branch_ne(&done));
+    // The header's appearance slots over the record's.
+    let src = builder.temporary_vreg();
+    builder.emit(abi::add_immediate(&src, &header, COLLECTION_HEADER_SIZE));
+    let v = builder.temporary_vreg();
+    for range in APPEARANCE_SLOTS {
+        for s in range {
+            builder.emit(abi::load_u64(&v, &src, 8 * s));
+            builder.emit(abi::store_u64(&v, &record, 8 * s));
+        }
+    }
+    // The stops, at the end of the record: `length - 5 * count`.
+    let length_f = builder.temporary_fp_vreg();
+    builder.emit(abi::load_double(&length_f, &record, 8));
+    let length = builder.temporary_vreg();
+    builder.emit(abi::float_convert_to_signed_x(&length, &length_f));
+    builder.emit(abi::subtract_registers(&length, &length, &want));
+    builder.emit(abi::shift_left_immediate(&length, &length, 3));
+    let dst = builder.temporary_vreg();
+    builder.emit(abi::add_registers(&dst, &record, &length));
+    let from = builder.temporary_vreg();
+    builder.emit(abi::add_immediate(&from, &stops, COLLECTION_HEADER_SIZE));
+    let bytes = builder.temporary_vreg();
+    builder.emit(abi::shift_left_immediate(&bytes, &floats, 3));
+    let scratch = builder.temporary_vreg();
+    builder.emit_block_copy_advance(&dst, &from, &bytes, &scratch, "canvas_geo_repaint_stops");
+    emit_refreshed(builder, &g, &slot, &draw);
+    builder.emit(abi::move_register(&result, &offset));
+    builder.emit(abi::label(&done));
+    Ok(finish(builder, Some(&result), "canvas.geoRepaint"))
+}
+
+/// A record just rewritten in place: `slot` holds `draw`, is stamped as used, and one
+/// more refresh is counted.
+pub(super) fn emit_refreshed(
+    builder: &mut CodeBuilder,
+    g: &Globals,
+    slot: &VirtualRegister,
+    draw: &VirtualRegister,
+) {
+    let draws = gload(builder, g.draws);
+    let at = word_addr(builder, &draws, slot);
+    builder.emit(abi::store_u64(draw, &at, 0));
+    emit_stamp(builder, g, slot);
+    let one = imm(builder, 1);
+    gadd(builder, g.refreshes, &one);
 }
 
 /// `canvas::geoForget(slot)`: drop `slot` from the index for good — the glyph cache is
@@ -470,6 +703,11 @@ pub(super) fn lower_geo_begin_frame(
     builder.emit(abi::store_u64(&w, &dst_at, 8));
     builder.emit(abi::store_u64(&owned, &dst_at, 16));
     builder.emit(abi::store_u64(&frame, &dst_at, 24));
+    // plan-175-A: the slot's draw identity moves with it (`k <= s`, so forward is safe).
+    let draws = gload(builder, g.draws);
+    let draw = load_word(builder, &draws, &s, 0);
+    let draw_at = word_addr(builder, &draws, &k);
+    builder.emit(abi::store_u64(&draw, &draw_at, 0));
     builder.emit(abi::add_registers(&w, &w, &owned));
     builder.emit(abi::add_immediate(&k, &k, 1));
     builder.emit(abi::label(&next));
@@ -480,6 +718,7 @@ pub(super) fn lower_geo_begin_frame(
     let kwords = builder.temporary_vreg();
     builder.emit(abi::shift_left_immediate(&kwords, &k, 2));
     emit_set_count(builder, g.slots, &kwords);
+    emit_set_count(builder, g.draws, &k);
     emit_rebuild(builder, &g)?;
 
     builder.emit(abi::label(&advance));

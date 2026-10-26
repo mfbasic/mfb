@@ -1193,7 +1193,7 @@ anything else is a name.
   described as by address. None bound: `'<name>' is not loaded yet; run the
   program until it has loaded its libraries`. A resolved address must be an
   instruction boundary for the target architecture; an unaligned address is
-  refused before any breakpoint is installed. [[src/debugger/breakpoints/mod.rs:Breakpoints::set]]
+  refused before any breakpoint is installed. [[src/debugger/breakpoints/mod.rs:instruction_boundary]]
 
 Each new breakpoint prints `Set a breakpoint at <place>.`, where `<place>` is
 `0x<address>` and ` in <written name or symbol>` when it has one; a pending one

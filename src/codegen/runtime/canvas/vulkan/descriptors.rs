@@ -67,7 +67,8 @@ pub(super) fn emit_vulkan_descriptors(
             (BINDING_INDEX, Field::U32("0")),
             (BINDING_TYPE, Field::U32(DESCRIPTOR_TYPE_STORAGE_BUFFER)),
             (BINDING_COUNT, Field::U32("1")),
-            (BINDING_STAGES, Field::U32(SHADER_STAGE_FRAGMENT)),
+            // plan-175-B: the vertex stage reads the node region of this buffer too.
+            (BINDING_STAGES, Field::U32(SHADER_STAGE_VERTEX_AND_FRAGMENT)),
         ],
     );
     emit_struct(

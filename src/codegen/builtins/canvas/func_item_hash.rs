@@ -1,9 +1,13 @@
 //! `canvas::itemHash` and `canvas::sceneHashes` — a `DrawItem`'s content hash, computed
 //! natively (bug-686).
 //!
-//! Internal-only. The item hash is the geometry cache's key and the damage diff's "did
-//! this item change"; `canvas::present` computes one for every item whose bytes changed
-//! since the installed scene. In MFBASIC (`__canvas_hashItem`, two 31-bit lanes folded
+//! Internal-only. An item has two identities (plan-175-A): `G`, its GEOMETRY identity —
+//! what decides the shape of its record — and `D = mix(G, A)`, its damage identity, where
+//! `A` is everything else it draws with. `func_item_lanes.rs` says which lane each field
+//! folds into, and one pass folds both. `canvas::itemHash` answers `D` (the damage diff's
+//! "did this item change", and the cache key until the cache is keyed by `G`) and
+//! `canvas::itemGeoHash` answers `G`; `canvas::present` computes both for every item
+//! whose bytes changed since the installed scene. In MFBASIC (`__canvas_hashItem`, two 31-bit lanes folded
 //! a field at a time through `__canvas_hashStep`) that was ~1.3 µs an item — the worker's
 //! whole budget for a moving scene of a few thousand items.
 //!
@@ -39,10 +43,19 @@
 //!
 //! The mix is a multiply-xorshift per word (`h = (h ^ v) * M1; h ^= h >> 29`) and a
 //! finalizer, all within one 64-bit register: nothing here can overflow-trap.
+//!
+//! **Collisions** (plan-175-A §4.5). Each identity keeps 62 of the state's 64 bits, as
+//! the MFBASIC walk's two 31-bit lanes (`__canvas_hashStep`) are 62. A false cache hit
+//! needs two different items with one key among the k keys alive: about k² / 2^63, 1.1e-9
+//! for 100,000. The cache key is trusted alone; `A` never is — it only decides whether
+//! the record `G` chose holds this paint, so a wrong "equal" (2^-62 a changed item) costs
+//! one item its last paint. `D` decides damage only. `.ai/canvas-threading.md` §14 has
+//! the same argument for both walks.
 
 use super::func_geo_build::{
     emit_field_block, emit_list_element, emit_list_view, record_fields, record_type, variant,
 };
+use super::func_item_lanes::{item_field, paint_field, ItemField, PaintField};
 use super::gen_image::emit_closed_guard;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::{Operand, VirtualRegister};
@@ -80,9 +93,140 @@ const HASHED: [&str; 11] = [
 ];
 const NOT_HASHED: [&str; 4] = ["Text", "Group", "AutoPaint", "ParticleSystem"];
 
+/// The appearance lane's seed, and the damage identity's (plan-175-A). Distinct from
+/// [`SEED`], which is the geometry lane's, so an item whose appearance lane is empty (a
+/// `Tile`) still mixes in a constant that is not its geometry.
+const SEED_APPEARANCE: u64 = 0x2F4A_7C15_9E37_79B9;
+const SEED_DRAW: u64 = 0x0D6E_8FEB_86E5_E2C9;
+
+#[derive(Clone, Copy)]
 struct Mixer {
     hash: VirtualRegister,
     mix: VirtualRegister,
+}
+
+/// The two lanes of one item's walk: `g` its geometry identity, `a` its appearance
+/// (`func_item_lanes.rs`). They share the multiplier.
+#[derive(Clone, Copy)]
+struct Lanes {
+    g: Mixer,
+    a: Mixer,
+}
+
+/// The finalizer: `h ^= h >> 32; h *= FINAL; h ^= h >> 29; out = h >> 2` — 62 bits,
+/// non-negative, so `-1` is never a hash.
+fn finish(builder: &mut CodeBuilder, hash: &VirtualRegister, out: &VirtualRegister) {
+    let t = builder.temporary_vreg();
+    let fin = builder.temporary_vreg();
+    builder.emit(abi::shift_right_immediate(&t, hash, 32));
+    builder.emit(abi::exclusive_or_registers(hash, hash, &t));
+    builder.emit(abi::move_immediate(&fin, "Integer", &FINAL.to_string()));
+    builder.emit(abi::multiply_registers(hash, hash, &fin));
+    builder.emit(abi::shift_right_immediate(&t, hash, 29));
+    builder.emit(abi::exclusive_or_registers(hash, hash, &t));
+    builder.emit(abi::shift_right_immediate(out, hash, 2));
+}
+
+/// Fold one field of a hashed kind by its class (`func_item_lanes::item_field`).
+#[allow(clippy::too_many_arguments)]
+fn fold_item_field(
+    builder: &mut CodeBuilder,
+    lanes: Lanes,
+    base: &VirtualRegister,
+    record: &ParameterType,
+    index: usize,
+    name: &str,
+    ty: &ParameterType,
+    class: ItemField,
+) -> Result<(), String> {
+    match class {
+        ItemField::Omitted => Ok(()),
+        ItemField::Geometry | ItemField::Identity => {
+            fold_field(builder, &lanes.g, base, record, index, name, ty)
+        }
+        ItemField::Paint => {
+            let paint = builder.temporary_vreg();
+            let paint_type = emit_field_block(builder, &paint, base, record, name)?;
+            fold_paint(builder, lanes, &paint, &paint_type)
+        }
+        ItemField::Colors => {
+            let list = builder.temporary_vreg();
+            let list_type = emit_field_block(builder, &list, base, record, name)?;
+            let count = builder.temporary_vreg();
+            builder.emit(abi::load_u64(&count, &list, COLLECTION_OFFSET_COUNT));
+            fold(builder, &lanes.g, &count);
+            fold_list(builder, &lanes.a, &list, &list_type)
+        }
+        ItemField::Shape => Err(format!(
+            "canvas::itemHash: '{record}.{name}' is a shape union, which the variant \
+             dispatch folds, not the field walk"
+        )),
+    }
+}
+
+/// Fold a `Paint` field by field (`func_item_lanes::paint_field`).
+fn fold_paint(
+    builder: &mut CodeBuilder,
+    lanes: Lanes,
+    paint: &VirtualRegister,
+    paint_type: &ParameterType,
+) -> Result<(), String> {
+    for (index, (name, ty)) in record_fields(builder, paint_type)?.into_iter().enumerate() {
+        match paint_field(&name)? {
+            PaintField::Geometry => {
+                fold_field(builder, &lanes.g, paint, paint_type, index, &name, &ty)?
+            }
+            PaintField::Appearance => {
+                fold_field(builder, &lanes.a, paint, paint_type, index, &name, &ty)?
+            }
+            PaintField::Stroke => {
+                fold_field(builder, &lanes.a, paint, paint_type, index, &name, &ty)?;
+                // Whether the stroke's alpha is zero: geometry (`__canvas_strokeHalf`).
+                let color = builder.temporary_vreg();
+                let color_type = emit_field_block(builder, &color, paint, paint_type, &name)?;
+                let alpha = record_field_index(builder, &color_type, "alpha")?;
+                let value = builder.temporary_vreg();
+                let zero = builder.temporary_vreg();
+                let drawn = builder.label("canvas_hash_stroke_drawn");
+                builder.emit(abi::load_u8(&value, &color, 8 * alpha));
+                builder.emit(abi::move_immediate(&zero, "Integer", "0"));
+                builder.emit(abi::compare_immediate(&value, "0"));
+                builder.emit(abi::branch_ne(&drawn));
+                builder.emit(abi::move_immediate(&zero, "Integer", "1"));
+                builder.emit(abi::label(&drawn));
+                fold(builder, &lanes.g, &zero);
+            }
+            PaintField::Gradient => {
+                fold_field(builder, &lanes.a, paint, paint_type, index, &name, &ty)?;
+                // The stop count and `strokeApply`: geometry (they size the tail and
+                // decide whether a stroke-only kind carries a ramp).
+                let gradient = builder.temporary_vreg();
+                let gradient_type = emit_field_block(builder, &gradient, paint, paint_type, &name)?;
+                let stops = builder.temporary_vreg();
+                emit_field_block(builder, &stops, &gradient, &gradient_type, "stops")?;
+                let count = builder.temporary_vreg();
+                builder.emit(abi::load_u64(&count, &stops, COLLECTION_OFFSET_COUNT));
+                fold(builder, &lanes.g, &count);
+                let apply = record_field_index(builder, &gradient_type, "strokeApply")?;
+                let value = builder.temporary_vreg();
+                builder.emit(abi::load_u64(&value, &gradient, 8 * apply));
+                fold(builder, &lanes.g, &value);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The slot index of `record.field`, or the build error that it has none.
+fn record_field_index(
+    builder: &CodeBuilder,
+    record: &ParameterType,
+    field: &str,
+) -> Result<usize, String> {
+    record_fields(builder, record)?
+        .iter()
+        .position(|(name, _)| name == field)
+        .ok_or_else(|| format!("canvas::itemHash: '{record}' has no field '{field}'"))
 }
 
 /// `h = (h ^ value) * MIX; h ^= h >> 29`.
@@ -268,12 +412,18 @@ fn fold_list(
     Ok(())
 }
 
-/// Emit `out` = the item hash of the `DrawItem` data union at `item`, or `-1` for a
-/// `Text`, a `Group`, or a tag the union does not have.
+/// Emit `out` = the DAMAGE identity `D` of the `DrawItem` data union at `item`, and,
+/// when `geometry` is given, its GEOMETRY identity `G` there too; both `-1` for a
+/// `Text`, a `Group`, or a tag the union does not have (plan-175-A).
+///
+/// One pass folds every field into the lane `func_item_lanes.rs` names; then
+/// `G = finish(g)`, `A = finish(a)` and `D = finish(fold(fold(SEED_DRAW, G), A))`. So `D`
+/// changes exactly when `G` or `A` does, and an `id` is in none of the three.
 pub(super) fn emit_item_hash(
     builder: &mut CodeBuilder,
     item: &VirtualRegister,
     out: &VirtualRegister,
+    geometry: Option<&VirtualRegister>,
 ) -> Result<(), String> {
     for name in NOT_HASHED {
         variant(builder, name)?;
@@ -284,21 +434,37 @@ pub(super) fn emit_item_hash(
         .collect::<Result<Vec<_>, String>>()?;
     let tag = builder.temporary_vreg();
     let rec = builder.temporary_vreg();
-    let m = Mixer {
-        hash: builder.temporary_vreg(),
-        mix: builder.temporary_vreg(),
+    let mix = builder.temporary_vreg();
+    let lanes = Lanes {
+        g: Mixer {
+            hash: builder.temporary_vreg(),
+            mix,
+        },
+        a: Mixer {
+            hash: builder.temporary_vreg(),
+            mix,
+        },
     };
     builder.emit(abi::load_u64(&tag, item, 0));
     builder.emit(abi::add_immediate(&rec, item, 16));
-    builder.emit(abi::move_immediate(&m.mix, "Integer", &MIX.to_string()));
-    builder.emit(abi::move_immediate(&m.hash, "Integer", &SEED.to_string()));
-    fold(builder, &m, &tag);
+    builder.emit(abi::move_immediate(&mix, "Integer", &MIX.to_string()));
+    builder.emit(abi::move_immediate(
+        &lanes.g.hash,
+        "Integer",
+        &SEED.to_string(),
+    ));
+    builder.emit(abi::move_immediate(
+        &lanes.a.hash,
+        "Integer",
+        &SEED_APPEARANCE.to_string(),
+    ));
+    fold(builder, &lanes.g, &tag);
 
     let labels: Vec<String> = hashed
         .iter()
         .map(|_| builder.label("canvas_hash_variant"))
         .collect();
-    let finish = builder.label("canvas_hash_finish");
+    let finish_label = builder.label("canvas_hash_finish");
     let done = builder.label("canvas_hash_done");
     let dispatch = builder.label("canvas_hash_dispatch");
     builder.emit(abi::label(&dispatch));
@@ -310,14 +476,20 @@ pub(super) fn emit_item_hash(
     // path's. -1, built as 0 - 1.
     builder.emit(abi::move_immediate(out, "Integer", "0"));
     builder.emit(abi::subtract_immediate(out, out, 1));
+    if let Some(g) = geometry {
+        builder.emit(abi::move_register(g, out));
+    }
     builder.emit(abi::branch(&done));
     for ((_, record), label) in hashed.iter().zip(&labels) {
         builder.emit(abi::label(label));
+        let kind = record.name().into_owned();
         // A union field is folded LAST, by going round the dispatch again with its
-        // record (see the module note); every other field in slot order.
+        // record (see the module note); every other field in slot order, into the lane
+        // its class names.
         let mut shape = None;
         for (index, (name, ty)) in record_fields(builder, record)?.into_iter().enumerate() {
-            if is_shape_union(&ty) {
+            let class = item_field(&kind, &name, &ty, is_shape_union(&ty));
+            if class == ItemField::Shape {
                 if shape.replace((index, ty)).is_some() {
                     return Err(format!(
                         "canvas::itemHash: '{record}' holds two shape unions; the walk \
@@ -326,10 +498,10 @@ pub(super) fn emit_item_hash(
                 }
                 continue;
             }
-            fold_field(builder, &m, &rec, record, index, &name, &ty)?;
+            fold_item_field(builder, lanes, &rec, record, index, &name, &ty, class)?;
         }
         let Some((index, ty)) = shape else {
-            builder.emit(abi::branch(&finish));
+            builder.emit(abi::branch(&finish_label));
             continue;
         };
         let sub = builder.temporary_vreg();
@@ -345,20 +517,30 @@ pub(super) fn emit_item_hash(
         // A data union is its tag at +0 and the variant's record at +16.
         builder.emit(abi::load_u64(&tag, &sub, 0));
         builder.emit(abi::add_immediate(&rec, &sub, 16));
-        fold(builder, &m, &tag);
+        fold(builder, &lanes.g, &tag);
         builder.emit(abi::branch(&dispatch));
     }
-    builder.emit(abi::label(&finish));
-    let t = builder.temporary_vreg();
-    let fin = builder.temporary_vreg();
-    builder.emit(abi::shift_right_immediate(&t, &m.hash, 32));
-    builder.emit(abi::exclusive_or_registers(&m.hash, &m.hash, &t));
-    builder.emit(abi::move_immediate(&fin, "Integer", &FINAL.to_string()));
-    builder.emit(abi::multiply_registers(&m.hash, &m.hash, &fin));
-    builder.emit(abi::shift_right_immediate(&t, &m.hash, 29));
-    builder.emit(abi::exclusive_or_registers(&m.hash, &m.hash, &t));
-    // 62 bits, non-negative.
-    builder.emit(abi::shift_right_immediate(out, &m.hash, 2));
+    builder.emit(abi::label(&finish_label));
+    let g = builder.temporary_vreg();
+    let a = builder.temporary_vreg();
+    finish(builder, &lanes.g.hash, &g);
+    finish(builder, &lanes.a.hash, &a);
+    // D = mix(G, A): the damage identity, which changes exactly when either does.
+    let d = Mixer {
+        hash: builder.temporary_vreg(),
+        mix,
+    };
+    builder.emit(abi::move_immediate(
+        &d.hash,
+        "Integer",
+        &SEED_DRAW.to_string(),
+    ));
+    fold(builder, &d, &g);
+    fold(builder, &d, &a);
+    finish(builder, &d.hash, out);
+    if let Some(geometry) = geometry {
+        builder.emit(abi::move_register(geometry, &g));
+    }
     builder.emit(abi::label(&done));
     Ok(())
 }
@@ -393,15 +575,38 @@ pub(crate) fn lower_item_hash(
     let item = builder.temporary_vreg();
     builder.emit(abi::move_register(&item, &incoming));
     let out = builder.temporary_vreg();
-    emit_item_hash(builder, &item, &out)?;
+    emit_item_hash(builder, &item, &out, None)?;
     Ok(finish_integer(builder, &out, "canvas.itemHash"))
 }
 
-/// `canvas::sceneHashes(items, carried)`: one word per item — `carried[i]` where it is a
-/// hash (`canvas::carriedHashes` found the item's bytes unchanged), else the item's
-/// `canvas::itemHash`, which is `-1` for a `Text` or a `Group`. `__canvas_hashScene`
-/// hashes only those `-1`s in MFBASIC, so a scene of the common kinds never extracts an
-/// item from the list at all. The one allocation is the result.
+/// `canvas::itemGeoHash(item)`: the item's GEOMETRY identity `G` (plan-175-A), from the
+/// same one-pass walk `canvas::itemHash` takes `D` from; `-1` where that answers `-1`.
+pub(crate) fn lower_item_geo_hash(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let incoming = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the DrawItem argument"))?
+        .location
+        .clone();
+    let item = builder.temporary_vreg();
+    builder.emit(abi::move_register(&item, &incoming));
+    let draw = builder.temporary_vreg();
+    let out = builder.temporary_vreg();
+    emit_item_hash(builder, &item, &draw, Some(&out))?;
+    Ok(finish_integer(builder, &out, "canvas.itemGeoHash"))
+}
+
+/// `canvas::sceneHashes(items, carried)`: the scene's published hash list, `2n` words for
+/// `n` items (plan-175-A) — every item's damage identity `D` at `i`, then every item's
+/// geometry identity `G` at `n + i`. Both come from `carried` (laid out the same way, by
+/// `canvas::carriedHashes`) where it holds a hash for the item, else from one walk of the
+/// item; both are `-1` for a `Text` or a `Group`. `__canvas_hashScene` hashes only those
+/// `-1`s in MFBASIC, so a scene of the common kinds never extracts an item from the list
+/// at all. The one allocation is the result.
 pub(crate) fn lower_scene_hashes(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -426,12 +631,15 @@ pub(crate) fn lower_scene_hashes(
         carried_slot,
     ));
     let n_slot = builder.allocate_stack_object("canvas_scene_hash_n", 8);
+    let words_slot = builder.allocate_stack_object("canvas_scene_hash_words", 8);
     let items = builder.temporary_vreg();
     let count = builder.temporary_vreg();
     builder.emit(abi::load_u64(&items, abi::stack_pointer(), items_slot));
     builder.emit(abi::load_u64(&count, &items, COLLECTION_OFFSET_COUNT));
     builder.emit(abi::store_u64(&count, abi::stack_pointer(), n_slot));
-    let result = builder.reserve_integer_index_list(n_slot)?;
+    builder.emit(abi::add_registers(&count, &count, &count));
+    builder.emit(abi::store_u64(&count, abi::stack_pointer(), words_slot));
+    let result = builder.reserve_integer_index_list(words_slot)?;
     let out_slot = builder.allocate_stack_object("canvas_scene_hash_out", 8);
     builder.emit(abi::store_u64(
         &result.location,
@@ -447,7 +655,9 @@ pub(crate) fn lower_scene_hashes(
     builder.emit(abi::load_u64(&items, abi::stack_pointer(), items_slot));
     builder.emit(abi::load_u64(&carried, abi::stack_pointer(), carried_slot));
     builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
+    // `carried` holds `m` items' D words, then their `m` G words.
     builder.emit(abi::load_u64(&m, &carried, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::shift_right_immediate(&m, &m, 1));
     builder.emit(abi::load_u64(&out_words, abi::stack_pointer(), out_slot));
     // Both `List OF Integer`s are entry-free: word i at HEADER + 8*i.
     builder.emit(abi::add_immediate(
@@ -470,6 +680,7 @@ pub(crate) fn lower_scene_hashes(
     let word = builder.temporary_vreg();
     let item = builder.temporary_vreg();
     let hash = builder.temporary_vreg();
+    let geo = builder.temporary_vreg();
     let head = builder.label("canvas_scene_hash_head");
     let store = builder.label("canvas_scene_hash_store");
     let compute = builder.label("canvas_scene_hash_compute");
@@ -484,14 +695,23 @@ pub(crate) fn lower_scene_hashes(
     builder.emit(abi::add_registers(&word, &carried, &word));
     builder.emit(abi::load_u64(&hash, &word, 0));
     builder.emit(abi::compare_immediate(&hash, "0"));
-    builder.emit(abi::branch_ge(&store));
+    builder.emit(abi::branch_lt(&compute));
+    // A carried D, and its G `m` words on.
+    builder.emit(abi::shift_left_immediate(&geo, &m, 3));
+    builder.emit(abi::add_registers(&word, &word, &geo));
+    builder.emit(abi::load_u64(&geo, &word, 0));
+    builder.emit(abi::branch(&store));
     builder.emit(abi::label(&compute));
     emit_list_element(builder, &item, &view, &i);
-    emit_item_hash(builder, &item, &hash)?;
+    emit_item_hash(builder, &item, &hash, Some(&geo))?;
     builder.emit(abi::label(&store));
     builder.emit(abi::shift_left_immediate(&word, &i, 3));
     builder.emit(abi::add_registers(&word, &out_words, &word));
     builder.emit(abi::store_u64(&hash, &word, 0));
+    // G at n + i.
+    builder.emit(abi::shift_left_immediate(&item, &n, 3));
+    builder.emit(abi::add_registers(&word, &word, &item));
+    builder.emit(abi::store_u64(&geo, &word, 0));
     builder.emit(abi::add_immediate(&i, &i, 1));
     builder.emit(abi::branch(&head));
     builder.emit(abi::label(&done));
@@ -699,6 +919,20 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Integer,
             errors: vec![],
             body: Body::abi_function(lower_item_hash),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "itemGeoHash",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![item_param()],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(lower_item_geo_hash),
         }],
     });
     pkg.add_function(RegistryFunction {

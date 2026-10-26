@@ -122,7 +122,8 @@ pub(crate) const CANVAS_PROFILE_PASSES: usize = 7;
 pub(crate) const CANVAS_PROFILE_BYTES: usize = 8;
 /// Glyph and picture texels copied into the frame buffer.
 pub(crate) const CANVAS_PROFILE_TEXELS: usize = 9;
-/// Draw calls issued, one per draw-list entry.
+/// Draw calls issued: one per draw-list entry that draws — a node-only row (repeat 0,
+/// plan-175-C) issues none.
 pub(crate) const CANVAS_PROFILE_DRAWS: usize = 10;
 /// `1` once `MFB_CANVAS_VSYNC=0` has turned the window layer's display sync off, else
 /// `0`. Not cumulative: the main thread's layer apply sets it once, when it first

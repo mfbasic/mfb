@@ -96,12 +96,16 @@ frame, and the first publish after a frame completes drains it to empty.
 
 **Worker, in `canvas::present`:**
 
-1. Deep-copy the caller's scene into a fresh block.
-2. Compare against the published block; if the content is identical, **free the fresh
-   copy** and stop — the frame skip (§3.1). The free is step 2's own, and it is the
-   only one ahead of the drain gate: the block was allocated in this call and never
-   published, so no renderer can have seen it. Omitting it leaked one whole scene per
-   no-op re-present (bug-683), which is the case `mfb man canvas` calls free.
+1. Compare the CALLER's scene against the published block
+   (`canvas::sceneUnchanged`); if the content is identical, stop — the frame skip
+   (§3.1). Nothing has been allocated, so nothing is freed (plan-175-D). It used to
+   deep-copy first and compare the copy, which made every no-op re-present copy the
+   whole scene and free it again (and before bug-683, leak it). The compare is by
+   type, so the caller's headroom does not matter. The carried hashes (§14) are taken
+   only past this point: they are wanted only when hashes will be published.
+2. Deep-copy the caller's scene into a fresh block (`canvas::publishScene(items,
+   FALSE)`: FALSE because step 1 already compared). `publishLayers` still compares
+   inside the publisher, now also before its copy.
 3. **Reclaim**: if the retirement list is non-empty and `frames > head.frame`, free
    every node on it. Testing the head alone suffices because the head carries the
    largest stamp, so that one comparison proves a frame has completed since every node
@@ -677,28 +681,65 @@ What to remember when touching it:
   cargo suites cover the seam by running the emitted members in the `-ncode` interpreter
   (`tests/codegen/codegen_canvas_vulkan_off_frame_path.rs`).
 
-### A group is one instanced draw per node, with an offset bound to BOTH stages
+### A group is one instanced draw per node, its offset read by BOTH stages from a node table
 
 Since plan-116-H a `canvas::Group` is not flattened away before the GPU sees it. The
-worker builds a **draw list** (`__canvas_sceneDraws`) alongside the block list, one entry
+worker builds a **draw list** (`__canvas_sceneDraws`) alongside the block list, one ROW
 per contiguous run of blocks at a given offset:
 
 ```
-(itemBase, itemCount, dx, dy, blendMode, dxLo, dyLo,        sixteen 64-bit words
- hasMatrix, ia, ib, ic, id, pass, 0, 0, 0)
+(itemBase, itemCount, dx, dy, blendMode, 0, 0,               sixteen 64-bit words
+ hasMatrix, ia, ib, ic, id, pass, repeat, 0, 0)
 ```
 
-It was eight words until plan-172-G, and a translate-only entry is still those eight
-followed by zeros. `hasMatrix` is 1 when the entry's groups compose to more than a
-translation, and `ia`..`id` are then the INVERSE linear part of that composition, as
-float32 bit patterns. `pass` is 0 in every entry the frame's layout writes; only a
-pass's own list sets it, in its first entry (bug-765, below).
+It was eight words until plan-172-G, and a translate-only row is still those eight
+followed by zeros (and its repeat). `hasMatrix` is 1 when the row's groups compose to more
+than a translation, and `ia`..`id` are then the INVERSE linear part of that composition,
+as float32 bit patterns. `pass` is 0 in every row the frame's layout writes; only a
+pass's own list sets it, in its first row (bug-765, below). `repeat` (word 13,
+`CANVAS_DRAW_REPEAT_WORD`, plan-175-B) is 1 in every row `__canvas_pushOneDraw` and
+`canvas::sceneDrawsFlat` write: one draw over the row's own node.
 
-**The per-draw payload is 32 bytes, bound to both stages** (plan-172-H): the four offset
-words, then `ia`..`id` — `MfbDraw` in the MSL, `uniform Draw { ivec4 offset; ivec4
-inverse; }` in the GLSL. `hasMatrix` itself is not sent: an inverse is never all zero, so
-all-zero bits mean "no matrix" and the shaders take the branch they always took, which is
-what keeps a translate-only frame byte-identical on each backend. With a matrix the
+**Every row is also a NODE, and the node table is what both stages read** (plan-175-B).
+A row's words 2, 3 and 8–11 — the offset, two zero words, then `ia`..`id` — are its
+32-byte node, `MfbDraw` in the MSL and eight words in the GLSL. Each emitter writes
+every row's node into its frame buffer's node region once a pass, row `i` at node `i`
+(`METAL_NODE_OFFSET`, `VULKAN_NODE_BASE_WORDS`, the last region of each), and a draw
+carries only its 16-byte RUN `{ base, count, node, repeat }`, to the vertex stage. The
+vertex stage takes `local = instance - base` and reads item `base + local % count` under
+node `node + local / count`, and hands the node to the fragment stage as a flat varying
+beside the item; both read the offset and inverse from `nodes[node]` where they read a
+per-draw payload until plan-175-B. A row of repeat `R` therefore draws its `count` blocks
+once under each of `R` consecutive nodes in ONE call, which is what plan-175-C uses to
+merge group nodes; a row of repeat 0 is a node only. `hasMatrix` itself is not read: an
+inverse is never all zero, so all-zero bits mean "no matrix" and the shaders take the
+branch they always took, which is what keeps a translate-only frame byte-identical on each
+backend.
+
+**A pass holds at most a node region of rows.** Rows carried their payload per draw, so
+their number was unbounded; a node is now a slot of a region of fixed size
+(`METAL_MAX_FRAME_NODES` = `VULKAN_MAX_FRAME_NODES` = 65,536), so `__canvas_framePasses`
+counts the frame's rows (`__canvas_rowNodes`, `max(repeat, 1)` each) and
+`__canvas_passNext` ends a pass before a row that would not fit, exactly as it does for a
+block. 65,537 group nodes are two passes
+(`a_frame_of_more_rows_than_the_node_region_draws_in_two_passes`).
+
+**Adjacent group nodes draw as one call** (plan-175-C). At the end of
+`__canvas_sceneDrawsWalk`, `__canvas_mergeRepeats` turns every maximal run of ADJACENT
+rows with equal base, count and blend mode — consecutive `canvas::Group` nodes naming one
+group whose items are one run — into a head of repeat `R` and `R - 1` node-only rows,
+at most a node region long. Their node words are untouched, so the head draws node 0's
+instances, then node 1's, in the order the `R` rows did. **Adjacency is the whole rule**:
+a row between two nodes' rows draws between them, and a group whose items are several
+rows (a blend split, a `Text`, a nested group) pushes `a0 b0 a1 b1`, where no two
+adjacent rows are equal. A culled node writes no row, so its neighbours merge across it;
+a node half off screen writes only its visible blocks and merges with nothing.
+`__canvas_passNext` admits a head only with room for all `R` nodes, so a head and its
+followers share a pass — and if a pass boundary cuts the head's BLOCKS (a group larger
+than a pass), the run's rows draw solo from there on (`__CANVAS_PASS_SOLO_END`): a
+repeat cannot reach into another pass's node table. The frame's node count is its row
+count. `profDraws` counts the draws a pass issues (`OFF_DRAWN`), not its rows.
+`group fill 10000` is 2 draw calls a frame (`tests/canvas/rt_canvas_metal/group_merge.rs`). With a matrix the
 vertex stage carries the item's box through the FORWARD linear part (it inverts the 2×2
 itself), and the fragment stage puts the query point through the inverse before anything
 else reads it.
@@ -722,10 +763,10 @@ wrote, the fourth words of `xform1` and `gradInv1` (`ITEM_RIM_WORDS`), float32 b
 why this did not grow `ITEM_BLOCK_SIZE` and the fragment stage's SPIR-V did not change:
 do not hand those two words to anything else.
 
-`dx`/`dy` are float32 bit patterns (`__canvas_float32Bits`), entry words 2-3; words 5-6
-held their 16.16 residuals until the shaders went to fp32 and are now reserved zeros. Both
-backends still bind four words as the stage offset (`int4`/`ivec4`, 16 bytes), the last
-two zero, so the push-constant range and `MfbDraw` did not change size.
+`dx`/`dy` are float32 bit patterns (`__canvas_float32Bits`), row words 2-3; words 5-6
+held their 16.16 residuals until the shaders went to fp32 and are now reserved zeros. A
+node still carries four words as the offset (`int4`/`ivec4`, 16 bytes), the last two
+zero, so `MfbDraw` did not change size.
 
 The matrix is bound to the fragment stage as well as the vertex stage for the reason
 the offset is, below: bound to the vertex stage alone, a turned group has the right
@@ -762,12 +803,16 @@ plan-163-C it was a surface window evaluated at the un-shifted point, and
 own definition reads `in.pos.xy` — evaluating the clip there again leaves it behind when
 the group moves.
 
-Where the payload is bound differs per backend and per stage, so it is three numbers,
-not one: Vulkan uses a single 32-byte push-constant range both stages declare
-(`PUSH_OFFSET_BYTES`, which the pipeline layout's range, the `vkCmdPushConstants` size
-and the staging slot all read); Metal uses `setVertexBytes:` at buffer index **1** and
-`setFragmentBytes:` at index **3**, 32 bytes each, because its fragment stage already has
-items, edges and the glyph bitmap at 0..2.
+Where the run and the nodes are bound differs per backend (plan-175-B). Vulkan: the run
+is a single 16-byte push-constant range, VERTEX stage only (`PUSH_RUN_BYTES`, which the
+pipeline layout's range, the `vkCmdPushConstants` size and the staging slot all read);
+the nodes are words of `binding = 0`, the shared buffer, which is therefore bound to both
+stages, and both stages are specialized (constant 5, `NODE_BASE`). Metal: the run goes
+by `setVertexBytes:` at buffer index **1**; the node region is the frame buffer bound
+again at `METAL_NODE_OFFSET` (256-byte aligned, as a constant buffer's offset must be on
+macOS) to index **2** of both stages — the fragment stage's 2 held the glyph bitmap until
+bug-670 — and no fragment bytes are sent. Its three selectors a row sends are looked up
+once a pass, not per row.
 
 **A gate cannot decline a group scene by looking for a `Group` item.** By the time
 `__canvas_vulkanRenderable` or `__canvas_metalRenderable` sees the block list, the walk
@@ -1184,7 +1229,7 @@ three letters) or tested by luck, and a green run tested by luck reads exactly l
 tested by construction.
 
 The hold point is after the draw list is built, deliberately: by then every group name
-is resolved and every group's items copied, so a `removeGroup` arriving during the hold
+is resolved and every group's items block read, so a `removeGroup` arriving during the hold
 lands while a frame is demonstrably still working from that block. That is the window
 the drain gate exists for.
 
@@ -1260,7 +1305,16 @@ publish-then-flag rule §3 gives for the scene revision.
 `canvas::groupItems` returns a **copy**, so a published scene never holds a pointer into
 a group's buffer and a parent group never holds one into its child's — a `canvas::Group`
 node carries a *name*, and the renderer resolves it per frame. The only window in which
-anything reads the block is that copy, on the graphics thread, inside one frame.
+anything reads the block is on the graphics thread, inside one frame. Since plan-175-A
+Phase 5 the frame's walk reads the block **in place** rather than copying it per node
+(`canvas::groupItemsBlock` once per node, after `canvas::groupRevision`, then
+`canvas::groupBlockItem` per child, `func_group_block.rs`): it holds the block's address
+for the frame, which the drain gate below makes as safe as holding the copy. Taking the
+address once per node, not re-reading the slot per child, is what keeps a `setGroup`
+landing mid-walk from giving one node the old list's head and the new list's tail. The
+walk's per-slot table of the children's identities (`__canvas_groupHashes`) is keyed by
+the revision AND the block, and needs no clearing when a buffer is freed: the revision
+only grows.
 
 So the **buffer's** lifetime rule is the drain gate alone, and it is the one §3 and §7
 already use *(the resources the buffer's items name are a separate question, and
@@ -1368,10 +1422,18 @@ Two consequences worth stating because they are easy to get wrong in the other o
 ## 14. The geometry cache and item hashes (bug-686)
 
 The graphics thread's geometry cache (`helper_geometry/`, kept by the inline native
-members of `func_geo_cache/`) is keyed by the item's content hash through
-`__CANVAS_GEO_TABLE` (an open-addressing table of `(hash, slot)` over `__CANVAS_GEO_SLOTS`),
-and **a hit is trusted on the hash alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
-`setBytes` swaps without the item changing (`__canvas_pictureCached`). That is only
+members of `func_geo_cache/`) is keyed by the item's GEOMETRY identity `G` (plan-175-A,
+below) through `__CANVAS_GEO_TABLE` (an open-addressing table of `(hash, slot)` over
+`__CANVAS_GEO_SLOTS`), and each slot also remembers the damage identity `D` its record was
+last written for (`__CANVAS_GEO_DRAWS`, one word a slot beside the four-word slots).
+Resolving an item: `G` found holding its `D` is a hit; `G` found holding another `D`, and
+no entry of this frame using the slot, is a REFRESH — the record's appearance slots
+rewritten in place (`emit_refresh_record`; the MFBASIC walk rebuilds the record into the
+same floats, `canvas::geoRefresh`), no allocation, no insert, `refreshes=` + 1; `G` found
+holding another `D` with the slot already used this frame (two equal shapes, two paints)
+is resolved under `D` instead; `G` not found is built and inserted under `G`. **A hit is
+trusted on the key alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
+`setBytes` swaps without the item changing (`__canvas_pictureCachedOf`). That is only
 sound because the hash is 62 bits (two independent 31-bit lanes, `__canvas_hashStep`) and
 resolves a float to 2^-46 px (`__canvas_hashFloat`); the old single 31-bit lane collided
 at ~0.3 per frame at 10,000 items.
@@ -1398,9 +1460,33 @@ Lifetime rules, and why:
   out from the offsets — items AND layers (the draw list used to walk items only, and a
   `presentLayers` scene drew nothing on Metal).
 * **A picture is never resolved on its hash alone** — `sceneResolve` leaves every picture
-  hit to the MFBASIC walk, whose `__canvas_pictureCached` confirms the record against
+  hit to the MFBASIC walk, whose `__canvas_pictureCachedOf` confirms the record against
   the image's current pixel block (§17).
 
+* **An item has two identities, and a damage identity mixed from them** (plan-175-A).
+  `G`, the GEOMETRY identity, folds what decides the shape of the item's record: its
+  own fields, its transform, and the parts of its paint that are geometry — the stroke
+  width, cap, join, miter limit, dashes, clip, and three predicates of appearance
+  fields (whether the stroke's alpha is zero, the gradient's stop count, whether the
+  ramp paints the stroke). `A`, the APPEARANCE identity, folds the rest: colours,
+  blend, the ramp, the transparency. `D = mix(G, A)` changes exactly when either does
+  and is what the damage diff and every draw hash compare. No identity folds an `id`.
+  The classification is one table (`func_item_lanes.rs`), read by the one native walk
+  (`emit_item_hash`, both lanes in one pass) and mirrored by the MFBASIC walk for the
+  kinds it hashes (`__canvas_hashPaintGeometry` / `__canvas_hashPaintAppearance`). The
+  worker publishes `2n` words for `n` items — every `D`, then every `G` — under the one
+  hashes revision, so the sequence lock covers both, and every reader of "the item's
+  hash" at index `i` reads `D`.
+* **Collisions, for both walks and both lanes.** Each identity is 62 bits: the native
+  walk's multiply-xorshift keeps 62 bits of a 64-bit state, and the MFBASIC walk's two
+  31-bit lanes (`__canvas_hashStep`) are 62. A false hit on a key needs two different
+  items with one key among the k keys alive in the cache: about k² / 2^63, 1.1e-9 at
+  k = 100,000. The cache key is trusted alone; keyed by `G` (plan-175-A Phase 2), a
+  paint change mints no new key, so the exposure falls to geometry changes. `A` is never trusted alone — it
+  is only ever compared with the `A` of the record `G` already chose, so a wrong
+  "equal" needs one item's old and new appearance to collide (2^-62 a changed item), and
+  costs that item its last paint. `D` decides damage only: a wrong "unchanged" is 2^-62
+  a changed entry and shows only under `MFB_CANVAS_DAMAGE`.
 * **A record may be in the arena without a slot** (plan-150-B). A particle that is
   neither turned nor scaled is built by `canvas::geoBuild` and appended straight to
   `__CANVAS_GEO_DATA` — no lookup, no slot, no index entry
@@ -1551,7 +1637,9 @@ Three things that are easy to get wrong here:
   cache without the MFBASIC walk seeing it — and an instance the walk does not see has
   no state. So the shape's record is cached under the hash stepped by 16
   (`__canvas_autoGeoHash`), the item's own hash is always a miss, and an `AutoPaint` is
-  always walked, as a `Picture` is.
+  always walked, as a `Picture` is. An `AutoPaint` is hashed in one lane, so its
+  geometry identity is its damage identity (plan-175-A, §14): its state records are
+  keyed and held by that one hash and are never refreshed in place.
 * **The GPU draw list is a second walk and must be told.** It lays out from
   `__CANVAS_TOP_OFFSETS` (so the resolve writes the swapped offset there too), and a
   group's run is memoised ONCE per frame and shared by every node that draws the group
@@ -1660,12 +1748,21 @@ with no fill. The rules that keep that sound:
   one record, and the walk never sees the item. A shaped picture's records are under the
   hash stepped (`__canvas_pictureKey`); only a plain picture's is under the hash, and a
   test reads the source to keep it so
-  (`canvas_picture_only_the_plain_record_is_cached_under_the_item_hash`).
-- **Inside a group the two walks each ask.** `__canvas_appendDraw` (the entries) and
-  `__canvas_memoGroup` (the group's GPU run, shared by its uses) both get a picture's
-  records from `__canvas_pictureQuick` / `__canvas_pictureBlocksOf`, which decide "is
-  this entry there" from the cached record's kind, not from the item — the same answer
-  unless the image changed in between, as it always could for a picture in a group.
+  (`canvas_picture_only_the_plain_record_is_cached_under_the_item_hash`). Since
+  plan-175-A the key is the picture's geometry identity `G` (stepped) and the slot holds
+  its damage identity `D` (stepped the same way), so a tint change finds the records and
+  rewrites them in place (`__canvas_pictureCachedOf`).
+- **A cached picture or tile is laid out without copying it** (plan-175-A Phase 6).
+  `__canvas_appendDraw` reads the image's pixel block from the item in place
+  (`canvas::itemImageShadow`) and, when every record is cached and confirmed against
+  that block (`__canvas_imageCached`), appends the entries before the `MATCH` whose
+  `CASE Picture(pic)` / `CASE Tile(tile)` would copy the variant. A miss, and a picture
+  on an `AutoPaint`, take the `MATCH`.
+- **Inside a group the two walks each ask.** `__canvas_appendDraw` (the entries, above)
+  and `__canvas_memoGroup` (the group's GPU run, shared by its uses, through
+  `__canvas_pictureQuick` / `__canvas_pictureBlocksOf`) both decide "is this entry
+  there" from the cached record's kind, not from the item — the same answer unless the
+  image changed in between, as it always could for a picture in a group.
 - **A record's coverage is its shape's TIMES its clip's.** Where a picture rectangle's
   edge lies along its clip's, a half-covered pixel comes out a quarter covered. The
   image record therefore lets the clip alone draw the edge: its radius slot (6) is 1
