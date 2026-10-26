@@ -693,3 +693,46 @@ fn a_map_of_resources_iterated_through_its_values_frees_its_block() {
         1,
     );
 }
+
+/// bug-1073: a `List OF RES` declared in `main` kept its 48-byte block at exit when
+/// `main` had any inline `TRAP`, even one that touches no resource
+/// (`LET k = toInt("7") TRAP(e) RECOVER 100 END TRAP`). The same list in a called
+/// function was freed, so this case is its own program rather than a `once()` body.
+/// No module-level value is held, so every block is freed at exit.
+#[test]
+fn an_inline_trap_in_main_does_not_keep_mains_list_of_resources() {
+    let source = "IMPORT fs\n\
+                  IMPORT io\n\
+                  IMPORT os\n\
+                  \n\
+                  FUNC main AS Integer\n\
+                  \x20 MUT n AS Integer = 0\n\
+                  \x20 MUT keepL AS List OF RES fs::File = []\n\
+                  \x20 FOR i = 1 TO toInt(os::getEnvOr(\"N\", \"10\"))\n\
+                  \x20   LET k AS Integer = toInt(\"7\") TRAP(e)\n\
+                  \x20     RECOVER 100\n\
+                  \x20   END TRAP\n\
+                  \x20   n = n + k\n\
+                  \x20 NEXT\n\
+                  \x20 FOR EACH k IN keepL\n\
+                  \x20   fs::writeAll(k, \"still open\")\n\
+                  \x20   n = n + 1000\n\
+                  \x20 NEXT\n\
+                  \x20 io::print(toString(n))\n\
+                  \x20 RETURN 0\n\
+                  END FUNC\n";
+    for level in [None, Some("-O0")] {
+        let case = format!("main_list_beside_trap{}", level.map_or("", |_| "_o0"));
+        let project = common::temp_project(&case, source);
+        let extra: Vec<&str> = level.into_iter().collect();
+        let exe = common::debug_report::build_debug_project_with(&case, &project, &extra);
+        // `measure` checks the total: 7 an iteration, the list stays empty.
+        let (live, skips, allocs, frees) = measure(&case, &exe, 10, 7);
+        assert_eq!(skips, 0, "{case}: a block was freed twice");
+        assert_eq!(
+            (allocs, live),
+            (frees, 0),
+            "{case}: {allocs} allocations, {frees} frees, {live} bytes live at exit"
+        );
+    }
+}

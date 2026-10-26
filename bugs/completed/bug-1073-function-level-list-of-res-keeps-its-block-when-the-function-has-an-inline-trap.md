@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness (memory leak)
 
-Status: Fixed. No longer reproduces at HEAD cdecc60c1 (after the plan-183 arena redesign); the fixing commit was not traced. No regression test pins it.
-Regression Test: (proposed) a `--debug` test over the program below asserting the same `live_bytes` as the program without the `TRAP`
+Status: Fixed between b6bf0327b (leaks) and 3745e626a (does not), before plan-183; the fixing commit was not bisected.
+Regression Test: tests/runtime/rt_resource_last_holder/trapped_and_maps.rs::an_inline_trap_in_main_does_not_keep_mains_list_of_resources
 
 `MUT keepL AS List OF RES fs::File = []` in `main`, with an unrelated inline `TRAP` elsewhere in `main` (`LET k AS Integer = toInt("7") TRAP(e) RECOVER 100 END TRAP`), leaves the list's 48-byte block live at exit. The amount is constant: it does not grow with `N`.
 
@@ -56,3 +56,6 @@ Re-verified 2026-10-26 at HEAD cdecc60c1 (release build, `mfb build -q --debug`)
 10 / 8 / 96. The same program with the inline TRAP replaced by a plain binding also ends at
 10 / 8 / 96, so the TRAP no longer keeps the function's list block (the doc recorded 10 / 6 /
 160). The 96 bytes left are the module-level values of bug-1068.
+
+Correction: an earlier note credited plan-183. A compiler built at 3745e626a (2026-10-12) already
+gives the fixed counts; one built at b6bf0327b reproduces the leak and fails the regression test.
