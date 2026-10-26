@@ -282,7 +282,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             param("none", ParameterType::named("DrawItem")),
         ],
         ParameterType::named("DrawItem"),
-        vec!["ErrOutOfMemory"],
+        vec![],
         Body::abi_function(lower_group_block_item),
     ));
 }
