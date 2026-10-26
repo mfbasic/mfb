@@ -401,21 +401,33 @@ mod zero_fill_tests {
             let zero = abi::store_u64(abi::ZERO, abi::SCRATCH[0], 0)
                 .get("src")
                 .expect("a store names its source");
+            // plan-171-A: on AArch64 the Level-1 pairing row merges adjacent
+            // word stores into `stp`, so count stored words, two per pair, and
+            // check every source the pair writes.
             let stores: Vec<_> = fill
                 .instructions
                 .iter()
-                .filter(|i| i.op == CodeOp::StrU64)
+                .filter(|i| i.op == CodeOp::StrU64 || i.op == CodeOp::Stp)
                 .collect();
+            let words: usize = stores
+                .iter()
+                .map(|i| if i.op == CodeOp::Stp { 2 } else { 1 })
+                .sum();
             assert!(
-                stores.len() >= 9,
+                words >= 9,
                 "{arch}: the eight-word loop and the one-word tail"
             );
             for store in &stores {
-                assert_eq!(
-                    store.get("src").as_deref(),
-                    Some(zero.as_str()),
-                    "{arch}: the fill stores something other than zero"
-                );
+                for role in ["src", "src2"] {
+                    if store.op == CodeOp::StrU64 && role == "src2" {
+                        continue;
+                    }
+                    assert_eq!(
+                        store.get(role).as_deref(),
+                        Some(zero.as_str()),
+                        "{arch}: the fill stores something other than zero"
+                    );
+                }
             }
             let loads = fill
                 .instructions
