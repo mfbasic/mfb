@@ -34,6 +34,10 @@ impl Backend for Aarch64Backend {
     fn is_aarch64(&self) -> bool {
         true
     }
+
+    fn supports_pair_access(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]
@@ -44,6 +48,11 @@ mod tests {
     #[test]
     fn backend_identifies_as_aarch64() {
         assert!(AARCH64_BACKEND.is_aarch64());
+    }
+
+    #[test]
+    fn backend_has_pair_access() {
+        assert!(AARCH64_BACKEND.supports_pair_access());
     }
 
     #[test]

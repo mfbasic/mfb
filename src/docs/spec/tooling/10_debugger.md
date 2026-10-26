@@ -1606,6 +1606,12 @@ instruction through the processor's `arch.effect`:
   by a known value; with an unknown one, and on any other write to `sp`
   (`andi sp, sp, -16`, `sub sp, sp, a5`), `sp` becomes unknown.
   [[src/debugger/riscv64/mod.rs:effect]]
+- The compiler's own AArch64 frames (`./mfb spec memory native-calling-convention`)
+  are read by the same rules: `sub sp, sp, #N` and then the saves in adjacent
+  pairs (`stp x21, x22, [sp, #off]`, with `x30` in the last pair or stored alone),
+  or, for a frame of at most 496 bytes, the allocation folded into the first pair
+  (`stp x21, x30, [sp, #-N]!`) and released by the last restore (`ldp x21, x30,
+  [sp], #N`). [[src/debugger/backtrace/tests/mod.rs:a_paired_compiled_frame_saves_lr_at_its_offset_from_the_cfa]]
 - The prologue is the leading run of `sp` decrements, stores through `sp` (or a
   register set from it), `add x<n>, sp, #imm` and hints. The state it leaves is
   the body's: `ret`, `br`, or `b` outside the function's extent restores it, so

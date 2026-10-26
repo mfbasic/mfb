@@ -720,6 +720,14 @@ pub(crate) trait Backend: Sync {
     fn stack_probe_page_bytes(&self) -> usize {
         0
     }
+    /// Whether this ISA has a two-register load/store (`stp`/`ldp`) the shared
+    /// frame builder and the pairing row may produce (plan-171-A). Default
+    /// `false`: x86-64 has no two-register store and RV64GC no pair access, so
+    /// their save areas and bodies keep one access per register. Only the
+    /// AArch64 backend overrides it.
+    fn supports_pair_access(&self) -> bool {
+        false
+    }
 }
 
 thread_local! {

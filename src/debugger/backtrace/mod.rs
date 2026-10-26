@@ -7,9 +7,12 @@
 //! frame's canonical frame address, CFA) and where the link register and the
 //! caller's frame pointer were saved, reading each instruction through the
 //! processor's [`Arch::effect`]. On AArch64 (`lr` is `x30`, `fp` `x29`) that
-//! reads both the compiler's frames (`sub sp, sp, #N` then `str x30, [sp,
-//! #off]`, `crate::codegen::engine::util::vreg_frame`) and the frame records
-//! system libraries build (`stp x29, x30, [sp, #-N]!`, `mov x29, sp`). An
+//! reads both the compiler's frames (`crate::codegen::engine::util::vreg_frame`:
+//! `sub sp, sp, #N` then the callee-saved registers in adjacent pairs, `stp x21,
+//! x22, [sp, #off]` … with `x30` in the last pair or alone; a frame of at most
+//! 496 bytes whose first pair is at its bottom allocates with that pair, `stp
+//! x21, x30, [sp, #-N]!`, and frees with `ldp x21, x30, [sp], #N`) and the frame
+//! records system libraries build (`stp x29, x30, [sp, #-N]!`, `mov x29, sp`). An
 //! epilogue (a return, or a jump out of the function) puts the walk back to the
 //! state the prologue left, the state the rest of the body runs in.
 //!

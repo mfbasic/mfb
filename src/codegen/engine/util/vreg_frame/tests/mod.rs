@@ -76,3 +76,5 @@ fn required_sp_local_bytes_skips_a_hooks_own_sub_sp_region() {
     ];
     assert_eq!(required_sp_local_bytes(&instructions), 0x10);
 }
+
+mod pairs;

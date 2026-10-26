@@ -1233,6 +1233,10 @@ name = "rt_compress_bounds"
 path = "tests/runtime/rt_compress_bounds.rs"
 
 [[test]]
+name = "rt_codegen_forms"
+path = "tests/runtime/rt_codegen_forms.rs"
+
+[[test]]
 name = "rt_runtime_helper_callee_saved"
 path = "tests/runtime/rt_runtime_helper_callee_saved.rs"
 

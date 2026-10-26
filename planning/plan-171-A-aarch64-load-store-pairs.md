@@ -436,9 +436,10 @@ Commit: 4dcdd0ef5
 - [x] `src/codegen/engine/regalloc/analysis.rs`: `dst2` → `DEF_FIELDS`, `src2` →
       `USE_FIELDS`. Also: a pre-/post-indexed pair's `base` is a definition
       (`effect`), tested by `a_pair_reads_and_writes_both_registers_…`.
-- [~] `src/target/shared/abi.rs`: constructors `store_pair_u64`, `load_pair_u64`,
+- [x] `src/target/shared/abi.rs`: constructors `store_pair_u64`, `load_pair_u64`,
       `store_pair_q`, `load_pair_q` taking `(r1, r2, base, offset, addressing)`.
-      Remaining: they land with their first caller in Phase 3 (Correction 4).
+      Landed with their first caller in Phase 3 (Correction 4), with
+      `abi::PairAddressing`.
 - [x] `src/arch/aarch64/encode/emitter.rs` + `sizing.rs`: encode STP/LDP (64-bit
       GPR and 128-bit SIMD; signed-offset, pre-, post-index) with the range,
       alignment and register checks of §4.2. (`emitter/memory.rs:emit_pair`;
@@ -448,9 +449,10 @@ Commit: 4dcdd0ef5
       explicit "AArch64-only form" error arm; a unit test per backend
       (`the_aarch64_pair_forms_are_refused` in `x86_64/encode/tests/integer_edges.rs`
       and `riscv64/encode/tests/encoder.rs`).
-- [~] `src/arch/aarch64/backend.rs`: `supports_pair_access() -> true`; trait
-      default `false` in `mir.rs:Backend`. Remaining: lands with its first
-      reader, `finalize_frame`, in Phase 3 (Correction 4).
+- [x] `src/arch/aarch64/backend.rs`: `supports_pair_access() -> true`; trait
+      default `false` in `mir.rs:Backend`. Landed with its first reader,
+      `finalize_frame`, in Phase 3 (Correction 4); the x86-64/Win64/riscv64
+      backend tests assert `false`.
 - [x] `src/optimizer/opt2/peephole.rs:classify`: model `stp`/`ldp` (§4.2). A
       non-writeback X `stp` to `sp` is two slot stores, a non-writeback X `ldp`
       defines both destinations; write-back and Q pairs flush, as their single
@@ -486,32 +488,43 @@ byte changes (provably neutral — nothing produces the ops yet).
   Result (2026-10-25): `cargo test --bin mfb -- aarch64::encode aarch64::decode ops:: regalloc::analysis opt2::peephole x86_64::encode riscv64::encode`
   → 344 passed, 0 failed; `artifact-gate.sh … strings` → `7 golden(s) checked, 0 diff(s)`;
   `cargo test --release --test rt_runtime_helper_callee_saved --test rt_foreign_entry_callee_saved --test app_special_keys --test codegen_canvas_metal_off_frame_path --test codegen_canvas_vulkan_off_frame_path` → all pass.
-Commit: —
+Commit: 2b7058db8 (the riscv64 round-trip guard it reddened is fixed in ad873009b, Correction 6)
 
 ### Phase 3 — frame `stp`/`ldp` (Level 0)
 
-- [ ] `src/codegen/engine/util/vreg_frame.rs:finalize_frame`: pair the saves and
+- [x] `src/codegen/engine/util/vreg_frame.rs:finalize_frame`: pair the saves and
       restores (§4.3), including the pre-/post-index folds; keep the single-store
       path for unpaired slots and for backends without pair access.
-- [ ] Unit tests in `vreg_frame.rs`: 0, 1, 2, 3 GPR saves; GPR + `d8` (q slot
+      (`save_accesses` builds the access list once; `SaveAccess` emits each
+      prologue/epilogue access. The fold also requires a non-probing frame.)
+- [x] Unit tests in `vreg_frame.rs`: 0, 1, 2, 3 GPR saves; GPR + `d8` (q slot
       breaks the run); `outgoing_bytes > 0` (no pre-index fold); total 504 vs
       512 (fold boundary); save offset 504 vs 512 (imm7 boundary); multiple `ret`s.
-- [ ] `src/debugger/backtrace.rs`: add a `state_at` test over the exact words the
+      (`vreg_frame/tests/pairs.rs`, after moving the inline tests out in
+      `5276db06b`; also Q+Q pairing and x86-64/riscv64 keeping singles. The
+      boundaries are 496/512 and 496/512 — Correction 5.)
+- [x] `src/debugger/backtrace.rs`: add a `state_at` test over the exact words the
       new prologue/epilogue emit (pre-index `stp` with `x30` second, plain `stp`,
       post-index `ldp`), asserting CFA and `lr` slot; update the module doc's
       description of the compiler frame.
-- [ ] rt fixture `tests/rt-behavior/functions/frame-pair-saves` (valid): a
+      (`a_paired_compiled_frame_saves_lr_at_its_offset_from_the_cfa`, words from
+      Apple clang 17.)
+- [x] rt fixture `tests/rt-behavior/functions/frame-pair-saves` (valid): a
       recursive function that keeps ≥ 6 values live across calls (forces x21–x27
       saves) plus a leaf, printing a checksum; a `--debug`-free build. No
       invalid twin: there is no user-facing surface to misuse (a compiler
       lowering change), which `.ai/compiler.md`'s per-function fixture rule
       does not cover.
-- [ ] Codegen-inspection test `tests/runtime/rt_codegen_forms.rs::frame_saves_use_stp`
+- [x] Codegen-inspection test `tests/runtime/rt_codegen_forms.rs::frame_saves_use_stp`
       (new file; extended by every later letter): builds that fixture with
       `-ncode` for `macos-aarch64` and `linux-aarch64`, asserts `stp`/`ldp`
       present and no `str_u64 x30` adjacent to another save; asserts no `stp`
-      in the `linux-x86_64`/`linux-riscv64` dumps.
-- [ ] Golden re-baseline (this form's own): run the AGENTS.md four questions for
+      in the `linux-x86_64`/`linux-riscv64` dumps. (Stronger: no function in the
+      dump — helpers included — saves two adjacent integer slots of its frame
+      with two `str`; `windows-x86_64` also checked. Red on the `89a4dce2c`
+      compiler: `MFB_TEST_EXE=<base mfb> … frame_saves_use_stp_on_macos` →
+      `mix prologue` assertion fails.)
+- [x] Golden re-baseline (this form's own): run the AGENTS.md four questions for
       the `.ncodesum` family once and record them in the commit (written for
       byte-identity of emitted code; dependents are `artifact-gate.sh` only;
       proof = `-ncode` diff of ONE fixture per aarch64 target showing only
@@ -520,8 +533,37 @@ Commit: —
       `bash scripts/regen-native-goldens.sh target/release/mfb`, then
       `artifact-gate.sh … all` → 0. Compare `git status --porcelain | wc -l`
       against the predicted set (aarch64 goldens only).
-- [ ] Runtime proof: `bash scripts/test-accept.sh target/release/mfb /tmp/171a-accept`
+      Result: `artifact-gate.sh <phase-3 mfb> all` → `2389 golden(s) checked, 73
+      diff(s)`, every one aarch64 (29 linux-aarch64 + 3 linux-aarch64.app +
+      29 macos-aarch64 `.ncodesum`, 3 macos `.app.ncodesum`, 5 macos `.ncode`,
+      2 macos `.app.ncode`, 2 macos `.mir` — Correction 7), none x86-64,
+      Windows or riscv64. Proof for **all 73** rather than one fixture: each was
+      rebuilt with the `89a4dce2c` and the phase-3 compiler and compared by a
+      `/tmp` probe that expands every `stp`/`ldp` back into its two accesses
+      (and a pre/post fold into its `sub_sp`/`add_sp`) — 73 of 73 equal, 96,130
+      pairs, every other instruction, function, data object and import
+      unchanged. Full `test-accept.sh` first: 1758 ran, 9 mismatches, exactly
+      the raw `.ncode`/`.mir` goldens among the 73; every `build.log` run
+      output matched. `regen-native-goldens.sh <phase-3 mfb>` → 231 rewritten,
+      `git status --porcelain` 73 changed = the 73 diffs; gate re-run →
+      `2389 golden(s) checked, 0 diff(s)`.
+      Four questions (per AGENTS.md): (1) the `.ncode`/`.ncodesum`/`.mir`
+      goldens are the byte-identity sentinels of emitted code, regenerated by
+      every codegen change since `regen-native-goldens.sh` (plan-131-B);
+      (2) they protect the exact emitted instruction stream per target;
+      (3) `scripts/artifact-gate.sh` (and `cargo test --test golden`), and
+      `test-accept.sh` for the raw macOS `.ncode`/`.mir`; (4) wrong because
+      the new frame is the intended stream: the expansion probe shows each
+      diff is only the planned save/restore pairing.
+- [x] Runtime proof: `bash scripts/test-accept.sh target/release/mfb /tmp/171a-accept`
       on macOS and `bash scripts/linux-runtime-proof.sh target/release/mfb 2223 linux-aarch64`.
+      macOS: the acceptance run above (every run output matched). Linux
+      aarch64: **box 2223 refused ssh** (`ssh -p 2223 test@127.0.0.1` →
+      `Connection refused`, 2026-10-25), so the proof ran on **2226** (Debian 12
+      aarch64 glibc): phase-3 compiler `899 passed, 11 failed, 1 not run`; the
+      `89a4dce2c` compiler on the same box `899 passed, 11 failed, 1 not run`
+      with the same failures (libsnd vendor library absent, ping, worker thread
+      names, fs thread errors — environmental). Correction 8.
 - [ ] Benchmark: `./benchmark/language/run.sh 10` on the macOS host; compare with
       `benchmark/language/baseline/mfb-O1.log` via `./benchmark/language/rank.py`; record the
       `recurse` and `tree` rows (call-heavy) in Corrections/Summary. No baseline
@@ -531,7 +573,10 @@ Acceptance: every aarch64 prologue with ≥ 2 adjacent saves uses `stp`; output 
 every runtime fixture is unchanged.
   Check: `cargo test --release --test rt_codegen_forms frame_saves_use_stp` → pass (est. 2 min);
   `linux-runtime-proof.sh … 2223 linux-aarch64` → 0 mismatches (est. 25 min — the only check that executes Linux aarch64 code; nothing smaller runs a Linux prologue).
-Commit: —
+  Result (2026-10-25): `bash scripts/test-fast.sh --test rt_codegen_forms --test rt_foreign_entry_callee_saved --test rt_runtime_helper_callee_saved --test app_special_keys --test codegen_canvas_metal_off_frame_path --test codegen_canvas_vulkan_off_frame_path`
+  → all steps ok (`rt_codegen_forms`: 3 passed); Linux aarch64 on 2226 (2223
+  refused ssh) → verdicts identical to the starting compiler (Correction 8).
+Commit: see the next commit's plan update (phase 3 landing)
 
 ### Phase 4 — body pairing row (Level 1)
 
@@ -643,6 +688,34 @@ Commit: —
    suppressions). Phase 2 lands the op, its encoding, decoding, roles and the
    peephole model; Phase 3 lands the constructors and the backend flag with
    `finalize_frame`, their first caller.
+5. **The fold boundary is 496/512, not 504/512.** `total_stack_size` is always a
+   multiple of 16 on AArch64 (`outgoing_bytes` and the aligned save+locals are,
+   and `call_padding` is 0), so the largest frame the post-index `ldp` (+504)
+   can release is 496; the tests pin 496 (folded) vs 512 (not). The same holds
+   for the imm7 offset boundary: integer pairs start at 16-aligned offsets, so
+   the tests pin a pair at 496 (paired) vs 512 (two singles).
+6. **Phase 2 reddened the riscv64 decoder guard.** The explicit refusal arm in
+   the riscv64 encoder's dispatch read as an emitted form to
+   `riscv64::decode::round_trip::decodes_every_form_the_encoder_emits`, and
+   Phase 1's script was missing from `tests/gate/gate_lock_covers_every_writer.rs`'s
+   classification; the landing tier caught both before Phase 3 landed; fixed in
+   `ad873009b` (refusal moved ahead of the dispatch; script classified exempt).
+7. **The frame change also moves `.mir` goldens.** The `-mir` dump shows the
+   hand-written runtime helpers over their finalized stream (spec
+   `mir-instruction-set`), so the two macOS `.mir` goldens moved with the
+   `.ncode`s. Expected target, classified like the rest.
+8. **Box 2223 was unreachable; 2226 stood in.** `ssh -p 2223` → connection
+   refused (2222, 2225, 2231 too). Linux aarch64 execution ran on 2226 (Debian 12
+   aarch64, glibc 2.36), verdict-for-verdict against the starting compiler.
+9. **Spec topics land with the phase that makes them observable.** Rather than
+   a separate Phase 5, the ISA/MIR/calling-convention/debugger topics land with
+   Phase 3 (the first producer) and the pairing row's with Phase 4
+   (`.ai/specifications.md`: same change). Phase 5 keeps the `.ai` entry and
+   the render checks.
+10. **The full cargo suite runs once, as the Final gate.** Each re-baseline is
+   gated per AGENTS.md by `artifact-gate.sh … all` and a full `test-accept.sh`,
+   plus `scripts/test-fast.sh`; the 60–90 min `cargo test --no-fail-fast` runs
+   at the end over all phases.
 
 ## Summary
 

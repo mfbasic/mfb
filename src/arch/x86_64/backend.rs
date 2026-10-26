@@ -117,6 +117,8 @@ mod tests {
         // SysV has no shadow space / outgoing-args offset.
         assert_eq!(backend.shadow_space_bytes(), 0);
         assert_eq!(backend.outgoing_args_base_offset(), 0);
+        // x86-64 has no two-register store (plan-171-A §2.4).
+        assert!(!backend.supports_pair_access());
     }
 
     #[test]
@@ -136,5 +138,6 @@ mod tests {
         let model = backend.register_model();
         assert_eq!(model.external_int_argument_registers(), 4);
         assert_eq!(model.arena_base(), "r15");
+        assert!(!backend.supports_pair_access());
     }
 }

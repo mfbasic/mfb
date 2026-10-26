@@ -1391,6 +1391,135 @@ pub(crate) fn store_u64(
         .field("offset", &offset.to_string())
 }
 
+/// plan-171-A: the addressing mode of an `stp`/`ldp`. `Offset` leaves the base
+/// unchanged; `PreIndex` adds the offset to the base first and accesses there
+/// (`[base, #offset]!`); `PostIndex` accesses at the base and then adds the
+/// offset (`[base], #offset`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PairAddressing {
+    Offset,
+    PreIndex,
+    PostIndex,
+}
+
+impl PairAddressing {
+    /// The `addressing` field's spelling.
+    pub(crate) fn spelling(self) -> &'static str {
+        match self {
+            PairAddressing::Offset => "offset",
+            PairAddressing::PreIndex => "pre",
+            PairAddressing::PostIndex => "post",
+        }
+    }
+}
+
+#[track_caller]
+fn pair(
+    op: &str,
+    roles: [&'static str; 2],
+    registers: [Reg; 2],
+    base: Reg,
+    offset: i64,
+    addressing: PairAddressing,
+    width: usize,
+) -> CodeInstruction {
+    CodeInstruction::new(op)
+        .field(roles[0], reg(registers[0]))
+        .field(roles[1], reg(registers[1]))
+        .field("base", reg(base))
+        .field("offset", &offset.to_string())
+        .field("addressing", addressing.spelling())
+        .field("width", &width.to_string())
+}
+
+/// `stp first, second, <address>` — store two 64-bit registers, `first` at the
+/// lower address (plan-171-A). AArch64 only (`Backend::supports_pair_access`).
+#[track_caller]
+pub(crate) fn store_pair_u64(
+    first: impl Into<Reg>,
+    second: impl Into<Reg>,
+    base: impl Into<Reg>,
+    offset: i64,
+    addressing: PairAddressing,
+) -> CodeInstruction {
+    let registers = [first.into(), second.into()];
+    pair(
+        "stp",
+        ["src", "src2"],
+        registers,
+        base.into(),
+        offset,
+        addressing,
+        8,
+    )
+}
+
+/// `ldp first, second, <address>` — load two 64-bit registers, `first` from the
+/// lower address (plan-171-A). AArch64 only.
+#[track_caller]
+pub(crate) fn load_pair_u64(
+    first: impl Into<Reg>,
+    second: impl Into<Reg>,
+    base: impl Into<Reg>,
+    offset: i64,
+    addressing: PairAddressing,
+) -> CodeInstruction {
+    let registers = [first.into(), second.into()];
+    pair(
+        "ldp",
+        ["dst", "dst2"],
+        registers,
+        base.into(),
+        offset,
+        addressing,
+        8,
+    )
+}
+
+/// `stp q<first>, q<second>, <address>` — store two 128-bit registers (plan-171-A).
+/// AArch64 only.
+#[track_caller]
+pub(crate) fn store_pair_q(
+    first: impl Into<Reg>,
+    second: impl Into<Reg>,
+    base: impl Into<Reg>,
+    offset: i64,
+    addressing: PairAddressing,
+) -> CodeInstruction {
+    let registers = [first.into(), second.into()];
+    pair(
+        "stp",
+        ["src", "src2"],
+        registers,
+        base.into(),
+        offset,
+        addressing,
+        16,
+    )
+}
+
+/// `ldp q<first>, q<second>, <address>` — load two 128-bit registers (plan-171-A).
+/// AArch64 only.
+#[track_caller]
+pub(crate) fn load_pair_q(
+    first: impl Into<Reg>,
+    second: impl Into<Reg>,
+    base: impl Into<Reg>,
+    offset: i64,
+    addressing: PairAddressing,
+) -> CodeInstruction {
+    let registers = [first.into(), second.into()];
+    pair(
+        "ldp",
+        ["dst", "dst2"],
+        registers,
+        base.into(),
+        offset,
+        addressing,
+        16,
+    )
+}
+
 #[track_caller]
 pub(crate) fn store_u32(
     src: impl Into<Reg>,

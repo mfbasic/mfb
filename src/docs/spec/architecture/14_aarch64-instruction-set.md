@@ -109,6 +109,8 @@ encoder. [[src/arch/aarch64/encode/emitter/mod.rs:emit_instruction]]
 | `StrU32` | `str_u32` | `src`,`base`,`offset` | `0xB9000000` | scale 4 |
 | `StrU16` | `str_u16` | `src`,`base`,`offset` | `0x79000000` | scale 2; `src=Rt` |
 | `StrU8` | `str_u8` | `src`,`base`,`offset` | `0x39000000` | scale 1 |
+| `Stp` | `stp` | `src`,`src2`,`base`,`offset`,`addressing`,`width` | `0xA9000000` X / `0xAD000000` Q | store pair; `src=Rt` (lower address), `src2=Rt2=bits[14:10]`; see *Worked encodings* |
+| `Ldp` | `ldp` | `dst`,`dst2`,`base`,`offset`,`addressing`,`width` | `0xA9400000` X / `0xAD400000` Q | load pair; `dst=Rt` (lower address), `dst2=Rt2` |
 | `MrsDczid` | `mrs_dczid` | `dst` | `0xD53B00E0` | `mrs Xt, DCZID_EL0`; the program entry's `dc zva` block-size probe (plan-183-A) |
 | `DcZva` | `dc_zva` | `base` | `0xD50B7420` | `dc zva, Xt` (`sys #3,C7,C4,#1`); the arena zero fill's block zero |
 | `Adrp` | `adrp` | `dst`,`symbol` | `0x90000000` | emits a `page21` relocation |
@@ -273,6 +275,37 @@ The relocation `binding` is `external` (with the resolved `library`) when the
 symbol is an import, else `data`. The base words carry zero in their immediate
 fields; the page/offset bits are entirely supplied by the relocation
 (`./mfb spec linker symbols-and-relocations`).
+
+### `stp`/`ldp` — load/store pair
+
+`emit_pair` encodes the load/store-pair class `opc(2) 101 V mode(3) L imm7 Rt2
+Rn Rt`: `opc` is `10` for both widths, `V` is 1 for a Q pair (`width` 16) and 0
+for an X pair (`width` 8), `L` is 1 for `ldp`, and `mode` is `010` for
+`addressing` `offset` (`[Rn, #off]`), `011` for `pre` (`[Rn, #off]!`, the base
+written back before the access) and `001` for `post` (`[Rn], #off`, written back
+after). `imm7` is the signed byte offset over the width, so an X pair reaches
+−512…504 and a Q pair −1024…1008 in multiples of the width; a misaligned or
+out-of-reach offset is an encode error, never a multi-word fallback. An X pair's
+data registers are GPRs (register 31 there is XZR, so an `sp`-spelled data
+operand is refused); a Q pair's are `q`/`v`/`d` names. Refused as UNPREDICTABLE:
+an `ldp` whose two destinations are one register, and a write-back whose base
+(other than `sp`) is also one of the data registers.
+[[src/arch/aarch64/encode/emitter/memory.rs:emit_pair]]
+
+```text
+stp x21, x30, [sp, #-32]!   ; src=21 src2=30 base=sp offset=-32 pre width 8
+
+  (0b10 << 30) | (0b101 << 27) | (0b011 << 23)  = 0xA9800000
+  | ((-32 / 8) & 0x7f) << 15  = 0x7C << 15       = 0x003E0000
+  | (30 << 10) | (31 << 5) | 21                  = 0xA9BE7BF5
+```
+
+The pair forms are produced only after register allocation — by the frame's
+save area and the Level-1 pairing row — and only on a backend that answers
+`supports_pair_access` (AArch64); the x86-64 and riscv64 encoders refuse them by
+name. [[src/codegen/engine/mir/mir.rs:supports_pair_access]]
+Each form's exact word is pinned against Apple clang's assembler.
+[[src/arch/aarch64/encode/tests/pairs.rs:encodes_every_pair_form]]
 
 ### `umulh` — single-word data op
 

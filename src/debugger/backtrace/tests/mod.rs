@@ -20,6 +20,15 @@ const PACIBSP: u32 = 0xd503_237f;
 const RET: u32 = 0xd65f_03c0;
 const MOV_X0_X1: u32 = 0xaa01_03e0;
 const BL: u32 = 0x9400_0005;
+// plan-171-A: the compiler's paired save area (Apple clang 17 words).
+const STP_X21_LR_PRE_32: u32 = 0xa9be_7bf5;
+const STP_X22_X23_16: u32 = 0xa901_5ff6;
+const LDP_X22_X23_16: u32 = 0xa941_5ff6;
+const LDP_X21_LR_POST_32: u32 = 0xa8c2_7bf5;
+const STP_X21_X22: u32 = 0xa900_5bf5;
+const STP_X23_LR_16: u32 = 0xa901_7bf7;
+const LDP_X23_LR_16: u32 = 0xa941_7bf7;
+const LDP_X21_X22: u32 = 0xa940_5bf5;
 
 fn state(words: &[u32]) -> FrameState {
     let code = words
@@ -51,6 +60,48 @@ fn a_compiled_frame_saves_lr_at_its_offset_from_the_cfa() {
         state(&[SUB_SP_0X150, STR_X21_SP, STR_X30_SP_16]).lr,
         Some(-0x150 + 16)
     );
+}
+
+/// plan-171-A: a small frame moves `sp` with its first pair (`stp x21, x30,
+/// [sp, #-32]!`, `lr` the pair's second, 8 above the new `sp`) and gives it back
+/// with the last (`ldp x21, x30, [sp], #32`); a larger one allocates with `sub`
+/// and saves `lr` in a plain `stp` at its slot.
+#[test]
+fn a_paired_compiled_frame_saves_lr_at_its_offset_from_the_cfa() {
+    let body = FrameState {
+        sp: Some(-32),
+        lr: Some(-32 + 8),
+        ..FrameState::ENTRY
+    };
+    assert_eq!(state(&[STP_X21_LR_PRE_32]), body);
+    let prologue = [STP_X21_LR_PRE_32, STP_X22_X23_16, MOV_X0_X1, BL];
+    assert_eq!(state(&prologue), body);
+    let mut words = prologue.to_vec();
+    words.push(LDP_X22_X23_16);
+    assert_eq!(state(&words), body);
+    words.push(LDP_X21_LR_POST_32);
+    assert_eq!(state(&words), FrameState::ENTRY);
+    words.push(RET);
+    assert_eq!(state(&words), body);
+
+    let large = [SUB_SP_0X150, STP_X21_X22, STP_X23_LR_16, MOV_X0_X1];
+    let body = FrameState {
+        sp: Some(-0x150),
+        lr: Some(-0x150 + 24),
+        ..FrameState::ENTRY
+    };
+    assert_eq!(state(&large), body);
+    let mut words = large.to_vec();
+    words.extend([LDP_X23_LR_16, LDP_X21_X22]);
+    assert_eq!(
+        state(&words),
+        FrameState {
+            sp: Some(-0x150),
+            ..FrameState::ENTRY
+        }
+    );
+    words.extend([ADD_SP_0X150, RET]);
+    assert_eq!(state(&words), body);
 }
 
 #[test]

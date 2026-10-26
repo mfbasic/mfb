@@ -1,0 +1,34 @@
+IMPORT io
+
+' plan-171-A: an AArch64 frame saves adjacent callee-saved registers with `stp` and
+' restores them with `ldp`. `mix` keeps seven values live across each of its calls,
+' so its frame saves seven callee-saved registers and the link register; `leaf`
+' makes no call. Every value is read back after the recursion returns, so the
+' checksums only come out right if each saved register is restored intact.
+
+FUNC leaf(a AS Integer, b AS Integer) AS Integer
+  RETURN a * 31 + b
+END FUNC
+
+FUNC mix(n AS Integer, seed AS Integer) AS Integer
+  IF n = 0 THEN
+    RETURN leaf(seed, 7)
+  END IF
+  LET a AS Integer = seed + 1
+  LET b AS Integer = seed * 3
+  LET c AS Integer = seed - 5
+  LET d AS Integer = seed + n
+  LET e AS Integer = n * 11
+  LET f AS Integer = seed + 13
+  LET g AS Integer = leaf(n, seed)
+  LET inner AS Integer = mix(n - 1, (a + g) MOD 1000)
+  RETURN (inner + a + b * 2 + c * 3 + d * 5 + e * 7 + f * 11 + g * 13) MOD 1000003
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(leaf(2, 3)))
+  io::print(toString(mix(1, 1)))
+  io::print(toString(mix(10, 1)))
+  io::print(toString(mix(40, 42)))
+  RETURN 0
+END FUNC

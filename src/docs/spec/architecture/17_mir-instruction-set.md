@@ -28,7 +28,11 @@ exhaustive matches over the backend op set, so a missing variant fails the build
 
 A `MirInstruction` is `{ op: MirOp, fields: Vec<(&'static str, Operand)> }` — an
 op tag plus named typed operands (field order matters for fused operations). The register
-allocator's field-based liveness works unchanged across the seam.
+allocator's field-based liveness works unchanged across the seam: a register field is a
+*definition* when named `dst`, `dst2` (an `ldp`'s second destination), `carry_out` or
+`borrow_out`, and a *use* when named `src`, `src2` (an `stp`'s second source), `lhs`, `rhs`,
+`minuend`, `base`, `register`, `addend`, `carry_in` or `borrow_in`; a pre- or post-indexed
+pair's `base` is both. [[src/codegen/engine/regalloc/analysis.rs:effect]]
 [[src/codegen/engine/mir/mir.rs:MirInstruction]] Two neutral conventions replace
 ISA-specific spellings in the field values:
 
@@ -183,6 +187,8 @@ carry the same fields as the shape they rename.
 | `call_indirect` | `register` | call via a register |
 | `ldr_u64` `ldr_u32` `ldr_u16` `ldr_u8` `ldr_d` | `dst`, `base`, `offset` | load (width in the mnemonic) |
 | `str_u64` `str_u32` `str_u16` `str_u8` `str_d` | `src`, `base`, `offset` | store |
+| `stp` | `src`, `src2`, `base`, `offset`, `addressing`, `width` | AArch64 only: store two registers to `[base+offset]`/`+width` (`src` lower); `addressing` `offset`/`pre`/`post`, `width` 8 or 16 (plan-171-A) |
+| `ldp` | `dst`, `dst2`, `base`, `offset`, `addressing`, `width` | AArch64 only: load pair, `dst` from the lower address; never one register twice |
 | `mrs_dczid` | `dst` | AArch64 only: read `DCZID_EL0` (plan-183-A) |
 | `dc_zva` | `base` | AArch64 only: zero the `dc zva` block at `base` |
 | `rep_stosb_zero` | `base`, `src` | x86-64 only: zero `src` bytes at `base`; changes no register |

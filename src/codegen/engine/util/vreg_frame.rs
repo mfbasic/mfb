@@ -136,13 +136,31 @@ pub(crate) fn finalize_frame(
         resolve_stack_arg_sentinels(instructions, total_stack_size, entry_padding);
     }
 
+    // The save area as the prologue writes it and every epilogue reads it back:
+    // one access per register, or — on a backend with pair access — one `stp`/`ldp`
+    // per two adjacent same-kind slots (plan-171-A). The slots themselves, and so
+    // the frame layout, are the same either way.
+    let pairs = crate::codegen::engine::mir::active_backend().supports_pair_access();
+    let accesses = save_accesses(&callee_saved, &callee_offsets, outgoing_bytes, pairs);
+    // Pre-/post-index fold: a frame small enough for the pair's imm7 whose first
+    // pair sits at the very bottom moves `sp` with that pair, `stp a, b, [sp,
+    // #-total]!` in for `sub sp, total; stp a, b, [sp]`, and `ldp a, b, [sp],
+    // #total` in for `ldp a, b, [sp]; add sp, total` (§4.3). A frame with an
+    // outgoing-argument tail has no save at offset 0, and a probing frame
+    // (`push_frame_allocation`'s page loop) keeps its own allocation.
+    let probe_page = crate::codegen::engine::mir::active_backend().stack_probe_page_bytes();
+    let fold = pairs
+        && total_stack_size <= MAX_FOLDED_FRAME
+        && (probe_page == 0 || total_stack_size <= probe_page)
+        && matches!(accesses.first(), Some(SaveAccess::Pair { offset: 0, .. }));
     let mut prologue = Vec::new();
-    push_frame_allocation(&mut prologue, total_stack_size);
-    for (index, register) in callee_saved.iter().enumerate() {
-        prologue.push(save_callee_saved(
-            register,
-            outgoing_bytes + callee_offsets[index],
-        ));
+    if fold {
+        prologue.push(accesses[0].store(-(total_stack_size as i64), abi::PairAddressing::PreIndex));
+    } else {
+        push_frame_allocation(&mut prologue, total_stack_size);
+    }
+    for access in accesses.iter().skip(usize::from(fold)) {
+        prologue.push(access.save());
     }
 
     let insert_at = if instructions
@@ -158,13 +176,16 @@ pub(crate) fn finalize_frame(
     let mut rewritten = Vec::new();
     for instruction in instructions.drain(..) {
         if instruction.op == CodeOp::Ret {
-            for (index, register) in callee_saved.iter().enumerate().rev() {
-                rewritten.push(restore_callee_saved(
-                    register,
-                    outgoing_bytes + callee_offsets[index],
-                ));
+            for access in accesses.iter().skip(usize::from(fold)).rev() {
+                rewritten.push(access.restore());
             }
-            rewritten.push(abi::add_stack(total_stack_size));
+            if fold {
+                rewritten.push(
+                    accesses[0].load(total_stack_size as i64, abi::PairAddressing::PostIndex),
+                );
+            } else {
+                rewritten.push(abi::add_stack(total_stack_size));
+            }
             rewritten.push(instruction);
         } else {
             rewritten.push(instruction);
@@ -176,6 +197,137 @@ pub(crate) fn finalize_frame(
         stack_size: total_stack_size,
         callee_saved,
     }
+}
+
+/// The largest frame the pre-/post-index fold moves `sp` by: the post-index
+/// `ldp`'s imm7 reaches +504 (`63 * 8`), and the frame size is a multiple of 16,
+/// so the largest folded frame is 496 bytes.
+const MAX_FOLDED_FRAME: usize = 504;
+/// The highest offset a 64-bit (`X`) pair can address (`63 * 8`).
+const MAX_X_PAIR_OFFSET: usize = 504;
+/// The highest offset a 128-bit (`Q`) pair can address (`63 * 16`).
+const MAX_Q_PAIR_OFFSET: usize = 1008;
+
+/// One access to the callee-saved area: a register on its own, or two adjacent
+/// slots of one kind (both 8-byte integer slots, or both 16-byte `q` slots) as
+/// one `stp`/`ldp` (plan-171-A). `offset` is the final `sp` offset of the
+/// first (lower) slot.
+enum SaveAccess<'a> {
+    Single {
+        register: &'a str,
+        offset: usize,
+    },
+    Pair {
+        first: &'a str,
+        second: &'a str,
+        offset: usize,
+        simd: bool,
+    },
+}
+
+impl SaveAccess<'_> {
+    fn save(&self) -> CodeInstruction {
+        match *self {
+            SaveAccess::Single { register, offset } => save_callee_saved(register, offset),
+            SaveAccess::Pair { offset, .. } => {
+                self.store(offset as i64, abi::PairAddressing::Offset)
+            }
+        }
+    }
+
+    fn restore(&self) -> CodeInstruction {
+        match *self {
+            SaveAccess::Single { register, offset } => restore_callee_saved(register, offset),
+            SaveAccess::Pair { offset, .. } => {
+                self.load(offset as i64, abi::PairAddressing::Offset)
+            }
+        }
+    }
+
+    /// The pair's `stp` at `offset` in `addressing` mode.
+    fn store(&self, offset: i64, addressing: abi::PairAddressing) -> CodeInstruction {
+        let SaveAccess::Pair {
+            first,
+            second,
+            simd,
+            ..
+        } = *self
+        else {
+            unreachable!("only a pair access has a pair store")
+        };
+        let (first, second) = (saved_register(first), saved_register(second));
+        if simd {
+            abi::store_pair_q(first, second, abi::stack_pointer(), offset, addressing)
+        } else {
+            abi::store_pair_u64(first, second, abi::stack_pointer(), offset, addressing)
+        }
+    }
+
+    /// The pair's `ldp` at `offset` in `addressing` mode.
+    fn load(&self, offset: i64, addressing: abi::PairAddressing) -> CodeInstruction {
+        let SaveAccess::Pair {
+            first,
+            second,
+            simd,
+            ..
+        } = *self
+        else {
+            unreachable!("only a pair access has a pair load")
+        };
+        let (first, second) = (saved_register(first), saved_register(second));
+        if simd {
+            abi::load_pair_q(first, second, abi::stack_pointer(), offset, addressing)
+        } else {
+            abi::load_pair_u64(first, second, abi::stack_pointer(), offset, addressing)
+        }
+    }
+}
+
+/// The save area's accesses in `callee_saved` order. With `pairs`, two
+/// consecutive entries become one pair when both are 8-byte integer slots or
+/// both 16-byte `q` slots, the second directly above the first, and the first
+/// within the pair form's reach; everything else — an odd tail, a kind change,
+/// a 64-bit FP slot, a slot past the reach — stays a single access.
+fn save_accesses<'a>(
+    callee_saved: &'a [String],
+    offsets: &[usize],
+    outgoing_bytes: usize,
+    pairs: bool,
+) -> Vec<SaveAccess<'a>> {
+    let mut accesses = Vec::with_capacity(callee_saved.len());
+    let mut index = 0;
+    while index < callee_saved.len() {
+        let register = callee_saved[index].as_str();
+        let offset = outgoing_bytes + offsets[index];
+        if pairs && index + 1 < callee_saved.len() {
+            let next = callee_saved[index + 1].as_str();
+            let simd = is_simd128_callee_saved(register);
+            let integer = |name: &str| !is_simd128_callee_saved(name) && !is_fp_register(name);
+            let (width, reach) = if simd {
+                (16, MAX_Q_PAIR_OFFSET)
+            } else {
+                (8, MAX_X_PAIR_OFFSET)
+            };
+            let same_kind = if simd {
+                is_simd128_callee_saved(next)
+            } else {
+                integer(register) && integer(next)
+            };
+            if same_kind && offsets[index + 1] == offsets[index] + width && offset <= reach {
+                accesses.push(SaveAccess::Pair {
+                    first: register,
+                    second: next,
+                    offset,
+                    simd,
+                });
+                index += 2;
+                continue;
+            }
+        }
+        accesses.push(SaveAccess::Single { register, offset });
+        index += 1;
+    }
+    accesses
 }
 
 /// Allocate registers for a hand-written runtime helper whose body is built with

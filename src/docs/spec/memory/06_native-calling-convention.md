@@ -368,6 +368,21 @@ restores the saved registers in reverse order, releases the frame, and returns.
 [[src/codegen/engine/util/vreg_frame.rs:finalize_frame]]
 [[src/codegen/engine/util/vreg_frame.rs:push_frame_allocation]]
 
+On AArch64 — the one backend with pair access — the save area is written and
+read in pairs, at every optimization level: walking the save set in order, two
+consecutive entries whose slots are adjacent and of one kind (two 8-byte integer
+slots, or two 16-byte SIMD slots) are saved with one `stp` and restored with one
+`ldp`, provided the lower slot is within the pair's reach (`sp + 504` for X
+registers, `sp + 1008` for Q); an odd tail, a change of kind, or a slot past the
+reach keeps its single store and load. A frame of at most 496 bytes with no
+outgoing-argument tail, whose first save is a pair, allocates with that pair —
+`stp a, b, [sp, #-total]!` in place of `sub sp, sp, #total` — and every return
+releases it with the matching `ldp a, b, [sp], #total`. The slot offsets, the
+layout above and the recorded frame size are the same either way; restores run
+in reverse order of the pairs. x86-64 and riscv64 keep one access per register.
+[[src/codegen/engine/util/vreg_frame.rs:save_accesses]]
+[[src/codegen/engine/mir/mir.rs:supports_pair_access]]
+
 The callee-saved set the convention preserves is **`x19..x28`**
 (`is_callee_saved`); `x0..x17` and `x30` are caller-saved (`x30` only auto-added
 to a function's save set when it makes calls, per step 1). [[src/target/shared/abi.rs:is_callee_saved]]

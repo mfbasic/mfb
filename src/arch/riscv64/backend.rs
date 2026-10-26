@@ -51,5 +51,7 @@ mod tests {
         assert_eq!(out[0].op.mnemonic(), "ret");
         assert_eq!(backend.register_model().arena_base(), "s11");
         assert_eq!(backend.frame_call_padding(), 0);
+        // RV64GC has no pair load/store (plan-171-A §2.4).
+        assert!(!backend.supports_pair_access());
     }
 }
