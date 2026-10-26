@@ -681,28 +681,65 @@ What to remember when touching it:
   cargo suites cover the seam by running the emitted members in the `-ncode` interpreter
   (`tests/codegen/codegen_canvas_vulkan_off_frame_path.rs`).
 
-### A group is one instanced draw per node, with an offset bound to BOTH stages
+### A group is one instanced draw per node, its offset read by BOTH stages from a node table
 
 Since plan-116-H a `canvas::Group` is not flattened away before the GPU sees it. The
-worker builds a **draw list** (`__canvas_sceneDraws`) alongside the block list, one entry
+worker builds a **draw list** (`__canvas_sceneDraws`) alongside the block list, one ROW
 per contiguous run of blocks at a given offset:
 
 ```
-(itemBase, itemCount, dx, dy, blendMode, dxLo, dyLo,        sixteen 64-bit words
- hasMatrix, ia, ib, ic, id, pass, 0, 0, 0)
+(itemBase, itemCount, dx, dy, blendMode, 0, 0,               sixteen 64-bit words
+ hasMatrix, ia, ib, ic, id, pass, repeat, 0, 0)
 ```
 
-It was eight words until plan-172-G, and a translate-only entry is still those eight
-followed by zeros. `hasMatrix` is 1 when the entry's groups compose to more than a
-translation, and `ia`..`id` are then the INVERSE linear part of that composition, as
-float32 bit patterns. `pass` is 0 in every entry the frame's layout writes; only a
-pass's own list sets it, in its first entry (bug-765, below).
+It was eight words until plan-172-G, and a translate-only row is still those eight
+followed by zeros (and its repeat). `hasMatrix` is 1 when the row's groups compose to more
+than a translation, and `ia`..`id` are then the INVERSE linear part of that composition,
+as float32 bit patterns. `pass` is 0 in every row the frame's layout writes; only a
+pass's own list sets it, in its first row (bug-765, below). `repeat` (word 13,
+`CANVAS_DRAW_REPEAT_WORD`, plan-175-B) is 1 in every row `__canvas_pushOneDraw` and
+`canvas::sceneDrawsFlat` write: one draw over the row's own node.
 
-**The per-draw payload is 32 bytes, bound to both stages** (plan-172-H): the four offset
-words, then `ia`..`id` — `MfbDraw` in the MSL, `uniform Draw { ivec4 offset; ivec4
-inverse; }` in the GLSL. `hasMatrix` itself is not sent: an inverse is never all zero, so
-all-zero bits mean "no matrix" and the shaders take the branch they always took, which is
-what keeps a translate-only frame byte-identical on each backend. With a matrix the
+**Every row is also a NODE, and the node table is what both stages read** (plan-175-B).
+A row's words 2, 3 and 8–11 — the offset, two zero words, then `ia`..`id` — are its
+32-byte node, `MfbDraw` in the MSL and eight words in the GLSL. Each emitter writes
+every row's node into its frame buffer's node region once a pass, row `i` at node `i`
+(`METAL_NODE_OFFSET`, `VULKAN_NODE_BASE_WORDS`, the last region of each), and a draw
+carries only its 16-byte RUN `{ base, count, node, repeat }`, to the vertex stage. The
+vertex stage takes `local = instance - base` and reads item `base + local % count` under
+node `node + local / count`, and hands the node to the fragment stage as a flat varying
+beside the item; both read the offset and inverse from `nodes[node]` where they read a
+per-draw payload until plan-175-B. A row of repeat `R` therefore draws its `count` blocks
+once under each of `R` consecutive nodes in ONE call, which is what plan-175-C uses to
+merge group nodes; a row of repeat 0 is a node only. `hasMatrix` itself is not read: an
+inverse is never all zero, so all-zero bits mean "no matrix" and the shaders take the
+branch they always took, which is what keeps a translate-only frame byte-identical on each
+backend.
+
+**A pass holds at most a node region of rows.** Rows carried their payload per draw, so
+their number was unbounded; a node is now a slot of a region of fixed size
+(`METAL_MAX_FRAME_NODES` = `VULKAN_MAX_FRAME_NODES` = 65,536), so `__canvas_framePasses`
+counts the frame's rows (`__canvas_rowNodes`, `max(repeat, 1)` each) and
+`__canvas_passNext` ends a pass before a row that would not fit, exactly as it does for a
+block. 65,537 group nodes are two passes
+(`a_frame_of_more_rows_than_the_node_region_draws_in_two_passes`).
+
+**Adjacent group nodes draw as one call** (plan-175-C). At the end of
+`__canvas_sceneDrawsWalk`, `__canvas_mergeRepeats` turns every maximal run of ADJACENT
+rows with equal base, count and blend mode — consecutive `canvas::Group` nodes naming one
+group whose items are one run — into a head of repeat `R` and `R - 1` node-only rows,
+at most a node region long. Their node words are untouched, so the head draws node 0's
+instances, then node 1's, in the order the `R` rows did. **Adjacency is the whole rule**:
+a row between two nodes' rows draws between them, and a group whose items are several
+rows (a blend split, a `Text`, a nested group) pushes `a0 b0 a1 b1`, where no two
+adjacent rows are equal. A culled node writes no row, so its neighbours merge across it;
+a node half off screen writes only its visible blocks and merges with nothing.
+`__canvas_passNext` admits a head only with room for all `R` nodes, so a head and its
+followers share a pass — and if a pass boundary cuts the head's BLOCKS (a group larger
+than a pass), the run's rows draw solo from there on (`__CANVAS_PASS_SOLO_END`): a
+repeat cannot reach into another pass's node table. The frame's node count is its row
+count. `profDraws` counts the draws a pass issues (`OFF_DRAWN`), not its rows.
+`group fill 10000` is 2 draw calls a frame (`tests/canvas/rt_canvas_metal/group_merge.rs`). With a matrix the
 vertex stage carries the item's box through the FORWARD linear part (it inverts the 2×2
 itself), and the fragment stage puts the query point through the inverse before anything
 else reads it.
@@ -726,10 +763,10 @@ wrote, the fourth words of `xform1` and `gradInv1` (`ITEM_RIM_WORDS`), float32 b
 why this did not grow `ITEM_BLOCK_SIZE` and the fragment stage's SPIR-V did not change:
 do not hand those two words to anything else.
 
-`dx`/`dy` are float32 bit patterns (`__canvas_float32Bits`), entry words 2-3; words 5-6
-held their 16.16 residuals until the shaders went to fp32 and are now reserved zeros. Both
-backends still bind four words as the stage offset (`int4`/`ivec4`, 16 bytes), the last
-two zero, so the push-constant range and `MfbDraw` did not change size.
+`dx`/`dy` are float32 bit patterns (`__canvas_float32Bits`), row words 2-3; words 5-6
+held their 16.16 residuals until the shaders went to fp32 and are now reserved zeros. A
+node still carries four words as the offset (`int4`/`ivec4`, 16 bytes), the last two
+zero, so `MfbDraw` did not change size.
 
 The matrix is bound to the fragment stage as well as the vertex stage for the reason
 the offset is, below: bound to the vertex stage alone, a turned group has the right
@@ -766,12 +803,16 @@ plan-163-C it was a surface window evaluated at the un-shifted point, and
 own definition reads `in.pos.xy` — evaluating the clip there again leaves it behind when
 the group moves.
 
-Where the payload is bound differs per backend and per stage, so it is three numbers,
-not one: Vulkan uses a single 32-byte push-constant range both stages declare
-(`PUSH_OFFSET_BYTES`, which the pipeline layout's range, the `vkCmdPushConstants` size
-and the staging slot all read); Metal uses `setVertexBytes:` at buffer index **1** and
-`setFragmentBytes:` at index **3**, 32 bytes each, because its fragment stage already has
-items, edges and the glyph bitmap at 0..2.
+Where the run and the nodes are bound differs per backend (plan-175-B). Vulkan: the run
+is a single 16-byte push-constant range, VERTEX stage only (`PUSH_RUN_BYTES`, which the
+pipeline layout's range, the `vkCmdPushConstants` size and the staging slot all read);
+the nodes are words of `binding = 0`, the shared buffer, which is therefore bound to both
+stages, and both stages are specialized (constant 5, `NODE_BASE`). Metal: the run goes
+by `setVertexBytes:` at buffer index **1**; the node region is the frame buffer bound
+again at `METAL_NODE_OFFSET` (256-byte aligned, as a constant buffer's offset must be on
+macOS) to index **2** of both stages — the fragment stage's 2 held the glyph bitmap until
+bug-670 — and no fragment bytes are sent. Its three selectors a row sends are looked up
+once a pass, not per row.
 
 **A gate cannot decline a group scene by looking for a `Group` item.** By the time
 `__canvas_vulkanRenderable` or `__canvas_metalRenderable` sees the block list, the walk

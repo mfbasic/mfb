@@ -95,6 +95,7 @@ use crate::codegen::runtime::canvas::{
     PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS, TILE_SOURCE_H, TILE_SOURCE_W, TILE_SOURCE_X,
     TILE_SOURCE_Y,
 };
+use crate::codegen::runtime::canvas::{CANVAS_DRAW_REPEAT_WORD, METAL_NODE_OFFSET, NODE_BYTES};
 use crate::codegen::runtime::canvas::{
     CANVAS_PROFILE_ACQUIRE_NS, CANVAS_PROFILE_BYTES, CANVAS_PROFILE_DRAWS,
     CANVAS_PROFILE_ENCODE_NS, CANVAS_PROFILE_FILL_NS, CANVAS_PROFILE_GPU_NS, CANVAS_PROFILE_PASSES,
@@ -333,11 +334,6 @@ const MTL_COMMAND_BUFFER_STATUS_COMPLETED: usize = 4;
 pub(super) const SEL_GET_BYTES: (&str, &str) = (
     "_mfb_macapp_sel_getBytes",
     "getBytes:bytesPerRow:fromRegion:mipmapLevel:",
-);
-
-pub(super) const SEL_SET_FRAGMENT_BYTES: (&str, &str) = (
-    "_mfb_macapp_sel_setFragmentBytes",
-    "setFragmentBytes:length:atIndex:",
 );
 
 /// The group offset, sent inline to the vertex stage once per draw entry (plan-116-H).
@@ -1007,7 +1003,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = OFF_DRAW_PAIR + 48;
+const DRAW_FRAME: usize = OFF_DRAW_RUN + 64;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -1109,37 +1105,42 @@ const OFF_PRESENTED: usize = OFF_TEXTURE + 312;
 /// two arguments, because the argument bank is eight wide and the eighth is the draw
 /// list itself (`func_metal_draw.rs`).
 ///
-/// `OFF_DRAW_PAIR` is the per-draw payload laid out contiguously -- the two 16.16 offset
-/// words, then (bug-735) their two residual words, then (plan-172-H) the four float32
-/// bit patterns of the groups' inverse linear part, which are zero for a draw its groups
-/// only translate -- so `setVertexBytes:` and `setFragmentBytes:` can point at
-/// thirty-two bytes of frame rather than at a collection another thread may be writing.
-/// It is the MSL's `MfbDraw`.
-/// Where the group offset is bound in each stage, matching the `[[buffer(N)]]`
-/// attributes in `METAL_SHADER_SOURCE`.
+/// plan-175-B: `OFF_DRAW_RUN` is the per-draw RUN laid out contiguously — four 32-bit
+/// words `{ base, count, node, repeat }`, the MSL's `MfbRun` — so `setVertexBytes:` can
+/// point at sixteen bytes of frame rather than at a collection another thread may be
+/// writing. The group offset no longer travels per draw: it is the row's NODE, in the
+/// frame buffer's node region (`METAL_NODE_OFFSET`).
 ///
-/// The vertex stage has only `items` at 0, so the offset takes 1. The fragment stage
-/// has items and edges at 0 and 1 and takes 3 — index 2 held the per-glyph bitmap until
-/// bug-670 moved glyphs into the frame buffer, and is left unused rather than renumbering
-/// a binding the tests pin. They differ,
-/// and `the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it` is what
-/// keeps each equal to its shader — sending to the wrong index binds nothing and the
-/// stage reads whatever was there, which is a wrong picture rather than a fault.
-const METAL_DRAW_OFFSET_VERTEX_INDEX: &str = "1";
-const METAL_DRAW_OFFSET_FRAGMENT_INDEX: &str = "3";
+/// Where each is bound, matching the `[[buffer(N)]]` attributes in `METAL_SHADER_SOURCE`:
+/// the run at vertex index 1 (the vertex stage has only `items` at 0); the node table at
+/// index 2 of BOTH stages — the fragment stage has items and edges at 0 and 1, and its 2
+/// held the per-glyph bitmap until bug-670 moved glyphs into the frame buffer. Its 3
+/// held the per-draw offset until this letter and is unused.
+/// `the_metal_shader_binds_the_node_table_where_the_emitter_sends_it` keeps each equal to
+/// its shader — sending to the wrong index binds nothing and the stage reads whatever
+/// was there, which is a wrong picture rather than a fault.
+const METAL_DRAW_RUN_VERTEX_INDEX: &str = "1";
+const METAL_NODE_TABLE_INDEX: &str = "2";
 
 const OFF_DRAWS: usize = OFF_TEXTURE + 168;
 const OFF_DRAW_ENTRIES: usize = OFF_TEXTURE + 176;
 const OFF_DRAW_INDEX: usize = OFF_TEXTURE + 184;
 const OFF_DRAW_BASE: usize = OFF_TEXTURE + 192;
 const OFF_DRAW_COUNT: usize = OFF_TEXTURE + 200;
-/// Past `OFF_PRESENTED`: sixteen bytes since bug-735 and thirty-two since plan-172-H, so
-/// it outgrew the eight-byte slot at `OFF_TEXTURE + 208` it had between `OFF_DRAW_COUNT`
-/// and `OFF_GLYPH_CURSOR`, which is free. It is the frame's last slot.
-const OFF_DRAW_PAIR: usize = OFF_TEXTURE + 320;
+/// Past `OFF_PRESENTED`, the frame's last 48 bytes. They held the 32-byte per-draw
+/// payload until plan-175-B; now the 16-byte run, then the two selectors a row sends
+/// besides the pipeline's (looked up once a pass), the pass word, and the pipeline
+/// selector in what was the frame's padding word.
+const OFF_DRAW_RUN: usize = OFF_TEXTURE + 320;
+const OFF_SEL_VERTEX_BYTES: usize = OFF_DRAW_RUN + 16;
+const OFF_SEL_DRAW: usize = OFF_DRAW_RUN + 24;
 /// bug-765: the list's pass word (`CANVAS_DRAW_PASS_WORD`), 0 for a frame of one pass.
-/// Past `OFF_DRAW_PAIR`; the eight bytes after it keep the frame a multiple of sixteen.
-const OFF_PASS: usize = OFF_DRAW_PAIR + 32;
+const OFF_PASS: usize = OFF_DRAW_RUN + 32;
+const OFF_SEL_PIPELINE: usize = OFF_DRAW_RUN + 40;
+/// plan-175-C: the draw calls the pass issued — rows of repeat 0 are nodes and draw
+/// nothing, so the row count is no longer the draw count `profDraws` reports. Eight
+/// bytes, and eight more of padding keep the frame a multiple of sixteen.
+const OFF_DRAWN: usize = OFF_DRAW_RUN + 48;
 
 /// A `--debug` build's frame is this much deeper, for the profile's clock: the
 /// `timespec` `clock_gettime` fills (and, between the two `GPU…Time` sends, the first
@@ -1979,6 +1980,7 @@ pub(super) fn emit_metal_draw(profile: bool) -> CodeFunction {
     // draw — one instanced call per entry, each with its own pipeline and its own group
     // offset. This replaces the trailing flush and the two removed above.
     emit_draw_list_pass(&mut asm);
+    emit_profile_draws(&mut asm, profile);
 
     asm.load_selector(SEL_END_ENCODING.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
@@ -2398,8 +2400,9 @@ fn emit_profile_mark(asm: &mut Asm, profile: bool, phase: Option<usize>) {
 
 /// A `--debug` build's counters, taken where the fill ends and every cursor is final:
 /// the bytes this pass wrote to the frame buffer (each region's cursor times its
-/// element size; an edge is its four words and their four residuals), the glyph and
-/// picture texels among them, and the draw calls the pass is about to issue.
+/// element size; an edge is its four words and their four residuals) and the glyph and
+/// picture texels among them. The draw calls are counted after the draws
+/// (`emit_profile_draws`).
 fn emit_profile_counts(asm: &mut Asm, profile: bool) {
     if !profile {
         return;
@@ -2444,13 +2447,27 @@ fn emit_profile_counts(asm: &mut Asm, profile: bool) {
         ));
     }
     emit_profile_add(asm, CANVAS_PROFILE_BYTES, abi::SCRATCH[0]);
-    for (slot, word) in [
-        (OFF_GLYPH_CURSOR, CANVAS_PROFILE_TEXELS),
-        (OFF_DRAW_ENTRIES, CANVAS_PROFILE_DRAWS),
-    ] {
-        asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
-        emit_profile_add(asm, word, abi::SCRATCH[0]);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_GLYPH_CURSOR,
+    ));
+    emit_profile_add(asm, CANVAS_PROFILE_TEXELS, abi::SCRATCH[0]);
+}
+
+/// A `--debug` build's draw-call count, once the pass's draws are issued: plan-175-C's
+/// node-only rows draw nothing, so it is counted by `emit_draw_list_pass` (`OFF_DRAWN`)
+/// rather than taken from the row count before the draws.
+fn emit_profile_draws(asm: &mut Asm, profile: bool) {
+    if !profile {
+        return;
     }
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAWN,
+    ));
+    emit_profile_add(asm, CANVAS_PROFILE_DRAWS, abi::SCRATCH[0]);
 }
 
 /// A `--debug` build, once the command buffer has completed: count the pass, and add
@@ -3877,36 +3894,157 @@ fn emit_split_or_publish(asm: &mut Asm, full: &str) {
     asm.push(abi::label(&done));
 }
 
-/// One instanced draw per entry of `__canvas_sceneDraws`, after every block is
+/// One instanced draw per row of `__canvas_sceneDraws`, after every block is
 /// published (plan-116-H Phase 3 — the Metal twin of `emit_draw_list_pass` in
 /// `runtime/canvas/vulkan/publish.rs`).
 ///
-/// This replaces `emit_run_flush`, which ended a run at a blend-mode change, at a glyph
-/// run and at the end of the scene, and took its instance count from the emitter's own
-/// cursor (`cursor - run_start`). The list now says where every run starts, how long it
-/// is, which pipeline it wants and — the reason this letter exists — what offset to
-/// draw it at.
-///
-/// Taking the count from the list rather than from the cursor is what makes a
+/// Taking the count from the list rather than from the emitter's cursor is what makes a
 /// disagreement between the two visible: while the count was `cursor - run_start` it
 /// was true by construction, so a publish that wrote one record too many painted
-/// nothing and went unnoticed. plan-116-H **H15** is exactly that bug, found on the
-/// Vulkan side after this same conversion; the signed `strokeHalf` read in
-/// `emit_split_or_publish` above is its fix, and it is a fix this backend needed too.
+/// nothing and went unnoticed (plan-116-H **H15**; the signed `strokeHalf` read in
+/// `emit_split_or_publish` is its fix).
 ///
-/// The offset is sent to BOTH stages. The vertex stage moves the quad and the fragment
-/// stage moves the query point back, so a gradient or a glyph — both sampled per
-/// fragment from `in.pos.xy` — lands where the group put it. Sending it to the vertex
-/// stage alone draws the shape in the right place with the wrong ramp inside it.
+/// plan-175-B: **the node table.** Every row is also a node — its words 2, 3 and 8–11
+/// (the groups' translation and inverse linear part) are the 32-byte `MfbDraw` both
+/// stages read. They are written once per pass into the frame buffer's node region, row
+/// `i` at node `i` (`METAL_NODE_OFFSET`), and that region is bound at `buffer(2)` to
+/// both stages. A draw then carries only its 16-byte RUN `{ base, count, node, repeat }`,
+/// to the vertex stage alone (`setVertexBytes:` at index 1); the vertex stage finds the
+/// item (`base + local % count`) and the node (`node + local / count`) and hands the node
+/// to the fragment stage as a flat varying. The offset still reaches BOTH stages — the
+/// vertex stage moves the quad and the fragment stage moves the query point back, so a
+/// gradient or a glyph lands where the group put it — but by node index, not by a
+/// per-draw `setFragmentBytes:`. A row of repeat `R` draws `count * R` instances over
+/// `R` consecutive nodes; a row of repeat 0 is a node only and draws nothing.
+///
+/// The three selectors a row sends are looked up once a pass (`sel_registerName` per row
+/// was four calls of it per draw) and parked on the frame.
 fn emit_draw_list_pass(asm: &mut Asm) {
     let head = format!("{METAL_DRAW_SYMBOL}_drawlist_head");
     let done = format!("{METAL_DRAW_SYMBOL}_drawlist_done");
+    let skip = format!("{METAL_DRAW_SYMBOL}_drawlist_skip");
+    let nodes_head = format!("{METAL_DRAW_SYMBOL}_drawlist_nodes_head");
+    let nodes_done = format!("{METAL_DRAW_SYMBOL}_drawlist_nodes_done");
+
+    // --- the node region: row i's payload at node i ---------------------------------
+    // No call inside this loop, so the scratch bank holds: [0] the row index, [1] the
+    // row count, [2] the row, [3] the node, [4] a word.
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DRAW_ENTRIES,
+    ));
+    asm.push(abi::label(&nodes_head));
+    asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
+    asm.push(abi::branch_ge(&nodes_done));
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[2],
+        abi::SCRATCH[0],
+        CANVAS_DRAW_ENTRY_SHIFT as u8,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[4],
+        abi::stack_pointer(),
+        OFF_DRAWS,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[4],
+        abi::SCRATCH[2],
+    ));
+    // node = contents + METAL_NODE_OFFSET + index * NODE_BYTES. The offset is past any
+    // add-immediate's reach, so it is materialized.
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[3],
+        abi::SCRATCH[0],
+        NODE_BYTES.trailing_zeros() as u8,
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[4],
+        "Integer",
+        &METAL_NODE_OFFSET.to_string(),
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[3],
+        abi::SCRATCH[4],
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[4],
+        abi::stack_pointer(),
+        OFF_CONTENTS,
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[4],
+        abi::SCRATCH[3],
+    ));
+    // The two offsets (float32 bits), two zero words, then (plan-172-H) the inverse
+    // linear part as 32-bit words side by side: the `MfbDraw` both stages declare. Row
+    // words 2, 3 and 8-11 (`__canvas_pushOneDraw`); the last four are zero in a row with
+    // no matrix, which is how the shader knows.
+    for at in [8usize, 12] {
+        asm.push(abi::store_u32(abi::ZERO, abi::SCRATCH[3], at));
+    }
+    for (word, at) in [
+        (2usize, 0usize),
+        (3, 4),
+        (8, 16),
+        (9, 20),
+        (10, 24),
+        (11, 28),
+    ] {
+        asm.push(abi::load_u64(abi::SCRATCH[4], abi::SCRATCH[2], word * 8));
+        asm.push(abi::store_u32(abi::SCRATCH[4], abi::SCRATCH[3], at));
+    }
+    asm.push(abi::add_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 1));
+    asm.push(abi::branch(&nodes_head));
+    asm.push(abi::label(&nodes_done));
+
+    // --- the region, bound to both stages at index 2 -------------------------------
+    for setter in [SEL_SET_VERTEX_BUFFER.0, SEL_SET_FRAGMENT_BUFFER.0] {
+        asm.load_selector(setter);
+        asm.local_address(abi::SCRATCH[0], GRAPHICS_STATE_SYMBOL);
+        asm.push(abi::load_u64(
+            abi::c_arg(2),
+            abi::SCRATCH[0],
+            GRAPHICS_OFFSET_MTL_ITEM_BUFFER,
+        ));
+        asm.push(abi::move_immediate(
+            abi::c_arg(3),
+            "Integer",
+            &METAL_NODE_OFFSET.to_string(),
+        ));
+        asm.push(abi::move_immediate(
+            abi::c_arg(4),
+            "Integer",
+            METAL_NODE_TABLE_INDEX,
+        ));
+        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+        asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+
+    // --- the selectors a row sends, once a pass ------------------------------------
+    for (selector, slot) in [
+        (SEL_SET_RENDER_PIPELINE_STATE.0, OFF_SEL_PIPELINE),
+        (SEL_SET_VERTEX_BYTES.0, OFF_SEL_VERTEX_BYTES),
+        (SEL_DRAW_PRIMITIVES_INSTANCED.0, OFF_SEL_DRAW),
+    ] {
+        asm.load_selector(selector);
+        asm.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), slot));
+    }
 
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
         OFF_DRAW_INDEX,
+    ));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAWN,
     ));
 
     asm.push(abi::label(&head));
@@ -3923,11 +4061,11 @@ fn emit_draw_list_pass(asm: &mut Asm) {
     asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[1]));
     asm.push(abi::branch_ge(&done));
 
-    // entry = draws + index * (CANVAS_DRAW_ENTRY_WORDS * 8). A shift, so the width has
+    // row = draws + index * (CANVAS_DRAW_ENTRY_WORDS * 8). A shift, so the width has
     // to stay a power of two; `the_draw_entry_width_agrees_with_the_emitter` is what
     // keeps this equal to what `__canvas_pushOneDraw` appends.
     asm.push(abi::shift_left_immediate(
-        abi::SCRATCH[0],
+        abi::SCRATCH[2],
         abi::SCRATCH[0],
         CANVAS_DRAW_ENTRY_SHIFT as u8,
     ));
@@ -3937,62 +4075,67 @@ fn emit_draw_list_pass(asm: &mut Asm) {
         OFF_DRAWS,
     ));
     asm.push(abi::add_registers(
-        abi::SCRATCH[0],
+        abi::SCRATCH[2],
         abi::SCRATCH[1],
-        abi::SCRATCH[0],
+        abi::SCRATCH[2],
     ));
 
-    // Every field is parked on the STACK before the first `load_selector`, which calls
-    // through `sel_registerName` and clobbers the whole scratch bank — the same reason
-    // `emit_run_flush` sourced its arguments from memory. An `Integer` here is 64 bits,
-    // so these are `load_u64` and not `load_u32`: reading them 32 bits wide takes the
-    // low half of `base` for `base` and the low half of `count` for `dx`.
-    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], 0));
+    // A node-only row (repeat 0) draws nothing.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::SCRATCH[2],
+        CANVAS_DRAW_REPEAT_WORD * 8,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[3], "0"));
+    asm.push(abi::branch_eq(&skip));
+
+    // The run, parked on the frame before the first send clobbers the scratch bank, as
+    // 32-bit words — the MSL's `MfbRun`: base, count, node (this row's index), repeat.
+    // The instance count of the draw is `count * repeat`, kept beside it.
+    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[2], 0));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DRAW_RUN,
+    ));
     asm.push(abi::store_u64(
         abi::SCRATCH[1],
         abi::stack_pointer(),
         OFF_DRAW_BASE,
     ));
-    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], 8));
+    asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[2], 8));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_DRAW_RUN + 4,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAW_RUN + 8,
+    ));
+    asm.push(abi::store_u32(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        OFF_DRAW_RUN + 12,
+    ));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        abi::SCRATCH[3],
+    ));
     asm.push(abi::store_u64(
         abi::SCRATCH[1],
         abi::stack_pointer(),
         OFF_DRAW_COUNT,
     ));
-    // The two offsets (float32 bits), two reserved zero words, then (plan-172-H) the
-    // inverse linear part, written as 32-bit words side by side so the thirty-two bytes
-    // at `OFF_DRAW_PAIR` are exactly the `MfbDraw` both shader stages declare. Entry
-    // words 2, 3 and 8-11 (`__canvas_pushOneDraw`); the last four are zero in an entry
-    // with no matrix, which is how the shader knows.
-    for at in [8usize, 12] {
-        asm.push(abi::store_u32(
-            abi::ZERO,
-            abi::stack_pointer(),
-            OFF_DRAW_PAIR + at,
-        ));
-    }
-    for (word, at) in [
-        (2usize, 0usize),
-        (3, 4),
-        (8, 16),
-        (9, 20),
-        (10, 24),
-        (11, 28),
-    ] {
-        asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], word * 8));
-        asm.push(abi::store_u32(
-            abi::SCRATCH[1],
-            abi::stack_pointer(),
-            OFF_DRAW_PAIR + at,
-        ));
-    }
 
-    // This entry's pipeline, from the blend mode the run shares. The publish walk binds
-    // as it goes, but every draw now happens after that walk has finished, so a binding
+    // This row's pipeline, from the blend mode the run shares. The publish walk binds
+    // as it goes, but every draw happens after that walk has finished, so a binding
     // left there would apply the LAST item's mode to the whole frame.
     asm.push(abi::load_u64(
         abi::SCRATCH[1],
-        abi::SCRATCH[0],
+        abi::SCRATCH[2],
         CANVAS_DRAW_ENTRY_MODE,
     ));
     asm.push(abi::shift_left_immediate(
@@ -4007,44 +4150,45 @@ fn emit_draw_list_pass(asm: &mut Asm) {
         abi::SCRATCH[1],
     ));
     asm.push(abi::load_u64(
-        abi::SCRATCH[1],
+        abi::c_arg(2),
         abi::SCRATCH[1],
         GRAPHICS_OFFSET_MTL_PIPELINE_MODES,
     ));
-    asm.push(abi::store_u64(
-        abi::SCRATCH[1],
-        abi::stack_pointer(),
-        OFF_SAVED_STROKE,
-    ));
-    asm.load_selector(SEL_SET_RENDER_PIPELINE_STATE.0);
     asm.push(abi::load_u64(
-        abi::c_arg(2),
+        abi::mfb_arg(1),
         abi::stack_pointer(),
-        OFF_SAVED_STROKE,
+        OFF_SEL_PIPELINE,
     ));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    // The offset, to both stages. `setVertexBytes:` is the selector plan-116-A deleted
+    // The run, to the vertex stage. `setVertexBytes:` is the selector plan-116-A deleted
     // and plan-116-H re-added (**H5**); missing it from `metal_data_objects` is not a
     // compile error, it is a message to an unregistered selector.
-    for (selector, index) in [
-        (SEL_SET_VERTEX_BYTES.0, METAL_DRAW_OFFSET_VERTEX_INDEX),
-        (SEL_SET_FRAGMENT_BYTES.0, METAL_DRAW_OFFSET_FRAGMENT_INDEX),
-    ] {
-        asm.load_selector(selector);
-        asm.push(abi::add_immediate(
-            abi::c_arg(2),
-            abi::stack_pointer(),
-            OFF_DRAW_PAIR,
-        ));
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "32"));
-        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", index));
-        asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
-        asm.call_external("_objc_msgSend", LIB_OBJC);
-    }
+    asm.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        OFF_SEL_VERTEX_BYTES,
+    ));
+    asm.push(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        OFF_DRAW_RUN,
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "16"));
+    asm.push(abi::move_immediate(
+        abi::c_arg(4),
+        "Integer",
+        METAL_DRAW_RUN_VERTEX_INDEX,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 
-    asm.load_selector(SEL_DRAW_PRIMITIVES_INSTANCED.0);
+    asm.push(abi::load_u64(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        OFF_SEL_DRAW,
+    ));
     asm.push(abi::move_immediate(
         abi::c_arg(2),
         "Integer",
@@ -4064,7 +4208,19 @@ fn emit_draw_list_pass(asm: &mut Asm) {
     ));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAWN,
+    ));
+    asm.push(abi::add_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 1));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_DRAWN,
+    ));
 
+    asm.push(abi::label(&skip));
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -6029,7 +6185,6 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_WAIT_UNTIL_COMPLETED,
         SEL_STATUS,
         SEL_GET_BYTES,
-        SEL_SET_FRAGMENT_BYTES,
         SEL_SET_VERTEX_BYTES,
         SEL_DRAW_PRIMITIVES_INSTANCED,
         SEL_NEW_BUFFER,
@@ -6540,8 +6695,12 @@ mod tests {
             (OFF_DRAW_INDEX, 8, "drawIndex"),
             (OFF_DRAW_BASE, 8, "drawBase"),
             (OFF_DRAW_COUNT, 8, "drawCount"),
-            (OFF_DRAW_PAIR, 32, "drawPair"),
+            (OFF_DRAW_RUN, 16, "drawRun"),
+            (OFF_SEL_VERTEX_BYTES, 8, "selVertexBytes"),
+            (OFF_SEL_DRAW, 8, "selDraw"),
             (OFF_PASS, 8, "pass"),
+            (OFF_SEL_PIPELINE, 8, "selPipeline"),
+            (OFF_DRAWN, 8, "drawn"),
             (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
             (OFF_DASH_CURSOR, 8, "dashCursor"),
             (OFF_PIC_COUNT, 8, "picCount"),
@@ -6580,38 +6739,49 @@ mod tests {
         assert_eq!(DRAW_FRAME % 16, 0, "AAPCS64 wants a 16-byte-aligned frame");
     }
 
-    /// The draw offset is bound where the shader declares it, in both stages.
+    /// plan-175-B: the node table and the run are bound where the shader declares them.
     ///
-    /// The emitter sends `setVertexBytes:...atIndex:` and `setFragmentBytes:...atIndex:`
-    /// with two *different* indices, because the fragment stage has items and edges at
-    /// 0 and 1 (index 2, the old per-glyph bitmap, is unused since bug-670) while the
-    /// vertex stage has only items at 0.
-    /// The shader is a string the Rust compiler never parses, so nothing else checks
-    /// that the two agree — and a mismatch does not fault: the stage reads whatever was
-    /// bound at that index, which is a wrong picture reported as success.
+    /// The emitter binds the frame buffer at `METAL_NODE_OFFSET` to index 2 of BOTH
+    /// stages (`setVertexBuffer:` and `setFragmentBuffer:`), and sends the 16-byte run
+    /// to vertex index 1 with `setVertexBytes:`; it sends no fragment bytes at all. The
+    /// shader is a string the Rust compiler never parses, so nothing else checks that
+    /// the two agree — and a mismatch does not fault: the stage reads whatever was bound
+    /// at that index, which is a wrong picture reported as success.
     #[test]
-    fn the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it() {
-        for (index, stage) in [
-            (METAL_DRAW_OFFSET_VERTEX_INDEX, "vertex"),
-            (METAL_DRAW_OFFSET_FRAGMENT_INDEX, "fragment"),
-        ] {
-            // `MfbDraw` since plan-172-H: the offset's two 16.16 words and their residual
-            // words (an `int4` since bug-735), then the inverse linear part.
-            let declaration = format!("constant MfbDraw &draw [[buffer({index})]]");
-            assert!(
-                METAL_SHADER_SOURCE.contains(&declaration),
-                "the emitter sends the draw offset to buffer index {index} for the \
-                 {stage} stage, but METAL_SHADER_SOURCE has no `{declaration}`",
-            );
-        }
-        // And exactly one declaration per stage: a second one at another index would
-        // satisfy the loop above while the emitter still fed only one of them.
+    fn the_metal_shader_binds_the_node_table_where_the_emitter_sends_it() {
+        let nodes = format!("constant MfbDraw *nodes [[buffer({METAL_NODE_TABLE_INDEX})]]");
+        let run = format!("constant MfbRun &run [[buffer({METAL_DRAW_RUN_VERTEX_INDEX})]]");
+        let vertex = METAL_SHADER_SOURCE
+            .split("vertex VOut mfbVertex")
+            .nth(1)
+            .and_then(|s| s.split('{').next())
+            .expect("the vertex entry point's parameters");
+        let fragment = METAL_SHADER_SOURCE
+            .split("fragment float4 mfbFragment")
+            .nth(1)
+            .and_then(|s| s.split('{').next())
+            .expect("the fragment entry point's parameters");
+        assert!(vertex.contains(&nodes), "vertex: no `{nodes}` in {vertex}");
+        assert!(vertex.contains(&run), "vertex: no `{run}` in {vertex}");
+        assert!(
+            fragment.contains(&nodes),
+            "fragment: no `{nodes}` in {fragment}"
+        );
+        assert!(
+            !fragment.contains("MfbRun") && !fragment.contains("MfbDraw &"),
+            "the fragment stage reads its node by index, not a per-draw payload: {fragment}",
+        );
+        // The per-draw payload is gone from both stages.
         assert_eq!(
             METAL_SHADER_SOURCE
                 .matches("MfbDraw &draw [[buffer(")
                 .count(),
-            2,
-            "expected exactly one draw-offset binding in each of the two stages",
+            0
+        );
+        assert_eq!(
+            METAL_NODE_OFFSET % 256,
+            0,
+            "a binding offset is 256-aligned"
         );
     }
 
@@ -6782,15 +6952,21 @@ mod tests {
             METAL_PICTURE_RECORDS_OFFSET + METAL_PICTURE_RECORDS * PICTURE_RECORD_BYTES,
             "the picture index must start where the picture records end"
         );
+        // plan-175-B added the eighth, the node table, after the picture table.
+        assert_eq!(
+            METAL_NODE_OFFSET,
+            METAL_PICTURE_INDEX_OFFSET + METAL_PICTURE_INDEX_SLOTS * 4,
+            "the node table must start where the picture table ends"
+        );
         assert_eq!(
             METAL_BUFFER_BYTES,
-            METAL_PICTURE_INDEX_OFFSET + METAL_PICTURE_INDEX_SLOTS * 4,
-            "the buffer must be exactly its seven regions, with nothing past the last"
+            METAL_NODE_OFFSET + crate::codegen::runtime::canvas::METAL_NODE_BYTES,
+            "the buffer must be exactly its eight regions, with nothing past the last"
         );
         assert_eq!(
             METAL_PICTURE_TABLE_BYTES,
-            METAL_BUFFER_BYTES - METAL_PICTURE_RECORDS_OFFSET,
-            "the picture table is the last region"
+            METAL_NODE_OFFSET - METAL_PICTURE_RECORDS_OFFSET,
+            "the picture table ends where the node table begins"
         );
     }
 

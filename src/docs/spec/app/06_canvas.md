@@ -448,7 +448,8 @@ is drawn in passes.** Every per-item payload travels in one frame buffer whose r
 are fixed in size, the same sizes on Metal and Vulkan: 65,536 item quads (a glyph is a
 quad of its own, and a blended item that both fills and strokes is two), 262,144
 polygon edges, 131,072 gradient stops, 1,048,576 dash words (a dashed item's dash tail
-plus one) and 8M picture-and-glyph texels (each distinct image counted once). A
+plus one), 8M picture-and-glyph texels (each distinct image counted once) and 65,536
+draw-list entries, each a node of the node table. A
 `PolyLine`'s segments take the edge region, one edge each, a curve shape's pieces two
 each, a stroke's join records two each and a path clip's edges one each. Those are the
 size of one PASS. A frame whose blocks fit is one pass, drawn as it always was. A
@@ -1620,18 +1621,24 @@ is skipped.
 **A GPU draw entry is sixteen 64-bit words.** Base and count, the translation as two
 float32 bit patterns and the blend mode are words 0–4; words 5–6 are reserved and zero.
 Word 7 is 1 when the entry has a matrix, words 8–11 are the inverse linear part as
-float32 bit patterns, word 12 is the pass word and words 13–15 are zero.
+float32 bit patterns, word 12 is the pass word, word 13 the REPEAT — 1 in every entry
+the walk and the native flat list write — and words 14–15 are zero.
 [[src/codegen/runtime/canvas/scene_layout.rs:CANVAS_DRAW_ENTRY_WORDS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:CANVAS_DRAW_REPEAT_WORD]]
 
-**Both GPU backends bind 32 bytes per draw, to both stages.** The entry's four
-translation words, then the four words of the inverse linear part: `MfbDraw` on Metal,
-sent with `setVertexBytes:` and `setFragmentBytes:`, and one push-constant range on
-Vulkan that both stages declare. `hasMatrix` is not sent — an inverse is never all
+**Every draw entry is a node of a node table both stages read.** The entry's four
+translation words, then the four words of the inverse linear part — 32 bytes, `MfbDraw`
+on Metal — are written once a pass into the frame buffer's node region, entry `i` at
+node `i`. A draw sends only a 16-byte run `{ base, count, node, repeat }` to the vertex
+stage (`setVertexBytes:` on Metal, a vertex-only push constant on Vulkan) and draws
+`count * repeat` instances from `base`: the vertex stage reads item `base + local % count`
+under node `node + local / count`, `local` the instance less `base`, and hands the node to
+the fragment stage as a flat varying. `hasMatrix` is not read — an inverse is never all
 zero, so all-zero bits mean the groups only translate, and the shaders then take the
 branch they took before a group could have a matrix.
 [[src/target/macos_aarch64/app/metal.rs:emit_draw_list_pass]]
 [[src/codegen/runtime/canvas/vulkan/publish.rs:emit_draw_list_pass]]
-[[src/codegen/runtime/canvas/vulkan/mod.rs:PUSH_OFFSET_BYTES]]
+[[src/codegen/runtime/canvas/vulkan/mod.rs:PUSH_RUN_BYTES]]
 
 With a matrix:
 

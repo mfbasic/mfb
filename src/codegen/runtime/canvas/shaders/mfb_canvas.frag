@@ -55,18 +55,20 @@ layout(std430, set = 0, binding = 1) readonly buffer Items {
 // The instance index the vertex stage read, flat-interpolated. `gl_InstanceIndex` does
 // not exist in a fragment shader, so it has to travel as a varying.
 layout(location = 0) flat in int vItem;
+// plan-175-B: the NODE this fragment's instance is drawn under (the vertex stage's
+// `vNode`). Its eight words, in the node region of `edges` below, are the group
+// translation as float32 bits and two zero words, then (plan-172-H) the linear part of
+// the INVERSE of the enclosing groups' composed affine as four float32 bit patterns
+// (`ia`, `ib`, `ic`, `id`), all-zero bits when the groups only translate. See the vertex
+// stage. They were a push constant both stages declared until plan-175-B.
+layout(location = 1) flat in int vNode;
 
-// plan-116-H: the group translation for THIS draw, as float32 bits — the same push
-// constant the vertex stage declares. Both stages consume it, which is what makes the
-// range valid (H4). `zw` are reserved and zero.
-//
-// plan-172-H: `inverse` is the linear part of the INVERSE of the enclosing groups'
-// composed affine, as four float32 bit patterns (`ia`, `ib`, `ic`, `id`), all-zero bits
-// when the groups only translate. See the vertex stage.
-layout(push_constant) uniform Draw {
+struct Node {
     ivec4 offset;
     ivec4 inverse;
-} draw;
+};
+// A private global `main` fills on its first lines, as `item` is.
+Node draw;
 
 // Whether this draw has a group matrix, and it. Private globals `main` fills on its
 // first lines, as `item` is, because `shapeCoverage` reads them.
@@ -113,6 +115,8 @@ layout(constant_id = 1) const int GRADIENT_BASE = 0;
 layout(constant_id = 2) const int BAND_BASE = 0;
 // plan-163-B: the dash words (`dashWord`).
 layout(constant_id = 4) const int DASH_BASE = 0;
+// plan-175-B: the node table, eight words a node, read here and by the vertex stage.
+layout(constant_id = 5) const int NODE_BASE = 0;
 
 layout(location = 0) out vec4 fragColor;
 
@@ -1671,6 +1675,9 @@ void main() {
     // First, before anything reads it: everything below, and both helpers above, work
     // off this one record.
     item = itemBuf.blocks[vItem];
+    int at = NODE_BASE + 8 * vNode;
+    draw.offset = ivec4(edges.values[at], edges.values[at + 1], edges.values[at + 2], edges.values[at + 3]);
+    draw.inverse = ivec4(edges.values[at + 4], edges.values[at + 5], edges.values[at + 6], edges.values[at + 7]);
     // The clip multiplies the shape's own coverage, exactly as it does in the oracle's
     // `(coverage * clipCov) / 255`. Integer, and by 255 rather than a shift, so the two
     // quantize identically — a float multiply here would disagree on the boundary

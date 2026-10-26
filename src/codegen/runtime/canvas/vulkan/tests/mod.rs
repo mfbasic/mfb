@@ -731,6 +731,11 @@ fn the_pipeline_specializes_every_region_base() {
         ("BAND_BASE", VULKAN_BAND_BASE_WORDS),
         // plan-163-B: the dash words.
         ("DASH_BASE", VULKAN_DASH_BASE_WORDS),
+        // plan-175-B: the node table, which the vertex stage reads too (below).
+        (
+            "NODE_BASE",
+            crate::codegen::runtime::canvas::VULKAN_NODE_BASE_WORDS,
+        ),
     ];
     assert_eq!(
         VULKAN_SPEC_CONSTANTS.len(),
@@ -759,19 +764,23 @@ fn the_pipeline_specializes_every_region_base() {
     // The blob is compiled from that GLSL: each id the shader reads is decorated
     // `SpecId` (OpDecorate = 71, SpecId = 1) in the checked-in SPIR-V. A blob still
     // holding the literals has no such decoration.
-    let words: Vec<u32> = SPIRV_FRAGMENT
-        .chunks_exact(4)
-        .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
-        .collect();
-    let mut spec_ids = Vec::new();
-    let mut at = 5;
-    while at < words.len() {
-        let (count, opcode) = ((words[at] >> 16) as usize, words[at] & 0xffff);
-        if opcode == 71 && count == 4 && words[at + 2] == 1 {
-            spec_ids.push(words[at + 3]);
+    let spec_ids_of = |blob: &[u8]| -> Vec<u32> {
+        let words: Vec<u32> = blob
+            .chunks_exact(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        let mut spec_ids = Vec::new();
+        let mut at = 5;
+        while at < words.len() {
+            let (count, opcode) = ((words[at] >> 16) as usize, words[at] & 0xffff);
+            if opcode == 71 && count == 4 && words[at + 2] == 1 {
+                spec_ids.push(words[at + 3]);
+            }
+            at += count.max(1);
         }
-        at += count.max(1);
-    }
+        spec_ids
+    };
+    let spec_ids = spec_ids_of(SPIRV_FRAGMENT);
     for (id, _) in VULKAN_SPEC_CONSTANTS {
         assert!(
             spec_ids.contains(&id),
@@ -779,6 +788,13 @@ fn the_pipeline_specializes_every_region_base() {
                  GLSL (scripts/regen-spirv.sh). Found: {spec_ids:?}"
         );
     }
+    // plan-175-B: the vertex stage reads the node table, so its blob declares id 5 too
+    // (`layout(constant_id = 5) const int NODE_BASE` in `mfb_canvas.vert`).
+    let vertex_ids = spec_ids_of(SPIRV_VERTEX);
+    assert!(
+        vertex_ids.contains(&5),
+        "the vertex SPIR-V has no SpecId 5 (NODE_BASE): {vertex_ids:?}"
+    );
 }
 
 /// The shared buffer is exactly the regions it is asked to hold, and each region
@@ -828,6 +844,14 @@ fn the_shared_buffer_holds_every_region() {
         "the picture index must start where the records end",
     );
     end += VULKAN_PICTURE_INDEX_SLOTS * 4;
+    // plan-175-B: the node table, last.
+    assert_eq!(
+        crate::codegen::runtime::canvas::VULKAN_NODE_BASE_WORDS * 4,
+        end,
+        "the node table must start where the picture index ends",
+    );
+    end += crate::codegen::runtime::canvas::VULKAN_MAX_FRAME_NODES
+        * crate::codegen::runtime::canvas::NODE_BYTES;
     assert_eq!(
         VULKAN_BUFFER_BYTES, end,
         "the buffer must be exactly its regions, with nothing past the last",

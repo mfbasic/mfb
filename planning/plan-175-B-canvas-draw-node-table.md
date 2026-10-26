@@ -289,24 +289,36 @@ the oracle; no other frame changes.
   `group|rect fill` — the last frame of a 2-frame GPU run hashed, as `run.sh` hashes its
   dump (a one-off probe of `run.sh`'s row list) → 87 hashes equal to the base's, every
   run `gpuFrames=2`.
-Commit: —
+Commit: 05211f7cf
 
 ### Phase 2 — Both emitters and both shaders read the node table
 
-- [ ] `runtime/canvas/mod.rs`: the Metal and Vulkan node-region constants (§4.2, §4.3);
-      `METAL_BUFFER_BYTES` and `VULKAN_BUFFER_BYTES` grow.
-- [ ] `app/metal.rs`: the MSL of §4.2; `emit_draw_list_pass` writes the node region,
+- [x] `runtime/canvas/mod.rs`: the Metal and Vulkan node-region constants (§4.2, §4.3);
+      `METAL_BUFFER_BYTES` and `VULKAN_BUFFER_BYTES` grow. (`scene_layout.rs`:
+      `NODE_BYTES`, `METAL_NODE_BYTES`, `METAL_NODE_OFFSET` with a compile-time
+      256-alignment assert, `VULKAN_NODE_BASE_WORDS`, spec constant 5.)
+- [x] `app/metal.rs`: the MSL of §4.2; `emit_draw_list_pass` writes the node region,
       binds it at index 2 on both stages, sends the 16-byte run, sends no fragment
-      bytes, draws `count * repeat`; selector lookups hoisted out of the row loop.
-- [ ] `runtime/canvas/vulkan.rs`: binding 0's stages, the vertex stage's specialization
-      info, the 16-byte vertex-only push range, `emit_draw_list_pass` as §4.3.
-- [ ] `shaders/mfb_canvas.vert`, `shaders/mfb_canvas.frag`: §4.3; the stale comment
-      fixed. `scripts/regen-spirv.sh` (box 2228) regenerates the `.spv` files.
-- [ ] Tests: `the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it`
+      bytes, draws `count * repeat`; selector lookups hoisted out of the row loop
+      (`OFF_SEL_*`; `SEL_SET_FRAGMENT_BYTES`, now unsent, removed). The MSL is
+      `shaders/mfb_canvas.metal`.
+- [x] `runtime/canvas/vulkan.rs`: binding 0's stages, the vertex stage's specialization
+      info, the 16-byte vertex-only push range, `emit_draw_list_pass` as §4.3
+      (`vulkan/descriptors.rs`, `vulkan/pipeline.rs`, `vulkan/publish.rs`,
+      `PUSH_RUN_BYTES`).
+- [x] `shaders/mfb_canvas.vert`, `shaders/mfb_canvas.frag`: §4.3; the stale comment
+      fixed. ~~`scripts/regen-spirv.sh` (box 2228)~~ `MFB_SPIRV_PORT=2226
+      scripts/regen-spirv.sh` regenerated both `.spv` files (Correction 4).
+- [x] Tests: `the_metal_shader_binds_the_draw_offset_where_the_emitter_sends_it`
       (app/metal.rs) becomes the node table's binding test (index 2 both stages, run at
       vertex index 1, no fragment bytes); the Vulkan unit tests that pin the push range
       and binding 0's stages are updated to 16 bytes / vertex-and-fragment;
       `the_embedded_spirv_is_well_formed` passes on the new blobs.
+      (`the_metal_shader_binds_the_node_table_where_the_emitter_sends_it`; the Metal and
+      Vulkan region-chain tests extended with the node table;
+      `the_pipeline_specializes_every_region_base` checks NODE_BASE and the vertex blob's
+      SpecId 5. `cargo test --release --bin mfb` → 6,160 passed, the 3 failures the
+      change-sentinel `build_replay` shards plan-175-A Phase 7 regenerates.)
 
 Acceptance: every canvas frame is byte-identical on Metal, box 2226 and box 206.
   Check: `cargo test --release --test rt_canvas_metal --test rt_canvas_golden --test
@@ -318,15 +330,29 @@ Acceptance: every canvas frame is byte-identical on Metal, box 2226 and box 206.
   `scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64 --keep <dir>` on box 206
   against the base compiler's `--keep` → every `*-gpu.rgba` equal by `cmp` (the only
   real-GPU Vulkan box).
+
+**MET 2026-10-25**, against the base compiler at `339f8e8fc`:
+- `cargo test --release --test rt_canvas_metal --test rt_canvas_golden --test
+  rt_canvas_rasteriser --test rt_canvas_graphics_thread` → metal 75, golden 28,
+  rasteriser 111 (2 ignored), graphics_thread 21 passed;
+- the benchmark's 87 rows headless on Metal (Correction 3) → 87 last-frame hashes equal
+  to the base's, `gpuFrames=2` each;
+- `scripts/test-canvas-gpu-rows.sh <mfb> --target windows-x86_64 --keep` and `--target
+  linux-aarch64 --box 2226 --keep`, base and branch (Correction 4) → 258 `ok:` and no
+  `FAIL` on each box for each compiler, and 124 kept frames per box equal by `cmp`, base
+  against branch. The base's kept frames also equal plan-175-A Phase 2's (124 per box),
+  so plan-175-A's Phases 3–7 moved no Vulkan pixel either.
 Commit: —
 
 ### Phase 3 — Docs
 
-- [ ] `.ai/canvas-threading.md` §10: the node table, the run, why both stages read the
+- [x] `.ai/canvas-threading.md` §10: the node table, the run, why both stages read the
       node by index, the per-pass row cap; the "offset bound to BOTH stages" text
       rewritten for nodes.
-- [ ] `mfb spec app canvas` (`src/docs/spec/app/06_canvas.md`) where it describes the
-      group draw and the frame buffer regions.
+- [x] `mfb spec app canvas` (`src/docs/spec/app/06_canvas.md`) where it describes the
+      group draw and the frame buffer regions. (The draw entry's repeat word, "Every draw
+      entry is a node of a node table both stages read", the 65,536 entries a pass holds;
+      `scripts/spec-census.sh --citations` → `MISS-SYMBOL 0`.)
 
 Acceptance: the docs describe HEAD.
   Check: `scripts/spec-census.sh --render` and `--citations` → no failures (est. 1 min).
@@ -378,6 +404,17 @@ Commit: —
      made headless instead, over every row: each row's last-frame hash from a 2-frame
      GPU run (the readback path), base against branch. The direct-present path it leaves
      unproven is re-checked by the plan's closing `run.sh` (plan-175-A Phase 7).
+4. 2026-10-25, Phase 2: three corrections.
+   - Box 2228 refused ssh (`ssh -p 2228` → connection refused), so the SPIR-V was
+     regenerated on box 2226, the alternative `.ai/remote_systems.md` names. Its glslang
+     (11:12.0.0) differs from 2228's, which matters only for a blob whose GLSL did not
+     change; both did.
+   - The Vulkan check is `test-canvas-gpu-rows.sh` on BOTH boxes, base `--keep` against
+     branch `--keep`: box 2226's lavapipe as well as box 206's Intel driver, instead of
+     `test-canvas-vulkan.sh` on 2226, whose fixed scenes the GPU rows include.
+   - Every stage is given the whole specialization list (`VULKAN_SPEC_CONSTANTS`, now
+     five): Vulkan ignores an id a stage does not declare, so the vertex stage needs no
+     list of its own.
 
 ## Summary
 

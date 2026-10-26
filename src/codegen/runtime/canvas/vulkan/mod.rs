@@ -90,6 +90,9 @@ use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_VULKAN_LOAD_PASS, GRAPHICS_OFFSET_VULKAN_PRESENT_LOAD_PASS,
 };
 use crate::codegen::runtime::canvas::{
+    CANVAS_DRAW_REPEAT_WORD, NODE_BYTES, VULKAN_NODE_BASE_WORDS,
+};
+use crate::codegen::runtime::canvas::{
     HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_DASH_COUNT,
     HEADER_DASH_PHASE, HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV,
     HEADER_GRADIENT_INV, HEADER_GRADIENT_SPREAD, HEADER_JOIN_COUNT, HEADER_JOIN_REACH,
@@ -546,18 +549,16 @@ const PUSH_RANGE_STAGES: usize = 0;
 const PUSH_RANGE_OFFSET: usize = 4;
 const PUSH_RANGE_BYTES: usize = 8;
 
-/// The per-draw payload, `uniform Draw` in both stages: the group offset — `dx` and `dy`
-/// in 16.16 (plan-116-H), then (bug-735) their residual words, `ivec4 offset` — and
-/// (plan-172-H) the inverse linear part of the groups' composed affine as four float32
-/// bit patterns, `ivec4 inverse`, all zero for a draw its groups only translate. Eight
-/// 32-bit words.
+/// plan-175-B: the per-draw push constant, `uniform Run` in the VERTEX stage only: four
+/// 32-bit words `{ base, count, node, repeat }`. The group offset and inverse that were
+/// pushed per draw until this letter (`uniform Draw`, 32 bytes, both stages) are the
+/// row's NODE now, in the shared buffer's node region (`VULKAN_NODE_BASE_WORDS`), read by
+/// both stages by index.
 ///
-/// Thirty-two bytes against the 128 every implementation guarantees, so the size is not
-/// the constraint — the constraint is that it is the *only* push constant, so its offset
-/// is 0 and any future addition has to be appended rather than inserted, as the
-/// residuals and the matrix were. The pipeline layout's range, the `vkCmdPushConstants`
-/// size and the stack slot the values are staged in all read this one constant.
-const PUSH_OFFSET_BYTES: usize = 32;
+/// It is the *only* push constant, so its offset is 0. The pipeline layout's range, the
+/// `vkCmdPushConstants` size and the stack slot the values are staged in all read this
+/// one constant.
+const PUSH_RUN_BYTES: usize = 16;
 
 /// `VkAttachmentDescription`, 36 bytes.
 const ATTACHMENT_SIZE: usize = 36;
