@@ -542,10 +542,17 @@ for fn in $(functions "$@"); do
 		# heading. Nothing is lost: a heading is non-indented and non-blank, so
 		# the `inblock` rule below already ends the block it follows.
 		BEGIN { if (anywhere) inex = 1 }
-		/^Examples$/ { inex = 1; next }
+		/^Examples$/ { inex = 1; underline = 1; next }
 		!inex { next }
-		# A bare capitalised word on its own line is the next section heading.
-		!anywhere && /^[A-Za-z][A-Za-z ]*$/ { inex = 0; inblock = 0; next }
+		# A section heading is the line above a rule of `─`. The rule under
+		# `Examples` itself is skipped; the next one closes the section. (Matching
+		# the heading text instead — a line of only letters and spaces — also
+		# matched a wrapped caption line and silently dropped every example after
+		# it.)
+		!anywhere && /^(─)+$/ {
+			if (underline) { underline = 0; next }
+			inex = 0; inblock = 0; next
+		}
 		{
 			# Only the FIRST IMPORT opens a block — examples routinely start
 			# with several (`IMPORT bits` then `IMPORT io`).
