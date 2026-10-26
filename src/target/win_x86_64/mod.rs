@@ -129,6 +129,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.groupBlockCount",
     "canvas.groupBlockItem",
     "canvas.groupBlockIsGroup",
+    "canvas.itemImageShadow",
     "canvas.groupReclaim",
     "canvas.nextReclaimableGroup",
     "canvas.retiredItems",

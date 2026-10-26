@@ -817,25 +817,45 @@ Acceptance: no pixel moves; the group row allocates less and walks faster.
   list copy per node is gone, but each child is still copied out of the block once per
   node (`canvas::groupBlockItem`), which is one allocation where the list copy was
   one. The bytes it scrubs on free fall 5.87 GB → 4.24 GB over the run.
-Commit: —
+Commit: 44925e237
 
 ### Phase 6 — The picture walk: one confirmation per image per frame
 
 Depends on Phase 2 (pictures and tiles are keyed by `G`, §4.6).
 
-- [ ] `helper_picture.rs`: `__canvas_pictureCached`'s answer remembered per frame by
+- [x] ~~`helper_picture.rs`: `__canvas_pictureCached`'s answer remembered per frame by
       pixel-block address (§4.8), reset at the frame's start. Both `__canvas_pictureCached`
-      callers use it: the picture paths and `__canvas_tileGeometry`.
-- [ ] `tests/canvas/rt_canvas_picture.rs`: many pictures of one image, then a `setBytes`
+      callers use it: the picture paths and `__canvas_tileGeometry`.~~ — moot: there is no
+      per-image answer to share, and the confirmation is not the cost. Each record stamps
+      the block itself (`__canvas_pictureStamp`), so the check is per record, three reads.
+      `sample` of `picture fill 10000` at this phase's base (Correction 8):
+      `__canvas_pictureCachedOf` 41 and `__canvas_geoStamp` 15 of the graphics thread's
+      ~2,630 busy samples, against 880 in the `--debug` timers around each allocation.
+      Replaced by the task below.
+- [x] (added, Correction 8) The walk lays out a cached tile or picture with no
+      allocation of its own: `canvas::itemImageShadow(item)` (native,
+      `func_item_image.rs`) reads the image's pixel block from the item in place, and
+      `__canvas_appendDraw` resolves a cached one through `__canvas_imageCached` (plain
+      record, then a shaped picture's two) before the `MATCH` that would copy the
+      variant; the shaped hit fills `__CANVAS_PIC_*` instead of making a list
+      (`__canvas_pictureShapedHit`), and `__canvas_pictureAppend` no longer makes an
+      empty list per call or probes the plain record twice.
+- [x] `tests/canvas/rt_canvas_picture.rs`: many pictures of one image, then a `setBytes`
       on it, redraw every one of them with the new pixels (R9 and R10 of
       `.ai/canvas-threading.md` §8 still hold); a closed image draws nothing in every
-      picture that named it (R11).
-- [ ] `tests/canvas/rt_canvas_tile.rs`: many directly presented tiles of one atlas,
+      picture that named it (R11). `set_bytes_repaints_every_picture_of_the_image` (and
+      R10), `set_bytes_twice_leaves_the_last_on_every_picture` (R9),
+      `a_closed_image_draws_nothing_in_every_picture` (R11; 100 pictures, half plain,
+      half in a circle) → pass. With the hit's block confirmation removed, the first
+      FAILS.
+- [x] `tests/canvas/rt_canvas_tile.rs`: many directly presented tiles of one atlas,
       then a `setBytes` on it, redraw every one of them with the new pixels (the
       many-tile twin of `set_bytes_on_a_presented_tile_image_repaints`).
-- [ ] Measure `tile fill 10000` at this phase's base and after, because the committed
+      `set_bytes_repaints_every_tile_of_the_atlas` (200 tiles, `GEO_VERIFY`) → passes;
+      FAILS with the confirmation removed.
+- [x] Measure `tile fill 10000` at this phase's base and after, because the committed
       `benchmark/canvas` baseline has no `tile` row (plan-173 added it after the baseline
-      run).
+      run). Below.
 
 Acceptance: no pixel moves; the picture row allocates less and walks faster.
   Check: `cargo test --release --test rt_canvas_picture --test rt_canvas_damage
@@ -849,10 +869,37 @@ Acceptance: no pixel moves; the picture row allocates less and walks faster.
   Check: `perf.mfb_alloc.count` from the `--debug` report of a 120-frame
   `KIND=picture COUNT=10000` run of `benchmark/canvas/mfb`, and of the same with
   `KIND=tile`, before and after, recorded here.
+
+**MET 2026-10-25**, against the base compiler at `44925e237` (a detached worktree), with
+the headless probe of Correction 7:
+- `cargo test --release --test rt_canvas_picture --test rt_canvas_damage --test
+  rt_canvas_geo_native` (and `rt_canvas_tile`, `rt_canvas_graphics_thread`,
+  `rt_canvas_damage_groups`, `rt_canvas_particles`, `rt_canvas_autopaint`) → picture 19,
+  damage 11, geo_native 8, tile 7, graphics_thread 21, damage_groups 4, particles 29,
+  autopaint 23 passed;
+- `picture fill 10000`, three interleaved runs each: walk 12.949, 12.607, 13.513 ms a
+  frame at the base (median 12.95, the baseline's 12.0 being a windowed number) against
+  7.692, 7.470, 7.043 (median 7.47); frame hash `318834a94296f27b` on every run;
+- `tile fill 10000`: 6.530, 5.487, 5.350 (median 5.49) against 3.821, 3.718, 3.667
+  (median 3.72); frame hash `88bef16356cbf73c` on every run;
+- allocations: `perf.mfb_alloc.count` is unchanged (picture 349,096 → 349,098, tile
+  349,097 → 349,097): it does not count the graphics thread's arena. That arena's
+  `alloc_calls` from the same report falls 6,810,176 → 2,040,176 (picture) and
+  3,853,459 → 1,473,459 (tile), and the bytes it scrubs on free 2.76 → 1.75 GB and
+  1.28 → 0.98 GB. What is left is about one allocation an item a frame, the frame's
+  copy of the scene (`__canvas_flatScene`) and its element copy in pass 2.
 Commit: —
 
 ### Phase 7 — Spec, threading notes, closeout
 
+- [ ] (added, Correction 9) Regenerate the canvas change-sentinel goldens after the
+      plan's last code change (letters B and C move them again): `cargo test --release
+      --bin mfb` → `replay_shard_05/08/23` fail on `syntax/app/app-mouse-surface`,
+      `syntax/resources/canvas-append-unconsumed-valid` and
+      `syntax/resources/loop-body-resource-reference-valid` (`.ir` differs: the canvas
+      helper text's lines and globals moved). Classify against main with
+      `scripts/artifact-gate.sh <mfb> all` from a detached main-tip worktree, then
+      regenerate every flagged fixture, and run `scripts/test-accept.sh` in full.
 - [ ] The text of §4.7.
 - [ ] `scripts/spec-census.sh --render` and `--citations`.
 - [ ] Re-run §2.3's rows on box 206 and this Mac alone (load under 4) and record them
@@ -1129,6 +1176,59 @@ correction is added here, dated, with the command that showed it.
      `run.sh` makes its `.sums`), and the allocation counts come from the 120-frame
      run's `--debug` report. The baseline's 14.1 ms is a windowed number and is not
      comparable to the probe's; the base-compiler comparison is the one that holds.
+8. 2026-10-25, Phase 6: §4.8's "a picture's image is confirmed once per frame" rested on
+   the confirmation being the picture walk's cost, and it is not. `sample <pid> 6` of a
+   headless 1,500-frame `KIND=picture COUNT=10000` run of `benchmark/canvas/mfb` built at
+   this phase's base: of the graphics thread's 4,694 samples, 2,063 wait (GPU, redraw);
+   of the ~2,630 busy, `mfb_rt_perf_perf_start`/`_end` (the `--debug` timers around every
+   arena alloc and free) take 880, `__canvas_pictureKey` and its `__canvas_hashStep` 243,
+   `__canvas_pictureCachedOf` 41 and `__canvas_geoStamp` 15. And there is no per-image
+   answer to remember: each record stamps the block address itself
+   (`__canvas_pictureStamp`), so confirming one says nothing about the next. What the
+   walk did per cached picture per frame was allocate 5.7 times (`arena.<graphics>.
+   alloc_calls` 6,810,176 over 120 frames, 10,000 pictures), against 0.2 for a native row
+   (`rect fill 10000`: 23,012). Phase 6 removes the allocations instead: the variant copy
+   that only read `image` (`canvas::itemImageShadow` reads it in place), the per-picture
+   result list, and the empty list per call. Measured: 6.81M → 2.04M allocations and
+   12.95 → 7.47 ms for pictures, 3.85M → 1.47M and 5.49 → 3.72 ms for tiles. Removing the
+   duplicate plain probe alone measured no change (12.385 → 12.496 ms). The plan's
+   per-frame memo task is marked moot with this evidence.
+   - **The R11 row needs a changed scene.** A `destroyImage` signals no redraw (it is not
+     one of §4's triggers) and a re-present of the same items is skipped, so
+     `destroyImage` then `present(items)` draws no frame at this phase's base, at HEAD
+     and at the plan's base `2f281c5e7` alike (one stats line; the picture's pixel still
+     red). That is the frame-skip contract, not a defect; the 100-picture R11 test makes
+     its frame as `set_bytes_then_destroy_then_a_frame_draws_nothing` does, with one
+     more item.
+9. 2026-10-25, Phase 6's check: `cargo test --release --bin mfb` had not been run since
+   Phase 1, and six of its tests had gone red under this plan. Each is answered from
+   evidence.
+   - `helper_picture::tests::canvas_picture_only_the_plain_record_is_cached_under_the_item_hash`
+     counted `__canvas_pictureInsert(hash,`, a function Phase 2 (`f7c605784`) replaced
+     by the lookup that plans the key (`__canvas_pictureCachedOf(g, …)`) and
+     `__canvas_pictureStore` (`git grep pictureInsert f7c605784 -- src` → only the test).
+     Its invariant is restated in those names: only the plain probe and the Tile store
+     under the item's own identity, and every other lookup is under a stepped key.
+   - `builtins_codegen::canvas::the_skip_reports_false_and_the_publish_reports_true` read
+     "the first `ret` after the publish label". plan-175-D moved the scene copy after
+     that label, and `copy_flat_block`'s out-of-memory raise (`payload_copy.rs`) is now
+     that first `ret`. The publish exit is the last `ret` before the `_retire_oom` cold
+     path, and it reads `1`.
+   - `…::retired_scene_blocks_are_freed_only_after_a_frame_completes` required ONE free
+     ahead of the publish label: bug-683's skip freed the copy it compared. plan-175-D's
+     skip makes no copy (`rt_canvas_present_leak.rs:an_unchanged_re_present_copies_nothing`),
+     so the count is 0. The gate's own counts (4 behind it, 0 on the publish path before
+     it, 1 on the cold path) are unchanged and pass.
+   - `declared_errors_all::every_canvas_member_declares_exactly_the_errors_its_lowering_raises`:
+     Phase 5's `canvas::groupBlockItem` declared `ErrOutOfMemory`, which its lowering
+     never raises — the descriptor was wrong, now `[]`.
+   - `raw_result_block_ownership::every_block_returning_runtime_helper_is_classified`:
+     `canvas.groupBlockItem` returns a `DrawItem` that `lower_list_get_or` copies on the
+     calling thread, in the caller's arena, so it is registered in
+     `CALLER_ARENA_BLOCK_RESULTS`.
+   - `build_replay::replay_shard_05/08/23`: three canvas programs' `.ir` goldens, the
+     change sentinels `.ai/testing-gates.md` names for the canvas runtime. Regenerated
+     once, after the last code change (Phase 7's added task).
 
 ## Summary
 

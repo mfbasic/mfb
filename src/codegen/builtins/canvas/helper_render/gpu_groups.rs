@@ -120,6 +120,14 @@ MUT __CANVAS_GROUP_BLOCK_REV AS Integer = 0
 ' rather than a `__canvas_noItem()` per node.
 MUT __CANVAS_BLOCK_NONE AS DrawItem = Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := ""]
 
+' plan-175-A Phase 6: the records `__canvas_imageCached` found for a tile or a picture --
+' each one's offset, -1 for none to draw (a shaped picture's empty record), and the key
+' its draw entry carries. Graphics-thread globals, read straight after the call.
+MUT __CANVAS_PIC_IMAGE AS Integer = 0
+MUT __CANVAS_PIC_IMAGE_KEY AS Integer = 0
+MUT __CANVAS_PIC_OUTLINE AS Integer = 0
+MUT __CANVAS_PIC_OUTLINE_KEY AS Integer = 0
+
 ' A group slot's items block, read AFTER its revision, so the block is at least as new
 ' as the revision `__canvas_groupHashes` files its identities under.
 FUNC __canvas_groupBlock(slot AS Integer) AS Integer
@@ -180,6 +188,24 @@ END FUNC
 ' `geo` its geometry identity `G`, which keys its record (`__canvas_geometryOf`).
 FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, geo AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   MUT out AS List OF Integer = offsets
+  ' plan-175-A Phase 6: a `Tile` or a `Picture` whose records are all cached is laid out
+  ' from its identities and its image's pixel block, read in place -- extracting the
+  ' variant below copies it, and on every frame after the first this is all a cached one
+  ' needs. Anything else, and a miss, goes through the `MATCH`.
+  LET shadow AS Integer = canvas::itemImageShadow(item)
+  IF shadow >= 0 THEN
+    IF __canvas_imageCached(geo, hash, shadow) THEN
+      IF __CANVAS_PIC_IMAGE >= 0 THEN
+        out = collections::append(out, __CANVAS_PIC_IMAGE)
+        __canvas_noteEntry(__CANVAS_PIC_IMAGE, __CANVAS_PIC_IMAGE_KEY, gdx, gdy, mat)
+      END IF
+      IF __CANVAS_PIC_OUTLINE >= 0 THEN
+        out = collections::append(out, __CANVAS_PIC_OUTLINE)
+        __canvas_noteEntry(__CANVAS_PIC_OUTLINE, __CANVAS_PIC_OUTLINE_KEY, gdx, gdy, mat)
+      END IF
+      RETURN out
+    END IF
+  END IF
   MATCH item
     CASE Group(g)
       ' Depth is counted per PATH, so a diamond -- two parents naming one child -- is

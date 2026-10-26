@@ -79,13 +79,18 @@ FUNC __canvas_tileGeometry(tile AS Tile, g AS Integer, d AS Integer) AS Integer
   RETURN 0 - 1
 END FUNC
 
+FUNC __canvas_imageCached(geo AS Integer, hash AS Integer, shadow AS Integer) AS Boolean
+  RETURN FALSE
+END FUNC
+
 FUNC __canvas_pictureCloseFont(pic AS Picture, scene AS List OF DrawItem) AS Nothing
 END FUNC"#;
 
 /// The names the unconditional source calls: each is defined once in [`PICTURE`] and
 /// once in [`ABSENT`], and exactly one of the two chunks is in any canvas program.
 #[cfg(test)]
-const HOOKS: [&str; 10] = [
+const HOOKS: [&str; 11] = [
+    "__canvas_imageCached",
     "__canvas_pictureAppend",
     "__canvas_pictureBlocks",
     "__canvas_pictureAutoBlocks",

@@ -384,3 +384,50 @@ fn a_tile_edge_pixel_samples_inside_its_source_rectangle() {
         "left edge pixel is green only: {left:?}"
     );
 }
+
+/// plan-175-A Phase 6: the many-tile twin of `set_bytes_on_a_presented_tile_image_repaints`.
+/// 200 tiles of one atlas, presented directly, then a `setBytes` on it: every tile
+/// repaints with the new pixels. A cached tile is laid out from its identities and the
+/// atlas's pixel block read in place (`canvas::itemImageShadow`), so each tile must still
+/// confirm that block. Under `MFB_CANVAS_GEO_VERIFY=1`, every resolved record is checked
+/// against a fresh build.
+#[test]
+fn set_bytes_repaints_every_tile_of_the_atlas() {
+    let mut body = red_image();
+    body.push_str(
+        "  MUT cells AS List OF canvas::DrawItem = []\n  \
+         MUT i AS Integer = 0\n  \
+         WHILE i < 200\n    \
+           LET x AS Float = toFloat(40 * (i - 20 * (i / 20)))\n    \
+           LET y AS Float = toFloat(40 * (i / 20))\n    \
+           cells = collections::append(cells, canvas::Tile[image := img, srcPosition := vector::Float2[x := 0.0, y := 0.0], srcSize := vector::Float2[x := 1.0, y := 1.0], position := vector::Float2[x := x, y := y], size := vector::Float2[x := 32.0, y := 32.0]])\n    \
+           i = i + 1\n  \
+         END WHILE\n  \
+         canvas::present(cells)\n",
+    );
+    body.push_str(&format!(
+        "  canvas::setBytes(img, {})\n",
+        pixels(&[(0, 255, 0, 255)])
+    ));
+    let source = source(&body).replace("IMPORT io", "IMPORT io\nIMPORT collections");
+    let (frame, stats) = render_with("canvas_tile_many_set_bytes", &source, true);
+    for i in 0..200 {
+        let (x, y) = (40 * (i % 20) + 16, 40 * (i / 20) + 16);
+        assert_eq!(
+            pixel(&frame, x, y),
+            (0, 255, 0, 255),
+            "tile {i} at ({x}, {y}) shows the new pixels"
+        );
+    }
+    let last = stats.lines().last().unwrap_or_default();
+    assert_eq!(
+        field(last, "frames"),
+        "2",
+        "the present and the setBytes each rendered a frame: {stats}"
+    );
+    assert_eq!(
+        field(last, "geoVerifyMismatches"),
+        "0",
+        "a resolved record differs from a fresh build: {stats}"
+    );
+}

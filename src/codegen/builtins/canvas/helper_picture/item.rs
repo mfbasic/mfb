@@ -534,8 +534,10 @@ END FUNC
 ' This is what a tilemap pays per tile, so it is one cache probe -- under the item's
 ' own hash, where only a plain picture's record ever is -- and, on a miss, one look at
 ' the shape. No list is made and the shape is not turned into an item.
-FUNC __canvas_picturePlainOffset(pic AS Picture, geo AS Integer, hash AS Integer) AS Integer
-  LET shadow AS Integer = canvas::imageShadow(pic.image)
+'
+' plan-175-A Phase 6: `shadow` is the image's pixel block, read once by the caller for
+' the whole picture.
+FUNC __canvas_picturePlainOffset(pic AS Picture, geo AS Integer, hash AS Integer, shadow AS Integer) AS Integer
   LET found AS Integer = __canvas_pictureCachedOf(geo, hash, shadow)
   IF found >= 0 THEN
     RETURN found
@@ -557,30 +559,68 @@ END FUNC
 ' record; or a shaped picture's two, from the cache alone when they are there -- every
 ' frame after the first -- so the shape is not copied out of the item at all.
 FUNC __canvas_pictureQuick(pic AS Picture, geo AS Integer, hash AS Integer) AS List OF Integer
-  LET plain AS Integer = __canvas_picturePlainOffset(pic, geo, hash)
+  LET shadow AS Integer = canvas::imageShadow(pic.image)
+  LET plain AS Integer = __canvas_picturePlainOffset(pic, geo, hash, shadow)
   IF plain >= 0 THEN
     RETURN [plain, hash]
   END IF
-  LET shadow AS Integer = canvas::imageShadow(pic.image)
-  LET imageKey AS Integer = __canvas_pictureKey(hash, 201, 0)
-  LET image AS Integer = __canvas_pictureCachedOf(__canvas_pictureKey(geo, 201, 0), imageKey, shadow)
-  IF image >= 0 THEN
-    LET outlineKey AS Integer = __canvas_pictureKey(hash, 202, 0)
-    LET outline AS Integer = __canvas_pictureCachedOf(__canvas_pictureKey(geo, 202, 0), outlineKey, 0)
-    IF outline >= 0 THEN
-      MUT out AS List OF Integer = []
-      IF toInt(collections::getOr(__CANVAS_GEO_DATA, image, 0.0)) <> __CANVAS_GEO_NONE THEN
-        out = collections::append(out, image)
-        out = collections::append(out, imageKey)
-      END IF
-      IF toInt(collections::getOr(__CANVAS_GEO_DATA, outline, 0.0)) <> __CANVAS_GEO_NONE THEN
-        out = collections::append(out, outline)
-        out = collections::append(out, outlineKey)
-      END IF
-      RETURN out
+  IF __canvas_pictureShapedHit(geo, hash, shadow) THEN
+    MUT out AS List OF Integer = []
+    IF __CANVAS_PIC_IMAGE >= 0 THEN
+      out = collections::append(out, __CANVAS_PIC_IMAGE)
+      out = collections::append(out, __CANVAS_PIC_IMAGE_KEY)
     END IF
+    IF __CANVAS_PIC_OUTLINE >= 0 THEN
+      out = collections::append(out, __CANVAS_PIC_OUTLINE)
+      out = collections::append(out, __CANVAS_PIC_OUTLINE_KEY)
+    END IF
+    RETURN out
   END IF
   RETURN __canvas_pictureBlocksOf(__canvas_shapeAsItem(pic.shape), pic, geo, hash, 0, FALSE)
+END FUNC
+
+' plan-175-A Phase 6: whether a `Tile` or a `Picture` of identities `geo` and `hash`,
+' its image's pixel block `shadow` (`canvas::itemImageShadow`), finds every record it
+' draws from in the cache. The answer is in `__CANVAS_PIC_*` (`__canvas_appendDraw`),
+' so the walk lays the item out without copying it out of its variant. A plain picture
+' and a tile are one record under `geo`; a shaped picture is two under `geo` stepped.
+FUNC __canvas_imageCached(geo AS Integer, hash AS Integer, shadow AS Integer) AS Boolean
+  LET plain AS Integer = __canvas_pictureCachedOf(geo, hash, shadow)
+  IF plain >= 0 THEN
+    __CANVAS_PIC_IMAGE = plain
+    __CANVAS_PIC_IMAGE_KEY = hash
+    __CANVAS_PIC_OUTLINE = 0 - 1
+    RETURN TRUE
+  END IF
+  RETURN __canvas_pictureShapedHit(geo, hash, shadow)
+END FUNC
+
+' Whether a shaped picture of identities `geo` and `hash`, its image's pixel block
+' `shadow`, finds both its records in the cache -- every frame after the first. The
+' answer is in the four globals above, so the walk lays out a picture without making a
+' list for it.
+FUNC __canvas_pictureShapedHit(geo AS Integer, hash AS Integer, shadow AS Integer) AS Boolean
+  LET imageKey AS Integer = __canvas_pictureKey(hash, 201, 0)
+  LET image AS Integer = __canvas_pictureCachedOf(__canvas_pictureKey(geo, 201, 0), imageKey, shadow)
+  IF image < 0 THEN
+    RETURN FALSE
+  END IF
+  LET outlineKey AS Integer = __canvas_pictureKey(hash, 202, 0)
+  LET outline AS Integer = __canvas_pictureCachedOf(__canvas_pictureKey(geo, 202, 0), outlineKey, 0)
+  IF outline < 0 THEN
+    RETURN FALSE
+  END IF
+  __CANVAS_PIC_IMAGE = image
+  IF toInt(collections::getOr(__CANVAS_GEO_DATA, image, 0.0)) = __CANVAS_GEO_NONE THEN
+    __CANVAS_PIC_IMAGE = 0 - 1
+  END IF
+  __CANVAS_PIC_IMAGE_KEY = imageKey
+  __CANVAS_PIC_OUTLINE = outline
+  IF toInt(collections::getOr(__CANVAS_GEO_DATA, outline, 0.0)) = __CANVAS_GEO_NONE THEN
+    __CANVAS_PIC_OUTLINE = 0 - 1
+  END IF
+  __CANVAS_PIC_OUTLINE_KEY = outlineKey
+  RETURN TRUE
 END FUNC
 
 ' `__canvas_memoGroup`'s picture: the (offset, key) pairs of the picture at `index` of
@@ -631,25 +671,34 @@ END FUNC
 ' shape's OWN paint, which is what the hit test must read.
 FUNC __canvas_pictureAppend(offsets AS List OF Integer, pic AS Picture, geo AS Integer, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   MUT out AS List OF Integer = offsets
-  MUT blocks AS List OF Integer = []
   MATCH pic.shape
     CASE AutoPaint(a)
-      blocks = __canvas_pictureBlocksOf(__canvas_autoShapeShown(a, 0), pic, hash, hash, 0, TRUE)
+      LET blocks AS List OF Integer = __canvas_pictureBlocksOf(__canvas_autoShapeShown(a, 0), pic, hash, hash, 0, TRUE)
       IF __CANVAS_PICTURE_HOSTS_FRAME <> __CANVAS_GEO_FRAME THEN
         __CANVAS_PICTURE_HOSTS = []
         __CANVAS_PICTURE_HOSTS_FRAME = __CANVAS_GEO_FRAME
       END IF
       __CANVAS_PICTURE_HOSTS = collections::append(__CANVAS_PICTURE_HOSTS, pic)
       __canvas_autoNote(a, hash, len(out) + 1, depth, path, index, len(__CANVAS_PICTURE_HOSTS) - 1)
+      RETURN __canvas_pictureNoteBlocks(out, blocks, gdx, gdy, mat)
     CASE ELSE
-      LET plain AS Integer = __canvas_picturePlainOffset(pic, geo, hash)
+      LET shadow AS Integer = canvas::imageShadow(pic.image)
+      LET plain AS Integer = __canvas_picturePlainOffset(pic, geo, hash, shadow)
       IF plain >= 0 THEN
         out = collections::append(out, plain)
         __canvas_noteEntry(plain, hash, gdx, gdy, mat)
         RETURN out
       END IF
-      blocks = __canvas_pictureQuick(pic, geo, hash)
+      ' plan-175-A Phase 6: a shaped picture found whole in the cache never gets here --
+      ' `__canvas_appendDraw` laid it out (`__canvas_imageCached`) -- so this is a miss.
+      RETURN __canvas_pictureNoteBlocks(out, __canvas_pictureBlocksOf(__canvas_shapeAsItem(pic.shape), pic, geo, hash, 0, FALSE), gdx, gdy, mat)
   END MATCH
+  RETURN out
+END FUNC
+
+' `__canvas_pictureAppend`'s entries for the (offset, key) pairs `blocks`.
+FUNC __canvas_pictureNoteBlocks(offsets AS List OF Integer, blocks AS List OF Integer, gdx AS Float, gdy AS Float, mat AS Integer) AS List OF Integer
+  MUT out AS List OF Integer = offsets
   MUT k AS Integer = 0
   WHILE k + 1 < len(blocks)
     out = collections::append(out, collections::getOr(blocks, k, 0))
