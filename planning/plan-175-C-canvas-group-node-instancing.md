@@ -212,7 +212,7 @@ Acceptance: the baseline records the merge; the docs describe HEAD.
   Check: `./benchmark/canvas/compare.py <run>.log --base <previous baseline>` → `group
   fill 10000` encode below 2,221 µs and draws 2, no other row's checksum changed (est.
   5 min, attended).
-Commit: —
+Commit: 29f049ff9 (baseline); the §10 notes in fd66b249f
 
 ## Validation Plan
 

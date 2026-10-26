@@ -975,7 +975,7 @@ Commit: 7cdedfffb
       build's per-allocation timing, which a release build does not pay.
 
 Acceptance: the spec describes the implementation at HEAD.
-Commit: —
+Commit: 2cfee6f74 (docs), 339f8e8fc (rows, scrub), f22e9c033 (goldens), 29f049ff9 (benchmark)
 
 ## Validation Plan
 
