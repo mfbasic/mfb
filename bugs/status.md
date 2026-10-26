@@ -172,7 +172,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 848    | MED      | a `PUBLIC` field of an `EXPORT TYPE` is readable, constructible and `WITH`-updatable by importers |
 | [ ]  | 849    | MED      | `WITH` can overwrite a `PRIVATE` record field from another file or an importing project |
 | [ ]  | 920    | MED      | Source selection with a directory-symlink alias depends on `read_dir` order (files silently dropped or renamed) |
-| [ ]  | 881    | LOW      | a PUBLIC and a PRIVATE declaration of one name in the same file report `SYMBOL_DUPLICATE_TOP_LEVEL` with the internal mangled name (after 912) |
 | [ ]  | 924    | LOW      | Overloaded (or `PRIVATE`) `main` is reported as "must declare an entry point named `main`"; the "exactly one" diagnostic is unreachable |
 | [ ]  | 1040   | LOW      | a `PRIVATE FUNC` named like a built-in (`len`) hides the built-in in its file, and the error prints the mangled name |
 

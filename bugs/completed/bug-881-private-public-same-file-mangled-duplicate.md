@@ -1,11 +1,11 @@
 # bug-881: a PUBLIC and a PRIVATE declaration of one name in the same file report `SYMBOL_DUPLICATE_TOP_LEVEL` with the internal mangled name
 
-Last updated: 2026-10-05
+Last updated: 2026-10-26
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness
 
-Status: Open
+Status: Fixed. Fixed by a470baa39 ("resolver diagnostics named a file-PRIVATE symbol by its internal spelling"); regression test `src/resolver/tests/private_name_diagnostics.rs`.
 Regression Test: tests/rt-error/scope/private-public-same-file (new) — name suggested
 
 **Owner decision (2026-10-05):** same file, same name and signature is a duplicate declaration. It stays
@@ -67,3 +67,11 @@ sees two declarations of the mangled name and prints it raw. The warning is push
 ## Blast Radius
 
 - The three `was already declared in` emitters in `src/resolver/mod.rs` — any of them can receive a mangled private name.
+
+## Resolution (2026-10-26 open-bug review)
+
+Re-verified 2026-10-26 at HEAD cdecc60c1 (release build): the filed program reports
+`main.mfb:4 error[2-201-0010 SYMBOL_DUPLICATE_TOP_LEVEL]` with the detail
+"Top-level symbol `f` was already declared in src/main.mfb:1." The open owner question (error or
+shadow warning) is settled by the spec: `13_modules-and-packages.md` now says a same-signature
+PUBLIC and PRIVATE pair in one file is `SYMBOL_DUPLICATE_TOP_LEVEL`.
