@@ -38,7 +38,7 @@ value that does not vary with the instant being projected. Unlike
 zone, and unlike `datetime::utc`, the canonical zero-offset zone, a
 fixed-offset `datetime::Zone` carries a single signed offset that applies to every
 `datetime::Instant` projected through it. The returned `datetime::Zone` has a zone kind of
-`datetime::ZoneKind::FixedOffset` and a label rendered as `+HH:MM` or `-HH:MM`, with `:SS`
+`datetime::ZoneKind.FixedOffset` and a label rendered as `+HH:MM` or `-HH:MM`, with `:SS`
 appended when the offset is not a whole number of minutes.
 
 

@@ -199,7 +199,8 @@ and `ready`/`pump`/`done`/`finish` then receive the response without blocking
 the calling thread. On the server side, `http::server`/`http::serverSSL` bind a
 listener, `http::route` and `http::handleRequest` dispatch requests to handlers,
 and the response constructors (`responseDefault`/`ok`/`status`/`json`/`withHeader`/
-`respondFile`/`respondPath`) build a `http::Response`. `IMPORT http` needs no manifest dependency."#;
+`respondFile`/`respondPath`) build a `http::Response`, and `http::bytes` encodes a
+`String` into the byte list a body field holds, for `WITH` edits. `IMPORT http` needs no manifest dependency."#;
 
 /// Register the `http` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -266,12 +267,15 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "PendingState",
         export: true,
-        description: "",
+        description: "The `STATE` a non-blocking client stream carries: read it through \
+                      the handle (`s.state.raw`, `s.state.err`) while driving it with \
+                      `http::ready`/`http::pump`/`http::done`; declared as \
+                      `RES s AS http::Stream STATE http::PendingState`.",
         props: vec![
             RecordProp {
                 name: "sentAll",
                 ty: ParameterType::Boolean,
-                description: "Request fully written (reserved for a future write-pump).",
+                description: "`TRUE` once the request has been written; `http::startRead` always returns with it `TRUE`.",
             },
             RecordProp {
                 name: "closed",

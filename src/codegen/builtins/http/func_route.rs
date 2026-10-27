@@ -48,7 +48,9 @@ ending in `?`.
 
 **Ordering.** Routes live in an ordered `List OF http::Route` and `http::handleRequest`
 tries them in list order, first match wins. `route` imposes no specificity
-ranking, so to let a literal beat an overlapping pattern, append it first.
+ranking, so to let a literal beat an overlapping pattern, append it first. A
+route matches on path only; the method is not part of the pattern, so a handler
+that must distinguish `GET` from `POST` reads `req.method` itself.
 
 `route` performs no I/O and registers nothing globally; it is a pure constructor
 whose result the caller stores. `ErrOutOfMemory` means the program ran out of

@@ -23,6 +23,12 @@ counts elapsed physical time. For civil, zone-aware day and month arithmetic tha
 honors DST and varying month lengths, use `datetime::addDays` and
 `datetime::addMonths` on a `datetime::DateTime` instead.
 
+To shift a `datetime::DateTime` by a span, resolve it, shift the instant, and
+project back into its zone:
+`datetime::inZone(datetime::subtract(datetime::resolve(dt), by), dt.zone)`. `addDays`
+and `addMonths` exist because that route counts physical seconds, not calendar
+days.
+
 Normalization floor-divides the nanosecond difference into a whole-second borrow
 and a non-negative remainder, then folds the borrow back into the `seconds`
 field, so a subtraction that borrows across the second boundary still yields a

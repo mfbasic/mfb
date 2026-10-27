@@ -41,7 +41,10 @@ no manifest dependency.
 
 All public types are flat, copyable value records and enums — `datetime::Instant`,
 `datetime::Duration`, `datetime::Date`, `datetime::Time`, `datetime::Zone`, `datetime::DateTime`, and the enums `datetime::ZoneKind`,
-`datetime::Weekday`, and `datetime::Month`. There are no resources and no hidden global state, and the
+`datetime::Weekday`, and `datetime::Month`. No function returns or accepts
+`datetime::Month`; date fields and arguments are month numbers `1..12`. Convert
+with `toInt(datetime::Month.March) + 1` (ordinals start at `0`), or use
+`toString(member)` for the English name. There are no resources and no hidden global state, and the
 types are always written package-qualified (`datetime::Instant`, `datetime::Date`, …); a bare
 `Instant` is `SYMBOL_UNKNOWN_TYPE`. The constructors and arithmetic
 return normalized values, but a record you build directly is not checked:
@@ -50,8 +53,9 @@ return normalized values, but a record you build directly is not checked:
 
 The wall clock (`now` and `nowNanos`) and the monotonic counter (`monotonic` and
 `monotonicNanos`) read host clocks. Every operation that resolves a
-`datetime::local()` zone reads the host's zone rules: `localOffset`, `civil`,
-`inZone`/`toLocal`, `addDays`, and `addMonths`. The same call can therefore
+`datetime::local()` zone reads the host's zone rules: `localOffset`, `offsetAt`,
+`civil`, `inZone`/`toLocal`/`withZone`, `startOfDay`, `addDays`, `addMonths`, and
+`parse` when given `datetime::local()`. The same call can therefore
 give a different result on a host set to a different zone, while UTC and
 fixed-offset arguments give the same result everywhere. Everything else is a
 pure function of its arguments.
@@ -75,7 +79,12 @@ share a pattern mini-language: a pattern is literal text with token runs, where 
 run of the same letter is one token whose length selects width or style, and
 literal letters are wrapped in single quotes. `format` renders a `datetime::DateTime`,
 `parse` reads one back, and `toIso`/`parseIso` handle RFC 3339 / ISO 8601 with a
-required offset.
+required offset. Calendar queries read a `DateTime`'s civil fields: `weekday`,
+`dayOfYear`, `startOfDay`, plus `daysInMonth` and `isLeapYear` on bare numbers.
+`compare`, `equals`, `isBefore` and `isAfter` order instants (resolve a
+`DateTime` first). `toMillis`/`fromMillis` and `toNanos` convert an `Instant` to
+and from epoch counts. `withZone` re-projects a `DateTime` into another zone and
+`offsetAt` reports a zone's offset at an instant.
 
 Project an instant into a fixed-offset zone, move it by calendar days, and
 resolve it back:
@@ -217,7 +226,7 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "kind",
                 ty: ParameterType::Integer,
-                description: "Which kind of zone this is: `datetime::ZoneKind.Utc`, `datetime::ZoneKind.FixedOffset`, or `datetime::ZoneKind.Local` for a zone from the constructors. The field is a plain `Integer`.",
+                description: "Which kind of zone this is: `datetime::ZoneKind.Utc`, `datetime::ZoneKind.FixedOffset`, or `datetime::ZoneKind.Local` for a zone from the constructors. The field is a plain `Integer`, so it cannot be compared to the enum member directly: compare it with `toInt(datetime::ZoneKind.Local)` (`0` Utc, `1` FixedOffset, `2` Local).",
             },
             RecordProp {
                 name: "label",
