@@ -32,37 +32,35 @@ and returns an opaque `File` resource that later `fs::` calls read from, write
 to, and close. Both arguments are required; unlike `fs::openFile`, `mode` has no
 default and must be supplied explicitly.
 
-`mode` selects how the file is opened. The portable mode names are `"read"` or
-`"r"`, `"write"` or `"w"`, `"readWrite"` or `"rw"`, and `"append"` or `"a"`.
+`mode` selects how the file is opened. The mode names are `"read"` or
+`"r"`, `"write"` or `"w"`, `"readWrite"` or `"rw"`, and `"append"` or `"a"`; there are no others.
 `"read"` opens an existing file for reading only and creates nothing. `"write"`
 opens the file for writing, creating it when it does not exist and truncating it
 to empty when it does. `"readWrite"` opens the file for both reading and writing,
 creating it when it does not exist but preserving existing contents. `"append"`
 opens the file for writing with every write directed to the end of the file,
-creating it when it does not exist. The mode string is matched exactly, byte for
+even after `fs::seek`, creating it when it does not exist. The mode string is matched exactly, byte for
 byte, and is case sensitive; any other value is rejected before the file is
-touched.
+touched. A `"write"` or `"append"` handle cannot be read; use `"readWrite"`
+when you need both.
 
 Files created by a `write`, `readWrite`, or `append` open are created with
 user-only `0600` permission bits (subject to the process umask), not
 world-readable `0666`, matching `fs::createTempFile` and the atomic writers.
 
-The final path component is followed when it is a symlink, so opening through a
-symlink opens its target. To refuse a symlinked final component, use
+Symbolic links anywhere in `path` are followed, so opening through a symlink
+opens its target. To refuse a path that passes through any symbolic link, use
 `fs::openFileNoFollow` instead.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
-absolute or relative to the current working directory and may contain Unicode
-characters when the host filesystem accepts those names. The string must not be
-empty and must not contain an embedded NUL byte, because the host `open` call
-requires a NUL-terminated path.
+`path` may be absolute or relative to the current working directory and may
+contain Unicode characters when the host filesystem accepts those names. It must
+not be empty and must not contain a NUL character.
 
 The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`. The function reads or writes no
 file contents itself; it only opens the file and gives you the `File`
-resource. If the `File` record cannot be built after the file is opened, the file is closed before the error is reported, so a failed open
-never leaks a host fd.
+resource. When `fs::open` raises, there is nothing to close.
 
-An empty `path`, one containing a NUL byte, or a `mode` that is not one of the
+An empty `path`, one containing a NUL character, or a `mode` that is not one of the
 names above raises `ErrInvalidArgument`. When the file cannot be opened the
 error says why: `ErrPathNotFound` if it does not exist — or, for a mode that
 creates the file, if a directory above it does not — `ErrAccessDenied` if
@@ -109,7 +107,8 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Open a file for appending so each write lands at the end:
+Open a file for appending so each write lands at the end. This prints
+`started` and then `stopped`:
 
 ```
 IMPORT fs
@@ -119,9 +118,12 @@ FUNC main() AS Nothing
   LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-open-3"])
   fs::createDirectories(dir)
   LET path AS String = fs::pathJoin([dir, "app.log"])
-  RES log AS fs::File = fs::open(path, "a")
-  fs::writeAll(log, "started\n")
-  fs::close(log)
+  RES first AS fs::File = fs::open(path, "a")
+  fs::writeAll(first, "started\n")
+  fs::close(first)
+  RES second AS fs::File = fs::open(path, "a")
+  fs::writeAll(second, "stopped")
+  fs::close(second)
   io::print(fs::readText(path))
   fs::deleteFile(path)
   fs::deleteDirectory(dir)
@@ -140,9 +142,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "path",
-                    desc: "The filesystem path of the file to open, as UTF-8 bytes; absolute or \
-                           relative to the current working directory. Must be non-empty and free \
-                           of embedded NUL bytes.",
+                    desc: "The filesystem path of the file to open; absolute or relative to \
+                           the current working directory. Must be non-empty and contain no NUL \
+                           character.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

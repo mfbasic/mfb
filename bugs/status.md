@@ -149,9 +149,11 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 1120   | MED      | `fs::deleteDirectory` goes through a directory symbolic link: `link/` removes the target dir; Windows removes the link |
 | [ ]  | 1121   | MED      | `thread::transfer` of a buffered `fs::File` drops the bytes still in its buffer |
+| [ ]  | 1124   | MED      | Windows `fs::openWithin` follows a symbolic link that stays inside `root` (other hosts refuse any link) |
 | [ ]  | 892    | LOW      | fs::readAll / fs::readAllBytes raise ErrReadFailed after fs::seek past end of file |
 | [ ]  | 893    | LOW      | fs::canonicalPath / fs::isWithin accept "file/" and "file/.." on macOS but raise ErrInvalidPath on Linux |
 | [ ]  | 1122   | LOW      | `fs::isWithin`'s `child` parameter is aliased `parent`, the opposite of what it names |
+| [ ]  | 1123   | LOW      | `fs::readAll`/`fs::readAllBytes` on a write-only `File` return empty instead of raising `ErrReadFailed` |
 
 ## Types, records and unions
 

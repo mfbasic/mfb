@@ -38,16 +38,16 @@ const INTRO: &str = r#"Open a `File` whose contents are a copy of a value held i
 const DESC: &str = r#"`fs::openData` returns a `File` whose contents are a copy of `value` — the
 UTF-8 bytes of a `String`, or the bytes of a `List OF Byte` — so any code written
 against a `File` (`fs::readLine`, `fs::readAll`, `csv::readRow`, …) can read text
-the program already has. The data lives in memory, not in any directory: no other
-program can see it, nothing is left behind when the `File` is closed, and nothing
-needs cleaning up after a crash.
+the program already has. The `File` has no path. Nothing is written to any file you
+can name, no other program can open it, nothing is left behind when the `File` is
+closed, and nothing needs cleaning up after a crash.
 
 It is an ordinary `File`. Every `fs::` handle operation works on it exactly as on
 a file opened from disk — `fs::readLine`, `fs::readAll`, `fs::readAllBytes`,
 `fs::readBytesAt`, `fs::writeAll`, `fs::writeAllBytes`, `fs::seek`, `fs::size`,
 `fs::eof`, `fs::setBuffered`, `fs::flush` — and it closes the same way: with
-`fs::close`, or by itself when its binding goes out of scope. Closing it releases
-the memory.
+`fs::close`, or by itself when its binding goes out of scope. Closing it discards
+the copy.
 
 `value` is copied when the `File` is opened. Nothing written to the `File`
 afterwards changes `value`, and changing the variable that held `value` does not

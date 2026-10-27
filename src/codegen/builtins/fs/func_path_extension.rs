@@ -23,13 +23,16 @@ The scan never crosses a `/`, so a `.` in an earlier component is ignored:
 `"lib.d/output"` yields an empty `String`. When the final component contains no
 `.`, an empty `String` is returned. When the only `.` is the first byte of the
 component, that component is treated as a dotfile name and the whole name is
-returned, so `".bashrc"` yields `".bashrc"`. An empty `path`, or a `path`
+returned, so `".bashrc"` yields `".bashrc"`. A component that ends in `.` yields
+`"."`: `"note."`, `"."`, `".."` and `"dir/.."` all return `"."`, because the
+result runs from the last `.` to the end of the component. Test for `"."`
+yourself if you need to treat these as having no extension. An empty `path`, or a `path`
 consisting only of `/` separators, returns an empty `String`.
 
-The scan is byte-oriented (the separator is the single byte `47` and the dot is
-the single byte `46`), so UTF-8 file names are preserved unchanged and any
-embedded bytes are treated literally. A new `String` holding the extension bytes
-is built for the result. The function reads no external state and has no side effects.
+The only separator is `/`. A backslash is an ordinary name character even on
+Windows, so `"dir.d\file"` yields `".d\file"`, not an empty `String`. UTF-8 file
+names are preserved unchanged: `"dir/fïlé.tést"` yields `".tést"`. The function
+reads no external state and has no side effects.
 
 The only error is `ErrOutOfMemory`, raised when the program runs out of memory."#;
 const EX: &str = r#"A file name with an extension yields the extension:
@@ -98,8 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The path whose extension is wanted, interpreted as raw UTF-8 bytes. \
-                       Trailing `/` separators are ignored before the final component is \
+                desc: "The path whose extension is wanted. Trailing `/` separators are ignored before the final component is \
                        located. May be empty.",
                 aliases: &[],
                 ty: ParameterType::String,

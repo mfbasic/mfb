@@ -103,18 +103,19 @@ writes, an open `File` handle for streaming I/O, purely syntactic path-string
 manipulation, directory creation and listing, and existence tests. `fs` is a
 built-in package: `IMPORT fs` needs no manifest dependency.
 
-Paths are UTF-8 `String` values, interpreted as bytes and passed to the host
-filesystem, so they may carry Unicode characters where the host accepts such
-names. A path may be absolute or relative to the process current working
-directory; relative paths resolve against `fs::currentDirectory()`. Every path
-argument must be non-empty and free of embedded NUL bytes, because the host call
-requires a NUL-terminated path. The path-syntax functions — `fs::pathJoin`,
+Paths are UTF-8 `String` values, so they may carry Unicode characters where the
+host accepts such names. A path may be absolute or relative to the process current working
+directory; relative paths resolve against `fs::currentDirectory()`. A path
+argument must be non-empty and contain no NUL character; otherwise the call
+raises `ErrInvalidArgument`. The three existence predicates are the exception for
+an empty path: they report `FALSE`. The path-syntax functions — `fs::pathJoin`,
 `fs::pathNormalize`, `fs::pathDirName`, `fs::pathBaseName`, and
 `fs::pathExtension` — are byte-oriented and never touch the filesystem, while
 `fs::canonicalPath` and `fs::isWithin` consult the disk to resolve `.`, `..`,
-and symlinks. Where a path names a symlink, the final component is followed (so
-reads and writes act on the target) except in `fs::openFileNoFollow`, which
-refuses a symlinked final component, and `fs::deleteFile`, which removes the link
+and symlinks. Symbolic links in a path are followed (so reads and writes act on
+the target) except in `fs::openFileNoFollow` and `fs::openWithin`, which refuse to
+open through a symlink at any component of the path (on an old Linux kernel, only
+a symlinked final component), and `fs::deleteFile`, which removes the link
 itself.
 
 Whole-file functions operate directly on a path. `fs::readText` and
@@ -133,14 +134,18 @@ return a `File` (`fs::openWithin` opens a caller-supplied relative name that mus
 stay beneath a trusted directory);
 `fs::openData` returns a `File` over a copy of a `String` or `List OF Byte`
 held in memory, so code written against a `File` can read text the program
-already has; `fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::writeAll`,
-`fs::writeAllBytes`, `fs::eof`, and `fs::seek` act on any of them. Portable open modes are
-`"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A `File` is a handle that closes itself when its binding goes out of scope; call `fs::close` only to release it earlier. A
+already has; `fs::readLine`, `fs::readAll`, `fs::readAllBytes`, `fs::readBytesAt`,
+`fs::writeAll`, `fs::writeAllBytes`, `fs::eof`, `fs::seek`, and `fs::size` act on
+any of them. The open modes are `"read"`/`"r"`, `"write"`/`"w"`,
+`"readWrite"`/`"rw"`, and `"append"`/`"a"`; any other string raises
+`ErrInvalidArgument`. A `File` is a handle that closes itself when its binding goes out of scope; call `fs::close` only to release it earlier. A
 `File` that has been closed — explicitly or when its binding ends — cannot be
-used again, not even by a second `fs::close`: a use the compiler can see is
-rejected at compile time, and one it cannot see raises `ErrResourceClosed`. A `File` may be handed to another thread with
-`thread::transfer`; a use of it afterwards that the compiler cannot see raises
-`ErrResourceMoved`.
+used again, not even by a second `fs::close`. Naming the binding again in the
+function that closed it is a build error; reaching the closed `File` another way —
+through a copy of a record that holds it, or after a function it was passed to
+closed it — raises `ErrResourceClosed` at run time. A `File` may be handed to
+another thread with `thread::transfer`; reaching it afterwards through another
+copy raises `ErrResourceMoved`.
 
 Each `File` handle can independently opt in to output buffering. It is off by
 default, so `fs::writeAll`/`fs::writeAllBytes` reach the OS immediately;
@@ -151,7 +156,8 @@ data is never stranded.
 `fs::setBuffered(file, FALSE)` drains and disables it, and `fs::isBuffered(file)`
 reports the current mode. Only incremental handle writes are buffered; whole-file
 and atomic writes already issue one write and ignore the setting. A hard crash may
-lose buffered bytes not yet flushed — flush or close for durability.
+lose buffered bytes not yet flushed; `fs::flush` and closing a handle hand the bytes
+to the operating system without waiting for them to reach storage.
 
 Directory functions create (`fs::createDirectory`, `fs::createDirectories`),
 remove (`fs::deleteDirectory`), and inspect (`fs::listDirectory`) directories,
@@ -162,7 +168,8 @@ uses when called without one. `fs::listDirectory` returns entry names only,
 excluding `.` and `..`, sorted in ascending byte-wise order for deterministic
 results. The existence predicates `fs::exists`, `fs::fileExists`, and
 `fs::directoryExists` return a `Boolean` and report a missing or unreadable path
-as `FALSE` rather than raising; only an internal running out of memory can raise from them."#;
+as `FALSE` rather than raising; they raise only `ErrInvalidArgument` for a path
+containing a NUL character, or `ErrOutOfMemory`."#;
 
 /// Register the `fs` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {

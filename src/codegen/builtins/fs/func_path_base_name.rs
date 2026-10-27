@@ -14,10 +14,8 @@ inspects the bytes of `path` and never consults the filesystem, resolves `.` or
 `..` segments, follows symbolic links, or checks whether any path exists.
 
 Trailing `/` separators are trimmed before the final component is located, so
-`"target/output/"` and `"target/output"` both yield `"output"`. Trimming stops
-once a single character remains, so it never takes the whole string. After
-trimming, the remaining bytes are scanned backward for the last `/` separator and
-everything following it becomes the result, so the returned `String` carries no
+`"target/output/"` and `"target/output"` both yield `"output"`. Everything after
+the last remaining `/` becomes the result, so the returned `String` carries no
 leading separator.
 
 When `path` contains no separator, it is returned unchanged. When `path` is `"/"`
@@ -25,10 +23,10 @@ itself, or trims down to a lone `/` because it consists only of separators (for
 example `"//"` or `"///"`), `"/"` is returned. An empty `path` returns an empty
 `String`.
 
-The scan is byte-oriented (the separator is the single byte `47`), so UTF-8 file
-names are preserved unchanged and any embedded bytes are treated literally. A new
-`String` holding the final-component bytes is built for the result. The
-function reads no external state and has no side effects.
+Only `/` is a separator. A backslash is an ordinary character even on Windows,
+so `"a\b"` is returned unchanged. UTF-8 file names are preserved unchanged. The
+result is a new value and `path` itself is never changed; the function reads no
+external state and has no side effects.
 
 The only error is `ErrOutOfMemory`, raised when the program runs out of memory."#;
 const EX: &str = r#"A directory and a file name yield the file name:
@@ -97,8 +95,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The path whose final component is wanted, interpreted as raw UTF-8 bytes. \
-                       Trailing `/` separators are ignored. May be empty.",
+                desc: "The path whose final component is wanted. Trailing `/` separators are ignored. May be empty.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,
