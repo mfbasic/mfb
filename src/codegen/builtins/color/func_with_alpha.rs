@@ -12,7 +12,10 @@ const DESC: &str = r#"`withAlpha` returns a colour with `base`'s red, green and 
 
 This is how a program makes an existing colour transparent without restating it:
 `color::withAlpha(brand, 128)` is the half-transparent form of `brand` whatever
-`brand` happens to be.
+`brand` happens to be. It is the alpha-only counterpart of building the colour
+afresh with `color::rgba` or `color::hsla`; `color::brighten`, `color::darken`
+and the HSL adjustments all leave alpha alone, so this is the one member that
+changes it.
 
 `alpha` is straight, not premultiplied, so the red, green and blue channels are
 returned exactly as they were. A colour at `alpha` `0` still remembers its red,

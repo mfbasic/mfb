@@ -26,9 +26,13 @@ ratio that only just clears 4.5 is still hard to read for many people.
 
 `alpha` is ignored on both sides, because `luminance` ignores it. A contrast
 ratio involving a transparent colour is not meaningful until you know what it is
-drawn over, so measure the colour that actually ends up on screen. `color::mix`
-does not produce that: it blends two colours *and their alpha*, rather than laying
-one over the other."#;
+drawn over, so measure the colour that actually ends up on screen. For a
+translucent foreground `fg` over an opaque background `bg`, that colour is
+`color::mix(bg, color::withAlpha(fg, 255), toFloat(toInt(fg.alpha)) / 255.0)`: a
+linear-light blend by coverage with the alpha forced opaque, the same way canvas
+draws a translucent colour. `color::mix` on the two colours as they are does not
+produce it: it blends two colours *and their alpha*, rather than laying one over
+the other."#;
 
 const EX: &str = r##"The two values the definition fixes: identical colours give `1.0`, and
 black against white gives `21.0`:

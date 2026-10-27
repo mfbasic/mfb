@@ -100,7 +100,7 @@ pub(crate) const HSL_TYPE_ID: &str = "color.Hsl";
 /// reaches it only by calling the general `toString`.
 pub(crate) const COLOR_TO_STRING: &str = "__color_toString";
 
-const MODULE_INTRO: &str = r#"One colour type for the whole language: an 8-bit-per-channel RGBA value with constructors, a packed-integer bridge, and hex text forms."#;
+const MODULE_INTRO: &str = r#"One colour type for the whole language: an 8-bit-per-channel RGBA value with constructors, hex and packed forms, and the adjustments palettes are built from."#;
 
 const MODULE_DESC: &str = r#"The `color` package defines `color::Color`, the colour value every other package
 speaks. It is a built-in package: `IMPORT color` needs no manifest dependency.
@@ -130,6 +130,19 @@ a colour travels through an API that carries one number.
 
 Text forms use `color::fromHex` and `color::toHex`/`color::toHexAlpha`.
 `toString` on a colour renders the lossless `#rrggbbaa` form.
+
+**Beyond building and spelling colours, the package adjusts them in two
+spaces.** Hue-based adjustments — `color::hsl`, `color::hsla` and `color::toHsl`
+(which returns a `color::Hsl`), `color::saturate`, `color::desaturate`,
+`color::rotateHue` — work in the HSL model on the sRGB colour, the same numbers
+CSS `hsl()` and design tools show. Light-based adjustments — `color::brighten`,
+`color::darken`, `color::mix`, `color::grayscale`, built on `color::toLinear` and
+`color::fromLinear` — work in linear light, so a fraction is a fraction of real
+light. The two spaces deliberately disagree: `color::desaturate` to zero and
+`color::grayscale` give different greys for the same colour. Readability is
+measured with `color::luminance`, `color::contrastRatio`, `color::isDark` and
+`color::isLight`; `color::withAlpha` changes only alpha, and `color::invert`
+flips the colour channels.
 
 **Sixteen basic colours are ready to use by name**, each fully opaque, written
 `color::<name>` with no call parentheses:
