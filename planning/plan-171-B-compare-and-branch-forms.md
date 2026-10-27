@@ -1,6 +1,6 @@
 # plan-171-B: Compare-and-branch forms (`cbz`/`cbnz`/`tbz`/`tbnz`, x86 `test`, rv64 bit tests)
 
-Last updated: 2026-10-04
+Last updated: 2026-10-26
 Effort: large (3h–1d)
 Depends on: plan-171-A (the census tool, `tests/runtime/rt_codegen_forms.rs`,
 and the end-of-`finalize_frame` machine hook it creates)
@@ -38,7 +38,11 @@ See plan-171-A §Prerequisites (stated once for the family). In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-171-A complete | `ls planning/plan-171-A-* 2>/dev/null` → no match (archived to `planning/completed/`) | NOT MET |
+| plan-171-A complete | `ls planning/plan-171-A-* 2>/dev/null` → no match (archived to `planning/completed/`) | MET in substance (2026-10-26, `ba1964e81`): the file is still in `planning/` — it is archived when its branch is merged — but `grep -c -- '- \[ \]'` → 0 unticked boxes, `grep -c '^Commit: —'` → 0, and its Summary records every phase landed on main |
+| (plan-171-A family row) the decoder has no uncommitted work | `git -C <tree> status --short src/arch/aarch64/decode` → no output | MET (2026-10-26, `/tmp/171b-base` detached at `ba1964e81`: no output) |
+| (plan-171-A family row) `src/docs/**` has no uncommitted work | `git -C <tree> status --short src/docs` → no output | MET (2026-10-26, same tree: no output) |
+| (plan-171-A family row) the bin unit tests pass at the starting commit | `cargo test --bin mfb > /tmp/171b-pre.log 2>&1; echo EXIT=$?` | MET (2026-10-26, `/tmp/171b-base` at `ba1964e81`: `EXIT=0`, 6200 passed, 0 failed, 5 ignored) |
+| (plan-171-A family row) the artifact gate is clean at the starting commit | `bash scripts/artifact-gate.sh <release mfb of ba1964e81> all` from `/tmp/171b-base` | MET (2026-10-26: `1723 tests, 1903 build(s), 2389 golden(s) checked, 0 diff(s)`) |
 
 ## 1. Goal
 
@@ -70,30 +74,65 @@ an out-of-range `b.cond far` into `b.cond Ltramp; b Lcont; Ltramp: b far; Lcont:
 unchanged for `cbz`/`tbz` (§4.4).
 
 The emitted census (committed goldens, macos-aarch64; `cmp_imm` with
-`"rhs": "0"` directly followed by `b.eq`/`b.ne`):
+`"rhs": "0"` directly followed by `b.eq`/`b.ne`) — re-measured at `ba1964e81`
+(Correction 1; the 2026-10-04 table was stale):
 
-| `.ncode` golden | instrs | `cmp #0; b.eq/ne` |
-|---|---|---|
-| `func_map_getor_hash_probe` | 13918 | 355 |
-| `macos_app_mode_io` | 16110 | 361 |
-| `macos_app_mode_plumbing` | 7095 | 203 |
-| `list_ops_codegen_rt` | 4857 | 152 |
-| `control_flow_match` | 2676 | 111 |
-| `control_flow_if` | 2598 | 109 |
-| `parser_hello_world` | 2049 | 85 |
+| `.ncode` golden | instrs | `cmp #0; b.eq/ne` | `cmp #0; b.lt/ge` | bit tests |
+|---|---|---|---|---|
+| `func_map_getor_hash_probe` | 16382 | 460 | 19 | 12 |
+| `macos_app_mode_io` (`--app`) | 19096 | 468 | 66 | 28 |
+| `macos_app_mode_plumbing` (`--app`) | 10229 | 308 | 40 | 25 |
+| `list_ops_codegen_rt` | 8100 | 265 | 13 | 12 |
+| `control_flow_match` | 5688 | 215 | 10 | 12 |
+| `control_flow_if` | 5648 | 214 | 11 | 12 |
+| `parser_hello_world` | 5185 | 190 | 10 | 12 |
 
-(`/tmp/ncode_census.py` prototype, reproduced as `census.py` by plan-171-A
-Phase 1.) How many of those have dead flags is UNMEASURED; Phase 1 measures it.
+(`python3 -I tools/ncode-census/census.py <golden>`, metrics `instructions`,
+`cmp0_eq_branch`, `cmp0_sign_branch`, `single_bit_test`.)
+
+Corpus-wide (`tools/ncode-census/ncode-census.sh <release mfb of ba1964e81>
+<target> …`, 56 projects; riscv64 builds 43 — twelve app-mode refusals and
+bug-1112's panic; committed as `tools/ncode-census/baseline-<target>.tsv`):
+
+| metric | macos-aarch64 | linux-aarch64 | linux-x86_64 | linux-riscv64 |
+|---|---|---|---|---|
+| `instructions` | 27,057,789 | 27,024,835 | 30,519,671 | 4,506,516 |
+| `cmp0_eq_branch` (`cmp_imm r, 0; b.eq/ne`) | 1,052,180 | 1,051,245 | 1,051,830 | — (`rv.br`) |
+| … with the flags dead after the branch | 1,052,063 | 1,051,175 | 1,051,760 | — |
+| `cmp0_sign_branch` (`cmp_imm r, 0; b.lt/ge`) | 25,061 | 24,863 | 24,863 | — |
+| … with the flags dead | 25,009 | 24,790 | 24,790 | — |
+| `cmpz_eq_branch` (`mov_imm z, 0; cmp r, z; b.eq/ne`) | 2,486 | 2,486 | 2,486 | — |
+| `single_bit_test` (`mov_imm m, 2^k; and t, r, m; cmp_imm t, 0; b.eq/ne`) | 5,618 | 5,512 | 4,816 | — |
+| `single_bit_test_reg` (the zero in a register) | 30 | 30 | 30 | — |
+| `rv_single_bit_test` (`…; and; [mov_imm z, 0;] rv.br eq/ne t, zero/z`) | — | — | — | 2,171 |
+| `rv_zero_reg_branch` (`mov_imm z, 0; rv.br eq/ne r, z`) | — | — | — | 505 |
+
+The flags are dead after **99.99 %** of the compare-with-zero branches
+(`cmp0_eq_branch_flags_dead`, the same backward rule as §4.2 run over the
+dumps by `census.py:flags_dead_after`); the live remainder is the `share`
+chains of §2.4. User `IF x = 0` / `IF x <> 0` does not produce `cmp_imm`: the
+zero is a materialized register (`mov_imm x10, 0; cmp x9, x10; b.ne`, probe
+`/tmp/171b-probe`, every target), the `cmpz_eq_branch` shape — so the row
+also canonicalizes a compare against a register known to hold zero (§4.3,
+Correction 4).
 
 ### 2.2 x86-64
 
 `cmp_imm` with any value, and `cmp` with a zero rhs, go through `enc_alu_imm32(7, …)`
 — always `REX.W 81 /7 imm32` (7 bytes). Its doc comment says the imm32 form is
-used "for a value-independent size". Why a value-independent size is needed is
-UNVERIFIED — `sizing.rs` computes sizes by emitting into a throwaway encoder
-(plan-171-A §2.3), so the value is known when the size is taken; Phase 1 finds
-the reason (`git log -S 'value-independent size' -- src/arch/x86_64`) before
-anything depends on it. No `test`, no `bt` (`rg -c 'test' emitter.rs` hits only
+used "for a value-independent size". **Measured (Phase 1): no constraint
+requires it.** `git log -S 'value-independent size' -- src/arch/x86_64` names
+`26564a12e` (plan-00-H Phase 1, the first x86 encoder) and `d70bef28c` (the
+plan-176-O file split, motion only). `26564a12e`'s message states the actual
+invariant — "Single encode path feeds both instruction_size and emit (no
+size-table drift); every encoding fixed-size so label offsets never shift" —
+and its module doc says "fixed-size and *distance*-independent (rel32,
+imm32/imm64, disp32), so a size never depends on a label that hasn't been
+placed yet". An immediate is part of the instruction, so `sizing.rs`
+(`encode_instruction(instruction)?.bytes_len()`) and the emitter see the same
+value: a value-dependent size cannot drift. Only a size that depends on a
+*label* would. No bug doc cites it (`grep -rn "value-independent" bugs
+planning` → only this plan). No `test`, no `bt` (`rg -c 'test' emitter.rs` hits only
 a comment). Conditional branches are always `0F 8x rel32`.
 
 ### 2.3 riscv64
@@ -101,7 +140,9 @@ a comment). Conditional branches are always `0F 8x rel32`.
 `select_riscv64::expand_fused` turns `br_cc_imm r, 0` into `rv.br` with the
 `zero` register — a native `beq r, zero`/`bne r, zero` (encoded as the inverted
 8-byte long form, `emit_rv_br`). So `cbz` has no riscv64 gap. A single-bit test
-is `li m, 2^k` (1–2 instructions), `and t, r, m`, `rv.br ne t, zero`.
+is `li m, 2^k` (1–2 instructions), `and t, r, m`, `rv.br ne t, zero`. A user
+`IF x = 0` keeps its zero in a register (`mov_imm t5, 0; rv.br ne t4, t5`,
+`rv_zero_reg_branch` 505 in the corpus), which `rv.br` could name `zero` for.
 
 ### 2.4 Flags knowledge
 
@@ -118,7 +159,7 @@ leave `b.hi` reading stale flags — so a liveness proof is required, not option
 - *`relax_conditional_branches` keeps the condition and rewrites only `target`* — read its module doc and `relax_function`.
 - *The CFG's successor edge comes only from the `target` field of an op in `is_block_terminator`* — read `build_cfg`; a new branch op missing from that list loses its edge (the x86 float-branch comment in `is_block_terminator` records the miscompile that caused).
 - *Flags never need to survive a call* — stated in `.ai/arch-abi.md` "riscv64 flag-emulation reserved slots"; the analysis treats calls as transparent anyway (conservative), so it does not rely on this.
-- *Whether every builder stream reaches `finalize_frame`* — UNVERIFIED; Phase 5's sweep lists the emitters that do not.
+- *Whether every builder stream reaches `finalize_frame`* — not every one does (plan-171-A Correction 11: `_mfb_macapp_*`, `_main`, the thread trampoline); Phase 5's sweep lists the emitters that do not, and Phase 4 places the row where they all pass (Correction 5).
 
 ## 3. Design Overview
 
@@ -213,120 +254,260 @@ constraint, the x86 encoder emits `REX.W 85 /r` for `cmp_imm r, 0` — every
 condition stays correct, no liveness needed. If the constraint is real, x86
 instead gets `cbz`/`cbnz` from the row (§4.3) under the same flags proof.
 
+**Decided (Phase 1): the encoder branch.** §2.2 found no value-independence
+constraint, so the x86 encoder emits `test r, r` for `cmp_imm r, 0` and for
+`cmp r, <zero token>`, at every level, every condition unchanged; the row forms
+no `cbz`/`cbnz` for x86, and the x86 encoder refuses them like `stp`/`ldp`.
+
 ## Phases
 
 > **NOTE — keep the checkboxes current** (same rules as plan-171-A).
 
 ### Phase 1 — measure
 
-- [ ] Run `tools/ncode-census` on the corpus for `macos-aarch64`,
+- [x] Run `tools/ncode-census` on the corpus for `macos-aarch64`,
       `linux-x86_64`, `linux-riscv64`; record `cmp#0+b.eq/ne` and single-bit-test
-      counts in §2 (replacing UNMEASURED).
-- [ ] Find why `enc_alu_imm32` insists on a value-independent size
+      counts in §2 (replacing the not-yet-measured markers). (Also
+      `linux-aarch64`. `census.py` gained the metrics `cmp0_*_flags_dead`,
+      `cmpz_eq_branch`, `single_bit_test_reg`, `rv_single_bit_test`,
+      `rv_zero_reg_branch`; the four baselines were re-taken at `ba1964e81`.)
+- [x] Find why `enc_alu_imm32` insists on a value-independent size
       (`git log -S 'value-independent size' -- src/arch/x86_64`, read the commit
       and any bug doc it cites); record the answer here and decide §4.5's branch.
+      (§2.2: no constraint; §4.5 takes the encoder branch.)
 
 Acceptance: §2 carries measured counts and §4.5 names its branch with evidence.
-  Check: `grep -c UNMEASURED planning/plan-171-B-*.md` → 0 (est. 10 min of census runs).
-Commit: —
+  Check: `sed -n '/^## 2/,/^## 3/p' planning/plan-171-B-*.md | grep -c -e UNMEASURED -e UNVERIFIED`
+  → 0 (Correction 3: the original whole-file grep matched its own spelling) (est. 10 min of census runs).
+  Result (2026-10-26): `0`.
+Commit: ea1206a5c
 
 ### Phase 2 — the four ops (no producer; byte-identical)
 
-- [ ] `src/arch/ops.rs`, `mir.rs` (`mir_ops!` mirror group), `regalloc/analysis.rs`
+- [x] `src/arch/ops.rs`, `mir.rs` (`mir_ops!` mirror group), `regalloc/analysis.rs`
       (`scratch` → `DEF_FIELDS`; the four ops → `is_block_terminator`),
-      `opt2/plans/mark.rs:flag_preserving` (x86: not preserving).
-- [ ] AArch64 encoder/sizing (`CBZ`/`CBNZ` imm19, `TBZ`/`TBNZ` b5:b40 + imm14),
-      `patch_labels` imm14 kind; decoder table rows.
-- [ ] x86 encoder: `test r,r`+jcc; `test r,imm32`/`bt r,imm8`+jcc expansions.
-- [ ] riscv64 encoder: `andi`/`slli` + long-form branch expansions; sizing.
-- [ ] A debug assertion at the head of `regalloc::allocate`: no `cbz`/`cbnz`/`tbz`/`tbnz`
-      in the input (with a `#[should_panic]` unit test).
-- [ ] Tests: per-backend encoder unit tests incl. bit 0, 10, 11, 30, 31, 63 and
+      `opt2/plans/mark.rs:flag_preserving` (x86: not preserving). (Plus the
+      required fields in `code_impl.rs:CodeInstruction::validate`.)
+- [x] AArch64 encoder/sizing (`CBZ`/`CBNZ` imm19, `TBZ`/`TBNZ` b5:b40 + imm14),
+      `patch_labels` imm14 kind; decoder table rows. (`emitter/memory.rs:
+      emit_zero_or_bit_branch` writes register and bit, `patch_labels` ORs the
+      displacement in; `sizing.rs:branch_imm14`. The decoder already decoded
+      the four; the guard lists them with the label branches and
+      `zero_and_bit_branches_decode_to_their_operands` decodes the encoder's
+      words.)
+- [x] x86 encoder: `test r,r`+jcc; `test r,imm32`/`bt r,imm8`+jcc expansions.
+      (`integer.rs:bit_test_branch`; `cbz`/`cbnz` are refused instead —
+      Correction 7 — and `test r, r` for `cmp_imm r, 0` is Phase 4's §4.5 task.)
+- [x] riscv64 encoder: `andi`/`slli` + long-form branch expansions; sizing.
+      (`emitter.rs:emit_rv_bit_branch`; sizing derives from the emitter;
+      `cbz`/`cbnz` refused; `relax.rs:jal_offset_within` knows the `jal` 8 bytes
+      in.)
+- [x] A debug assertion at the head of `regalloc::allocate`: no `cbz`/`cbnz`/`tbz`/`tbnz`
+      in the input (with a `#[should_panic]` unit test). (A release `assert!`,
+      Correction 6; `a_compare_with_zero_branch_is_refused_by_the_allocator`.)
+- [x] Tests: per-backend encoder unit tests incl. bit 0, 10, 11, 30, 31, 63 and
       registers r8–r15/x0–x30/t-regs; AArch64 decoder round trip;
       `build_cfg` test: a block ending in `cbz` has both successor edges.
+      (`aarch64/encode/tests/zero_bit_branches.rs` — clang words, bits
+      0/10/11/30/31/32/63, a backward target, the ±32 KiB boundary;
+      `x86_64/encode/tests/bit_branches.rs` and
+      `riscv64/encode/tests/bit_branches.rs` — clang / GNU as bytes; the rv64
+      decoder round trip `decodes_every_form_the_encoder_emits` gained both
+      shapes; `analysis.rs:a_block_ending_in_a_zero_or_bit_branch_has_both_edges`.)
 
 Acceptance: round trips pass; no emitted byte changes.
   Check: `cargo test --bin mfb aarch64:: x86_64::encode riscv64::encode regalloc::analysis` → pass (est. 4 min);
   `bash scripts/artifact-gate.sh target/release/mfb strings` → `0 diff(s)` (est. 1 min).
-Commit: —
+  Result (2026-10-26): `cargo test --bin mfb -- aarch64:: x86_64::encode riscv64::encode riscv64::decode regalloc ops:: opt2::plans`
+  → 475 passed, 0 failed; `artifact-gate.sh target/release/mfb strings` → `7 golden(s) checked, 0 diff(s)`
+  (`collections` likewise).
+Commit: 37d727b51
 
 ### Phase 3 — flags liveness (analysis only; byte-identical)
 
-- [ ] `src/optimizer/opt2/plans/flagslive.rs` (§4.2) with unit tests: `share`
+- [x] `src/optimizer/opt2/plans/flagslive.rs` (§4.2) with unit tests: `share`
       chain (`cmp; b.eq; b.lt` → not dead), reader across a label (live),
       setter on one path only (live), call between (transparent), back edge.
+      (`flagslive/tests/mod.rs`, 8 cases: also both-edges-dead, a branch out
+      of the function and a stream that falls off its end (both live), the
+      x86-64 float branches as readers. Readers reuse
+      `mir::is_flag_reading_branch`, made `pub(crate)`.)
+
+- [x] (Added) `src/optimizer/opt2/plans/reglive.rs`: integer-register liveness
+      over the final stream, conservative where the allocator's own liveness need
+      not be — what a call, `svc` and `ret` read (Correction 9). 7 unit cases
+      (`reglive/tests/mod.rs`).
 
 Acceptance: the analysis answers every unit case; nothing calls it yet.
   Check: `cargo test --bin mfb flagslive` → pass (est. 2 min).
-Commit: —
+  Result (2026-10-26): 8 passed, 0 failed (`reglive`: 7 passed). "Nothing calls
+  it yet" is not committable on its own — an uncalled `pub(crate) fn` is a
+  dead-code warning (`cargo build` → "function `dead_after` is never used") —
+  so the analyses land with their first caller, Phase 4's row (Correction 8).
+Commit: d61948208 (the analyses landed with their caller, Correction 8)
 
 ### Phase 4 — the row, relaxation, x86 `test`
 
-- [ ] `src/optimizer/opt2/cbranch.rs`: the row (§4.3), called from the A hook;
+- [x] `src/optimizer/opt2/cbranch.rs`: the row (§4.3), called from the A hook;
       catalog row "Compare-and-branch formation" (level 1, stage `machine`).
-- [ ] Relaxation (§4.4) on AArch64 and riscv64, with tests: a `tbz` to a label
+      (Called from the new final-stream hook `machine::finish_selected` at the
+      end of `route_function_through_mir` — Correction 5; catalog row
+      "Compare-with-zero branch (cbz/cbnz) formation" — Correction 10; counter
+      `stats::COMPARE_BRANCHES`; per-backend forms from the new required
+      `Backend::compare_branch_forms`. Also the §4.3 extensions of Correction 4:
+      a compare against a register known to hold zero, and the AArch64 sign test.
+      `cbranch/tests/mod.rs`: 12 cases — every form per backend, live flags,
+      live scratch/mask/zero registers, a constant across a label or a
+      redefinition, a runtime-helper call reading the scratch, a Boolean `false`.)
+- [x] Relaxation (§4.4) on AArch64 and riscv64, with tests: a `tbz` to a label
       40 KiB away encodes through the trampoline; a `cbz` 1.5 MiB away likewise;
       a riscv64 `tbz` 1.5 MiB away gets a hop island.
-- [ ] x86 per Phase 1's decision (§4.5), with an encoder test asserting the 3-byte form.
-- [ ] Fixtures: `tests/rt-behavior/control-flow/branch-zero-and-bit-tests` (valid)
+      (`relax.rs:reach` per op, the hop clones the branch;
+      `zero_bit_branches.rs:far_zero_and_bit_branches_relax_through_a_trampoline`,
+      `relax_edges.rs:a_far_tbz_is_relaxed_into_hops_and_encodes`.)
+- [x] x86 per Phase 1's decision (§4.5), with an encoder test asserting the 3-byte form.
+      (`integer.rs:enc_test_self`; `bit_branches.rs:a_compare_with_zero_is_test_r_r`
+      — `test r10, r10` = `4d 85 d2`, clang's bytes.)
+- [x] Fixtures: `tests/rt-behavior/control-flow/branch-zero-and-bit-tests` (valid)
       — `IF x = 0`, `IF x <> 0`, `bits::band(x, 1 << k) <> 0` for k ∈ {0, 10, 11,
       30, 31, 62, 63}, a function large enough (generated straight-line body,
       > 64 KiB of code) that a `tbz` must relax, printing the taken branches.
-- [ ] `tests/runtime/rt_codegen_forms.rs`: `cbz` and `tbnz` present in the
+      (Also `IF x < 0`/`IF x >= 0` (sign tests); literal masks; `far` is 40
+      `strings::replace` statements, 20,585 AArch64 instructions (~80 KiB) under
+      one `IF bits::band(x, 2048) <> 0`, run with the bit set and clear. Goldens
+      `.ast`/`.ir`/`build.log`/`.run` plus `.ncodesum` for all five targets, so
+      the artifact gate pins the forms per target. No invalid twin: no
+      user-facing surface changed.)
+- [x] `tests/runtime/rt_codegen_forms.rs`: `cbz` and `tbnz` present in the
       aarch64 dump of that fixture; `test` on x86; `slli`-based test on rv64 is
-      checked by op name in the `-ncode` dump.
-- [ ] `rt_regalloc_levels_agree`: add the fixture (`-O0` forms nothing).
-- [ ] Golden re-baseline for this form family (aarch64 + x86 + rv64 where
+      checked by op name in the `-ncode` dump. (4 tests: AArch64 `cbz`/`cbnz`,
+      the `#63` sign tests and bits {0,10,11,30,31,62} on both AArch64 targets;
+      x86-64 (SysV, Win64) bit tests and no `cbz`; riscv64 bit tests carry a
+      `scratch`; `-O0` forms nothing on three targets. Red on the base compiler:
+      `MFB_TEST_EXE=<ba1964e81 mfb> cargo test --release --test rt_codegen_forms`
+      → 3 failed, `macos-aarch64: IF x = 0`.)
+- [x] `rt_regalloc_levels_agree`: add the fixture (`-O0` forms nothing).
+      (`compare_and_branch_forms_agree_at_every_level`, -O0..-O3: 1 passed.)
+- [x] Golden re-baseline for this form family (aarch64 + x86 + rv64 where
       predicted), same procedure as plan-171-A Phase 3 (four questions, full suite
       first, `regen-native-goldens.sh`, classify by target).
-- [ ] Runtime: macOS acceptance; `linux-runtime-proof.sh` on 2223
+      Result: `artifact-gate.sh <row mfb> all` → `2389 golden(s) checked, 166
+      diff(s)` — every target, as predicted (riscv64 too: Correction 4's zero
+      operand and the bit tests reach every riscv64 cover): 29 each linux-aarch64,
+      linux-riscv64, linux-x86_64 `.ncodesum`, 27 windows-x86_64, 29 macos
+      `.ncodesum` + 5 raw `.ncode`, 16 `.app`, 2 macOS `.mir`. Every one rebuilt with
+      the `ba1964e81` and the row compiler and compared by a `/tmp` probe that
+      accepts only compare-and-branch folds whose register, bit, sense and target
+      match what the deleted instructions computed (`foldonly.py`/`semcheck.py`;
+      a corrupted bit is rejected): 166/166 fold-only, 394,831 + 820 folds. Full
+      `test-accept.sh` first: 1759 ran, 9 mismatches = the raw `.ncode`/`.mir`
+      among the 166, every run output matched. `regen-native-goldens.sh` → 236
+      rewritten, `git status` exactly the 166 (+ the new fixture's five sums);
+      gate re-run → `2396 golden(s) checked, 0 diff(s)`. Four questions in
+      `0a9173fa4`. The landing tier then reddened three bin tests pinned to the
+      old forms (Correction 12), corrected in `b3975fb67`.
+- [x] Runtime: macOS acceptance; `linux-runtime-proof.sh` on 2223
       (`linux-aarch64`), 2227 (`linux-x86_64`, emulated — needed because x86
       bytes changed), 2229 (`linux-riscv64`); the fixture built for
       `windows-x86_64` and run on box 206 (`scp` + `ssh test@192.168.1.206 … .\fixture.exe`),
       output compared with its golden `build.log` run section.
-- [ ] Benchmark on the macOS host (`./benchmark/language/run.sh 10`; `rank.py`); x86/rv64
+      macOS: the acceptance run above. Linux, each run twice — the row compiler
+      and the `ba1964e81` one, `VERDICTS=` lists compared: **2226** (2223 refused
+      ssh, Correction 13) linux-aarch64 glibc 900 passed / 11 failed / 1 not run,
+      verdicts identical but `http-tcp-transport-rt`, which failed for the base
+      compiler and passed for the row's (network-flaky; it passed in the row
+      compiler's earlier run too); **2227** linux-x86_64 musl 904 / 7 / 1,
+      identical; **2229** linux-riscv64 musl 903 / 8 / 1, identical. The new
+      fixture passes on all three. The failures are the environmental set
+      plan-171-A recorded (libsnd vendor library, ping, thread/fs timing).
+      Windows (box 206): the fixture's output equals its golden run section; and
+      a `/tmp` probe (`winproof.sh`) built 261 rt-behavior fixtures
+      (control-flow, collections, bits, arithmetic, strings, operators,
+      functions, generics, math, types, conversions, lexical, scope, trap, money
+      + the new one) for windows-x86_64 with both compilers and ran each on 206:
+      261 identical to the base compiler, 0 differ (252 also byte-equal to the
+      golden run section; the rest differ from it identically for both
+      compilers — stdout/stderr capture order).
+- [x] Benchmark on the macOS host (`./benchmark/language/run.sh 10`; `rank.py`); x86/rv64
       are compared by census instruction counts only (their boxes are emulated,
       so timings there measure QEMU).
+      The `-O1` benchmark binary built (as `run.sh` does, in a `/tmp` copy) by the
+      `ba1964e81` and the row compiler, `--run 10`, run alternately three times
+      each, min per row: geomean row/base **0.9865** over 450 rows (−1.35 %);
+      `recurse` fib 45.95 → 45.75 ms, ackermann 2.514 → 2.478; `tree` binarytrees
+      24.29 → 24.25, treewalk 12.79 → 12.95; `dispatch` union 15.23 → 14.67;
+      best `list (Dynamic) forEach` 3.945 → 3.285 (−17 %). Three rows are slower
+      — `list (*Dynamic) find` +28 %, `list (Record-Dynamic) window` +20 %,
+      `list (Fixed) replace` +11 % — root-caused as layout, not the form
+      (Correction 14). x86-64 and riscv64: the census counts of Correction 11.
 
 Acceptance: forms appear where predicted; all runtime outputs unchanged on
 five targets.
   Check: `cargo test --release --test rt_codegen_forms` → pass (est. 3 min);
   `linux-runtime-proof.sh` ×3 → 0 mismatches (est. 25–60 min each; the only checks that execute each ISA's new encodings).
-Commit: —
+  Result (2026-10-26): `rt_codegen_forms` 7 passed (4 new); the three Linux
+  proofs and the Windows probe give verdicts identical to the base compiler
+  (the "0 mismatches" of the check is not reachable on these boxes: their
+  environmental failures — libsnd, ping, thread/fs timing — fail the base
+  compiler identically, so identity with it is the criterion, as in plan-171-A);
+  macOS acceptance: every run output matched.
+Commit: d61948208 (row), 0a9173fa4 (goldens), b3975fb67 (the three pinned tests, Correction 12)
 
 ### Phase 5 — code-review sweep (this form)
 
-- [ ] Census diff (`census.py --diff` A-baseline vs now) per target: count of
+- [x] Census diff (`census.py --diff` A-baseline vs now) per target: count of
       remaining `cmp #0; b.eq/ne` and bit-test shapes, and why each class
       remained (flags live, not adjacent, emitted outside `finalize_frame`).
-- [ ] List emitters that never reach `finalize_frame` (hand-written physical
+      (Correction 11.)
+- [x] ~~List emitters that never reach `finalize_frame` (hand-written physical
       streams: `rg -L 'finalize_(frame|vreg_body|vreg_helper)' $(rg -l 'compare_immediate' src/codegen src/target)`
       then read each hit); for each, either route it through the row's function
-      directly (it is a pure stream transform) or record why not.
-- [ ] Read the 20 functions with the most remaining candidates (census per-function
+      directly (it is a pure stream transform) or record why not.~~ Moot: the row
+      runs after `route_function_through_mir`, which `lower_module` applies to
+      every function (Correction 5), so no emitter bypasses it. Measured: the
+      hand-written bodies plan-171-A Correction 11 found outside `finalize_frame`
+      carry the forms — macos-aarch64 corpus, v3 dumps: `_main` 163 `cbz`, 91
+      `cbnz`, 352 `tbz`, 56 `tbnz`; `_mfb_macapp_*` 2,220 / 678 / 368 / 664;
+      `_mfb_rt_thread_trampoline` 5 `cbz`.
+- [x] Read the 20 functions with the most remaining candidates (census per-function
       output); where a builder computes a bit test in a register-shifting form the
       row cannot see (`lsr; and #1; cmp`), rewrite the builder to the
       `mov_imm 2^k; and` shape or a direct bit-test constructor usable only in
       unallocated streams. "Makes sense" = the rewrite removes ≥ 2 instructions
       on the hot path and keeps the trap order. Record converted/declined sites.
+      (No site converted — Correction 11: the corpus has no `lsr; and #1; test`
+      shape at all, and the 20 functions' remaining candidates are the classes
+      below, none a builder shape.)
 
 Acceptance: every remaining candidate class is explained in Corrections.
   Check: `python3 tools/ncode-census/census.py --diff …` output pasted in Corrections (est. 15 min).
-Commit: —
+  Result (2026-10-26): Correction 11.
+Commit: 7ce4ac47f (the sweep found nothing to convert; its record is Correction 11)
 
 ### Phase 6 — spec and docs
 
-- [ ] `mfb spec architecture aarch64-instruction-set` (ops, imm14/imm19 patches,
+- [x] `mfb spec architecture aarch64-instruction-set` (ops, imm14/imm19 patches,
       relaxation of the new forms), `x86_64-instruction-set` (`test`/`bt`
       expansions), `riscv64-instruction-set` (bit-test expansion, relaxation),
       `mir-instruction-set` (four mirror ops; never pre-allocation).
-- [ ] `.ai/arch-abi.md` "A single function over ~1 MiB of code fails to build"
+      (In `d61948208` with the row, as plan-171-A Correction 9 did; also
+      `architecture native` (the final-stream hook) and `tooling cli-reference`
+      (`-O1` row list).)
+- [x] `.ai/arch-abi.md` "A single function over ~1 MiB of code fails to build"
       — stale since bug-445 added veneers; correct it while editing relaxation.
-- [ ] `planning/optimizations.md`: "Instruction selection / combining" note.
+      (Now "AArch64 branch reach is relaxed, not a build failure", in
+      `d61948208`; plus a `.ai/codegen-invariants.md` entry on final-stream rows
+      and what their liveness must model.)
+- [x] `planning/optimizations.md`: "Instruction selection / combining" note.
+      (And the row "Compare-with-zero branch (cbz/cbnz) formation": `Imp` `Y`,
+      the LANDED note with the measured census; `Y` count 76 → 77.)
 
 Acceptance: specs render cleanly.
   Check: `cargo test --bin mfb spec` → pass; `mfb spec architecture --all | grep -c '\[\['` → 0 (est. 2 min).
-Commit: —
+  Result (2026-10-26): the landing tier's bin tests (`spec_citations_resolve`
+  among them) passed after `b3975fb67`; `target/release/mfb spec architecture
+  --all | grep -c '\[\['` → 0; `mfb man optimizations` renders the row.
+Commit: d61948208 (specs, `.ai`), 7ce4ac47f (`planning/optimizations.md`)
 
 ## Validation Plan
 
@@ -337,6 +518,10 @@ Commit: —
 - Runtime proof: Phase 4's five-target runs.
 - Doc sync: Phase 6.
 - Final gate (once): `cargo test --no-fail-fast > /tmp/171b.log 2>&1; echo EXIT=$?` → 0, `grep -c '^failures:'` → 0 (est. 60–90 min).
+  Result: first run (`cargo test --workspace --no-fail-fast` at `7ce4ac47f`) →
+  `EXIT=101`, 5 binaries red, every one an `-ncode` reader that did not know the
+  new forms (Correction 15), fixed in `815a54e0b`; the run at this plan's final
+  commit is reported with the landing.
 
 ## Open Decisions
 
@@ -347,10 +532,194 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+1. **§2.1's golden table was stale.** The seven `.ncode` goldens were
+   regenerated by every codegen change since 2026-10-04 (call-graph DCE, plans
+   175/182/183, plan-171-A's pairs), so `control_flow_if` is now 5648
+   instructions with 214 `cmp #0; b.eq/ne` (was 2598 / 109). §2.1 carries the
+   re-measured table and the corpus totals; the design does not depend on the
+   old numbers.
+2. **The prerequisite rows were re-run, not inherited.** plan-171-A's family
+   rows were re-measured at this letter's starting commit `ba1964e81` (all MET,
+   Prerequisites table); "plan-171-A complete" is met in substance — every box
+   ticked and every `Commit:` filled — though the file is not yet archived.
+3. **Phase 1's check matched its own spelling.** `grep -c UNMEASURED
+   planning/plan-171-B-*.md` counts the task line that says "replacing
+   UNMEASURED" and the check line itself, so it could never reach 0. The check
+   now greps §2 (where the markers lived) for both markers, `UNMEASURED` and
+   `UNVERIFIED`.
+4. **The compare-with-zero population is wider than `cmp_imm r, 0`.** User
+   `IF x = 0` / `IF x <> 0` / `bits::band(x, 2^k) <> 0` compare against a
+   *register* holding zero (`mov_imm z, 0; cmp r, z` on AArch64/x86-64,
+   `mov_imm z, 0; rv.br r, z` on riscv64; §2.1/§2.3), which the §4.3 matchers
+   as written never see; and `cmp_imm r, 0; b.lt/ge` (25,061 sites, a sign
+   test) is a compare with zero whose shortest AArch64 form is `tbnz/tbz r,
+   #63`. Both are inside the Outcome ("a compare-with-zero … in the target's
+   shortest compare-and-branch form"), so the row also (a) rewrites a `cmp`
+   whose operand is known zero (an earlier `mov_imm z, 0` in the block, `z`
+   not redefined since) to `cmp_imm r, 0` — and riscv64's `rv.br` operand to
+   `zero` — deleting the `mov_imm` when `z` is dead, and (b) forms the sign
+   test on AArch64 (x86-64 gets it from the `test` encoding; riscv64's
+   `rv.br lt/ge r, zero` is already one instruction).
+5. **The row runs at the end of `route_function_through_mir`, not in the
+   end-of-`finalize_frame` hook.** At `finalize_frame` a hand-written helper's
+   stream on x86-64 and riscv64 is not yet selected: `finalize_vreg_body*`
+   allocates and frames it without `Backend::select`, and the selection that
+   realizes it runs later, in `mir::route_function_through_mir` (called for
+   every function by `lower_module`). Until then it still carries neutral
+   `cmp`/`b.cc` pairs (riscv64 turns them into `rv.br` there) and AArch64
+   scratch spellings `x9`–`x30` that `select_x86`'s `realize_x86_residual` and
+   `select_riscv64`'s `map_scratch_register` move onto other registers
+   ("post-allocation, so these are fixed physicals", `riscv64/select.rs`), next
+   to registers the allocator colored with the target's own names. A register
+   liveness proof over those spellings could treat two names of one register
+   as two registers. After `route_function_through_mir`'s `select` the stream
+   is final — nothing re-selects, re-allocates or re-frames it before the
+   `-ncode` dump and the encoder — so the row runs there (a second machine
+   hook, `opt2::machine::finish_selected`). Two more gains: the allocator can
+   never meet the new ops (the stream it sees is long gone), and the hook
+   covers the hand-written bodies that never reach `finalize_frame`
+   (`_mfb_macapp_*`, `_main`, the thread trampoline; plan-171-A Correction 11),
+   which Phase 5 would otherwise have to route by hand.
+6. **A release `assert!`, not a debug assertion, guards the allocator.** CI
+   builds release, so a `debug_assert!` there checks nothing
+   (`.ai/testing-gates.md`, bug-550); the predicate is one opcode compare per
+   instruction with no allocation, which that section's rule 3 puts in
+   `assert!`.
+7. **`cbz`/`cbnz` are refused by the x86-64 and riscv64 encoders** instead of
+   encoded as `test r, r; je`/`beq r, zero`: nothing forms them there (x86-64
+   gets `test r, r` from the `cmp_imm` encoding, §4.5; riscv64's `rv.br`
+   already compares with `zero`, §2.3), so an encoding would be a path no
+   producer reaches. Refusing names the form, as plan-171-A did for
+   `stp`/`ldp`. Likewise `tbz`/`tbnz` carry `scratch` only on riscv64, the one
+   backend that writes it; on AArch64 and x86-64 the field would claim a write
+   that never happens.
+8. **Phase 3 lands with Phase 4.** The flags analysis has no caller until the
+   row exists, and the tree keeps no dead code (AGENTS.md; `cargo build` warned
+   "function `dead_after` is never used"), so `flagslive` and `reglive` are
+   committed with the row — the same move as plan-171-A Correction 4.
+9. **The row needs register liveness the plan did not name.** §4.3 says "physical
+   liveness from `regalloc::analysis::Liveness` re-run on the final stream", but
+   that analysis answers the allocator's question: a call or `ret` there reads
+   nothing (no virtual register is live into a callee), so `mov_imm x0, …` before
+   a `bl` looks dead. Deleting it would change the callee's argument. The new
+   `plans/reglive.rs` keeps the allocator's field roles (`analysis::effect`) and
+   adds the reads the allocator never needs: a call to a hand-written helper, a C
+   function, `blr` or `svc` reads every register (a hand-written helper may take
+   its input anywhere); `bl _mfb_fn_*`/`_mfb_ifn_*` reads everything outside the
+   allocatable pool (the internal convention's argument bank is outside it on
+   every target, and a pool register read on entry would be an allocator bug); a
+   compiled function's `ret` reads everything except the allocatable
+   caller-saved registers (its callers treat those as destroyed — the allocator's
+   own clobber model for `_mfb_fn_*`), a hand-written function's `ret` reads
+   everything; an operand it cannot identify reads everything and stops constant
+   tracking. The first cut read everything at every `ret`, which kept the
+   zeroing `mov_imm` of nearly every user `IF` (measured on the `/tmp/171b-probe`
+   program: `mov_imm x10, 0` survived ahead of each `cbnz`); and it read `lr`
+   (the frame's spelling of `x30` in `ldp x25, lr`) as unknown, which made every
+   epilogue read everything — 2,713 of the 3,286 bit tests the first corpus run
+   left unformed (`/tmp` probe `why.py`, first event on each edge: `ret`).
+10. **The catalog row is named after its `optimizations.md` row**, "Compare-with-zero
+   branch (cbz/cbnz) formation" — every catalog name matches its planning row —
+   not "Compare-and-branch formation"; its summary covers the bit tests.
+11. **Phase 5: what the row leaves, and why.** `python3 -I tools/ncode-census/census.py
+   --diff tools/ncode-census/baseline-<target>.tsv <v3 run>.tsv` (base `ba1964e81`,
+   row at `d61948208`):
+
+   ```
+   macos-aarch64  instructions 27057789 -> 25955015 (-1102774)  cmp0_eq_branch 1052180 -> 117
+                  cmp0_sign_branch 25061 -> 52  cmpz_eq_branch 2486 -> 0  single_bit_test 5618 -> 0
+                  op:cbz 0 -> 984123  op:cbnz 0 -> 65279  op:tbz 0 -> 23937  op:tbnz 0 -> 11985
+   linux-aarch64  instructions 27024835 -> 25923444 (-1101391)  cmp0_eq_branch 1051245 -> 70
+                  cmp0_sign_branch 24863 -> 73  single_bit_test 5512 -> 0  op:cbz 0 -> 983120
+   linux-x86_64   instructions 30519671 -> 30495781 (-23890)  cmpz_eq_branch 2486 -> 0
+                  single_bit_test 4816 -> 269  op:tbz 0 -> 1764  op:tbnz 0 -> 3769  op:mov_imm -12824
+   linux-riscv64  instructions 4506516 -> 4501112 (-5404)  rv_single_bit_test 2171 -> 432
+                  rv_zero_reg_branch 505 -> 0  op:tbz 0 -> 508  op:tbnz 0 -> 1514
+   ```
+   (x86-64 keeps `cmp0_eq_branch` by design: its `cmp_imm r, 0` *is* `test r, r`,
+   4 bytes shorter each — `byte-identity/collections` text 403,447 → 397,719
+   bytes; riscv64 never had the shape.)
+   The remainder, by class:
+   (a) **flags live after the branch** — the 117 / 52 AArch64 `cmp #0` + branch
+   left are exactly the census's live-flags ones (`cmp0_eq_branch_flags_dead`
+   → 0): `share` chains (`cmp; b.eq; b.lt`), e.g. `_mfb_arena_commit` (56);
+   (b) **the masked value is still needed** — a bit test whose `t` is read on
+   one edge stays `and t; cbz t` (AArch64) / `and; test; jcc` (x86) / `and;
+   rv.br` (riscv64): macos-aarch64 661 such sites, x86-64 270, riscv64 432. A
+   `/tmp` probe (`why.py`, first event touching `t` on each edge) splits them:
+   a call to a hand-written runtime helper before any write of `t` (183 / 122 /
+   170 — such a helper may read any register, so `t` counts as live), both
+   edges reaching another branch first (179 / 44 / 91 — live further on), a
+   hand-written function's `ret` (124+16 / 12+16 / 86+13 — its caller may read
+   any register), a real read (`orr` of the bit, 56 / 56 / 43), a C call (36 /
+   13 / 2). Each is the liveness being exactly as conservative as it must be;
+   making the runtime helpers declare what they read is the only lever, and it
+   is the allocator's business too (`call_clobber_mask` treats them the same
+   way), not a builder rewrite.
+   (c) **No register-shifting bit test exists**: no `lsr_imm`/`asr_imm`, then
+   `mov_imm 1`, then an `and` of the two, then a zero test, anywhere in the
+   macos-aarch64 corpus (probe over the v3 `KEEP` dumps → 0). The loose form
+   (`lsr` then `and` with any mask then a test, 3,077 sites) is field extraction
+   — `lsr x8, x9, #52; and x8, x8, #2047; cmp x8, #2047` in
+   `_mfb_ifn_canvas_5FdrawGeometry` (528) is a float exponent check — not a
+   single bit. The top-20 functions by remaining candidates
+   (`_mfb_arena_span_free` 112, `_mfb_fn_main` 60, `_mfb_arena_commit` 56,
+   `_mfb_arena_sweep` 56, `_mfb_arena_extend` 56, `_mfb_macapp_metal_draw` 48,
+   `_mfb_fn_postMoney` 42, …, `_mfb_rt_io_io_readKey` 10) are all classes (a)
+   and (b); none converted.
+12. **Three bin tests pinned the old forms** (red in the landing tier after
+   `d61948208`; corrected in `b3975fb67` with the four questions):
+   `x86_64::encode::tests::integer::cmp_cmp_imm` and
+   `cmp_zero_token_rhs_compares_immediate_zero` pinned `cmp r, 0` as the 7-byte
+   imm32 form §4.5 replaced — only their byte lines changed (bug-397's "never r8"
+   still holds); `os::is_admin_tests_the_opposite_sense_on_windows_and_unix`'s
+   helper `Stream::branch_condition_to` did not know `cbz` — it now reads
+   `cbz`/`cbnz` and the `#63` sign tests as the conditions they replace, the
+   assertion unchanged.
+13. **Box 2223 refused ssh** (`ssh -p 2223 test@127.0.0.1` → `Connection
+   refused`, 2026-10-26, as for plan-171-A); linux-aarch64 ran on 2226 (Debian 12
+   glibc), verdict-for-verdict against the base compiler. Windows ran on 206
+   (2230 is retired, `.ai/remote_systems.md`).
+14. **Benchmark: −1.35 % overall; the `find` slowdown is layout, not `cbz`.**
+   `list (Dynamic) find` went 0.669 → 0.855 ms (min of three alternating runs,
+   all three Dynamic variants alike). Its hot loop differs in exactly one
+   instruction — `cmp x24, #0; b.eq found` became `cbz x24, found` (dumped from
+   both `-ncode`s; the rest of the 30-instruction loop is identical). Two
+   experiments put the cost on placement: (a) the *base* binary patched in place
+   — those four `cmp; b.eq` pairs rewritten to `cbz; nop` at the same addresses
+   (`/tmp` probe, re-signed) — runs the row at 0.666–0.697 ms, as fast as base;
+   (b) the same `collections::find(base, "s999")` loop alone, built by both
+   compilers at eight paddings (0–7 extra functions ahead of it): the row's
+   build is faster at every one, 665–666 µs against 695–725 µs. So the form is
+   not slower; the full benchmark binary, 544,896 bytes smaller (15,820,956 → 15,276,060), moved the loop
+   somewhere this core runs it worse. The same holds by construction for
+   `window`/`replace`, whose loops change only by folds. Kept, and recorded as a
+   measured layout effect for the owner, like plan-171-A's Correction 13.
+15. **The full suite found five more `-ncode` readers** that only the full tier
+   runs: `cli_app_term_inactive_gate`, `codegen_helper_scratch_release`,
+   `codegen_net_write_payload_view`, `codegen_shared_cleanup_helpers`,
+   `rt_syscall_return_robustness` each locate a runtime guard by its `cmp_imm` +
+   `b.<cond>` spelling, and the row now spells those guards `cbz`/`tbz`. Every
+   guard is still present (the failures' own dumps show it). As plan-171-A did
+   with `split_pairs`, `tests/common/mod.rs:split_compare_branches` writes each
+   form back as the compare and branch it replaced, and the readers read
+   through it; no assertion changed (`815a54e0b`, four questions there).
 
 ## Summary
 
 Risk is the flags-liveness proof and `tbz`'s 32 KiB reach; both are isolated
 behind unit tests and a relaxation test that forces the trampoline. The
 register allocator never sees the new terminators.
+
+**Landed (2026-10-26):** census metrics and baselines (`ea1206a5c`), the four ops
+at every layer (`37d727b51`), the row with both liveness analyses, x86 `test`,
+relaxation, fixture, specs (`d61948208`), goldens (`0a9173fa4`), test pins
+(`b3975fb67`), docs. Every function's final stream now carries the target's
+compare-and-branch forms: macos-aarch64 −1,102,774 instructions (−4.08 %, 984,123
+`cbz`), linux-aarch64 −4.08 %, riscv64 −5,404, x86-64 −23,890 plus every compare
+with zero 4 bytes shorter; benchmark −1.35 % (one layout-sensitive row family
+slower, Correction 14). The design moved the row from `finalize_frame` to the end
+of `route_function_through_mir` (Correction 5) and added a final-stream register
+liveness (Correction 9). Open: what hand-written runtime helpers read is unknown,
+so a bit test whose scratch reaches such a call stays `and; cbz` (Correction 11
+(b)); box 2223 stays unreachable.

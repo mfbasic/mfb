@@ -197,6 +197,10 @@ pub(super) static FP_SHUTTLES_FOLDED: AtomicU64 = AtomicU64::new(0);
 /// "Load/store pair formation (ldp/stp)" (post-frame machine row): adjacent
 /// 64-bit accesses merged into one pair by `pair_adjacent_accesses`.
 pub(super) static LOAD_STORE_PAIRS: AtomicU64 = AtomicU64::new(0);
+/// "Compare-with-zero branch (cbz/cbnz) formation" (final-stream machine row):
+/// compare-and-branch pairs folded into `cbz`/`cbnz`/`tbz`/`tbnz` and compares
+/// against a register known to hold zero rewritten, by `opt2::cbranch::form`.
+pub(super) static COMPARE_BRANCHES: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn count_constant_folds(fired: u64) {
     add(&CONSTANT_FOLDING, fired);
@@ -380,6 +384,10 @@ pub(crate) fn count_fp_shuttles_folded(fired: u64) {
 
 pub(crate) fn count_load_store_pairs(fired: u64) {
     add(&LOAD_STORE_PAIRS, fired);
+}
+
+pub(crate) fn count_compare_branches(fired: u64) {
+    add(&COMPARE_BRANCHES, fired);
 }
 
 fn add(counter: &AtomicU64, fired: u64) {

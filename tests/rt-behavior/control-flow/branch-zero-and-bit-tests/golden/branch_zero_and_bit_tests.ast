@@ -1,0 +1,286 @@
+{
+  "project": "branch_zero_and_bit_tests",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "bits", "line": 2 },
+    { "module": "strings", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "zeroTest",
+      "line": 13,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 13 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "string", "value": "" }, "line": 14 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "0" } },
+        "line": 15,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "z" } }, "line": 16 }
+        ],
+        "else": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "nz" } }, "line": 18 }
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "0" } },
+        "line": 20,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "+ne" } }, "line": 21 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "0" } },
+        "line": 23,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "+neg" } }, "line": 24 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "0" } },
+        "line": 26,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "+nonneg" } }, "line": 27 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "out" }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "bitTests",
+      "line": 32,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 32 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "string", "value": "" }, "line": 33 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "1" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 34,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "0" } }, "line": 35 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "1024" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 37,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "10" } }, "line": 38 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "2048" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 40,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "!11" } }, "line": 41 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "1073741824" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 43,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "30" } }, "line": 44 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "2147483648" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 46,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "31" } }, "line": 47 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "4611686018427387904" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 49,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "62" } }, "line": 50 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775808" } }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 52,
+        "then": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "63" } }, "line": 53 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "identifier", "value": "out" } }, "right": { "kind": "string", "value": "]" } }, "line": 55 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "far",
+      "line": 58,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 58 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "acc", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 59 },
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "abcdefghijklmnopqrstuvwxyz" }, "line": 60 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "2048" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 61,
+        "then": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "a" }, { "kind": "string", "value": "A" }] }, "line": 62 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "1" } } }, "line": 63 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "b" }, { "kind": "string", "value": "B" }] }, "line": 64 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "2" } } }, "line": 65 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "c" }, { "kind": "string", "value": "C" }] }, "line": 66 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "3" } } }, "line": 67 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "d" }, { "kind": "string", "value": "D" }] }, "line": 68 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "4" } } }, "line": 69 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "e" }, { "kind": "string", "value": "E" }] }, "line": 70 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "5" } } }, "line": 71 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "f" }, { "kind": "string", "value": "F" }] }, "line": 72 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "6" } } }, "line": 73 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "g" }, { "kind": "string", "value": "G" }] }, "line": 74 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "7" } } }, "line": 75 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "h" }, { "kind": "string", "value": "H" }] }, "line": 76 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "8" } } }, "line": 77 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "i" }, { "kind": "string", "value": "I" }] }, "line": 78 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "9" } } }, "line": 79 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "j" }, { "kind": "string", "value": "J" }] }, "line": 80 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "10" } } }, "line": 81 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "k" }, { "kind": "string", "value": "K" }] }, "line": 82 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "11" } } }, "line": 83 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "l" }, { "kind": "string", "value": "L" }] }, "line": 84 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "12" } } }, "line": 85 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "m" }, { "kind": "string", "value": "M" }] }, "line": 86 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "13" } } }, "line": 87 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "n" }, { "kind": "string", "value": "N" }] }, "line": 88 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "14" } } }, "line": 89 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "o" }, { "kind": "string", "value": "O" }] }, "line": 90 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "15" } } }, "line": 91 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "p" }, { "kind": "string", "value": "P" }] }, "line": 92 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "16" } } }, "line": 93 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "q" }, { "kind": "string", "value": "Q" }] }, "line": 94 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "17" } } }, "line": 95 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "r" }, { "kind": "string", "value": "R" }] }, "line": 96 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "18" } } }, "line": 97 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "s" }, { "kind": "string", "value": "S" }] }, "line": 98 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "19" } } }, "line": 99 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "t" }, { "kind": "string", "value": "T" }] }, "line": 100 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "20" } } }, "line": 101 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "u" }, { "kind": "string", "value": "U" }] }, "line": 102 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "21" } } }, "line": 103 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "v" }, { "kind": "string", "value": "V" }] }, "line": 104 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "22" } } }, "line": 105 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "w" }, { "kind": "string", "value": "W" }] }, "line": 106 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "23" } } }, "line": 107 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "x" }, { "kind": "string", "value": "X" }] }, "line": 108 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "24" } } }, "line": 109 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "y" }, { "kind": "string", "value": "Y" }] }, "line": 110 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "25" } } }, "line": 111 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "z" }, { "kind": "string", "value": "Z" }] }, "line": 112 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "26" } } }, "line": 113 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "a" }, { "kind": "string", "value": "A" }] }, "line": 114 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "27" } } }, "line": 115 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "b" }, { "kind": "string", "value": "B" }] }, "line": 116 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "28" } } }, "line": 117 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "c" }, { "kind": "string", "value": "C" }] }, "line": 118 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "29" } } }, "line": 119 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "d" }, { "kind": "string", "value": "D" }] }, "line": 120 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "30" } } }, "line": 121 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "e" }, { "kind": "string", "value": "E" }] }, "line": 122 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "31" } } }, "line": 123 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "f" }, { "kind": "string", "value": "F" }] }, "line": 124 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "32" } } }, "line": 125 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "g" }, { "kind": "string", "value": "G" }] }, "line": 126 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "33" } } }, "line": 127 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "h" }, { "kind": "string", "value": "H" }] }, "line": 128 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "34" } } }, "line": 129 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "i" }, { "kind": "string", "value": "I" }] }, "line": 130 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "35" } } }, "line": 131 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "j" }, { "kind": "string", "value": "J" }] }, "line": 132 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "36" } } }, "line": 133 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "k" }, { "kind": "string", "value": "K" }] }, "line": 134 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "37" } } }, "line": 135 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "l" }, { "kind": "string", "value": "L" }] }, "line": 136 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "38" } } }, "line": 137 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "m" }, { "kind": "string", "value": "M" }] }, "line": 138 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "39" } } }, "line": 139 },
+        { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "n" }, { "kind": "string", "value": "N" }] }, "line": 140 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "40" } } }, "line": 141 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "acc" }, "line": 143 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 146,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "values", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "1024" }, { "kind": "number", "value": "2048" }, { "kind": "number", "value": "3073" }, { "kind": "number", "value": "1073741824" }, { "kind": "number", "value": "2147483648" }, { "kind": "number", "value": "4611686018427387904" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "9223372036854775808" } }, { "kind": "number", "value": "9223372036854775807" }] }, "line": 147 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "values" },
+        "line": 148,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "zeroTest", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "bitTests", "arguments": [{ "kind": "identifier", "value": "v" }] } }] }, "line": 149 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "far", "arguments": [{ "kind": "number", "value": "2048" }] }] }] }, "line": 151 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "far", "arguments": [{ "kind": "number", "value": "1" }] }] }] }, "line": 152 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 153 }
+      ]
+    }
+    ]
+  }
+  ]
+}

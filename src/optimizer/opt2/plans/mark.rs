@@ -99,6 +99,9 @@ pub(crate) fn flag_preserving(instruction: &CodeInstruction) -> bool {
             .get("src")
             .is_some_and(|src| src != crate::target::shared::abi::ZERO_SPELLING),
         CodeOp::MovImm | CodeOp::Label => true,
+        // plan-171-B: read no flags, but x86-64 encodes `tbz`/`tbnz` as
+        // `test`/`bt` + `jcc`, which write EFLAGS — not portable.
+        CodeOp::Cbz | CodeOp::Cbnz | CodeOp::Tbz | CodeOp::Tbnz => false,
         op if is_block_terminator(op) => true,
         op => {
             let mnemonic = op.mnemonic();

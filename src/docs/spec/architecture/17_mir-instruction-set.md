@@ -29,8 +29,8 @@ exhaustive matches over the backend op set, so a missing variant fails the build
 A `MirInstruction` is `{ op: MirOp, fields: Vec<(&'static str, Operand)> }` — an
 op tag plus named typed operands (field order matters for fused operations). The register
 allocator's field-based liveness works unchanged across the seam: a register field is a
-*definition* when named `dst`, `dst2` (an `ldp`'s second destination), `carry_out` or
-`borrow_out`, and a *use* when named `src`, `src2` (an `stp`'s second source), `lhs`, `rhs`,
+*definition* when named `dst`, `dst2` (an `ldp`'s second destination), `carry_out`,
+`borrow_out` or `scratch` (a riscv64 `tbz`'s work register), and a *use* when named `src`, `src2` (an `stp`'s second source), `lhs`, `rhs`,
 `minuend`, `base`, `register`, `addend`, `carry_in` or `borrow_in`; a pre- or post-indexed
 pair's `base` is both. [[src/codegen/engine/regalloc/analysis.rs:effect]]
 [[src/codegen/engine/mir/mir.rs:MirInstruction]] Two neutral conventions replace
@@ -192,6 +192,8 @@ carry the same fields as the shape they rename.
 | `mrs_dczid` | `dst` | AArch64 only: read `DCZID_EL0` (plan-183-A) |
 | `dc_zva` | `base` | AArch64 only: zero the `dc zva` block at `base` |
 | `rep_stosb_zero` | `base`, `src` | x86-64 only: zero `src` bytes at `base`; changes no register |
+| `cbz` `cbnz` | `register`, `target` | AArch64 only: branch if `register` is / is not zero (plan-171-B) |
+| `tbz` `tbnz` | `register`, `bit`, `target` (+ `scratch` on riscv64) | branch if bit `bit` of `register` is clear / set; x86-64 and riscv64 encode it as a bit test plus a branch |
 | `fadd_d` `fsub_d` `fmul_d` `fdiv_d` `fminnm_d` `fmaxnm_d` | `dst`, `lhs`, `rhs` | binary f64 op (`fminnm_d`/`fmaxnm_d` = IEEE-number min/max: a finite operand wins over a NaN) |
 | `fmov_d_from_d` `fneg_d` `fabs_d` `fsqrt_d` `fcvt_s_from_d` `fcvt_d_from_s` `i2f` `f2i_trunc` `f2i_floor` `f2i_ceil` `f2i_nearest` `fmov_i2f` `fmov_f2i` | `dst`, `src` | unary f64 / convert / reinterpret |
 | `fmadd_d` `fmsub_d` `fnmsub_d` `fnmadd_d` | `dst`, `addend`, `lhs`, `rhs` | scalar fused multiply-add (one round): `fmadd_d = addend + lhs*rhs`, `fmsub_d = lhs*rhs - addend`, `fnmsub_d = addend - lhs*rhs`, `fnmadd_d = -(lhs*rhs) - addend` |
@@ -204,6 +206,14 @@ carry the same fields as the shape they rename.
 | `v128.shl_imm` `v128.sshr_imm` `v128.ushr_imm` | `dst`, `src`, `shift` | lane shift by immediate |
 | `v128.dup_from_gpr` | `dst`, `src` | broadcast a GPR into all lanes |
 | `v128.umov_to_gpr` | `dst`, `src`, `index` | extract lane `index` to a GPR |
+
+`cbz`/`cbnz`/`tbz`/`tbnz` are mirror ops only so the exhaustive `from_code`/`to_code`
+hold: they never appear in MIR proper. The Level-1 row "Compare-with-zero branch
+(cbz/cbnz) formation" forms them after the **last** selection of a function, at the
+end of `route_function_through_mir`, where the stream is final; they name a register
+at a terminator, so `regalloc::allocate` refuses them (an eviction restore around one
+would have to land on both edges). [[src/codegen/engine/mir/mir.rs:route_function_through_mir]]
+[[src/codegen/engine/regalloc/mod.rs:allocate]]
 
 The carry/borrow family (`addc`/`subc`) carries carry or borrow as explicit
 `carry_in`/`carry_out` or `borrow_in`/`borrow_out` operand **values** (0/1), never through a flags register;

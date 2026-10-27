@@ -122,6 +122,12 @@ pub(super) fn enc_alu_imm32(digit: u8, rm: u8, imm: i32) -> Vec<u8> {
     bytes
 }
 
+/// `test r, r` — REX.W 85 /r (plan-171-B): the flags of `cmp r, 0` (ZF, SF, PF
+/// from `r`; CF = OF = 0) in 3 bytes. The encoding of every compare with zero.
+pub(super) fn enc_test_self(r: u8) -> Vec<u8> {
+    vec![rex(true, r >= 8, false, r >= 8), 0x85, modrm(0b11, r, r)]
+}
+
 /// `bt r/m64, 0` — REX.W 0F BA /4 ib. Sets CF = bit 0 of `rm` WITHOUT modifying
 /// the register. For the {0,1} carry-in domain CF == rm, exactly like the old
 /// `add rm,-1` trick but non-destructively (so a carry_in whose interval extends
@@ -323,6 +329,61 @@ pub(super) fn jmp_label(instruction: &CodeInstruction, kind: JccKind) -> Result<
             (vec![0x0F, cc, 0, 0, 0, 0], 2)
         }
     };
+    Ok(Encoded {
+        bytes,
+        side_effect: SideEffect::LabelBranch {
+            disp_field_offset,
+            target,
+        },
+    })
+}
+
+/// plan-171-B: `tbz`/`tbnz register, #bit, label` — branch when bit `bit` of
+/// `register` is clear / set. Bits 0–30 test with `test r/m64, imm32` (REX.W F7
+/// /0 id; the immediate `1 << bit` sign-extends to itself) and `je`/`jne`; bits
+/// 31–63 copy the bit into CF with `bt r/m64, imm8` (REX.W 0F BA /4 ib) and
+/// branch with `jae`/`jb` (CF clear / set). Both write EFLAGS, which the forming
+/// row (`optimizer::opt2::cbranch`) proves dead first.
+pub(super) fn bit_test_branch(instruction: &CodeInstruction) -> Result<Encoded, String> {
+    let r = reg(field(instruction, "register")?)?;
+    if is_zero_token(r) || r == 4 {
+        return Err(format!(
+            "x86-64 {} needs a general-purpose register",
+            instruction.op.mnemonic()
+        ));
+    }
+    let bit = immediate(field(instruction, "bit")?)?;
+    if bit > 63 {
+        return Err(format!(
+            "x86-64 {} bit {bit} is outside 0..=63",
+            instruction.op.mnemonic()
+        ));
+    }
+    let set = instruction.op == crate::arch::ops::CodeOp::Tbnz;
+    let (mut bytes, kind) = if bit <= 30 {
+        let mut test = vec![rex(true, false, false, r >= 8), 0xF7, modrm(0b11, 0, r)];
+        test.extend_from_slice(&(1u32 << bit).to_le_bytes());
+        (test, if set { JccKind::Jne } else { JccKind::Je })
+    } else {
+        let bt = vec![
+            rex(true, false, false, r >= 8),
+            0x0F,
+            0xBA,
+            modrm(0b11, 4, r),
+            bit as u8,
+        ];
+        (bt, if set { JccKind::Jb } else { JccKind::Jae })
+    };
+    let jump = jmp_label(instruction, kind)?;
+    let SideEffect::LabelBranch {
+        disp_field_offset,
+        target,
+    } = jump.side_effect
+    else {
+        unreachable!("jmp_label always records a label branch")
+    };
+    let disp_field_offset = bytes.len() + disp_field_offset;
+    bytes.extend(jump.bytes);
     Ok(Encoded {
         bytes,
         side_effect: SideEffect::LabelBranch {

@@ -227,6 +227,22 @@ through one base, 8 bytes apart and within the pair's −512…504 reach, into o
 one register; nothing is reordered).
 [[src/optimizer/opt2/machine.rs:finish]] [[src/optimizer/opt2/pairing.rs:pair_adjacent_accesses]]
 
+Every function's stream — compiled and hand-written alike — is routed through
+the MIR once more at the end of module lowering (`route_function_through_mir`)
+and selected for the last time; the final-stream machine hook runs right after,
+where nothing will select, allocate or frame the stream again. At `-O1` and
+above the compare-and-branch row runs there: a compare with zero and its
+`b.eq`/`b.ne` become AArch64 `cbz`/`cbnz` (`b.lt`/`b.ge` a `tbnz`/`tbz` of the
+sign bit), and `mov_imm m, 2^k; and t, r, m` plus a zero test become a single-bit
+`tbz`/`tbnz` (x86-64 `test`/`bt` + `jcc`, riscv64 `andi`/`slli` + branch) — only
+where the condition flags are dead after the branch on both edges and every
+register a deleted instruction wrote is dead, by a liveness that treats any call
+it cannot vouch for, a hand-written function's `ret` and a branch out of the
+function as reading every register. A compare against a register holding a known
+zero becomes a compare with the immediate (riscv64: the `zero` register).
+[[src/optimizer/opt2/machine.rs:finish_selected]] [[src/optimizer/opt2/cbranch.rs:form]]
+[[src/optimizer/opt2/plans/flagslive.rs:dead_after]] [[src/optimizer/opt2/plans/reglive.rs:analyze]]
+
 Every virtual-register id comes from one source per compilation: `allocate_register`,
 the standalone helpers' `Vregs::next` and the optimizer's GVN all draw from
 `mint_vreg`, which `lower_module_for_platform` resets at the start of each module, so no

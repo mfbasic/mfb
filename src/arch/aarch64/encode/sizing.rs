@@ -111,3 +111,8 @@ pub(super) fn branch_imm26(source: usize, target: usize) -> Result<u32, String> 
 pub(super) fn branch_imm19(source: usize, target: usize) -> Result<u32, String> {
     branch_imm(source, target, 19, "±1 MiB")
 }
+
+/// plan-171-B: the `tbz`/`tbnz` displacement, ±32 KiB (imm14 words).
+pub(super) fn branch_imm14(source: usize, target: usize) -> Result<u32, String> {
+    branch_imm(source, target, 14, "±32 KiB")
+}

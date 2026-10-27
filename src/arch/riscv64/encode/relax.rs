@@ -94,6 +94,9 @@ fn jal_offset_within(op: CodeOp) -> Option<usize> {
     match op {
         CodeOp::Branch => Some(0),
         CodeOp::RvBr => Some(4),
+        // plan-171-B: `andi`/`slli` into the scratch, the inverted short branch,
+        // then the `jal`.
+        CodeOp::Tbz | CodeOp::Tbnz => Some(8),
         _ => None,
     }
 }

@@ -279,6 +279,22 @@ pub(crate) fn allocate(
     if std::env::var_os("MFB_BENCH_LOWERING").is_some() && instructions.len() >= 100_000 {
         eprintln!("{}", bench_lowering_line(instructions));
     }
+    // plan-171-B: `cbz`/`cbnz`/`tbz`/`tbnz` name a register at a terminator, so
+    // an eviction restore around one would have to land on both edges (the
+    // bug-746 hazard). They are formed only on the final, selected stream,
+    // never here. A plain `assert!`, not a debug one (bug-550: CI builds
+    // release): one opcode compare per instruction, no allocation.
+    assert!(
+        !instructions.iter().any(|instruction| matches!(
+            instruction.op,
+            crate::arch::ops::CodeOp::Cbz
+                | crate::arch::ops::CodeOp::Cbnz
+                | crate::arch::ops::CodeOp::Tbz
+                | crate::arch::ops::CodeOp::Tbnz
+        )),
+        "a compare-with-zero/bit-test branch reached the register allocator \
+         (plan-171-B forms them only after selection)"
+    );
     {
         // Allocate the integer class, then the FP class over the
         // already-integer-colored stream. The two physical files never

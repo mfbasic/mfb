@@ -162,7 +162,10 @@ fn byte_form_helpers_verify_the_collection_header_before_reading_a_length() {
         let project = temp_project(&name, SOURCE);
         let ncode = build_ncode(&project, target, &name);
         for sym in BYTE_FORMS {
-            let insts = function(&ncode, sym);
+            // plan-171-B: a `cbnz`/`tbz` header check reads as the compare and
+            // `b.ne` it replaced.
+            let insts = common::split_compare_branches(function(&ncode, sym));
+            let insts = insts.as_slice();
             let bad = format!("{sym}_bad_payload");
             // The header check: an `ldr_u8` off the payload register, a compare,
             // and a `b.ne` to the helper's own `_bad_payload` label — three of

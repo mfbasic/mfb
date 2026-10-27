@@ -64,8 +64,9 @@ pub(crate) type U32Set = std::collections::HashSet<u32, BuildHasherDefault<U32Ha
 /// three-address with no tied operands, so a `dst` field is always a pure
 /// definition. `carry_out`/`borrow_out` are the second result of the
 /// explicit-carry `add_carry`/`sub_borrow` ops (plan-00-G §4). `dst2` is the
-/// second destination of an `ldp` (plan-171-A).
-const DEF_FIELDS: &[&str] = &["dst", "dst2", "carry_out", "borrow_out"];
+/// second destination of an `ldp` (plan-171-A). `scratch` is the register a
+/// riscv64 `tbz`/`tbnz` computes its bit test into (plan-171-B).
+const DEF_FIELDS: &[&str] = &["dst", "dst2", "carry_out", "borrow_out", "scratch"];
 
 /// Fields that name a register the instruction *reads*. `carry_in`/`borrow_in`
 /// are the explicit-carry input of `add_carry`/`sub_borrow`; `src2` is the second
@@ -579,6 +580,14 @@ pub(crate) fn is_block_terminator(op: CodeOp) -> bool {
             // allocator runs after selection, so a block ending in one must split
             // here or its jump-target CFG edge and cross-branch liveness are wrong.
             | CodeOp::RvBr
+            // plan-171-B: the compare-with-zero / bit-test branches. Formed only
+            // after selection (never in the allocator's input), but every CFG
+            // over a final stream — the flags and register liveness that form
+            // them — needs their taken edge.
+            | CodeOp::Cbz
+            | CodeOp::Cbnz
+            | CodeOp::Tbz
+            | CodeOp::Tbnz
             | CodeOp::Ret
             | CodeOp::BranchSelf
     )
@@ -966,6 +975,31 @@ pub(crate) fn analyze(
 mod tests {
     use super::*;
     use std::hash::Hash;
+
+    /// plan-171-B: a block ending in `cbz`/`cbnz`/`tbz`/`tbnz` is a conditional
+    /// terminator — its taken edge comes from `target` and it falls through.
+    #[test]
+    fn a_block_ending_in_a_zero_or_bit_branch_has_both_edges() {
+        for op in ["cbz", "cbnz", "tbz", "tbnz"] {
+            let stream = vec![
+                CodeInstruction::new("label").field("name", "entry"),
+                CodeInstruction::new(op)
+                    .physical_field("register", "x9")
+                    .field("bit", "3")
+                    .field("target", "far"),
+                CodeInstruction::new("ret"),
+                CodeInstruction::new("label").field("name", "far"),
+                CodeInstruction::new("ret"),
+            ];
+            let blocks = build_cfg(&stream);
+            assert_eq!(blocks.len(), 3, "{op}");
+            assert_eq!(
+                blocks[0].succ,
+                vec![2, 1],
+                "{op}: taken edge, then fallthrough"
+            );
+        }
+    }
 
     /// The fast `U32Hasher` must behave as a real `Hasher`: a `U32Map` keyed by
     /// `u32` round-trips (exercises `write_u32` + `finish`), and the generic

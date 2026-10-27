@@ -7,7 +7,7 @@
 
 use crate::arch::x86_64::regmodel::{Win64RegisterModel, X86_64RegisterModel};
 use crate::arch::x86_64::select::{select_x86, X86Abi};
-use crate::codegen::engine::mir::{Backend, MirInstruction};
+use crate::codegen::engine::mir::{Backend, CompareBranchForms, MirInstruction};
 use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::regmodel::RegisterModel;
 
@@ -55,6 +55,10 @@ impl Backend for X86_64Backend {
         // 16-byte aligned at this function's own calls (SysV — libc `movaps`).
         8
     }
+
+    fn compare_branch_forms(&self) -> CompareBranchForms {
+        CompareBranchForms::X86
+    }
 }
 
 /// The Win64 x86-64 backend singleton (plan-47-B): the same ISA selection as
@@ -94,6 +98,10 @@ impl Backend for Win64Backend {
 
     fn stack_probe_page_bytes(&self) -> usize {
         WIN64_STACK_PROBE_PAGE
+    }
+
+    fn compare_branch_forms(&self) -> CompareBranchForms {
+        CompareBranchForms::X86
     }
 }
 

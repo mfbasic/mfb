@@ -90,6 +90,23 @@ pub(crate) enum CodeOp {
     X86Jbe,
     X86Je,
     X86Jne,
+    /// plan-171-B: compare-with-zero and single-bit-test branches. `cbz`/`cbnz`
+    /// (fields `register`, `target`) branch when `register` is / is not zero;
+    /// `tbz`/`tbnz` (fields `register`, `bit`, `target`, plus `scratch` on
+    /// riscv64) branch when bit `bit` (0–63) of `register` is clear / set. They
+    /// read no flags. AArch64 encodes them natively (flagless); x86-64 encodes
+    /// `tbz`/`tbnz` as `test r, imm32` or `bt r, imm8` plus `jcc` (which write
+    /// EFLAGS); riscv64 encodes `tbz`/`tbnz` as `andi`/`slli` into the dead
+    /// `scratch` register plus a long-form branch. Produced only on the final,
+    /// selected stream by the Level-1 row `optimizer::opt2::cbranch` — never in
+    /// the register allocator's input (they name a register at a terminator,
+    /// the bug-746 hazard). `cbz`/`cbnz` are formed for AArch64 only: x86-64
+    /// encodes `cmp_imm r, 0` as `test r, r` directly, and riscv64's `rv.br`
+    /// already compares with `zero`.
+    Cbz,
+    Cbnz,
+    Tbz,
+    Tbnz,
     Branch,
     BranchLink,
     BranchLinkRegister,
@@ -338,6 +355,10 @@ impl CodeOp {
             CodeOp::X86Jbe => "x86.jbe",
             CodeOp::X86Je => "x86.je",
             CodeOp::X86Jne => "x86.jne",
+            CodeOp::Cbz => "cbz",
+            CodeOp::Cbnz => "cbnz",
+            CodeOp::Tbz => "tbz",
+            CodeOp::Tbnz => "tbnz",
             CodeOp::Branch => "b",
             CodeOp::BranchLink => "bl",
             CodeOp::BranchLinkRegister => "blr",
@@ -507,6 +528,10 @@ impl CodeOp {
             "x86.jbe" => Ok(CodeOp::X86Jbe),
             "x86.je" => Ok(CodeOp::X86Je),
             "x86.jne" => Ok(CodeOp::X86Jne),
+            "cbz" => Ok(CodeOp::Cbz),
+            "cbnz" => Ok(CodeOp::Cbnz),
+            "tbz" => Ok(CodeOp::Tbz),
+            "tbnz" => Ok(CodeOp::Tbnz),
             "b" => Ok(CodeOp::Branch),
             "bl" => Ok(CodeOp::BranchLink),
             "blr" => Ok(CodeOp::BranchLinkRegister),
@@ -689,6 +714,10 @@ mod tests {
             CodeOp::X86Jbe,
             CodeOp::X86Je,
             CodeOp::X86Jne,
+            CodeOp::Cbz,
+            CodeOp::Cbnz,
+            CodeOp::Tbz,
+            CodeOp::Tbnz,
             CodeOp::Branch,
             CodeOp::BranchLink,
             CodeOp::BranchLinkRegister,

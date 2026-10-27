@@ -895,3 +895,19 @@ fn live_range_split_never_crosses_control_flow() {
         listing.join("\n")
     );
 }
+
+/// plan-171-B: a `cbz`/`cbnz`/`tbz`/`tbnz` names a register at a terminator,
+/// so it must never reach the allocator (it is formed only after selection).
+/// The guard is a release `assert!`, so this holds in every build.
+#[test]
+#[should_panic(expected = "reached the register allocator")]
+fn a_compare_with_zero_branch_is_refused_by_the_allocator() {
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("cbz")
+            .physical_field("register", &vreg_name(0))
+            .field("target", "entry"),
+        CodeInstruction::new("ret"),
+    ];
+    allocate(&mut instructions, &Aarch64RegisterModel, 0, &[]);
+}

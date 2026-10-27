@@ -7,6 +7,7 @@ mod branches_image_operands;
 mod forms;
 mod pairs;
 mod vector_and_relax_edges;
+mod zero_bit_branches;
 
 fn fresh_encoder() -> Encoder {
     // Delegates to the one shared constructor (bug-341-C2); the struct literal

@@ -247,6 +247,12 @@ impl<'a> Stream<'a> {
             CodeOp::BranchGt => "gt".to_string(),
             CodeOp::BranchGe => "ge".to_string(),
             CodeOp::Branch => "always".to_string(),
+            // plan-171-B: a compare-with-zero branch is the condition its
+            // `cmp r, #0` + `b.<cond>` had; a sign test (`#63`) likewise.
+            CodeOp::Cbz => "eq".to_string(),
+            CodeOp::Cbnz => "ne".to_string(),
+            CodeOp::Tbnz if Self::field(instruction, "bit") == "63" => "lt".to_string(),
+            CodeOp::Tbz if Self::field(instruction, "bit") == "63" => "ge".to_string(),
             // riscv64's fused compare-and-branch carries the condition as a field.
             _ => Self::field(instruction, "cond"),
         }

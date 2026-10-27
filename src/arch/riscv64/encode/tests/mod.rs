@@ -6,6 +6,7 @@ use crate::codegen::engine::types::CodeImport;
 use crate::codegen::engine::types::NativeCodePlan;
 use crate::target::NativeBuildMode;
 
+mod bit_branches;
 mod emitter_and_rvv;
 mod encoder;
 mod relax_edges;

@@ -7,7 +7,7 @@
 
 use crate::arch::riscv64::regmodel::Riscv64RegisterModel;
 use crate::arch::riscv64::select::select_riscv64;
-use crate::codegen::engine::mir::{Backend, MirInstruction};
+use crate::codegen::engine::mir::{Backend, CompareBranchForms, MirInstruction};
 use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::regmodel::RegisterModel;
 
@@ -34,6 +34,10 @@ impl Backend for Riscv64Backend {
         // call, so a 16-aligned frame keeps `sp` 16-aligned at call sites — no
         // padding needed (like AArch64, unlike x86-64).
         0
+    }
+
+    fn compare_branch_forms(&self) -> CompareBranchForms {
+        CompareBranchForms::Riscv64
     }
 }
 

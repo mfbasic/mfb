@@ -641,6 +641,22 @@ pub(crate) fn rows() -> &'static [Row] {
                       restore callee-saved registers in pairs at every level.)",
             counter: &stats::LOAD_STORE_PAIRS,
         },
+        Row {
+            name: "Compare-with-zero branch (cbz/cbnz) formation",
+            level: 1,
+            stage: "machine",
+            summary: "Turns a compare with zero followed by a branch into the \
+                      target's compare-and-branch form when nothing reads the \
+                      condition flags afterwards: `cbz`/`cbnz` on AArch64, and a \
+                      test of one bit (`and` with a power of two, then a zero \
+                      test) into `tbz`/`tbnz` (AArch64), `test`/`bt` + jump \
+                      (x86-64) or `andi`/`slli` + branch (riscv64). A compare \
+                      against a register that holds zero becomes a compare with \
+                      the immediate, and the zeroing instruction goes when \
+                      nothing else reads it. (x86-64 encodes every compare with \
+                      zero as `test r, r` at every level.)",
+            counter: &stats::COMPARE_BRANCHES,
+        },
     ];
     ROWS
 }

@@ -24,6 +24,11 @@
 //!                                Lcont:
 //! ```
 //!
+//! The same rewrite relaxes `cbz`/`cbnz` (`imm19`, ±1 MiB) and `tbz`/`tbnz`
+//! (`imm14`, ±32 KiB — reached by ordinary large functions) from plan-171-B:
+//! the near hop is the original instruction, register, bit and all, aimed at
+//! the trampoline.
+//!
 //! It runs on the plan's instruction stream *before* encoding, so the normal
 //! two-pass encoder then sizes and places the enlarged stream naturally and every
 //! in-range branch is byte-identical to before (the pass is a strict no-op when
@@ -39,11 +44,24 @@ use std::collections::HashMap;
 /// leaves alone is exactly one the encoder accepts.
 const IMM19_LIMIT: isize = 1 << 20;
 
-/// The conditional branch kinds the AArch64 backend emits (`emitter.rs`). Each
-/// is one `imm19`-reach instruction; an unconditional `Branch` (`imm26`) and the
-/// `bl`/`blr` calls are excluded — they reach far enough or are not PC-relative
+/// `imm14` reach in bytes (`tbz`/`tbnz`, plan-171-B): ±2^13 words × 4 = ±32 KiB.
+const IMM14_LIMIT: isize = 1 << 15;
+
+/// The reach of each conditional branch kind the AArch64 backend emits
+/// (`emitter.rs`): `imm19` for `b.<cond>` and `cbz`/`cbnz`, `imm14` for
+/// `tbz`/`tbnz`; `None` for everything else — an unconditional `Branch`
+/// (`imm26`) and the `bl`/`blr` calls reach far enough or are not PC-relative
 /// label branches.
-fn is_conditional_branch(op: CodeOp) -> bool {
+fn reach(op: CodeOp) -> Option<isize> {
+    match op {
+        CodeOp::Tbz | CodeOp::Tbnz => Some(IMM14_LIMIT),
+        CodeOp::Cbz | CodeOp::Cbnz => Some(IMM19_LIMIT),
+        op if is_flag_branch(op) => Some(IMM19_LIMIT),
+        _ => None,
+    }
+}
+
+fn is_flag_branch(op: CodeOp) -> bool {
     matches!(
         op,
         CodeOp::BranchEq
@@ -112,9 +130,9 @@ fn relax_function(
         // Collect every conditional branch whose target sits outside imm19 reach.
         let mut out_of_range: Vec<usize> = Vec::new();
         for (index, instruction) in instructions.iter().enumerate() {
-            if !is_conditional_branch(instruction.op) {
+            let Some(limit) = reach(instruction.op) else {
                 continue;
-            }
+            };
             // The offset walk above sized every instruction by encoding it, and the
             // emitter refuses a conditional branch with no `target`, so it is present.
             let target = instruction
@@ -127,7 +145,7 @@ fn relax_function(
                 continue;
             };
             let delta = target_offset as isize - offsets[index] as isize;
-            if delta < -IMM19_LIMIT || delta >= IMM19_LIMIT {
+            if delta < -limit || delta >= limit {
                 out_of_range.push(index);
             }
         }
@@ -139,16 +157,21 @@ fn relax_function(
         // Rewrite back-to-front so each splice leaves the still-to-process
         // (smaller) indices valid.
         for &index in out_of_range.iter().rev() {
-            let condition = instructions[index].op.mnemonic().to_string();
             let far_target = instructions[index]
                 .get("target")
                 .expect("checked above that the branch has a target");
             *counter += 1;
             let trampoline = format!("__mfb_relax_tramp_{counter}");
             let continuation = format!("__mfb_relax_cont_{counter}");
+            // Taken: hop to the nearby trampoline (well within any reach). The
+            // branch keeps its condition and every other operand — a `cbz`'s
+            // register, a `tbz`'s register and bit (plan-171-B).
+            let mut hop = instructions[index].clone();
+            if let Some((_, value)) = hop.fields.iter_mut().find(|(key, _)| *key == "target") {
+                *value = crate::codegen::engine::operand::Operand::from(trampoline.as_str());
+            }
             let veneer = vec![
-                // Taken: hop to the nearby trampoline (well within imm19).
-                CodeInstruction::new(&condition).field("target", trampoline.clone()),
+                hop,
                 // Not taken: skip past the trampoline.
                 CodeInstruction::new("b").field("target", continuation.clone()),
                 CodeInstruction::new("label").field("name", trampoline),

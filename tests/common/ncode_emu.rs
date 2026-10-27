@@ -512,6 +512,31 @@ impl<'a> Machine<'a> {
                     );
                 }
                 "b" => pc = jump(field(instruction, "target")),
+                // plan-171-B: compare-with-zero and single-bit-test branches. A
+                // riscv64 `tbz` also writes its `scratch` (the `andi`/`slli`
+                // result its encoding computes).
+                "cbz" | "cbnz" => {
+                    let zero = self.reg(field(instruction, "register")) == 0;
+                    if zero == (op == "cbz") {
+                        pc = jump(field(instruction, "target"));
+                    }
+                }
+                "tbz" | "tbnz" => {
+                    let value = self.reg(field(instruction, "register"));
+                    let bit = parse_int(field(instruction, "bit")) as u32;
+                    if instruction.get("scratch").is_some() {
+                        let computed = if bit <= 10 {
+                            value & (1 << bit)
+                        } else {
+                            value << (63 - bit)
+                        };
+                        self.set_reg(field(instruction, "scratch"), computed);
+                    }
+                    let set = (value >> bit) & 1 == 1;
+                    if set == (op == "tbnz") {
+                        pc = jump(field(instruction, "target"));
+                    }
+                }
                 // RISC-V has no flags: a branch compares its own two registers.
                 "rv.br" => {
                     let l = self.reg(field(instruction, "lhs"));

@@ -1,0 +1,22 @@
+$ mfb build -ast -ir tests/rt-behavior/control-flow/branch-zero-and-bit-tests
+Wrote AST to tests/rt-behavior/control-flow/branch-zero-and-bit-tests/branch_zero_and_bit_tests.ast
+Wrote IR to tests/rt-behavior/control-flow/branch-zero-and-bit-tests/branch_zero_and_bit_tests.ir
+[exit 0]
+$ mfb build tests/rt-behavior/control-flow/branch-zero-and-bit-tests
+Wrote executable to tests/rt-behavior/control-flow/branch-zero-and-bit-tests/build/branch_zero_and_bit_tests.out
+[exit 0]
+$ tests/rt-behavior/control-flow/branch-zero-and-bit-tests/build/branch_zero_and_bit_tests.out
+0 z+nonneg [!11]
+1 nz+ne+nonneg [0!11]
+-1 nz+ne+neg [01030316263]
+1024 nz+ne+nonneg [10!11]
+2048 nz+ne+nonneg []
+3073 nz+ne+nonneg [010]
+1073741824 nz+ne+nonneg [!1130]
+2147483648 nz+ne+nonneg [!1131]
+4611686018427387904 nz+ne+nonneg [!1162]
+-9223372036854775808 nz+ne+neg [!1163]
+9223372036854775807 nz+ne+nonneg [010303162]
+21320
+0
+[exit 0]

@@ -99,3 +99,44 @@ fn frame_and_body_pairs_agree_at_every_level() {
         wrong.join("\n  ")
     );
 }
+
+/// plan-171-B: the compare-and-branch fixture — every compare with zero, sign
+/// test and single-bit test, plus a bit test whose AArch64 `tbz` must be
+/// relaxed past ±32 KiB — runs identically at every level (`-O0` forms
+/// nothing, `-O1`+ forms `cbz`/`tbz`).
+const BRANCH_TESTS: &str =
+    include_str!("../rt-behavior/control-flow/branch-zero-and-bit-tests/src/main.mfb");
+/// The program's output, as `golden/build.log` records it (the base compiler's).
+const BRANCH_TESTS_OUTPUT: &str = "0 z+nonneg [!11]
+1 nz+ne+nonneg [0!11]
+-1 nz+ne+neg [01030316263]
+1024 nz+ne+nonneg [10!11]
+2048 nz+ne+nonneg []
+3073 nz+ne+nonneg [010]
+1073741824 nz+ne+nonneg [!1130]
+2147483648 nz+ne+nonneg [!1131]
+4611686018427387904 nz+ne+nonneg [!1162]
+-9223372036854775808 nz+ne+neg [!1163]
+9223372036854775807 nz+ne+nonneg [010303162]
+21320
+0";
+
+#[test]
+fn compare_and_branch_forms_agree_at_every_level() {
+    let project = common::temp_project("branch_zero_and_bit_tests_levels", BRANCH_TESTS);
+    let mut results = Vec::new();
+    for level in ["0", "1", "2", "3"] {
+        results.push((level, run_at(&project, level)));
+    }
+    let _ = std::fs::remove_dir_all(&project);
+    let wrong: Vec<String> = results
+        .iter()
+        .filter(|(_, got)| got != BRANCH_TESTS_OUTPUT)
+        .map(|(level, got)| format!("-O{level}: {got:?}"))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "plan-171-B: branch-zero-and-bit-tests must print the same at every level; got:\n  {}",
+        wrong.join("\n  ")
+    );
+}

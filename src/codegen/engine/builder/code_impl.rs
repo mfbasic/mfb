@@ -164,6 +164,8 @@ impl CodeInstruction {
             | CodeOp::Branch
             | CodeOp::BranchLink => &["target"],
             CodeOp::BranchLinkRegister => &["register"],
+            CodeOp::Cbz | CodeOp::Cbnz => &["register", "target"],
+            CodeOp::Tbz | CodeOp::Tbnz => &["register", "bit", "target"],
             CodeOp::BranchSelf | CodeOp::Svc | CodeOp::Ret => &[],
             CodeOp::LdrU64 | CodeOp::LdrU32 | CodeOp::LdrU16 | CodeOp::LdrU8 => {
                 &["dst", "base", "offset"]
