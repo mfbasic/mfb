@@ -50,9 +50,11 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
 * Finish the task. Done/finish/complete = whole task done+verified, not a phase boundary.
   Continue until goal holds or a genuine blocker (irreversible action, real ambiguity,
   unresolvable dep) — state it, use best default.
-* Never leave a bug you found — fix it now, outranking scope. Not excused by
+* Coding task: never leave a bug you found — fix it now, outranking scope. Not excused by
   out-of-scope/another-doc/churn/pre-existing (verify at HEAD via `git worktree add --detach`).
   Too large = blocker on line 1 with repro.
+  Documentation/review task: NEVER touch code. File the bug (`bugs/bug-NNNN-*.md` + a row in
+  `bugs/status.md`), keep the page on the intended contract, and move on.
 * Production-ready only. No stubs/placeholders/mocks/fallbacks/simulations/"unsupported"
   unless asked. Blocked → say so, no dead-code filler.
 * No blanket dead-code suppression. No file-level `#![allow(dead_code)]`;
