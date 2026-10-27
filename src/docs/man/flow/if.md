@@ -22,8 +22,11 @@ END IF
 condition must be `Boolean` — there is no truthiness coercion from other types.
 
 The single-line form runs one statement when the condition is `TRUE`, with an
-optional single-line `ELSE`. The block form may include zero or more `ELSEIF`
-clauses and an optional `ELSE`; the first branch whose condition is `TRUE` runs,
+optional single-line `ELSE`. It takes exactly one statement per branch and no
+`END IF`; a `:` after it starts a new statement outside the `IF`. The block form
+may include zero or more `ELSEIF` clauses and an optional `ELSE`. The keyword is
+the single word `ELSEIF`; `ELSE IF` on one line is a parse error, because `ELSE`
+must end its line. In the block form, the first branch whose condition is `TRUE` runs,
 and when none match and there is no `ELSE`, no branch runs.
 
 ## Errors

@@ -38,6 +38,12 @@ increment; `CONTINUE FOR` does not.
 `EXIT FOR` leaves the innermost enclosing `FOR` loop and `CONTINUE FOR` skips to
 its next iteration.
 
+The loop variable is immutable inside the body and exists only until `NEXT`;
+assigning it is `TYPE_ASSIGN_REQUIRES_MUT` and reading it after the loop is an
+unknown identifier. `start`, `end` and `STEP` are each evaluated once before the
+first test, so changing a variable they were computed from does not change the
+loop.
+
 `EXIT FOR i` and `CONTINUE FOR i` name the loop by its variable instead. They act
 on the `FOR` or `FOR EACH` loop whose variable is `i`, even when inner loops sit
 between the exit and that loop. A name no enclosing `FOR` loop has is a compile

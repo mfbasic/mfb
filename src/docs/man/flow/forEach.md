@@ -22,6 +22,13 @@ loop order is implementation-defined but stable for a given unchanged map value,
 matching the order used by `keys` and `values`.
 
 `EXIT FOR` leaves the loop and `CONTINUE FOR` skips to the next item.
+`EXIT FOR item` and `CONTINUE FOR item` name this loop by its variable, so an
+inner loop can leave or continue it directly; see `mfb man flow for`.
+
+The item variable is immutable inside the body and exists only until `NEXT`.
+`FOR EACH` iterates the value the source expression had when the loop started:
+assigning a new value to the source variable inside the body does not change the
+sequence being visited; the next loop over that variable sees the new value.
 
 ## Errors
 

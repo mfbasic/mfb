@@ -52,6 +52,26 @@ visible before other top-level names, so a resource's `CLOSE BY` and a transpare
 re-export alias can refer to a native function declared later in the file. A `LINK` alias is distinct from an imported
 package and wins before import lookup for that root name.
 
+## Telling the build where the library is
+
+The string in `LINK "sqlite3"` is a logical name. A `LINK` does not build until
+`project.json` maps that name under `libraries` to an ordered list of locators,
+one per OS and architecture: `"type": "system"` for a library installed on the
+machine, `"type": "vendor"` for a file shipped under the project's `vendor/`
+directory.
+
+```
+"libraries": {
+  "sqlite3": [
+    {"os": "macos", "type": "system", "source": "libsqlite3.dylib"},
+    {"os": "linux", "type": "system", "source": "libsqlite3.so.0"}
+  ]
+}
+```
+
+A missing entry is `NATIVE_LIBRARY_MISSING`; a target no locator covers builds
+with a warning. `mfb spec tooling project-manifest` gives the full locator form.
+
 ## Binding packages
 
 A source package that declares `LINK` is a binding package. It may contain only
@@ -91,6 +111,20 @@ the native return, or compute a value from the slots
 names reaches the program. Slot names are ordinary identifiers; `return` is a
 keyword and cannot name a slot.
 
+A native function may declare at most as many non-floating-point slots as the
+target passes in registers (six on x86-64, eight on AArch64 and riscv64),
+including `OUT` and `CONST` slots; more is a build error, so a binding that builds
+on one target can fail on another.
+
+Values crossing the boundary are checked where a C type is narrower than the
+MFBASIC one. An `Integer` passed to a `CInt32` slot is range-checked and raises
+`ErrOverflow`; `CInt8`, `CInt16` and the `CUInt*` slots are passed through
+unchecked. A `Float` passed to a `CFloat` slot is rounded, and raises
+`ErrFloatOverflow` when too large. A NaN or infinite `CFloat`/`CDouble` result
+raises `ErrFloatNaN` or `ErrFloatInf`. A `CPtr` return paired with an `AS String`
+wrapper is copied and checked as UTF-8 (`ErrEncoding`), and a NULL pointer
+becomes the empty `String`. A nonzero `CBool` is `TRUE`.
+
 ## Result gates
 
 `SUCCESS_ON` and `ERROR_ON` describe when a native call succeeds. The condition
@@ -105,8 +139,24 @@ SUCCESS_ON status = 100 OR status = 101
 When the gate says the call failed, the wrapper fails with
 `ErrNativeBindingCallFailed` and ordinary MFBASIC error propagation applies.
 `CONST` pins provide fixed ABI slot values without exposing them as wrapper
-parameters. `FREE <slot>` runs a declared native deallocator on a produced `CPtr`
-slot once its value has been copied into an MFBASIC value.
+parameters.
+
+## Releasing a returned pointer: FREE
+
+A native function that returns memory the caller must release takes it as the
+wrapper's own `CPtr` result and declares a `FREE` block inside the wrapper, after
+`RETURN`:
+
+```
+FREE text
+  SYMBOL "sqlite3_free"
+  ABI (ptr CPtr) AS CVoid
+END FREE
+```
+
+The wrapper returns `AS String` while the ABI return is `AS text CPtr`. The bytes
+are copied into the `String` first; then the `FREE` block's function, which takes
+one `CPtr` and returns `CVoid`, is called on the original pointer.
 
 ## Structs and buffers
 
@@ -179,7 +229,9 @@ slot `RETURN <slot> LENGTH <bytes>` names; the wrapper returns `List OF Byte`
 the wrapper's parameters and `CONST` pins only, and must be at least the most the
 function can write. `LENGTH` is worked out after the call, from the native return
 and `OUT` slots, and becomes the list's length; below zero counts as zero, and
-above `SIZE` counts as `SIZE`.
+above `SIZE` counts as `SIZE`. `SIZE` may not exceed the project's buffer
+ceiling, 64 MiB unless `options.maxBuffer` in `project.json` raises it (1–4096
+MiB); a larger `SIZE` fails the call.
 
 ```
   FUNC readFrames(file AS SoundFile, frames AS Integer, channels AS Integer) AS List OF Byte
@@ -217,6 +269,12 @@ The ABI type names below are the C-facing types an `ABI` signature may use:
 | `CString` | Null-terminated UTF-8 pointer produced from a MFBASIC `String` for the duration of the call. |
 | `CPtr` | Opaque native pointer, valid only inside native bindings or as the hidden representation of a declared resource. |
 | `CVoid` | Native `void` return, valid only in an ABI return or `FREE` deallocator signature. |
+| `CBuffer` | A writable byte buffer the callee fills, surfaced as `List OF Byte`; valid only as an `OUT` slot (see Structs and buffers). |
+| `<CSTRUCT name>` | A struct declared in this `LINK` block, passed `IN`, `OUT` or `INOUT`. |
+
+`CSize`, `CIntPtr`, `CFloat32` and C spellings such as `int` or `long` are not
+names and are rejected with `NATIVE_ABI_UNKNOWN_CTYPE`; pick the fixed-width name
+that matches the C header.
 
 Raw C ABI types may not appear in a wrapper's MFBASIC-facing signature. Exposing
 `CPtr`, `CString`, or fixed C integer types as ordinary source API is rejected;
@@ -266,6 +324,11 @@ wrap native handles in `RESOURCE` types instead.
 | `77030007` | `ErrNativeBindingUnavailable` | the program cannot load a required native library or resolve a required symbol at startup |
 | `77030008` | `ErrNativeBindingCallFailed` | a native call fails its `SUCCESS_ON` or `ERROR_ON` gate |
 | `77030010` | `ErrNativeBufferOverrun` | a native function writes past a `CBuffer` slot's `SIZE` |
+| `77050010` | `ErrOverflow` | an `Integer` does not fit a `CInt32` slot |
+| `77050015` | `ErrFloatOverflow` | a `Float` is too large for a `CFloat` slot |
+| `77050013` | `ErrFloatNaN` | a `CFloat` or `CDouble` result is NaN |
+| `77050014` | `ErrFloatInf` | a `CFloat` or `CDouble` result is infinite |
+| `77020004` | `ErrEncoding` | a `CPtr` returned as a `String` is not valid UTF-8 |
 
 ## See also
 

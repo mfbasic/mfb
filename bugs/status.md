@@ -161,6 +161,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 855    | LOW      | walking a recursive union with `MUT cur = c.rest` deep-copies the remaining tail every step — O(n²) time and allocations |
 | [ ]  | 1115   | MEDIUM   | field access on an `AttributedString` is not type-checked — `a.text` compiles and `a.foo` crashes the lowering |
+| [ ]  | 1126   | LOW      | `Point[]` (all-defaults record constructor, documented by bug-1021) is rejected with `TYPE_CONSTRUCTOR_ARITY_MISMATCH` |
 
 ## Templates and overloads
 

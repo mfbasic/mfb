@@ -10,6 +10,10 @@ String   Scalar
 
 ## Description
 
+Two `String`s join with `&`; both operands must be `String`, so a number is
+converted first: `"n=" & toString(n)`. `&` never converts for you, and `+` is not
+string concatenation.
+
 MFBASIC has two text primitives. `String` is an immutable UTF-8 sequence;
 `Scalar` is one Unicode scalar value. A `String` is, conceptually, a sequence of
 `Scalar`s, and the `strings::` package bridges the two.
@@ -85,4 +89,5 @@ defaultable, so a `List OF Scalar` and a `Map ... TO Scalar` are defaultable. Ho
 - `mfb spec language types`
 - `mfb spec language lexical-structure`
 - `mfb man strings toScalars`
+- `mfb man unicode`
 - `mfb man general`

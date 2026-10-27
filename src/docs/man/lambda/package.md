@@ -26,7 +26,10 @@ Each parameter must declare an `AS` type; parameter types are not inferred and
 parameters cannot declare default values. The result type is inferred from the
 body expression. Lambdas are ordinary values that can be bound to a `LET`, passed
 as an argument, returned from a function, and stored in records and collections —
-all subject to the capture rules below. A lambda cannot be marked `ISOLATED`, so
+all subject to the capture rules below. Only a name can be called: to call a
+function held in a record field or a list, bind it to a `LET` first
+(`LET g = ops.f` then `g(10)`); `ops.f(10)` and `collections::get(fs, 0)()` are
+parse errors. A lambda cannot be marked `ISOLATED`, so
 it cannot be a thread entry point: an entry point is a top-level `ISOLATED FUNC`
 (see `mfb man thread start`).
 
@@ -34,7 +37,10 @@ it cannot be a thread entry point: an entry point is a top-level `ISOLATED FUNC`
 
 The type of a lambda (or of a named function used as a value) is
 `FUNC(argTypes) AS ReturnType`. A binding of function type is called like any
-function:
+function, with two differences: every argument is positional (a `FUNC` type keeps
+parameter types, not names, so `f(x := 1)` is rejected), and every argument is
+required — a named `FUNC` with default parameters loses its defaults when used as
+a value. That is also why a `LAMBDA` cannot declare a default:
 
 ```
 FUNC applyTwice(f AS FUNC(Integer) AS Integer, x AS Integer) AS Integer
@@ -63,6 +69,11 @@ explains copies in full.
   closure would observe a frozen copy rather than the live cell. This is distinct
   from reassigning an outer `MUT` from an inner block, which is allowed because
   that scope is still live.
+- The capture rules apply to local bindings — a `LET` or `MUT` declared inside a
+  function. A top-level `LET` or `MUT` is not captured at all: a lambda names it
+  directly, like any function does, so it reads the current value every time it
+  runs, including a top-level `MUT`'s later changes. An assignment-bodied lambda
+  may only assign a local binding.
 - A resource (`RES`) handle may be captured, directly or inside a record or a
   `List OF RES`. The closure gets an alias of the handle, exactly as a list
   element is one — never a second open thing. If the closure outlives the block
@@ -94,7 +105,10 @@ forEach(items, LAMBDA(x AS Integer) -> total = total + x)
 Mutating a captured `MUT List` or `MUT Map` works the same way, and the update is
 reflected in the outer binding after the call. A resource captured by such a callback follows the rule above. This is a special
 case of `collections::forEach`, not a general feature: you cannot mark a parameter
-of your own function this way, and there is no annotation for it.
+of your own function this way, and there is no annotation for it. If you are only
+accumulating into a `MUT`, a `FOR EACH x IN items` loop does the same thing with no
+capture rule involved (`mfb man flow forEach`); the `forEach` exception matters
+when the callback has to be a function value.
 
 ## What is not possible
 
@@ -102,8 +116,12 @@ of your own function this way, and there is no annotation for it.
   a `LET`, returning it, storing it in a record or collection, sending it to a
   thread, or passing it to an unknown function. Only the proven non-escaping
   callback position above is exempt.
-- Observing a captured value's later changes through the closure: the closure
-  holds its own copy.
+- Observing a captured local value's later changes through the closure: the
+  closure holds its own copy.
+- A recursive lambda: the `LET` being declared is not in scope inside its own
+  body (`LET f = LAMBDA(n AS Integer) -> f(n - 1)` is
+  `SYMBOL_UNKNOWN_IDENTIFIER`). Write a named `FUNC` for recursion and use it as
+  a value.
 - Capturing a thread's worker view (`ThreadWorker`), directly or inside a
   record.
 
@@ -166,5 +184,6 @@ not change the live binding, and the capture is rejected as
 - `mfb man collections transform`
 - `mfb man collections reduce`
 - `mfb man variable`
+- `mfb man flow forEach`
 - `mfb man thread start`
 - `mfb man errors`
