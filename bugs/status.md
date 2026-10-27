@@ -154,6 +154,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 893    | LOW      | fs::canonicalPath / fs::isWithin accept "file/" and "file/.." on macOS but raise ErrInvalidPath on Linux |
 | [ ]  | 1122   | LOW      | `fs::isWithin`'s `child` parameter is aliased `parent`, the opposite of what it names |
 | [ ]  | 1123   | LOW      | `fs::readAll`/`fs::readAllBytes` on a write-only `File` return empty instead of raising `ErrReadFailed` |
+| [ ]  | 1127   | LOW      | Windows `process::poll` with a negative timeout returns at once instead of waiting with no deadline |
 
 ## Types, records and unions
 

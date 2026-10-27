@@ -33,7 +33,9 @@ every later `read` raises the same error at once, and so does every
 divide the data, which need not be a Unicode-scalar boundary, so a decode at that
 point can split a multi-byte Unicode scalar in half. Assemble the whole message first,
 then decode it with `encoding::utf8Decode`. `tls::write` does accept a `String`
-directly, because sending is not subject to the same hazard."#;
+directly, because sending is not subject to the same hazard.
+
+A read that reaches the deadline set by `tls::setReadTimeout` raises `ErrTimeout`."#;
 const EX: &str = r#"Read up to 4096 bytes from a connected TLS socket:
 
 ```

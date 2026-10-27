@@ -25,7 +25,9 @@ const INTRO: &str = r#"Read one newline-terminated line of text from a child's o
 const DESC: &str = r#"`process::receive` reads one line from a child's output stream and returns it as a
 `String`, **including** the trailing newline. It reads until it sees a `'\n'`,
 never over-reading past the line boundary, so successive calls return successive
-lines. Without a `from` argument it reads the child's standard output; pass a
+lines. The line keeps whatever ended it: a Windows child writes `\r\n`, so the
+returned `String` ends in `\r\n` there; trim the `\r` if the value is compared or
+printed inline. Without a `from` argument it reads the child's standard output; pass a
 `process::Stream` value to choose standard output or standard error explicitly.
 
 

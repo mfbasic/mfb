@@ -61,11 +61,8 @@ one endpoint value replaces two. Named arguments therefore bind per-overload,
 against whichever overload the argument types select — the same caveat
 `tcp::connect` carries.
 
-TLS is implemented on Linux by driving the system OpenSSL library (`libssl.so.3`,
-falling back to `libssl.so.1.1`) so a single binary spans OpenSSL 1.1.1 and 3.x;
-the macOS backend drives Network.framework through a synchronous bridge. If the
-TLS layer cannot be initialized — neither OpenSSL library can be loaded, or a
-required symbol is missing — `connect` raises `ErrTlsFailed`."#;
+If the operating system's TLS library cannot be loaded, `connect` raises
+`ErrTlsFailed` (see `mfb man tls`)."#;
 const EX: &str = r#"Connect to an HTTPS server and validate its certificate:
 
 ```

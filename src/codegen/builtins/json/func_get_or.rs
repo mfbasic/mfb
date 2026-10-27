@@ -13,7 +13,7 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Read a nested `json::Json` value by path, falling back to a default"#;
 
 const DESC: &str = r#"`json::getOr` walks `path` through a nested JSON tree exactly as `json::get`
-does, but returns `defaultValue` instead of failing whenever traversal cannot
+does, but returns `default` instead of failing whenever traversal cannot
 continue. Starting from `value`, each element of `path` selects one member of the
 current value, which becomes the current value before the next element is applied.
 
@@ -22,7 +22,7 @@ object key on a `json::JsonObj`, and a zero-based decimal array index on a
 `json::JsonArr`, spelled the RFC 6901 way (a single `0`, or a nonzero digit
 followed by further digits — never `"01"`, `"+1"`, `"-1"` or `"1 "`).
 
-Traversal stops and `defaultValue` is returned whenever the current step finds
+Traversal stops and `default` is returned whenever the current step finds
 nothing: a key absent from the current `json::JsonObj`, an index outside the
 current `json::JsonArr`, a token on an array that is not spelled as an index, or
 a `json::JsonNull`, `json::JsonBool`, `json::JsonNum` or `json::JsonStr` reached
@@ -32,9 +32,9 @@ while path elements remain.
 call fails is `ErrOutOfMemory`, which has nothing to do with `path`.
 
 An empty `path` performs no traversal and returns `value` unchanged, whatever
-variant it is; `defaultValue` is never consulted in that case.
+variant it is; `default` is never consulted in that case.
 
-`defaultValue` is a `json::Json` value, not a sentinel, so the fallback is
+`default` is a `json::Json` value, not a sentinel, so the fallback is
 indistinguishable from a value that was genuinely present. In particular
 `json::getOr(doc, path, json::JsonNull[NOTHING])` returns the same thing whether the key
 was absent or was present with the JSON value `null`. When that distinction
@@ -42,9 +42,9 @@ matters, use `json::get` and catch the failure instead.
 
 `ErrOutOfMemory` means the program ran out of memory.
 
-The `value` and `defaultValue` arguments each accept the `json::Json` union or any one
+The `value` and `default` arguments each accept the `json::Json` union or any one
 of its six member types directly. `path` may also be passed by the name `key`,
-and `defaultValue` under the names `default` or `fallback`."#;
+and `default` may also be passed under the names `defaultValue` or `fallback`."#;
 
 const EX: &str = r#"Read a configuration flag with a fallback:
 

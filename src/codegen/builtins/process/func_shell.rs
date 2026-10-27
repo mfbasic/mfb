@@ -40,9 +40,13 @@ On Windows a line is wrapped in quotes before `cmd` sees it and `/S` makes `cmd`
 strip exactly that wrap, so a command line containing quotes — or starting with
 one — reaches the shell intact.
 
-`process::receive` returns each line as the child wrote it. Windows programs end
-their lines `\r\n`, so a line read from a Windows child keeps its trailing `\r`;
-trim it if the value is compared or printed inline.
+`process::receive` returns each line as the child wrote it, so a line from a
+Windows child ends in `\r\n` (see `process::receive`).
+
+`shell` has no working-directory or environment form. To run a command line with
+either, spawn the shell yourself through the four-argument `process::spawn`:
+`process::spawn(["/bin/sh", "-c", cmd], cwd, env, FALSE)` on Unix,
+`process::spawn(["cmd.exe", "/S", "/C", cmd], cwd, env, FALSE)` on Windows.
 
 
 Because the string is parsed by a shell, values interpolated into `cmd` are subject

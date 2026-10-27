@@ -29,7 +29,8 @@ timed out can therefore be retried, and a `tls::poll` after one still reports
 readiness correctly.
 
 Use `tls::poll` instead when the question is "is there data?" rather than "read,
-but not forever": poll answers with a `Boolean` and raises nothing."#;
+but not forever": poll on a single socket answers with a `Boolean`, returning `FALSE` on expiry
+instead of raising `ErrTimeout`."#;
 
 const EX: &str = r#"Do not let a silent peer stall a read forever:
 

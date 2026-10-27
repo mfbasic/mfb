@@ -15,7 +15,13 @@ const INTRO: &str = r#"Serialize a `json::Json` value as JSON text, compact or i
 const DESC: &str = r#"`json::stringify` serializes `value` into a single JSON document. Called with one
 argument it produces compact text: no indentation, no line breaks, and no
 whitespace between tokens. Arrays and objects are serialized recursively, so one
-call renders a whole tree.
+call renders a whole tree. There is no fixed depth cap on output; a tree nested
+deeper than `json::parse`'s 256-level limit can only be built in code, and
+serializing one that exceeds the thread's stack raises `ErrStackOverflow` like any
+deep recursion. Build an object with
+`json::JsonObj[Map OF String TO json::Json { "name" := json::JsonStr["Ada"] }]`,
+and unwrap a scalar with `MATCH` on the variant (`CASE json::JsonStr(s)` then
+`s.value`).
 
 **Indented output.** Pass a second argument to spread the document over multiple
 lines — either a number of spaces to indent each level by, or the text to indent

@@ -26,9 +26,9 @@ const DESC: &str = r#"`process::poll` reports whether a following read of a chil
 proceed without blocking. It returns `TRUE` when the selected stream is readable —
 **including** the case where the child has closed it and the stream is at end of
 output, so a draining `process::receive`/`process::receiveBytes` can follow — and
-`FALSE` when nothing became readable before the deadline. A `timeoutMs` of `0`
-checks and returns immediately; a negative `timeoutMs` waits with no deadline at
-all, until the stream is readable or the child exits.
+`FALSE` when nothing became readable before the deadline. An `ms` of `0`
+checks and returns immediately; a negative `ms` waits with no deadline at all,
+until the stream is readable or the child exits.
 
 Calling `poll` after `process::detach` raises `ErrResourceClosed`, because
 detaching ends the handle. The stream is inspected

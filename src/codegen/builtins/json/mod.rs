@@ -65,7 +65,9 @@ const INTRO: &str = r#"Parse, build, serialize, and read JSON values as a `json:
 const DESC: &str = r#"The `json` package converts between JSON text and a `json::Json` value tree and reads
 members out of that tree. `json::parse` turns JSON text — a UTF-8 `String`, or an
 open `fs::File` read from its current position to its end — holding one
-complete JSON document into a `json::Json` value, `json::stringify` renders a `json::Json`
+complete JSON document into a `json::Json` value — optionally passing a reviver
+that is called for every parsed value, innermost first, so a single pass can
+convert or normalize members (see `json::parse`) — `json::stringify` renders a `json::Json`
 value back into JSON text — compact by default, indented when given an indent —
 and `json::get` and `json::getOr` walk a path of object keys and array indexes to
 a nested member. `json` is a built-in package written in

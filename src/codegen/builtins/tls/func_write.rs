@@ -36,7 +36,9 @@ is finished in both directions: every later `write` raises `ErrConnectionClosed`
 at once and sends nothing, including an empty one and including the first. That
 holds even when the peer has only announced that it is done and is still
 connected, and it is the same on every platform. Stop writing when a read
-reports the close; `tls::close` is still yours to call."#;
+reports the close; `tls::close` is still yours to call.
+
+A write that reaches the deadline set by `tls::setWriteTimeout` raises `ErrTimeout`."#;
 const EX: &str = r#"Send a raw request over a connected TLS socket:
 
 ```
