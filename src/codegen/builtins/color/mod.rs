@@ -112,6 +112,8 @@ A `color::Color` carries four `Byte` channels — `red`, `green`, `blue` and
 would any record of your own. Most programs use `color::rgb` and `color::rgba`
 instead, because those clamp.
 
+Ranges on these pages written `0`..`255` or `0.0`..`1.0` include both ends.
+
 **The rgb and rgba constructors clamp rather than fail.**
 `color::rgba(300, -20, 128, 255)` is the same colour as
 `color::rgba(255, 0, 128, 255)`. Colours get computed — a base plus a delta, a
@@ -136,8 +138,10 @@ Text forms use `color::fromHex` and `color::toHex`/`color::toHexAlpha`.
 `toString` on a colour renders the lossless `#rrggbbaa` form. `color::fromHex`
 raises `ErrInvalidFormat` for anything that is not a well-formed hex colour, and
 `color::fromName` and `color::nameOf` raise `ErrNotFound` for a name or colour
-that is not in the CSS table. Apart from `ErrOutOfMemory` on the calls that
-build text, nothing else in the package raises, and the constructors never do.
+that is not in the CSS table. `ErrOutOfMemory` can be raised by the members that
+build or parse text (`color::fromHex`, `color::fromName`, `color::nameOf`,
+`color::toHex`, `color::toHexAlpha`); nothing else in the package raises, and the
+numeric constructors never do.
 
 **Beyond building and spelling colours, the package adjusts them in two
 spaces.** Hue-based adjustments — `color::hsl`, `color::hsla` and `color::toHsl`

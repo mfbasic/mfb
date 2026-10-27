@@ -28,10 +28,8 @@ The endpoints are exact — `brighten(c, 0.0)` is `c` and `brighten(c, 1.0)` is
 white with `c`'s alpha — not one step short. `color::darken` is the mirror
 operation towards black.
 
-Note that hue, saturation and lightness describe the **sRGB** colour
-(`color::toHsl`), while `brighten` and `darken` work in **linear light**. The two
-are different spaces on purpose, and a colour brightened here will not match a
-lightness bumped there."#;
+`brighten` and `darken` work in linear light; the HSL adjustments do not (see
+`mfb man color`)."#;
 
 const EX: &str = r##"The endpoints, and a step between them:
 

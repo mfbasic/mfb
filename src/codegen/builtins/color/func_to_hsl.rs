@@ -13,12 +13,9 @@ but not including `360.0`, `saturation` and `lightness` from `0.0` to `1.0`, bot
 colour).
 `color::hsl` is the inverse.
 
-**HSL describes the sRGB colour, not linear light.** That is what CSS `hsl()` and
-every design tool mean, so the numbers here match what a designer's tool shows for
-the same hex. It is a deliberate asymmetry with `color::brighten` and
-`color::darken`, which work in **linear light**: the `lightness` reported here is
-not the perceived brightness `color::luminance` measures, and bumping one is not
-the same as brightening the other.
+The three values describe the sRGB colour, not in linear light (`mfb man color` explains the two spaces). The
+`lightness` reported here is not the perceived brightness `color::luminance`
+measures.
 
 **A fully unsaturated colour has no meaningful hue.** For any grey — including
 black and white — `saturation` is `0.0` and `hue` is reported as `0.0` rather than

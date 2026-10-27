@@ -14,7 +14,7 @@ light text.
 It is a **convenience, not a contrast check**. Two colours can both answer `FALSE`
 and still be unreadable against each other. When the question is "can this text be
 read on that background?", the answer is `color::contrastRatio` against the WCAG
-thresholds (`4.5` for body text, `3.0` for large text), not this.
+thresholds it documents, not this.
 
 The threshold is on **relative luminance**, so it accounts for the eye's uneven
 channel sensitivity — a saturated blue at full strength is dark and a saturated

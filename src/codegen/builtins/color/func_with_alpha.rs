@@ -13,9 +13,14 @@ const DESC: &str = r#"`withAlpha` returns a colour with `base`'s red, green and 
 This is how a program makes an existing colour transparent without restating it:
 `color::withAlpha(brand, 128)` is the half-transparent form of `brand` whatever
 `brand` happens to be. It is the alpha-only counterpart of building the colour
-afresh with `color::rgba` or `color::hsla`; `color::brighten`, `color::darken`
-and the HSL adjustments all leave alpha alone, so this is the one member that
-changes it.
+afresh with `color::rgba` or `color::hsla`. `color::brighten`, `color::darken`
+and the HSL adjustments all carry alpha through unchanged; `withAlpha` is the one
+adjustment that changes alpha and nothing else (`color::mix` interpolates alpha
+along with the colour).
+
+Unlike updating the field yourself with `WITH` or a `color::Color[...]` literal,
+which take a `Byte` and refuse an out-of-range value, `withAlpha` takes an
+`Integer` and clamps it, so any alpha is safe to pass.
 
 `alpha` is straight, not premultiplied, so the red, green and blue channels are
 returned exactly as they were. A colour at `alpha` `0` still remembers its red,

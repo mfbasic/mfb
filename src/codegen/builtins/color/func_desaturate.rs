@@ -16,8 +16,7 @@ value; `base` is not changed.
 
 `amount` is **clamped** to `0.0`..`1.0`. `alpha` is carried through unchanged.
 
-Saturation is an **HSL** property, so this works on the sRGB colour rather than in
-linear light.
+Saturation is an HSL property, so this works on the sRGB colour, not in linear light (`mfb man color` explains the two spaces).
 
 **Fully desaturating is not the same as grayscale:** `desaturate(c, 1.0)` is
 not `color::grayscale(c)`. They are two different

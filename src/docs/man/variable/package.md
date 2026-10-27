@@ -277,8 +277,9 @@ the compiler can see it, and reported as `ErrResourceClosed` where it cannot.
 ## Handles close themselves
 
 You usually do not call `close` at all. A handle closes when its binding's
-scope ends — on every way out that does not `RETURN` the handle itself,
-including a failure:
+scope ends — on every way out that does not `RETURN` the handle itself: a normal
+end of scope, `RETURN`, `FAIL`, a failure that propagates, `EXIT` or `CONTINUE`
+out of a loop body, and `os::exit`:
 
 ```basic
 IMPORT io
@@ -423,9 +424,7 @@ about is a `RES` handle you want closed early, which is what `close` is for.
 ## Where to look next
 
 - `mfb man types` — the types a variable can hold.
-- `mfb man flow` — the block forms a `LET` or `MUT` can be declared inside, and
-  `EXIT`, `CONTINUE` and `os::exit`, which all run the cleanup this page
-  describes.
+- `mfb man flow` — the block forms a `LET` or `MUT` can be declared inside.
 - `mfb man lambda` — what a lambda copies, what it aliases, and the
   `collections::forEach` exception.
 - `mfb man thread` — each thread's own copy of top-level state, and handing a

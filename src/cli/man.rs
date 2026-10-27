@@ -539,15 +539,10 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
         // third is per-resource and is DERIVED from the `sendable` bit below,
         // never restated in prose (that is the drift bug-522 recorded).
         md.push_str(
-            "Each of these is a `RES` handle. Passing one to a call, or copying a record \
-             that holds one, gives a second name for the same open handle — an alias, not \
-             a copy — and closing through either name closes it. Binding it to a new `RES` \
-             name (`RES g = f`) instead hands the handle to `g`; `f` cannot be used again. \
-             A handle closes itself when the binding that holds it leaves scope. A handle may be a \
-             field of a record and an element of a collection — written \
-             `List OF RES <Type>`, never a bare `List OF <Type>`. `mfb man variable` \
-             covers all of that in one place. Whether a particular handle may be handed \
-             to another thread is stated with it.\n\n",
+            "Each of these is a `RES` handle: a second name for one is an alias of the same \
+             open thing, never a copy. `mfb man variable` explains the handle model in \
+             full. Whether a particular handle may be handed to another thread is stated \
+             with it.\n\n",
         );
         for resource in resources {
             md.push_str(&format!("#### {pkg}::{}\n\n", resource.name));

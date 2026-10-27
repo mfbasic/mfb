@@ -14,9 +14,7 @@ lightness.
 
 `amount` is **clamped** to `0.0`..`1.0`. `alpha` is carried through unchanged.
 
-Saturation is an **HSL** property, so this works on the sRGB colour rather than in
-linear light — the same space `color::toHsl` reports and CSS `hsl()` means. It is
-a deliberate asymmetry with `color::brighten`/`color::darken`.
+Saturation is an HSL property, so this works on the sRGB colour, not in linear light (`mfb man color` explains the two spaces).
 
 **A grey does not stay grey** (black and white excepted — at lightness `0.0` or
 `1.0` saturation has no effect). A colour with no saturation has no *meaningful*

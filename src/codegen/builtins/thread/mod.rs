@@ -106,8 +106,8 @@ same error. Asking again gives the same outcome again.
 A `Thread` is a `RES` handle, like an open file: bind it with `RES t =
 thread::start(…)`, and it is closed when that variable goes out of scope — a
 thread still running then is asked to stop, exactly as `thread::cancel` asks, and
-left to finish on its own. Passing it to a function lends it, so the caller
-still holds it afterwards; it can also sit in a `List OF RES Thread …` (a pool of
+left to finish on its own. Passing it to a function gives the function an
+alias, so the caller can still use it afterwards; it can also sit in a `List OF RES Thread …` (a pool of
 workers) or in a record's `RES` field.
 
 The worker's `ThreadWorker` is a `RES` handle too: inside the worker, bind it with

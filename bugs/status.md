@@ -226,6 +226,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1058   | LOW      | `wantsCur(1)` (an Integer to an `fs::File STATE Cur` parameter) reports a second, misleading `TYPE_STATE_MISMATCH` after the argument mismatch |
 | [ ]  | 1062   | LOW      | `TYPE_STATE_MISMATCH` for a bare file given to an imported FUNC value (`LET j = pkg::bump`) has no file and line |
 | [ ]  | 1116   | LOW      | `AttributedString & String` reports a mismatch against the internal `#astrings_concat`, with no location |
+| [ ]  | 1125   | LOW      | `LET xs = []` with no type is accepted, then fails later with an internal `List OF Unknown` lowering error |
 
 ## Codegen internals
 

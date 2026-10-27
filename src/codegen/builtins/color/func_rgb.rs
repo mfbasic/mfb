@@ -7,15 +7,14 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Build an opaque `color::Color` from red, green and blue components."#;
 
-const DESC: &str = r#"`rgb` builds a `color::Color` from three components, each clamped to the inclusive range `0` to `255`,
-with `alpha` fixed at `255` — fully opaque. It is `color::rgba` with the fourth
-argument supplied, and it is the constructor most programs want: a colour with no
+const DESC: &str = r#"`rgb` builds a `color::Color` from three components, each clamped to `0`..`255`,
+with `alpha` fixed at `255` — fully opaque. It is `color::rgba` with alpha fixed
+at `255`, and it is the constructor most programs want: a colour with no
 transparency.
 
 Components are **clamped, not rejected**: a value below `0` becomes `0` and a
-value above `255` becomes `255`. The components are `Integer` rather than `Byte`
-precisely so that out-of-range arithmetic can reach the clamp instead of failing
-at the call site. A colour's own `red`, `green`, `blue` and `alpha` fields are
+value above `255` becomes `255`; `mfb man color` explains why the parameters are
+`Integer` rather than `Byte`. A colour's own `red`, `green`, `blue` and `alpha` fields are
 `Byte`, so to feed one back in, convert it first:
 `color::rgb(toInt(c.red) + 40, toInt(c.green), toInt(c.blue))`.
 
@@ -61,9 +60,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                component("red", "The red component. Values below `0` become `0` and above `255` become `255`; both ends are valid."),
-                component("green", "The green component. Values below `0` become `0` and above `255` become `255`; both ends are valid."),
-                component("blue", "The blue component. Values below `0` become `0` and above `255` become `255`; both ends are valid."),
+                component("red", "The red component, clamped to `0`..`255`."),
+                component("green", "The green component, clamped to `0`..`255`."),
+                component("blue", "The blue component, clamped to `0`..`255`."),
             ],
             return_type: ParameterType::named(super::COLOR_TYPE),
             errors: vec![],
