@@ -1,6 +1,6 @@
 # plan-125-C: man iteration 2, batch 1 — collections, datetime, encoding, math (150 pages)
 
-Last updated: 2026-09-04
+Last updated: 2026-10-26
 Effort: x-large (1d–3d) — 150 units at the pilot's measured per-unit cost
 Depends on: plan-125-B (iteration 1 complete across the whole man surface,
 including the cross-package consistency review whose terminology table this
@@ -135,14 +135,14 @@ that is new to review last, with pace known).
 
 ## Phases
 
-> **NOTE — keep the checkboxes current as you go.** Tick `- [x]` in the same
+> **NOTE — keep the checkboxes current as you go.** Tick `- [ ]` in the same
 > commit as the work; `- [~]` for partial with one line on what remains;
-> `- [x] ~~text~~ — moot: <evidence>` rather than deleting; fill `Commit:` the
+> `- [ ] ~~text~~ — moot: <evidence>` rather than deleting; fill `Commit:` the
 > moment a phase lands. **An unticked box means NOT DONE.**
 
 ### Phase 1 — math (22 units)
 
-- [x] All 21 function pages + the overview, one review unit each.
+- [ ] All 21 function pages + the overview, one review unit each.
       Unit list `planning/plan-125-units/C-phase1.txt` (22 units: overview + 21;
       `math` has no types page, and its constants have no pages of their own).
       The Codex usage limit cut the batch three times, so it ran in rounds:
@@ -151,7 +151,7 @@ that is new to review last, with pace known).
       - the last 5 from `C-phase1-retry2.txt`.
       `--reconcile --letter C-phase1 --units planning/plan-125-units/C-phase1.txt`
       → `units=22 unaccounted=0 orphans=0`.
-- [x] Every example compiled and run; precision claims probe-verified.
+- [ ] Every example compiled and run; precision claims probe-verified.
       Examples: `math` 21/21 built and ran at `7f4ff371b`. My probes so far
       (`/tmp/p125-ex/mathconst`, `/tmp/p125-ex/mathclaims`):
       - **Wrong, applied:** the overview said every constant "comes in a `Float`
@@ -213,7 +213,7 @@ that is new to review last, with pace known).
         session's unmerged t3 checkpoint also uses bug-603, for a `datetime`
         bug added 2026-09-13 06:32. This branch's bug-603 (color hue,
         `17872c5d1`, 2026-09-12 22:35) came first and keeps the number.
-- [x] Ledger + example ledger recorded here. All 22 reviews are triaged below,
+- [ ] Ledger + example ledger recorded here. All 22 reviews are triaged below,
       over three rounds, and every verdict carries its evidence. Examples: `math`
       21/21 built and ran after each round; the overview's new example was run
       separately (`/tmp/p125-ex/mathoverview`).
@@ -307,16 +307,16 @@ Measured at the closing commit:
 - `math` examples 21/21 ran.
 
 Bugs filed from this phase: bug-615, bug-616, bug-617, bug-618.
-Commit: db12d70c3 (unit lists), 21027ab02, 0399377a5, 604bc95c9, 3caf47763, e63a903d3 (closed)
+Commit: db12d70c3 (unit lists), 21027ab02, 0399377a5, 604bc95c9, 3caf47763, e63a903d3 (closed) — superseded: reopened 2026-10-26, see Corrections
 
 ### Phase 2 — encoding (32 units)
 
-- [x] 30 function pages + overview + the 29-description types page.
+- [ ] 30 function pages + overview + the 29-description types page.
       Unit list `planning/plan-125-units/C-phase2.txt` (32 units). The Codex usage
       limit split the batch: 22 units on the first dispatch, and the last 10 from
       `C-phase2-retry.txt`. `--reconcile --letter C-phase2 --units
       planning/plan-125-units/C-phase2.txt` → `units=32 unaccounted=0 orphans=0`.
-- [x] Every example compiled and run; every round-trip claim
+- [ ] Every example compiled and run; every round-trip claim
       (`hexEncode`/`hexDecode`, `varint`, `punycode`, `codepage`) verified by
       probe in both directions.
       My pass, done:
@@ -346,7 +346,7 @@ Commit: db12d70c3 (unit lists), 21027ab02, 0399377a5, 604bc95c9, 3caf47763, e63a
       - Retry-round pages probed as well (`/tmp/p125-ex/encutf`, `ulebneg`,
         `utf8amb`): UTF-16/UTF-32 round-trips, the `varint` ZigZag mapping, and
         the `Integer` extremes.
-- [x] Ledger recorded. All 32 reviews are triaged below, over two dispatch rounds;
+- [ ] Ledger recorded. All 32 reviews are triaged below, over two dispatch rounds;
       every verdict carries its evidence.
 
 #### Phase 2 ledger — Codex iteration 2 (`planning/plan-125-findings/C-phase2/`)
@@ -446,11 +446,11 @@ Measured at the closing commit:
 
 Bugs filed or extended from this phase: bug-606 (12 decoders, `uleb128Encode`,
 `htmlUnescape`) and bug-619 (LEB128 decoders miss overflow).
-Commit: f12fca000 (22 of 32), 52495d384 (closed)
+Commit: f12fca000 (22 of 32), 52495d384 (closed) — superseded: reopened 2026-10-26, see Corrections
 
 ### Phase 3 — datetime (46 units)
 
-- [x] 44 function pages + overview + the 40-description types page.
+- [ ] 44 function pages + overview + the 40-description types page.
       **Progress (2026-09-15):** all 46 reviewed and applied.
       `./scripts/doc-review-fanout.sh --letter C-phase3 --units
       planning/plan-125-units/C-phase3.txt --reconcile` → units=46, unaccounted=0,
@@ -493,7 +493,7 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
       as-is and documented, not filed: records built directly are not validated;
       `compare`/`equals` read stored fields; `daysInMonth` returns 31 for any
       month outside 1..12; a quoted pattern literal cannot hold an apostrophe.
-- [x] Classify the 15 carve-out-1 arithmetic-borrow lines **once**, in this
+- [ ] Classify the 15 carve-out-1 arithmetic-borrow lines **once**, in this
       ledger, not per page.
       `./scripts/man-census.sh --memory-scope datetime` → 0 unclassified, 15
       CARVE-1, unchanged after the plan-135 merge. All 15 are the **subtraction
@@ -509,7 +509,7 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
       - `minus` 39, 51, 52;
       - `negate` 40;
       - `subtract` 44, 57, 58, 59 (re-measured after the round-three intro rewrite).
-- [x] Every example compiled and run; every zone/DST/leap claim probe-verified
+- [ ] Every example compiled and run; every zone/DST/leap claim probe-verified
       (these are the claims most likely to be true-by-reasoning and false in
       fact).
       My pass, done:
@@ -529,7 +529,7 @@ Commit: f12fca000 (22 of 32), 52495d384 (closed)
       - Leap years: `isLeapYear` for 1900, 2000, 2024, 2100, 0, −4 (`dtzone`);
         `daysInMonth` February for 0, −4, −100, −400 (`dtmisc`); `addMonths`
         clamping Jan 31 (`dtraw2`).
-- [x] Ledger recorded. All 46 reviews are triaged below, over three dispatch rounds;
+- [ ] Ledger recorded. All 46 reviews are triaged below, over three dispatch rounds;
       every verdict carries its evidence.
 
 #### Phase 3 ledger — Codex iteration 2 (`planning/plan-125-findings/C-phase3/`)
@@ -673,11 +673,11 @@ Bugs filed from this phase: bug-638 (wrong record type accepted), bug-640
 (`nowNanos` wraps after 2262), bug-639 (negative-year padding).
 Belongs-in-spec rows appended: 28–43 from this phase; rows 44 and 45 back-fill
 Phase 2's `utf8Decode` and `punycodeEncode` scope cuts.
-Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
+Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed) — superseded: reopened 2026-10-26, see Corrections
 
 ### Phase 4 — collections (50 units)
 
-- [x] 49 function pages + overview.
+- [ ] 49 function pages + overview.
       **Progress (2026-09-16):** 49 of 50 reviewed and applied. Round 3 (22):
       `merge`, `mid`, `partition`, `prepend`, `reduce`, `reduceRight`, `remove`,
       `removeAt`, `removeKey`, `replace`, `set`, `sort`, `sortBy`, `sum`,
@@ -772,7 +772,7 @@ Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
       Scope cuts so far: belongs-in-spec rows 46 (overview) and 47 (`any`, `all`).
       Pending the retry: `findLastIndex` repeats the `any`/`all` sentence, and its
       probe results above are ready for its review.
-- [x] Mark, in the ledger, which 25 pages postdate plan-108's review — they
+- [ ] Mark, in the ledger, which 25 pages postdate plan-108's review — they
       get the closest reading.
       *Premise corrected (Correction 1):* plan-108-D reviewed all 49 pages. The
       closest-reading set is instead the pages whose source changed after
@@ -783,7 +783,7 @@ Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
       `get`, `getOr`, `groupBy`, `hasKey`, `insert`, `merge`, `mid`, `partition`,
       `prepend`, `reduce`, `removeKey`, `replace`, `sum`, `transform`, `values`,
       `window`. The Phase 4 ledger marks each of these rows.
-- [x] Every example compiled and run; every mutation/ordering/identity claim
+- [ ] Every example compiled and run; every mutation/ordering/identity claim
       probe-verified against the `.ai/collections.md` developer contract
       (never against its internals).
       My pass, done:
@@ -809,7 +809,7 @@ Commit: 9c5baacd9 (17 of 46), a659057b9 (27 of 46), 429d75472 (closed)
         sets and resources are not comparable. Resource handles alias through
         `mid`/`take` (`colmerge`, `coltakeres`), and `chunks`/`window` close them
         (bug-643).
-- [x] Ledger recorded. All 50 reviews are triaged below, over three dispatch rounds
+- [ ] Ledger recorded. All 50 reviews are triaged below, over three dispatch rounds
       plus one single-unit retry; every verdict carries its evidence.
 
 #### Phase 4 ledger — Codex iteration 2 (`planning/plan-125-findings/C-phase4/`)
@@ -967,7 +967,7 @@ Bugs filed from this phase: bug-641 (`ErrOutOfMemory` undeclared), bug-642 (gene
 builtin error location), bug-643 (`chunks`/`window` close resource handles),
 bug-644 (inline `TRAP` on a `Float` `sum`), bug-645 (per-overload declared errors).
 Belongs-in-spec rows appended: 46–71.
-Commit: 1be49c8bf (Correction 1, box 2), ffb969f01 (4 of 50), 36671aebc (27 of 50), 8e212ddb7 (49 of 50), c420fec6c (closed)
+Commit: 1be49c8bf (Correction 1, box 2), ffb969f01 (4 of 50), 36671aebc (27 of 50), 8e212ddb7 (49 of 50), c420fec6c (closed) — superseded: reopened 2026-10-26, see Corrections
 
 ## Validation Plan
 
@@ -990,6 +990,17 @@ Commit: 1be49c8bf (Correction 1, box 2), ffb969f01 (4 of 50), 36671aebc (27 of 5
   than padding it into an artificial full program.
 
 ## Corrections
+
+- **Reopened 2026-10-26 (owner).** C closed on 2026-09-16 (`8333b7214`); since then the
+  code under its four packages changed substantially (`git diff --stat 8333b7214 HEAD --
+  src/codegen/builtins/{collections,datetime,encoding,math}`: hundreds of insertions per
+  package, including declared-error changes). The owner asked for A–C to be rechecked
+  against the current code. A and B were rechecked and applied (A: `5c928f486`..`e35d4e907`;
+  B: `79afdf4ba`..). C was not: its every box is unticked and the letter must be redone
+  against current code — re-run all 150 units (`planning/plan-125-units/C-recheck.txt` is
+  the combined list) with `planning/plan-125-prompts/man-iter2-page.txt`, then apply.
+  The B recheck already applied package-level (iteration 1) fixes to collections,
+  datetime, encoding and math, so the per-page pass starts from those.
 
 1. **"25 `collections` pages plan-108 never saw" is false; plan-108-D reviewed
    all 49.** Found 2026-09-15 while starting Phase 4's second box. §2 took the

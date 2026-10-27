@@ -1,0 +1,27 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-pkg:canvas	0	285	82	clean	Claude Code v2.1.310/claude-fable-5-1
+man-topic:tour	0	438	46	clean	Claude Code v2.1.310/claude-fable-5-1
+man-topic:types	0	187	64	clean	Claude Code v2.1.310/claude-fable-5-1
+man-topic:errors	0	81	39	clean	Claude Code v2.1.310/claude-fable-5-1
+man-topic:flow	0	159	55	clean	Claude Code v2.1.310/claude-fable-5-1
+man-topic:lambda	0	327	46	clean	Claude Code v2.1.310/claude-fable-5-1
+man-topic:link	0	283	62	clean	Claude Code v2.1.310/claude-fable-5-1
+man-topic:tooling	0	117	37	clean	Claude Code v2.1.310/claude-fable-5-1
+man-topic:optimizations	0	328	44	clean	Claude Code v2.1.310/claude-fable-5-1
+man-topic:unicode	0	236	57	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:http	0	167	71	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:datetime	0	217	53	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:json	0	202	37	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:process	0	256	66	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:tls	0	106	35	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:term	0	210	19	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:astrings	0	170	37	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:crypto	0	173	46	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:collections	0	283	44	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:fs	0	261	71	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:strings	0	207	42	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:encoding	0	305	55	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:math	0	303	62	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:vector	0	147	46	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:os	0	184	57	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:general	0	167	55	clean	Claude Code v2.1.310/claude-fable-5-1

@@ -1,0 +1,22 @@
+### 1. The `0600` permission claim is Unix-only; Windows applies no permission bits
+UNIT:      man-page:fs/createTempFile
+CLAIM:     "The file is opened read/write with exclusive-create semantics and permission bits `0600` (octal), so the call always yields a freshly created, empty file readable and writable only by the current user."
+VERDICT:   incomplete
+EVIDENCE:  macOS probe confirms the Unix half: `name.mfb` created two files in `namedir` and `ls -la namedir` printed `-rw-------` for both. But `src/codegen/builtins/fs/gen_temp_file.rs:temp_file_open_flags` Windows arm packs only `CREATE_NEW | GENERIC_READ|GENERIC_WRITE` and the mode argument `384` (0600) is dead there; `src/target/win_x86_64/code.rs:emit_open_file` calls `emit_create_file_w(from, FILE_ATTRIBUTE_NORMAL, ...)` with no security descriptor, so the file inherits the directory's ACL. Windows runtime behavior itself is UNVERIFIED (no Windows host in this sandbox); the code reading is the evidence.
+SUGGESTED: "The file is opened read/write with exclusive-create semantics, so the call always yields a freshly created, empty file. On Unix it is created with permission bits `0600` (octal), readable and writable only by the current user; on Windows it takes the permissions of its directory."
+
+### 2. `ErrInvalidPath` is also raised for a symbolic-link loop in `directory`
+UNIT:      man-page:fs/createTempFile
+CLAIM:     "`ErrInvalidPath` if `directory` cannot hold a file — it is a file itself, or a name in it is too long — "
+VERDICT:   incomplete
+EVIDENCE:  `errs.mfb` with `ln -sfn $S/loop $S/loop` then `try("loop", base & "/loop")` printed `loop -> 77030002 Filesystem path string is invalid for the host platform.` The arm is `src/codegen/builtins/fs/gen_shared.rs:emit_fs_host_error_mapping` (`eloop` → `invalid_path` when `no_follow` is false). The other listed conditions were confirmed by the same probe: `isfile -> 77030002`, `toolong -> 77030002`, `missing -> 77030001`, `unwritable -> 77030003`, `empty -> 77050002`, `nul -> 77050002`.
+SUGGESTED: "`ErrInvalidPath` if `directory` cannot hold a file — it is a file itself, a name in it is too long, or a symbolic link in it loops back on itself — "
+
+### 3. "other programs' files" overstates the ambiguity in the wrong direction
+UNIT:      man-page:fs/createTempFile
+CLAIM:     "a file made by the zero-argument form in the shared temporary directory cannot be told apart from other programs' files by name."
+VERDICT:   misleading
+EVIDENCE:  The name always starts with `mfb-` and ends with `.tmp` (`gen_temp_file.rs:lower_fs_create_temp_file_helper` writes the literal bytes `/mfb-` and `.tmp`), so it *can* be told apart from files other, non-MFBASIC programs make. What it cannot be told apart from is every other temp file made by this or any other MFBASIC program. The zero-argument probe `zero.mfb` created `$TMPDIR/mfb-44d6466e-50c5-4f96-b1ad-a3bde58040ac.tmp`, and `ls $TMPDIR | grep -c '^mfb-.*\.tmp$'` printed 544759 files of exactly that shape already sitting there, which is the real reason the page should push the reader toward a directory of their own.
+SUGGESTED: "a file made by the zero-argument form in the shared temporary directory cannot be told apart by name from the temporary files of every other MFBASIC program, or of this program's earlier runs, so it cannot be found again to delete."
+
+Everything else on the page checked out. Probes run under `/tmp/plan-125-scratch/D-phase5-current/man-page-fs-createTempFile` (built as an `mfb init` project, `proj/`): both page examples compiled and ran, printing `.tmp` and `scratch data` respectively and leaving their scratch directories removed. `name.mfb` confirmed the `mfb-<uuid>.tmp` form (44 characters, version nibble `4`, variant nibble `9`/`8`), that a fresh handle reads back empty before any write and the written text after `fs::seek(f, 0)`, that a relative `directory` works, and that a Unicode directory name is accepted. `zero.mfb` with `lsof -n -P` confirmed the zero-argument form creates the file inside `fs::tempDirectory()`, that a `process::shell` child sees no handle to it (not inherited), and that the parent's handle is gone after the function holding the `RES` binding returns (closed on scope exit). The banned-vocabulary grep over the rendered page hit only the derived Errors row "Allocation failed." for `ErrOutOfMemory`, which is a registry message shared by every page, not prose on this one.
