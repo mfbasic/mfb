@@ -1,0 +1,808 @@
+IMPORT bits
+IMPORT collections
+IMPORT errorCode
+IMPORT fs
+IMPORT io
+IMPORT strings
+IMPORT term
+IMPORT color
+
+' tui-logo - a LOGO turtle runner built on the term:: TUI module.
+'
+' Build and run it from an interactive terminal:
+'   mfb build examples/tui-logo
+'   ./examples/tui-logo/build/tui-logo.out
+'
+' Commands, typed on the L> line and run with Enter (case-insensitive, separated
+' by spaces):
+'   F [n]          forward n spaces (default 1)
+'   B [n]          backward n spaces (default 1)
+'   R [n]          turn right n times, a quarter turn each (default 1)
+'   L [n]          turn left n times, a quarter turn each (default 1)
+'   PU             pen up: the turtle moves without drawing
+'   PD             pen down: drawing resumes (the default)
+'   TR "text"      write text to the right, starting at the turtle
+'   TL "text"      write text to the left, starting at the turtle
+'   TD "text"      write text down the column, starting at the turtle
+'   TU "text"      write text up the column, starting at the turtle
+'                  (the turtle never moves for a text command)
+'   FG n            line colour 1 to 8: black, red, green, yellow, blue, magenta,
+'                  cyan, white (3 green is the default)
+'   BG n            background colour 1 to 8 (none by default)
+'   S 1             draw a line (the default)
+'   S 2             draw a double line
+'   S 3             draw a block (█)
+'   S 4             draw a shade (▓)
+'   C              clear the drawing and send the turtle home
+'   RE n (cmds)    repeat the commands in parentheses n times
+'   LOAD <file>    run the commands in a file (L <file> also works)
+'   SAVE <file>    save the drawing as an ANSI art (.ans) file
+'   Q              quit
+'
+' The turtle starts at the centre of the screen, facing north. Its path is drawn
+' with single box-drawing glyphs, so corners and junctions meet at right angles.
+' Left and Right arrows move the insert point, Backspace deletes before it, and
+' input longer than the line scrolls. Ctrl-C quits as well.
+
+LET DIGITS AS String = "0123456789"
+LET LETTERS AS String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+' One compiled instruction. kind is "F", "B", "R", "L", "PU", "PD", "C", "TR",
+' "TL", "TD", "TU", "REPEAT", "END" or "Q". For F, B, R and L, n is the count. For
+' REPEAT, n is the repeat count and jump is the index of its END; for END, jump is
+' the index of its REPEAT. For the four text commands, text is the string to write.
+TYPE Instr
+  kind AS String
+  n AS Integer
+  jump AS Integer
+  text AS String
+END TYPE
+
+' The turtle's position and heading on an unbounded plane whose origin is the
+' screen centre. Heading is 0 north, 1 east, 2 south, 3 west. While pen is FALSE
+' (pen up) the turtle moves without drawing. style is the line style 0 to 3 (see
+' paintCell), and fg and bg are the line and background colours 1 to 8 (bg 0 is
+' none). ink maps "x,y" to a drawn cell (see paintCell), words maps "x,y" to the
+' character a text command wrote there, and wordColor maps it to that character's
+' fg + 16 * bg.
+TYPE Turtle
+  x AS Integer
+  y AS Integer
+  heading AS Integer
+  pen AS Boolean
+  style AS Integer
+  fg AS Integer
+  bg AS Integer
+  ink AS Map OF String TO Integer
+  words AS Map OF String TO String
+  wordColor AS Map OF String TO Integer
+END TYPE
+
+' What one character cell shows: its glyph (" " when nothing is drawn there), its
+' line colour, its background colour, and whether anything is drawn there.
+TYPE Cell
+  glyph AS String
+  fg AS Integer
+  bg AS Integer
+  drawn AS Boolean
+END TYPE
+
+TYPE Outcome
+  turtle AS Turtle
+  quit AS Boolean
+  message AS String
+END TYPE
+
+FUNC maxSteps AS Integer
+  RETURN 1000000
+END FUNC
+
+FUNC isNumber(tok AS String) AS Boolean
+  RETURN strings::contains(DIGITS, strings::left(tok, 1))
+END FUNC
+
+FUNC countOf(tok AS String) AS Integer
+  LET n AS Integer = toInt(tok) TRAP(e)
+    FAIL error(errorCode::ErrInvalidArgument, "count too large: " & tok)
+  END TRAP
+  RETURN n
+END FUNC
+
+FUNC withWord(out AS List OF String, word AS String) AS List OF String
+  IF word = "" THEN RETURN out
+  RETURN collections::append(out, word)
+END FUNC
+
+' Split a line into command words, counts and parentheses. A run of letters and
+' a run of digits are each one token, so "F5" reads as "F 5" and "RE4(F5R)" works.
+' A double-quoted string is one token, keeping its case and spaces, and is kept
+' with its opening quote in front, so "Hi there" becomes the token "Hi there.
+FUNC tokenize(src AS String) AS List OF String
+  MUT out AS List OF String = []
+  MUT word AS String = ""
+  MUT quoted AS Boolean = FALSE
+  FOR i = 0 TO len(src) - 1
+    LET raw AS String = strings::mid(src, i, 1)
+    IF quoted THEN
+      IF raw = "\"" THEN
+        out = collections::append(out, "\"" & word)
+        word = ""
+        quoted = FALSE
+      ELSE
+        word = word & raw
+      END IF
+    ELSEIF raw = "\"" THEN
+      out = withWord(out, word)
+      word = ""
+      quoted = TRUE
+    ELSE
+      LET c AS String = strings::upper(raw)
+      IF strings::contains(" \t\r\n", c) THEN
+        out = withWord(out, word)
+        word = ""
+      ELSEIF c = "(" OR c = ")" THEN
+        out = withWord(out, word)
+        word = ""
+        out = collections::append(out, c)
+      ELSEIF strings::contains(DIGITS, c) OR strings::contains(LETTERS, c) THEN
+        IF word <> "" AND isNumber(word) <> isNumber(c) THEN
+          out = withWord(out, word)
+          word = ""
+        END IF
+        word = word & c
+      ELSE
+        FAIL error(errorCode::ErrInvalidArgument, "unexpected character: " & c)
+      END IF
+    END IF
+  NEXT
+  IF quoted THEN
+    FAIL error(errorCode::ErrInvalidArgument, "string is missing its closing quote")
+  END IF
+  RETURN withWord(out, word)
+END FUNC
+
+' Compile one line into a flat list of instructions, checking its syntax as it
+' goes. Each REPEAT names its END and each END names its REPEAT, so the executor
+' can loop without recursion.
+FUNC compile(src AS String) AS List OF Instr
+  LET toks AS List OF String = tokenize(src)
+  MUT ops AS List OF Instr = []
+  MUT opens AS List OF Integer = []
+  MUT i AS Integer = 0
+  DO WHILE i < len(toks)
+    LET t AS String = collections::get(toks, i)
+    IF t = "F" OR t = "B" OR t = "R" OR t = "L" THEN
+      MUT n AS Integer = 1
+      IF i + 1 < len(toks) AND isNumber(collections::get(toks, i + 1)) THEN
+        n = countOf(collections::get(toks, i + 1))
+        i = i + 1
+      END IF
+      ops = collections::append(ops, Instr[t, n, 0, ""])
+    ELSEIF t = "TR" OR t = "TL" OR t = "TD" OR t = "TU" THEN
+      IF i + 1 >= len(toks) OR strings::left(collections::get(toks, i + 1), 1) <> "\"" THEN
+        FAIL error(errorCode::ErrInvalidArgument, t & " needs a quoted string, as in " & t & " \"HI\"")
+      END IF
+      LET quotedTok AS String = collections::get(toks, i + 1)
+      ops = collections::append(ops, Instr[t, 0, 0, strings::right(quotedTok, len(quotedTok) - 1)])
+      i = i + 1
+    ELSEIF t = "RE" THEN
+      IF i + 2 >= len(toks) OR NOT isNumber(collections::get(toks, i + 1)) OR collections::get(toks, i + 2) <> "(" THEN
+        FAIL error(errorCode::ErrInvalidArgument, "RE needs a count and ( )")
+      END IF
+      LET count AS Integer = countOf(collections::get(toks, i + 1))
+      opens = collections::append(opens, len(ops))
+      ops = collections::append(ops, Instr["REPEAT", count, 0, ""])
+      i = i + 2
+    ELSEIF t = ")" THEN
+      IF len(opens) = 0 THEN
+        FAIL error(errorCode::ErrInvalidArgument, "')' has no matching RE")
+      END IF
+      LET rp AS Integer = collections::get(opens, len(opens) - 1)
+      opens = collections::removeAt(opens, len(opens) - 1)
+      LET head AS Instr = collections::get(ops, rp)
+      LET closed AS Instr = WITH head { jump := len(ops) }
+      ops = collections::set(ops, rp, closed)
+      ops = collections::append(ops, Instr["END", 0, rp, ""])
+    ELSEIF t = "FG" OR t = "BG" OR t = "S" THEN
+      IF i + 1 >= len(toks) OR NOT isNumber(collections::get(toks, i + 1)) THEN
+        FAIL error(errorCode::ErrInvalidArgument, t & " needs a number")
+      END IF
+      LET v AS Integer = countOf(collections::get(toks, i + 1))
+      MUT top AS Integer = 8
+      IF t = "S" THEN top = 4
+      IF v < 1 OR v > top THEN
+        FAIL error(errorCode::ErrInvalidArgument, t & " takes a number from 1 to " & toString(top))
+      END IF
+      ops = collections::append(ops, Instr[t, v, 0, ""])
+      i = i + 1
+    ELSEIF t = "PU" OR t = "PD" THEN
+      ops = collections::append(ops, Instr[t, 0, 0, ""])
+    ELSEIF t = "C" THEN
+      ops = collections::append(ops, Instr["C", 0, 0, ""])
+    ELSEIF t = "Q" THEN
+      ops = collections::append(ops, Instr["Q", 0, 0, ""])
+    ELSE
+      FAIL error(errorCode::ErrInvalidArgument, "unknown command: " & t)
+    END IF
+    i = i + 1
+  LOOP
+  IF len(opens) > 0 THEN
+    FAIL error(errorCode::ErrInvalidArgument, "RE is missing its closing ')'")
+  END IF
+  RETURN ops
+END FUNC
+
+' Arm bits: which neighbours of a cell the drawn path connects to.
+FUNC armBit(heading AS Integer) AS Integer
+  IF heading = 0 THEN RETURN 1
+  IF heading = 1 THEN RETURN 2
+  IF heading = 2 THEN RETURN 4
+  RETURN 8
+END FUNC
+
+FUNC deltaX(heading AS Integer) AS Integer
+  IF heading = 1 THEN RETURN 1
+  IF heading = 3 THEN RETURN -1
+  RETURN 0
+END FUNC
+
+FUNC deltaY(heading AS Integer) AS Integer
+  IF heading = 0 THEN RETURN -1
+  IF heading = 2 THEN RETURN 1
+  RETURN 0
+END FUNC
+
+FUNC cellKey(x AS Integer, y AS Integer) AS String
+  RETURN toString(x) & "," & toString(y)
+END FUNC
+
+' Paint the cell at (x, y) with the pen. A drawn cell is one Integer: its arms
+' (bits 0-3, from armBit), its style (bits 4-5: 0 line, 1 double line, 2 block,
+' 3 shade), its line colour (bits 6-9) and its background colour (bit 10 up). A
+' line over a cell of the same style adds its arm; a cell painted in another style
+' starts again with just this arm. Block and shade cells have no arms.
+FUNC paintCell(ink AS Map OF String TO Integer, x AS Integer, y AS Integer, arm AS Integer, style AS Integer, fg AS Integer, bg AS Integer) AS Map OF String TO Integer
+  LET k AS String = cellKey(x, y)
+  LET previous AS Integer = collections::getOr(ink, k, 0)
+  MUT mask AS Integer = arm
+  IF style >= 2 THEN
+    mask = 0
+  ELSEIF (previous / 16) MOD 4 = style THEN
+    mask = bits::bor(previous MOD 16, arm)
+  END IF
+  RETURN collections::set(ink, k, mask + 16 * style + 64 * fg + 1024 * bg)
+END FUNC
+
+' Double-line glyph for each arm mask from 0 to 15, indexed by the mask.
+FUNC doubleGlyphs() AS List OF String
+  RETURN [" ", "║", "═", "╚", "║", "║", "╔", "╠", "═", "╝", "═", "╩", "╗", "╣", "╦", "╬"]
+END FUNC
+
+' The glyph a drawn cell shows: its arms in its line style, or a block or a shade.
+FUNC cellGlyph(v AS Integer) AS String
+  LET style AS Integer = (v / 16) MOD 4
+  IF style = 2 THEN RETURN "█"
+  IF style = 3 THEN RETURN "▓"
+  IF style = 1 THEN RETURN collections::get(doubleGlyphs(), v MOD 16)
+  RETURN collections::get(armGlyphs(), v MOD 16)
+END FUNC
+
+' The screen colour for a colour number 1 to 8: black, red, green, yellow, blue,
+' magenta, cyan, white. Background 0 (none) is black.
+FUNC paletteColor(n AS Integer) AS color::Color
+  IF n = 2 THEN RETURN color::rgb(205, 49, 49)
+  IF n = 3 THEN RETURN color::rgb(13, 188, 121)
+  IF n = 4 THEN RETURN color::rgb(229, 229, 16)
+  IF n = 5 THEN RETURN color::rgb(36, 114, 200)
+  IF n = 6 THEN RETURN color::rgb(188, 63, 188)
+  IF n = 7 THEN RETURN color::rgb(17, 168, 205)
+  IF n = 8 THEN RETURN color::rgb(229, 229, 229)
+  RETURN color::rgb(0, 0, 0)
+END FUNC
+
+' What the cell at `key` shows: a drawn path cell wins over text, and text sits
+' below the path.
+FUNC cellAt(t AS Turtle, key AS String) AS Cell
+  LET v AS Integer = collections::getOr(t.ink, key, 0)
+  IF v > 0 THEN RETURN Cell[cellGlyph(v), (v / 64) MOD 16, v / 1024, TRUE]
+  LET letter AS String = collections::getOr(t.words, key, "")
+  IF letter <> "" THEN
+    LET wc AS Integer = collections::getOr(t.wordColor, key, 3)
+    RETURN Cell[letter, wc MOD 16, wc / 16, TRUE]
+  END IF
+  RETURN Cell[" ", 0, 0, FALSE]
+END FUNC
+
+' The ANSI colour sequence for a line colour and a background colour. 0 is the
+' terminal default for either.
+FUNC sgr(fg AS Integer, bg AS Integer) AS String
+  MUT fgCode AS String = "39"
+  IF fg > 0 THEN fgCode = toString(29 + fg)
+  MUT bgCode AS String = "49"
+  IF bg > 0 THEN bgCode = toString(39 + bg)
+  RETURN "\u{1b}[0;" & fgCode & ";" & bgCode & "m"
+END FUNC
+
+' Box-drawing glyph for each arm mask from 0 to 15, indexed by the mask: single
+' lines, with a corner for every pair of perpendicular arms.
+FUNC armGlyphs() AS List OF String
+  RETURN [" ", "│", "─", "└", "│", "│", "┌", "├", "─", "┘", "─", "┴", "┐", "┤", "┬", "┼"]
+END FUNC
+
+' The drawn cells as ANSI art: the bounding box of the path, one line per row in
+' colours, with CRLF line endings, UTF-8 text. "" when nothing is drawn. The
+' turtle is not part of the picture.
+FUNC ansiText(t AS Turtle) AS String
+  LET keys AS List OF String = collections::append(collections::keys(t.ink), collections::keys(t.words))
+  IF len(keys) = 0 THEN RETURN ""
+  MUT minX AS Integer = 0
+  MUT maxX AS Integer = 0
+  MUT minY AS Integer = 0
+  MUT maxY AS Integer = 0
+  MUT first AS Boolean = TRUE
+  FOR EACH k IN keys
+    LET parts AS List OF String = strings::split(k, ",")
+    LET px AS Integer = toInt(collections::get(parts, 0))
+    LET py AS Integer = toInt(collections::get(parts, 1))
+    IF first THEN
+      minX = px
+      maxX = px
+      minY = py
+      maxY = py
+      first = FALSE
+    END IF
+    IF px < minX THEN minX = px
+    IF px > maxX THEN maxX = px
+    IF py < minY THEN minY = py
+    IF py > maxY THEN maxY = py
+  NEXT
+  IF (maxX - minX + 1) * (maxY - minY + 1) > 1000000 THEN
+    FAIL error(errorCode::ErrInvalidArgument, "drawing is too large to save")
+  END IF
+
+  MUT pieces AS List OF String = []
+  MUT current AS String = ""
+  FOR y = minY TO maxY
+    FOR x = minX TO maxX
+      LET cell AS Cell = cellAt(t, cellKey(x, y))
+      LET attr AS String = sgr(cell.fg, cell.bg)
+      IF attr <> current THEN
+        pieces = collections::append(pieces, attr)
+        current = attr
+      END IF
+      pieces = collections::append(pieces, cell.glyph)
+    NEXT
+    pieces = collections::append(pieces, "\r\n")
+  NEXT
+  RETURN strings::join(pieces, "") & "\u{1b}[0m"
+END FUNC
+
+' Walk the instructions from the turtle's current state. Stops at Q, or early
+' when the step budget runs out, so a huge repeat cannot hang the terminal.
+FUNC execute(start AS Turtle, ops AS List OF Instr) AS Outcome
+  MUT x AS Integer = start.x
+  MUT y AS Integer = start.y
+  MUT heading AS Integer = start.heading
+  MUT pen AS Boolean = start.pen
+  MUT style AS Integer = start.style
+  MUT fg AS Integer = start.fg
+  MUT bg AS Integer = start.bg
+  MUT ink AS Map OF String TO Integer = start.ink
+  MUT words AS Map OF String TO String = start.words
+  MUT wordColor AS Map OF String TO Integer = start.wordColor
+  MUT counters AS List OF Integer = []
+  MUT budget AS Integer = maxSteps()
+  MUT pc AS Integer = 0
+  MUT stopped AS Boolean = FALSE
+  DO WHILE pc < len(ops) AND NOT stopped
+    LET op AS Instr = collections::get(ops, pc)
+    MUT cost AS Integer = 1
+    IF op.kind = "F" OR op.kind = "B" THEN cost = op.n + 1
+    IF op.kind = "TR" OR op.kind = "TL" OR op.kind = "TD" OR op.kind = "TU" THEN cost = 1 + len(op.text)
+    IF cost > budget THEN
+      RETURN Outcome[Turtle[x, y, heading, pen, style, fg, bg, ink, words, wordColor], FALSE, "stopped after " & toString(maxSteps()) & " steps"]
+    END IF
+    budget = budget - cost
+
+    MUT nextPc AS Integer = pc + 1
+    IF op.kind = "F" OR op.kind = "B" THEN
+      MUT dir AS Integer = heading
+      IF op.kind = "B" THEN dir = (heading + 2) MOD 4
+      FOR s = 1 TO op.n
+        IF pen THEN ink = paintCell(ink, x, y, armBit(dir), style, fg, bg)
+        x = x + deltaX(dir)
+        y = y + deltaY(dir)
+        IF pen THEN ink = paintCell(ink, x, y, armBit((dir + 2) MOD 4), style, fg, bg)
+      NEXT
+    ELSEIF op.kind = "R" THEN
+      heading = (heading + (op.n MOD 4)) MOD 4
+    ELSEIF op.kind = "L" THEN
+      heading = (heading + 4 - (op.n MOD 4)) MOD 4
+    ELSEIF op.kind = "REPEAT" THEN
+      IF op.n <= 0 THEN
+        nextPc = op.jump + 1
+      ELSE
+        counters = collections::append(counters, op.n)
+      END IF
+    ELSEIF op.kind = "END" THEN
+      LET remaining AS Integer = collections::get(counters, len(counters) - 1) - 1
+      IF remaining > 0 THEN
+        counters = collections::set(counters, len(counters) - 1, remaining)
+        nextPc = op.jump + 1
+      ELSE
+        counters = collections::removeAt(counters, len(counters) - 1)
+      END IF
+    ELSEIF op.kind = "FG" THEN
+      fg = op.n
+    ELSEIF op.kind = "BG" THEN
+      bg = op.n
+    ELSEIF op.kind = "S" THEN
+      style = op.n - 1
+    ELSEIF op.kind = "PU" THEN
+      pen = FALSE
+    ELSEIF op.kind = "PD" THEN
+      pen = TRUE
+    ELSEIF op.kind = "TR" OR op.kind = "TL" OR op.kind = "TD" OR op.kind = "TU" THEN
+      FOR k = 0 TO len(op.text) - 1
+        LET cx AS Integer = x + k * textDeltaX(op.kind)
+        LET cy AS Integer = y + k * textDeltaY(op.kind)
+        words = collections::set(words, cellKey(cx, cy), strings::mid(op.text, k, 1))
+        wordColor = collections::set(wordColor, cellKey(cx, cy), fg + 16 * bg)
+      NEXT
+    ELSEIF op.kind = "C" THEN
+      x = 0
+      y = 0
+      heading = 0
+      ink = Map OF String TO Integer {}
+      words = Map OF String TO String {}
+      wordColor = Map OF String TO Integer {}
+    ELSE
+      stopped = TRUE
+    END IF
+    pc = nextPc
+  LOOP
+  RETURN Outcome[Turtle[x, y, heading, pen, style, fg, bg, ink, words, wordColor], stopped, ""]
+END FUNC
+
+' Keywords that start a command. "L <file>" loads a file only when the word after
+' L is none of these, so "L F 3" still turns and then moves.
+FUNC isKeyword(w AS String) AS Boolean
+  RETURN w = "F" OR w = "B" OR w = "R" OR w = "L" OR w = "PU" OR w = "PD" OR w = "C" OR w = "TR" OR w = "TL" OR w = "TD" OR w = "TU" OR w = "FG" OR w = "BG" OR w = "S" OR w = "RE" OR w = "Q"
+END FUNC
+
+' The run of letters at the start of s, upper-cased.
+FUNC leadingWord(s AS String) AS String
+  LET text AS String = strings::upper(s)
+  MUT word AS String = ""
+  FOR i = 0 TO len(text) - 1
+    LET c AS String = strings::mid(text, i, 1)
+    IF NOT strings::contains(LETTERS, c) THEN RETURN word
+    word = word & c
+  NEXT
+  RETURN word
+END FUNC
+
+' The file a line loads, or "" when the line is not a load. LOAD <file> takes the
+' rest of the line as the path, spaces included. L <file> does too, unless the
+' argument starts with a number, "(" or a command word.
+FUNC loadPath(src AS String) AS String
+  LET text AS String = strings::trim(src)
+  IF NOT strings::contains(text, " ") THEN RETURN ""
+  LET sp AS Integer = strings::find(text, " ")
+  LET head AS String = strings::upper(strings::left(text, sp))
+  LET rest AS String = strings::trim(strings::right(text, len(text) - sp))
+  IF rest = "" THEN RETURN ""
+  IF head = "LOAD" THEN RETURN rest
+  IF head <> "L" THEN RETURN ""
+  IF isNumber(rest) OR strings::left(rest, 1) = "(" OR strings::left(rest, 1) = "\"" THEN RETURN ""
+  IF isKeyword(leadingWord(rest)) THEN RETURN ""
+  RETURN rest
+END FUNC
+
+' Which way a text command runs, one cell per character: TR right, TL left, TD down
+' the column, TU up it. Each character k of the string lands k cells from the turtle.
+FUNC textDeltaX(kind AS String) AS Integer
+  IF kind = "TR" THEN RETURN 1
+  IF kind = "TL" THEN RETURN -1
+  RETURN 0
+END FUNC
+
+FUNC textDeltaY(kind AS String) AS Integer
+  IF kind = "TD" THEN RETURN 1
+  IF kind = "TU" THEN RETURN -1
+  RETURN 0
+END FUNC
+
+' The file a line saves the drawing to, or "" when the line is not a SAVE. SAVE
+' <file> takes the rest of the line as the path, spaces included.
+FUNC savePath(src AS String) AS String
+  LET text AS String = strings::trim(src)
+  IF NOT strings::contains(text, " ") THEN RETURN ""
+  LET sp AS Integer = strings::find(text, " ")
+  IF strings::upper(strings::left(text, sp)) <> "SAVE" THEN RETURN ""
+  RETURN strings::trim(strings::right(text, len(text) - sp))
+END FUNC
+
+' Write the drawing to `path` as an ANSI art file. The turtle's position and
+' heading are unchanged, and the outcome's message says what happened.
+FUNC saveDrawing(t AS Turtle, path AS String) AS Outcome
+  LET text AS String = ansiText(t) TRAP(e)
+    RETURN Outcome[t, FALSE, "cannot save: " & e.message]
+  END TRAP
+  IF text = "" THEN RETURN Outcome[t, FALSE, "nothing drawn to save"]
+  fs::writeText(path, text) TRAP(e)
+    RETURN Outcome[t, FALSE, "cannot save " & path & ": " & e.message]
+  END TRAP
+  RETURN Outcome[t, FALSE, "saved " & path]
+END FUNC
+
+' Run one typed line: a SAVE, a load, which runs the file's contents, or commands.
+' A syntax error runs nothing: the turtle keeps its place and the message is
+' shown instead, prefixed with the file name when it came from a file.
+FUNC runLine(t AS Turtle, src AS String) AS Outcome
+  LET saveTo AS String = savePath(src)
+  IF saveTo <> "" THEN RETURN saveDrawing(t, saveTo)
+  LET path AS String = loadPath(src)
+  MUT program AS String = src
+  MUT label AS String = ""
+  IF path <> "" THEN
+    program = fs::readText(path) TRAP(e)
+      RETURN Outcome[t, FALSE, "cannot load " & path & ": " & e.message]
+    END TRAP
+    label = path & ": "
+  END IF
+  LET ops AS List OF Instr = compile(program) TRAP(e)
+    RETURN Outcome[t, FALSE, label & e.message]
+  END TRAP
+  RETURN execute(t, ops)
+END FUNC
+
+' The text of the input line from `scroll` on, as many scalars as fit in `avail`.
+FUNC window(line AS String, scroll AS Integer, avail AS Integer) AS String
+  MUT count AS Integer = len(line) - scroll
+  IF count > avail THEN count = avail
+  IF count <= 0 THEN RETURN ""
+  RETURN strings::mid(line, scroll, count)
+END FUNC
+
+' The screen row and column of the turtle's origin: the centre of the drawing
+' area, which is the screen minus the border and the bottom prompt line.
+FUNC centreRow(rows AS Integer) AS Integer
+  RETURN 1 + (rows - 4) / 2
+END FUNC
+
+FUNC centreCol(cols AS Integer) AS Integer
+  RETURN 1 + (cols - 3) / 2
+END FUNC
+
+FUNC drawFrame(t AS Turtle, line AS String, pos AS Integer, scroll AS Integer, status AS String, size AS term::TermSize) AS Nothing
+  LET rows AS Integer = size.rows
+  LET cols AS Integer = size.columns
+  term::clear()
+
+  term::setForeground(color::rgb(120, 180, 220))
+  term::drawBox(term::LineStyle.Double, 0, 0, rows - 2, cols - 1)
+  MUT title AS String = " LOGO "
+  IF status <> "" THEN title = " LOGO: " & status & " "
+  term::drawText(0, 2, strings::left(title, cols - 6))
+
+  LET cRow AS Integer = centreRow(rows)
+  LET cCol AS Integer = centreCol(cols)
+  FOR r = 1 TO rows - 3
+    FOR c = 1 TO cols - 2
+      LET cell AS Cell = cellAt(t, cellKey(c - cCol, r - cRow))
+      IF cell.drawn THEN
+        term::setForeground(paletteColor(cell.fg))
+        term::setBackground(paletteColor(cell.bg))
+        term::drawText(r, c, cell.glyph)
+      END IF
+    NEXT
+  NEXT
+  term::setBackground(color::rgb(0, 0, 0))
+
+  LET tr AS Integer = cRow + t.y
+  LET tc AS Integer = cCol + t.x
+  IF tr >= 1 AND tr <= rows - 3 AND tc >= 1 AND tc <= cols - 2 THEN
+    term::setForeground(color::rgb(245, 170, 70))
+    term::setBold(TRUE)
+    term::drawText(tr, tc, turtleGlyph(t.heading))
+    term::setBold(FALSE)
+  END IF
+
+  term::setForeground(color::rgb(235, 235, 235))
+  term::drawText(rows - 1, 0, "L> ")
+  term::drawText(rows - 1, 3, window(line, scroll, cols - 4))
+
+  ' The insert point: the character under it drawn in reverse video, or a
+  ' reversed space at the end of the line.
+  MUT caret AS String = " "
+  IF pos < len(line) THEN caret = strings::mid(line, pos, 1)
+  term::setBackground(color::rgb(235, 235, 235))
+  term::setForeground(color::rgb(20, 25, 30))
+  term::drawText(rows - 1, 3 + pos - scroll, caret)
+  term::setBackground(color::rgb(0, 0, 0))
+  term::setForeground(color::rgb(255, 255, 255))
+END FUNC
+
+' The next key within `ms` milliseconds, named for the line editor: LEFT, RIGHT,
+' BACKSPACE, ENTER, CTRL_C, the text of a typed character, or "" when no key came
+' in time or the key is not one of these. "EOF" once input has ended.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    RETURN "EOF"
+  END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  IF k.ctrl AND k.grapheme = "c" THEN RETURN "CTRL_C"
+  MATCH k.key
+    CASE io::KeyName.Left
+      RETURN "LEFT"
+    CASE io::KeyName.Right
+      RETURN "RIGHT"
+    CASE io::KeyName.Backspace
+      RETURN "BACKSPACE"
+    CASE io::KeyName.Enter
+      RETURN "ENTER"
+    CASE io::KeyName.Unicode
+      IF k.ctrl OR k.alt THEN RETURN ""
+      RETURN k.grapheme
+    CASE ELSE
+      RETURN ""
+  END MATCH
+END FUNC
+
+' The turtle drawn as a triangle pointing the way it faces: north, east, south, west.
+FUNC turtleGlyph(heading AS Integer) AS String
+  IF heading = 0 THEN RETURN "▲"
+  IF heading = 1 THEN RETURN "▶"
+  IF heading = 2 THEN RETURN "▼"
+  RETURN "◀"
+END FUNC
+
+' The title and command summary shown before the first key, centred on screen.
+FUNC splashLines() AS List OF String
+  RETURN [
+    "L O G O",
+    "a turtle that draws on the screen",
+    "",
+    "F n   forward        B n   backward",
+    "R n   turn right     L n   turn left",
+    "PU    pen up         PD    pen down",
+    "C     clear          Q     quit",
+    "TR \"s\"  text right    TL \"s\"  text left",
+    "TD \"s\"  text down     TU \"s\"  text up",
+    "FG n  line colour   BG n  background",
+    "S 1-4  line, double, block, shade",
+    "LOAD f   run a script file",
+    "SAVE f   save the drawing (.ans)",
+    "RE n (cmds)   repeat cmds n times",
+    "",
+    "Example:  RE 4 (F 5 R)  draws a box",
+    "",
+    "Press any key to start"
+  ]
+END FUNC
+
+FUNC drawSplash(size AS term::TermSize) AS Nothing
+  LET lines AS List OF String = splashLines()
+  term::clear()
+  term::setForeground(color::rgb(120, 180, 220))
+  LET top AS Integer = (size.rows - len(lines)) / 2
+  FOR i = 0 TO len(lines) - 1
+    LET text AS String = collections::get(lines, i)
+    MUT left AS Integer = (size.columns - len(text)) / 2
+    IF left < 0 THEN left = 0
+    IF i = 0 THEN
+      term::setForeground(color::rgb(245, 170, 70))
+      term::setBold(TRUE)
+    ELSEIF i = len(lines) - 1 THEN
+      term::setForeground(color::rgb(235, 235, 235))
+      term::setBold(FALSE)
+    ELSE
+      term::setForeground(color::rgb(120, 180, 220))
+      term::setBold(FALSE)
+    END IF
+    term::drawText(top + i, left, text)
+  NEXT
+  term::setBold(FALSE)
+  term::setForeground(color::rgb(255, 255, 255))
+END FUNC
+
+' The next key within `ms` milliseconds, whatever it is: "KEY" for any key
+' press, "CTRL_C" for Ctrl-C, "" when none came in time, "EOF" once input ends.
+FUNC anyKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    RETURN "EOF"
+  END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  IF k.ctrl AND k.grapheme = "c" THEN RETURN "CTRL_C"
+  RETURN "KEY"
+END FUNC
+
+FUNC main AS Integer
+  IF NOT io::isOutputTerminal() OR NOT io::isInputTerminal() THEN
+    io::printError("tui-logo: run this from an interactive terminal.")
+    RETURN 1
+  END IF
+
+  term::on()
+  term::hideCursor()
+
+  MUT turtle AS Turtle = Turtle[0, 0, 0, TRUE, 0, 3, 0, Map OF String TO Integer {}, Map OF String TO String {}, Map OF String TO Integer {}]
+  MUT line AS String = ""
+  MUT pos AS Integer = 0
+  MUT scroll AS Integer = 0
+  MUT status AS String = ""
+  MUT running AS Boolean = TRUE
+
+  ' The title screen waits for any key before the turtle board appears.
+  MUT started AS Boolean = FALSE
+  DO WHILE NOT started AND running
+    LET splash AS term::TermSize = term::terminalSize() TRAP(e)
+      EXIT DO
+    END TRAP
+    drawSplash(splash)
+    term::sync()
+    LET press AS String = anyKey(250)
+    IF press = "CTRL_C" OR press = "EOF" THEN
+      running = FALSE
+    ELSEIF press = "KEY" THEN
+      started = TRUE
+    END IF
+  LOOP
+
+  DO WHILE running
+    LET size AS term::TermSize = term::terminalSize() TRAP(e)
+      EXIT DO
+    END TRAP
+
+    IF size.columns < 16 OR size.rows < 6 THEN
+      term::clear()
+      term::setForeground(color::rgb(255, 255, 255))
+      term::drawText(0, 0, "Make the terminal at least 16 columns by 6 rows.")
+    ELSE
+      LET avail AS Integer = size.columns - 4
+      IF pos < scroll THEN scroll = pos
+      IF pos > scroll + avail THEN scroll = pos - avail
+      drawFrame(turtle, line, pos, scroll, status, size)
+    END IF
+    term::sync()
+
+    LET key AS String = nextKey(250)
+    IF key = "CTRL_C" OR key = "EOF" THEN
+      running = FALSE
+    ELSEIF key = "ENTER" THEN
+      LET result AS Outcome = runLine(turtle, line)
+      turtle = result.turtle
+      status = result.message
+      line = ""
+      pos = 0
+      scroll = 0
+      IF result.quit THEN running = FALSE
+    ELSEIF key = "LEFT" THEN
+      IF pos > 0 THEN pos = pos - 1
+    ELSEIF key = "RIGHT" THEN
+      IF pos < len(line) THEN pos = pos + 1
+    ELSEIF key = "BACKSPACE" THEN
+      IF pos > 0 THEN
+        line = strings::left(line, pos - 1) & strings::right(line, len(line) - pos)
+        pos = pos - 1
+      END IF
+    ELSEIF key <> "" THEN
+      line = strings::left(line, pos) & key & strings::right(line, len(line) - pos)
+      pos = pos + 1
+    END IF
+  LOOP
+
+  term::showCursor()
+  term::off()
+  RETURN 0
+
+  TRAP(e)
+    term::showCursor()
+    term::off()
+    io::printError("tui-logo: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC

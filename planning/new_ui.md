@@ -204,8 +204,9 @@ These ownership rules are defined in §15.6 of
 
 Open bugs on this feature's critical path — the tree is exactly "lists of data
 unions holding RES boxes", which stresses: bug-1029 (function value returning a
-resource union leaks its box), bug-1073 / bug-1081 (`List OF RES` keeps old
-blocks), bug-1022 (templates reject a union variant). Fix before, not during.
+resource union leaks its box), bug-1022 (templates reject a union variant). Fix
+before, not during. (bug-1073 and bug-1081, `List OF RES` keeping old blocks, are
+closed: they no longer reproduce after plan-183.)
 
 ## Presenting the UI
 

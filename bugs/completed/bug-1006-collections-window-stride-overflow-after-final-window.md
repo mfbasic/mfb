@@ -1,11 +1,11 @@
 # bug-1006: `collections::window` overflows while advancing past its last window for a large valid stride
 
-Last updated: 2026-10-07
+Last updated: 2026-10-26
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness
 
-Status: Open
+Status: Fixed. Fixed by b72a365f3 ("collections::window: generic body steps only while the next start fits", bug-1104); regression test `tests/runtime/rt_collection_chunks_window_sizing.rs`.
 Regression Test: `tests/rt-behavior/collections/window-large-stride-rt` (proposed)
 
 `collections::window` accepts any positive `Integer` stride. If at least one window fits but the stride is so large that adding it to the current start index overflows, the function raises an arithmetic-overflow error instead of returning the windows it already found. For a two-element list and size 1, stride `9223372036854775807` should produce exactly one window.
@@ -55,3 +55,9 @@ Make the loop condition overflow-safe (for example, compare `size` with the rema
 - Runtime proof: execute the built program and check both output and exit status.
 - Doc sync: none expected; the fix follows the documented positive-stride contract.
 - Full suite: acceptance and runtime suites after implementation.
+
+## Resolution (2026-10-26 open-bug review)
+
+Re-verified 2026-10-26 at HEAD cdecc60c1 (release build): the filed program at -O0, -O1 and
+-O2 prints `1` then `a` and exits 0 with the default stride (INT64_MAX) and with
+`STRIDE=9223372036854775806`; `STRIDE=1` still gives two windows (`2`, `a`).

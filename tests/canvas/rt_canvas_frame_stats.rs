@@ -383,3 +383,26 @@ fn a_malformed_display_override_is_ignored() {
         assert_eq!(number(&out, "after", "presents"), 1.0, "{value}:\n{out}");
     }
 }
+
+/// bug-1084: `toString` of the `renderer` enum read straight off the call result
+/// (`toString(canvas::getFrameStats().renderer)`, no binding between) failed to build
+/// with "native code string literal 'Software' has no data object". Binding the
+/// record first always worked. The program builds and prints the renderer's name.
+#[test]
+fn to_string_of_the_renderer_read_off_the_call_builds() {
+    let out = run(
+        "stats_renderer_off_call",
+        "IMPORT app\nIMPORT canvas\nIMPORT io\n\n\
+         FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  \
+         io::print(\"renderer \" & toString(canvas::getFrameStats().renderer))\nEND FUNC\n",
+        &[],
+    );
+    let name = out
+        .trim()
+        .strip_prefix("renderer ")
+        .unwrap_or_else(|| panic!("got {out:?}"));
+    assert!(
+        ["Software", "Metal", "Vulkan"].contains(&name),
+        "renderer printed as {name:?}"
+    );
+}

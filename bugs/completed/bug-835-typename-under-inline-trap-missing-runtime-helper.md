@@ -1,11 +1,11 @@
 # bug-835: `typeName(x)` under an inline `TRAP` fails the build with an internal error (`native code plan does not emit runtime helper '_mfb_rt_general_typeName'`)
 
-Last updated: 2026-10-05
+Last updated: 2026-10-26
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed. Fixed by 96527e7fb ("an inline TRAP on typeName failed the build"); regression test `src/codegen/builtins/tests/inline_trap_type_name.rs` (builtins tests).
 Regression Test: tests/rt-behavior/trap/inline-trap-typename-dead-handler-rt (to add)
 
 The spec explicitly allows trapping the infallible inline built-in `typeName`. Its
@@ -102,3 +102,10 @@ as dead code. Alternatively, teach the `CallResult` codegen path the `typeName` 
 ## Summary
 
 The bug is a missing fold on one lowering path. It is low risk.
+
+## Resolution (2026-10-26 open-bug review)
+
+Re-verified 2026-10-26 at HEAD cdecc60c1 (release build): the filed program builds with the
+`TYPE_INLINE_TRAP_DEAD_HANDLER` warning and prints `Integer`. The other two positions also
+build and run: `q = typeName(5) TRAP(e) RECOVER "" END TRAP` on a `MUT` prints `Integer`, and
+`LET r = typeName(5.0) TRAP RECOVER "" END TRAP` (bare `TRAP`) prints `Float`.

@@ -43,7 +43,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 1029   | LOW      | a call through a function value that returns a resource union leaks the 16-byte union box |
 | [ ]  | 1031   | LOW      | `RES` on a non-resource type is not refused at the top level, on a return type, or on a record field that also carries `STATE` |
-| [ ]  | 1073   | LOW      | a function-level `List OF RES` keeps its 48-byte block at exit when the function has any inline `TRAP` (constant) |
 
 ## Canvas and graphics
 
@@ -88,7 +87,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1010   | MED      | native `collections::merge` reserves for every input entry even when all keys overlap |
 | [ ]  | 1011   | MED      | reserved collection results retain source-sized capacity when outputs are smaller |
 | [ ]  | 1002   | LOW      | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` is reported twice for one collection declaration that holds a thread worker |
-| [ ]  | 1006   | LOW      | `collections::window` overflows while advancing past its last window for a large valid stride |
 | [ ]  | 1111   | LOW      | `collections::sort` of a `List OF Byte` is slower than of a `List OF Integer` with the same values (1M elements: 81–86 ms vs 66–69 ms): Byte and Scalar take the generic `<` compare, with a multiply, a stack round-trip and a Boolean per comparison |
 
 ## Strings and Unicode
@@ -186,7 +184,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 848    | MED      | a `PUBLIC` field of an `EXPORT TYPE` is readable, constructible and `WITH`-updatable by importers |
 | [ ]  | 849    | MED      | `WITH` can overwrite a `PRIVATE` record field from another file or an importing project |
 | [ ]  | 920    | MED      | Source selection with a directory-symlink alias depends on `read_dir` order (files silently dropped or renamed) |
-| [ ]  | 881    | LOW      | a PUBLIC and a PRIVATE declaration of one name in the same file report `SYMBOL_DUPLICATE_TOP_LEVEL` with the internal mangled name (after 912) |
 | [ ]  | 924    | LOW      | Overloaded (or `PRIVATE`) `main` is reported as "must declare an entry point named `main`"; the "exactly one" diagnostic is unreachable |
 | [ ]  | 1040   | LOW      | a `PRIVATE FUNC` named like a built-in (`len`) hides the built-in in its file, and the error prints the mangled name |
 
@@ -198,7 +195,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 900    | MED      | a runtime helper called only in a module-level initializer fails the build with "NIR runtime call requires undeclared helper" |
 | [ ]  | 901    | MED      | a module-level initializer that reads stdin fails with `ErrInvalidContext` — the main thread is subscribed only after global initialization |
 | [ ]  | 1068   | MED      | the heap values of module-level bindings (lists, strings, resource records, `STATE` payloads) are not freed at exit; owner ruled they are held until exit and must then be freed by the teardown (only what the module scope owns, never everything live), because the free overwrites the memory |
-| [ ]  | 1081   | MED      | a module-level `List OF RES` that is reassigned keeps every block it replaces, 240 bytes per assignment (OWNER QUESTION inside: should a replaced global's resources be released at the assignment, or held until teardown as spec 15.6 says?) |
 | [ ]  | 903    | LOW      | a user `FUNC __mfb_init_globals_<project>` collides with the compiler's global initializer — unlocated internal error |
 
 ## Inline TRAP and runtime errors
@@ -206,7 +202,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 1035   | MED      | a function's emitted code is quadratic in its fallible statements (every exit path repeats the cleanup) and the compiler holds about 700 bytes per instruction, so 150 inline TRAPs peak at 1.14 GB (what bug-860 left; owner decided: share cleanup tails, which moves goldens, and cut the allocator's memory) |
-| [ ]  | 835    | MED      | `typeName(x)` under an inline `TRAP` fails the build with an internal error (`native code plan does not emit runtime helper '_mfb_rt_general_typeName'`) |
 | [ ]  | 838    | LOW      | `ErrStackOverflow` carries `source.line = 0`, `source.char = 0` — no usable origin location |
 
 ## Lambdas, native wrappers and function values
@@ -243,7 +238,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1110   | MED      | every `FOR` loop re-tests the sign of a constant `STEP` on each iteration (27 instructions an iteration where about 11 do the work, all targets, -O1 to -O3): the test is built after opt1, and opt2 does not fold a branch on a Boolean immediate |
 | [ ]  | 930    | LOW      | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |
 | [ ]  | 1080   | LOW      | a defaulted record updated with `WITH` costs about 27 KB of machine code a statement (the program is right; the executable is large and slower to build) |
-| [ ]  | 1084   | LOW      | `toString` of a package enum read straight off a call result fails to build ("native code string literal has no data object"); binding the record first works |
 
 ## Packages and registry
 
@@ -291,7 +285,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 939    | LOW      | `mfb dbg` accepts a breakpoint at an address that is not a multiple of 4 and corrupts two instructions |
 | [ ]  | 942    | LOW      | debug report `perf` durations come from macOS `CLOCK_MONOTONIC`, which has microsecond resolution, so `mfb_alloc`/`mfb_free` read as 0 ns |
 
 ## Build, linker and platform
