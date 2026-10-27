@@ -47,7 +47,8 @@ read it whole.
 `timeoutMs` bounds the wait: omitted, the call waits for as long as it takes;
 `0` makes one immediate attempt; a positive value waits up to that many
 milliseconds. When the time runs out the call raises `ErrTimeout` and nothing is
-read. A negative `timeoutMs` raises `ErrInvalidArgument`. End of input raises
+read. A negative `timeoutMs` raises `ErrInvalidArgument` (the most negative `Integer`
+excepted; see the parameter). End of input raises
 `ErrEndOfFile`.
 
 The `io` readers share one queue of input, so they can be mixed without losing

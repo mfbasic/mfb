@@ -1329,6 +1329,14 @@ name = "rt_term_draw_glyph_scalar"
 path = "tests/runtime/rt_term_draw_glyph_scalar.rs"
 
 [[test]]
+name = "rt_term_draw_control_skip"
+path = "tests/runtime/rt_term_draw_control_skip.rs"
+
+[[test]]
+name = "rt_folded_branch_runtime_helper"
+path = "tests/runtime/rt_folded_branch_runtime_helper.rs"
+
+[[test]]
 name = "rt_term_draw_text_attr_grapheme"
 path = "tests/runtime/rt_term_draw_text_attr_grapheme.rs"
 

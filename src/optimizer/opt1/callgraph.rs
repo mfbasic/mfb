@@ -79,13 +79,16 @@ pub(crate) fn eliminate(module: &mut NirModule) {
         .functions
         .retain(|function| live.contains(&function.name));
     let removed = before - module.functions.len();
-    if removed > 0 {
-        prune_runtime_helpers(module);
-    }
+    // Pruned even when no function was removed: the rows before this one drop
+    // calls too (branch simplification folds `IF FALSE` around a program's only
+    // `io::` call), and a helper only those calls used is otherwise declared and
+    // unused.
+    prune_runtime_helpers(module);
     crate::optimizer::stats::count_functions_eliminated(removed as u64);
 }
 
-/// Drop the runtime helpers only removed functions used.
+/// Drop the runtime helpers nothing left in the module uses — those only removed
+/// functions, or calls an earlier row dropped, used.
 ///
 /// `runtime::required_helpers` declared the set from the IR, before any
 /// function was removed, and `validate_nir` requires the declared set to be

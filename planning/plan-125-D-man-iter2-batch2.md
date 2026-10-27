@@ -663,25 +663,26 @@ before it was applied. The probes are in `/tmp/p125-ex/d6-io/` and
 | term getters (4), clear, didResize, sync, terminalSize, types | 6 + 2 + 2 + 3 + 2 + 4 | "module" → "package"; getBackground's first sentence; getters return a value of their own; off-mode setters do not change the live state; Windows `--app` clear; resize reported after `sync`; present sends a fixed tail; `terminalSize` reads live; `MouseEvent` buildable/WITH-able |
 | term draw* (5), fillRect, measureText, enableMouse, pollMouse | 12 + 2 + 5 + 5 + 6 | half-wide-glyph clearing; empty `drawText`; colour alpha dropped; zero-width scalar takes a cell; fillRect example paints the background; control characters measure one cell; motion only while a button is held (no mode 1003); reset at exit/error/Ctrl-C; queue of 64, oldest first; `button` set during drag; each worker thread enables its own reporting |
 
-**Bugs found (11).**
-- **A** — `isOn` and the 4 getters never raised `ErrWrongMode` in `--app`.
-  Fixed in `e9aba9ac2`.
-- **B** — `drawText`/`drawGlyph` emit DEL and C1 controls raw.
-- **C** — a flag emoji measures 1 cell.
-- **D** — the macOS `--app` `drawGlyph` drops a wide glyph in the last column.
-- **E** — a failed resize still reports `didResize`.
-- **F** — a constant-false `IF` around the only `io::` call fails the build:
-  "NIR declares unused runtime helper".
-- **io 1** — `readLine` Backspace after a non-ASCII character raises
-  `ErrEncoding` on a terminal.
-- **io 2** — the most-negative timeout waits forever instead of raising.
-- **io 3** — `a.text` on an `AttributedString` compiles, and an unknown
-  field crashes the lowering.
-- **io 4** — `AttributedString & String` names `#astrings_concat` with no
-  location.
-- **io 5** — the `clearAttributes` descriptor, fixed above.
-
-Each unfixed one is fixed (or filed as a bug doc, if large) before D closes.
+**Bugs found (11).** Six are fixed, one is documented, and five are filed.
+- **Fixed:**
+  - **A** — `isOn` and the four getters never raised `ErrWrongMode` in
+    `--app` builds. Fixed in `e9aba9ac2`.
+  - **B** — `drawText`/`drawGlyph` emitted DEL and C1 controls raw.
+  - **E** — a failed resize still reported `didResize`.
+  - **F** — a constant-false `IF` around the only `io::` call failed the
+    build.
+  - **io-5** — the `clearAttributes` descriptor (`28d7fdcd1`).
+  - B, E and F are in the commit after `a145e8b36`.
+- **Documented, not changed:** **io-2**. The most negative timeout is the
+  omitted-argument value, so it also waits without bound; the readers' pages
+  now say so.
+- **Filed as bug docs:**
+  - **io-1** → bug-1114 (`readLine` Backspace after non-ASCII).
+  - **io-3** → bug-1115 (`AttributedString` field access).
+  - **io-4** → bug-1116 (`#astrings_concat` in a diagnostic).
+  - **C** → bug-1117 (flag emoji width).
+  - **D** → bug-1118 (macOS `--app` wide glyph at the edge).
+- Each page keeps the intended contract.
 
 Acceptance: `--reconcile --letter D-phase6-current` → 39 units, 0 unaccounted; sweeps
 clean; examples run.

@@ -104,7 +104,9 @@ starts at the line after it. `io::readKey`, `io::readGrapheme` and
 Every reader takes an optional `timeoutMs`: omitted, the call waits for as long
 as it takes; `0` makes one immediate attempt, which is how a game loop asks
 "was a key pressed?" without stopping; a positive value waits up to that many
-milliseconds, and a negative value raises `ErrInvalidArgument`. A wait that
+milliseconds, and a negative value raises `ErrInvalidArgument` — except the most
+negative `Integer`, which is what an omitted argument passes and so also waits
+without bound. A wait that
 runs out raises `ErrTimeout` and loses nothing — a
 half-read line is still there for the next read. End of input is reported as an
 error, not as an empty or sentinel result, once no input is left: a final line

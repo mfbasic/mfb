@@ -42,7 +42,8 @@ key as it is pressed.
 `timeoutMs` bounds the wait: omitted, the call waits for as long as it takes;
 `0` makes one immediate attempt; a positive value waits up to that many
 milliseconds. When the time runs out the call raises `ErrTimeout` and nothing is
-read. A negative `timeoutMs` raises `ErrInvalidArgument`.
+read. A negative `timeoutMs` raises `ErrInvalidArgument` (the most negative `Integer`
+excepted; see the parameter).
 
 End of input raises `ErrEndOfFile`, never a sentinel byte, so all 256 byte values
 are data. The readers share one queue of input, so `io::readRaw` can be mixed
@@ -89,7 +90,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const TIMEOUT_DESC: &str = "Optional. How long to wait for input, in milliseconds. Omit to wait for as long as it takes; `0` makes one immediate attempt; a positive value waits up to that long, then raises `ErrTimeout`. A negative value raises `ErrInvalidArgument`.";
+pub(crate) const TIMEOUT_DESC: &str = "Optional. How long to wait for input, in milliseconds. Omit to wait for as long as it takes; `0` makes one immediate attempt; a positive value waits up to that long, then raises `ErrTimeout`. Any other negative value raises `ErrInvalidArgument`, except the most negative `Integer` (-9223372036854775808): that is the value an omitted argument stands for, so passing it also waits without bound.";
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {

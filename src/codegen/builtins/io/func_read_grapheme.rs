@@ -53,7 +53,8 @@ takes; `0` makes one immediate attempt; a positive value gives the call that
 many milliseconds to return a complete character. When the time runs out the
 call raises `ErrTimeout` and nothing is lost — a character that had already
 begun to arrive is kept for the next read, together with any combining mark that
-follows it. A negative `timeoutMs` raises `ErrInvalidArgument`. End of input
+follows it. A negative `timeoutMs` raises `ErrInvalidArgument` (the most negative `Integer`
+excepted; see the parameter). End of input
 raises `ErrEndOfFile`.
 
 The `io` readers share one queue of input, so they can be mixed without losing
