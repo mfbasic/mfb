@@ -37,9 +37,10 @@ in the canonical 8-4-4-4-12 hexadecimal form. The random bytes that seed the
 name are drawn from host entropy before the file is opened, so two calls
 effectively never collide and the name cannot be guessed by another process.
 
-The file is opened read/write with exclusive-create semantics and permission
-bits `0600` (octal), so the call always yields a freshly created, empty file
-readable and writable only by the current user. Exclusive creation means the
+The file is opened read/write with exclusive-create semantics, so the call
+always yields a freshly created, empty file. On macOS and Linux it is created
+with permission bits `0600` (octal), readable and writable only by the current
+user; on Windows it takes the permissions of its directory. Exclusive creation means the
 call fails rather than reusing or truncating any pre-existing file, which
 together with the random name closes the classic temporary-file race and
 symlink-redirection attacks. The file is also opened so that a child process started later does not inherit
@@ -53,11 +54,9 @@ argument names the containing directory, not the file — no name component of
 your own is added. The directory must already exist and be writable, since the
 new file is created there.
 
-`directory` is interpreted as UTF-8 bytes and passed to the host filesystem. It
-may be absolute or relative to the current working directory and may contain
-Unicode characters when the host filesystem accepts those names. It must not be
-empty and must not contain an embedded NUL byte, because the host `open` call
-requires a NUL-terminated path.
+`directory` may be absolute or relative to the current working directory and
+may contain Unicode characters when the host filesystem accepts those names. It
+must not be empty and must not contain a NUL character.
 
 The returned `File` is positioned at the start of the empty file and is yours to use. It is closed when the binding that holds it goes out of
 scope, or explicitly with `fs::close`. The file itself is not deleted on close;
@@ -65,13 +64,15 @@ removing it is the caller's responsibility. The call does not report the name it
 chose, so to remove the file later, create it in a directory of your own (pass
 that directory as `directory`) and find it there with `fs::listDirectory` before
 calling `fs::deleteFile`; a file made by the zero-argument form in the shared
-temporary directory cannot be told apart from other programs' files by name.
+temporary directory cannot be told apart by name from the temporary files of
+every other MFBASIC program, or of this program's earlier runs, so it cannot be
+found again to delete.
 
-An empty `directory`, or one containing a NUL byte, raises `ErrInvalidArgument`.
+An empty `directory`, or one containing a NUL character, raises `ErrInvalidArgument`.
 When the file cannot be created the error says why: `ErrPathNotFound` if
 `directory` does not exist, `ErrAccessDenied` if it may not be written,
-`ErrInvalidPath` if `directory` cannot hold a file — it is a file itself, or a
-name in it is too long — `ErrAlreadyExists` if the generated name is already
+`ErrInvalidPath` if `directory` cannot hold a file — it is a file itself, a name
+in it is too long, or a symbolic link in it loops back on itself — `ErrAlreadyExists` if the generated name is already
 taken, which the random name makes practically impossible, and `ErrWriteFailed`
 for any other failure. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Create a temporary file in a directory of your own, write to it, and remove it.
@@ -129,8 +130,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![Parameter {
                 name: "directory",
                 desc: "The path of an existing, writable directory in which to create the \
-                       temporary file, as UTF-8 bytes; absolute or relative to the current \
-                       working directory. Must be non-empty and free of embedded NUL bytes. When \
+                       temporary file; absolute or relative to the current working directory. \
+                       Must be non-empty and contain no NUL character. When \
                        omitted, the host temporary directory is used.",
                 aliases: &[],
                 ty: ParameterType::String,

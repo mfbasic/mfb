@@ -29,28 +29,29 @@ pub(crate) fn lower_fs_file_exists(
 }
 
 const INTRO: &str = r#"Test whether a path names an existing regular file"#;
-const DESC: &str = r#"`fs::fileExists` stats `path` and reports whether it resolves to a regular file.
+const DESC: &str = r#"`fs::fileExists` looks `path` up and reports whether it names a regular file.
 It returns `TRUE` only when `path` exists and the resolved entry is a regular
 file; it returns `FALSE` for a missing path, a directory, or any other
 non-regular entry (symlink to a missing target, socket, FIFO, or device node).
-The check masks the entry's mode with the file-type bits (`61440`) and compares
-against the regular-file type (`32768`), so only regular files qualify.
+Use `fs::exists` to accept any kind of entry, or `fs::directoryExists` to
+require a directory.
 
-The final path component is followed when it is a symlink, because the host
-`stat` call is used rather than `lstat`: a symlink pointing at a regular file
-reports `TRUE`, and a symlink whose target is missing or non-regular reports
-`FALSE`.
+A symlink as the final path component is followed: a symlink pointing at a
+regular file reports `TRUE`, and a symlink whose target is missing or
+non-regular reports `FALSE`. A trailing `/` makes the path name a directory, so
+`fs::fileExists("notes.txt/")` is `FALSE` even when `notes.txt` is a regular
+file. No shell expansion is applied: `~` is a literal character, not the home
+directory.
 
-A failed `stat` — for example a missing path or an unreadable parent directory —
-is reported as `FALSE` rather than raised as an error. The call itself
-raises only `ErrInvalidArgument`, when `path` contains a NUL byte, and
-`ErrOutOfMemory`, when the program runs out of memory. An empty `path` is not an
-error: nothing exists there, so the result is `FALSE`.
+A failed lookup — a missing path, or a parent directory the program is not
+permitted to traverse — is reported as `FALSE` rather than raised as an error.
+The call itself raises only `ErrInvalidArgument`, when `path` contains a NUL
+character, and `ErrOutOfMemory`, when the program runs out of memory. An empty
+`path` is not an error: nothing exists there, so the result is `FALSE`.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem; it may be
-absolute or relative to the current working directory, and may contain Unicode
-characters (including emoji) when the host filesystem accepts those names. The
-call reads filesystem state only and has no side effects."#;
+`path` may be absolute or relative to the current working directory, and may
+contain Unicode characters (including emoji) when the host filesystem accepts
+those names. The call reads filesystem state only and has no side effects."#;
 const EX: &str = r#"Test for a regular file before reading it:
 
 ```
@@ -67,15 +68,17 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Unicode paths are accepted:
+Unicode paths are accepted. This prints `TRUE`:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  LET present AS Boolean = fs::fileExists(fs::pathJoin([fs::tempDirectory(), "é日😀.txt"]))
-  io::print(toString(present))
+  LET name AS String = fs::pathJoin([fs::tempDirectory(), "mfb-fileExists-é日😀.txt"])
+  fs::writeText(name, "")
+  io::print(toString(fs::fileExists(name)))
+  fs::deleteFile(name)
 END FUNC
 ```"#;
 
@@ -90,8 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The filesystem path to test, as UTF-8 bytes; absolute or relative to the \
-                       current working directory.",
+                desc: "The filesystem path to test; absolute or relative to the current working directory. An empty path is `FALSE`; a path containing a NUL character raises `ErrInvalidArgument`.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

@@ -45,7 +45,7 @@ passed to closed it — and there every later `fs::` call, including a second
 `fs::close`, raises `ErrResourceClosed` instead of touching the host.
 
 Closing is otherwise automatic. Every `File` returned by `fs::open`, `fs::openFile`,
-`fs::openFileNoFollow`, `fs::openWithin`, or `fs::createTempFile` is closed by
+`fs::openFileNoFollow`, `fs::openWithin`, `fs::openData`, or `fs::createTempFile` is closed by
 itself when the `RES` binding that holds it goes out of scope, and that drains
 the buffer the same way. Call `fs::close` only when the file must be closed
 earlier than that — to reopen the same path, to let another process see the
@@ -112,7 +112,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![Parameter {
                 name: "file",
                 desc: "The open `File` resource to close, as returned by `fs::open`, \
-                       `fs::openFile`, `fs::openFileNoFollow`, `fs::openWithin`, or \
+                       `fs::openFile`, `fs::openFileNoFollow`, `fs::openWithin`, `fs::openData`, or \
                        `fs::createTempFile`. Must not already be closed or moved.",
                 aliases: &[],
                 ty: ParameterType::named(super::FILE_TYPE_ID),

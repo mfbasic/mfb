@@ -28,24 +28,24 @@ const INTRO: &str = r#"Test whether any filesystem entry exists at a path"#;
 const DESC: &str = r#"`fs::exists` checks `path` and reports whether any filesystem entry is present
 there, regardless of its type. It returns `TRUE` when an entry exists — a regular
 file, a directory, a symlink to an existing target, a socket, a FIFO, or a device
-node — and `FALSE` when nothing exists at `path`. The check is implemented with
-the host `access` call using the existence mode (`F_OK`, `0`); `access` returning
-`0` maps to `TRUE` and any nonzero result maps to `FALSE`.
+node — and `FALSE` when nothing exists at `path`. Use `fs::fileExists` or
+`fs::directoryExists` to require one kind of entry.
 
-The final path component is followed when it is a symlink, because `access`
-dereferences the last component: a symlink pointing at an existing target reports
-`TRUE`, and a symlink whose target is missing reports `FALSE`.
+A symlink is followed: one pointing at an existing target reports `TRUE`, and one
+whose target is missing reports `FALSE`. A trailing path separator asks for a
+directory: `fs::exists("notes.txt/")` is `FALSE` even when the file `notes.txt`
+exists, while a directory reports `TRUE` with or without the separator. No shell
+expansion is applied: `~` is a literal character, not the home directory.
 
-A failed check — for example a missing path or an unreadable parent directory — is
-reported as `FALSE` rather than raised as an error. The call itself
-raises only `ErrInvalidArgument`, when `path` contains a NUL byte, and
-`ErrOutOfMemory`, when the program runs out of memory. An empty `path` is not an
-error: nothing exists there, so the result is `FALSE`.
+A failed check — for example a missing path, or a parent directory you have no
+permission to search — is reported as `FALSE` rather than raised as an error.
+The call itself raises only `ErrInvalidArgument`, when `path` contains a NUL
+character, and `ErrOutOfMemory`, when the program runs out of memory. An empty
+`path` is not an error: nothing exists there, so the result is `FALSE`.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem; it may be
-absolute or relative to the current working directory, and may contain Unicode
-characters (including emoji) when the host filesystem accepts those names. The
-call reads filesystem state only and has no side effects."#;
+`path` may be absolute or relative to the current working directory, and may
+contain Unicode characters (including emoji) when the host filesystem accepts
+those names. The call reads filesystem state only and has no side effects."#;
 const EX: &str = r#"Test for any entry at a path before acting on it:
 
 ```
@@ -62,15 +62,17 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Unicode paths are accepted:
+Unicode paths are accepted. This prints `TRUE`:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  LET present AS Boolean = fs::exists(fs::pathJoin([fs::tempDirectory(), "é日😀.txt"]))
-  io::print(toString(present))
+  LET name AS String = fs::pathJoin([fs::tempDirectory(), "mfb-exists-é日😀.txt"])
+  fs::writeText(name, "")
+  io::print(toString(fs::exists(name)))
+  fs::deleteFile(name)
 END FUNC
 ```"#;
 
@@ -85,8 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The filesystem path to test, as UTF-8 bytes; absolute or relative to the \
-                       current working directory.",
+                desc: "The filesystem path to test; absolute or relative to the current working directory. An empty path is `FALSE`; a path containing a NUL character raises `ErrInvalidArgument`.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

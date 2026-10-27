@@ -39,10 +39,13 @@ flag clear, so a program that never calls `fs::setBuffered` always observes
 `FALSE` here. The flag becomes `TRUE` after `fs::setBuffered(file, TRUE)` and
 returns to `FALSE` after `fs::setBuffered(file, FALSE)`. Transferring a buffered
 handle to another thread resets it to unbuffered, so the receiving thread again
-observes `FALSE`.
+observes `FALSE`; call `fs::flush` before transferring a buffered handle.
 
-Calling it on a `File` that has been closed raises `ErrResourceClosed`, and on
-one handed to another thread with `thread::transfer`, `ErrResourceMoved`."#;
+In the function that closed or transferred it, the compiler rejects naming the
+`File` again (build error `TYPE_USE_AFTER_MOVE`). A closed `File` reached another
+way — through a second copy of a record that holds it, or after a function it was
+passed to closed it — raises `ErrResourceClosed`; one that `thread::transfer` has
+handed to another thread raises `ErrResourceMoved`."#;
 const EX: &str = r#"Enable buffering only when it is not already on. The log lives in a scratch
 directory under the temporary directory and is removed afterwards:
 

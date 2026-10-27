@@ -26,31 +26,36 @@ pub(crate) fn lower_fs_eof(
 
 const INTRO: &str = r#"Test whether an open `File` is at end of input"#;
 const DESC: &str = r#"`fs::eof` reports whether `file`'s current read position has reached the end of
-its contents. It returns `TRUE` when the position is at or beyond the last byte
-and `FALSE` while one or more bytes remain to be read. `file` must be an open
-`File` resource, such as one returned by `fs::openFile` or `fs::open`.
+its contents. It returns `TRUE` when the position is at or beyond the end of the
+contents (at or past the file's length in bytes) and `FALSE` while one or more
+bytes remain to be read. `file` must be an open `File` resource, such as one
+returned by `fs::openFile` or `fs::open`.
 
-The test is buffer-aware: if the transparent per-handle read buffer
-still holds unconsumed bytes (its read cursor is before its fill mark), `fs::eof`
-returns `FALSE` immediately without querying the host. Otherwise it asks the host
-for the file's current position and total length and compares them — the position
-is captured, the handle is seeked to end to read the length, then seeked back to
-the captured position, so the read position is left exactly where it was. The
-function reads no contents and has no side effects: it does not advance the
-position, write anything, or close `file`.
+Text that `fs::readLine` has read ahead but not yet returned still counts as
+remaining input, so `fs::eof` never reports `TRUE` while a line is still to
+come. The call reads no contents and has no side effects: the read position is
+left exactly where it was, nothing is written, and `file` stays open.
 
-Because determining the length requires seeking, `fs::eof` only works on a
-seekable handle — a regular file on disk. On a pipe, a socket, or another
-non-seekable handle the host cannot report a position or length, and the call
-raises `ErrReadFailed` instead of returning a `Boolean`. Calling it on a `File`
-that has been closed raises `ErrResourceClosed`, and on one handed to another
-thread with `thread::transfer`, `ErrResourceMoved`.
+`fs::eof` tests the read position only. A `File` opened with mode `"append"`
+starts at the beginning of its existing contents, so `fs::eof` reports `FALSE`
+on a non-empty file even though every write still goes to the end. A `File`
+opened with `"write"` is empty and reports `TRUE`.
 
-Use `fs::eof` to guard a read loop so that `fs::readLine` and the other reading
-functions are only called while input remains. This is the intended pattern
-because end of input is reported by those functions as an error rather than as an
-empty result: testing `fs::eof` first lets a loop stop cleanly at the end of the
-file."#;
+`fs::eof` needs a handle whose position and length can be measured: a regular
+file on disk, or a `File` from `fs::openData`. On a pipe, a socket, or another
+non-seekable handle the position and length cannot be measured, and the call
+raises `ErrReadFailed` instead of returning a `Boolean`.
+
+Naming `file` after `fs::close(file)` in the same function is the build error
+`TYPE_USE_AFTER_MOVE`. When the close happened where the compiler cannot see it
+— in a function the handle was passed to, or through a second copy of a record
+holding it — `fs::eof` raises `ErrResourceClosed`. A handle handed to another
+thread with `thread::transfer` raises `ErrResourceMoved`.
+
+Guard a `fs::readLine` loop with `fs::eof`, because `fs::readLine` reports end
+of input as `ErrEndOfFile` rather than returning an empty `String`; testing
+`fs::eof` first lets the loop stop cleanly. `fs::readAll` and `fs::readAllBytes`
+do not need the guard: at end of input they return an empty value."#;
 const EX: &str = r#"Read every line until end of input. The file lives in a scratch directory under
 the temporary directory, and `fs::close` releases it before it is deleted:
 
@@ -84,9 +89,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "file",
-                desc: "An open, seekable `File` resource to test, as returned by `fs::open`, \
-                       `fs::openFile`, `fs::openFileNoFollow`, or `fs::createTempFile`. Must not \
-                       have been closed.",
+                desc: "An open `File` resource to test, as returned by `fs::open`, `fs::openFile`, `fs::openFileNoFollow`, `fs::openWithin`, `fs::openData`, or `fs::createTempFile`. Must not have been closed.",
                 aliases: &[],
                 ty: ParameterType::named(super::FILE_TYPE_ID),
                 default: DefaultValue::None,

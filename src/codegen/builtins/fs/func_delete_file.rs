@@ -30,27 +30,29 @@ pub(crate) fn lower_fs_delete_file(
 }
 
 const INTRO: &str = r#"Remove a single file (or symlink) from the filesystem"#;
-const DESC: &str = r#"`fs::deleteFile` removes the filesystem entry named by `path` with a single host
-`unlink` operation. On success the entry is gone and the function returns
+const DESC: &str = r#"`fs::deleteFile` removes the filesystem entry named by `path` in one step. On
+success the entry is gone and the function returns
 `Nothing`.
 
 When the final component of `path` is a symbolic link, the link itself is removed
-rather than the file it points to, because `unlink` does not follow a trailing
-symlink. The function removes exactly one non-directory entry; it does not recurse
-and it does not remove directories. Use `fs::deleteDirectory` to remove a
-directory.
+and the file it points to is left in place; a link whose target no longer exists,
+or one that loops back on itself, is removed the same way. The function removes
+exactly one non-directory entry; it does not recurse and it does not remove
+directories. Use `fs::deleteDirectory` to remove a directory. A file that is
+currently open through a `File` handle can still be deleted; the open handle
+keeps working until it is closed, and `fs::exists` reports the name gone.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
-absolute or relative to the current working directory, and may contain Unicode
-characters when the host filesystem accepts those names. It must be non-empty and must not contain an embedded NUL byte.
+`path` may be absolute or relative to the current working directory, and may
+contain Unicode characters when the host filesystem accepts those names. It must
+be non-empty and must not contain a NUL character.
 
 When the host refuses the removal `path` is left unchanged and the error says
 why: `ErrPathNotFound` if nothing exists at `path`, `ErrAccessDenied` if
 permission is refused, and `ErrInvalidPath` if `path` cannot name a file — it
 names a directory, a name in it is too long, a file is used as a directory, or
-it is a loop of symbolic links. A directory is refused rather than removed, so
+a directory on the way to it is a loop of symbolic links. A directory is refused rather than removed, so
 use `fs::deleteDirectory` for one. Any other refusal raises `ErrWriteFailed`. An
-empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`.
+empty `path`, or one containing a NUL character, raises `ErrInvalidArgument`.
 `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Remove a generated output file, then its scratch directory under the temporary
 directory:
@@ -68,7 +70,7 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Write a file and then remove it:
+Write a file, remove it, and confirm it is gone — this prints `FALSE`:
 
 ```
 IMPORT fs
@@ -93,9 +95,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The filesystem path of the entry to remove, as UTF-8 bytes; absolute or \
-                       relative to the current working directory. Must be non-empty and free of \
-                       embedded NUL bytes. A trailing symlink is removed rather than followed.",
+                desc: "The filesystem path of the entry to remove; absolute or relative \
+                       to the current working directory. Must be non-empty and contain no NUL \
+                       character. A symbolic link at the end is removed rather than followed.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

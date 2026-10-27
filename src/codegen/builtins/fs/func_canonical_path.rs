@@ -30,35 +30,30 @@ pub(crate) fn lower_fs_canonical_path(
 
 const INTRO: &str = r#"Resolve a path to its canonical absolute path"#;
 const DESC: &str = r#"`fs::canonicalPath` resolves `path` to an absolute, canonical path and returns it
-as a `String`. Resolution is performed by the host `realpath` call, which collapses
-`.` and `..` components, removes redundant separators, and follows every symbolic
-link encountered along the way, so the returned path names the real file or
-directory with no indirection left in it. A relative `path` is resolved against the
-current working directory; an absolute `path` is canonicalized in place.
+as a new `String`; `path` itself is not changed. Resolution collapses `.` and
+`..` components, removes redundant separators, and follows every symbolic link
+along the way, including one at the final component, so the returned path names
+the real file or directory with no indirection left in it. A relative `path` is
+resolved against the current working directory. The result is always absolute
+and never ends in a separator.
 
 Because resolution walks the real directory tree rather than manipulating the
 string alone, every component named by `path`, including the final one, must exist
-on the filesystem; a missing component raises an error. To normalize a path
-lexically without touching the filesystem, use `fs::pathNormalize` instead.
+on the filesystem; a missing component raises `ErrPathNotFound`. To normalize a
+path lexically without touching the filesystem, use `fs::pathNormalize` instead.
 
-`path` is interpreted as raw UTF-8 bytes and passed to the host filesystem. It may
-contain Unicode characters when the host accepts such names, and the byte-oriented
-spelling of the name is preserved in the result. The string must not be empty and
-must not contain an embedded NUL byte, because the host call requires a
-NUL-terminated path; either condition raises `ErrInvalidArgument` before any host
-call is made. The result is returned as a `String` in the host
-resolution buffer sized to hold up to `PATH_MAX` bytes plus the terminating NUL
-(`4097`).
+`path` may contain Unicode characters when the host accepts such names, and the
+spelling of each name is preserved in the result. An empty `path`, or one
+containing a NUL character, raises `ErrInvalidArgument`.
 
-The function reads filesystem metadata only; it does not open, create, or modify
-any file and has no other side effects.
+The function never creates or modifies anything; it only looks the path up.
 
 When `path` cannot be resolved the error says why: `ErrPathNotFound` if a
 component does not exist, `ErrAccessDenied` if a directory on the way may not be
-searched, and `ErrInvalidPath` if `path` cannot name an entry — a file used as a
-directory, a name that is too long, or a loop of symbolic links. Any other
-failure raises `ErrReadFailed`. `ErrOutOfMemory` means the program ran out of
-memory."#;
+searched, and `ErrInvalidPath` if `path` cannot name an entry — a component
+after a file, a name the host cannot use or that is too long, a loop of symbolic
+links, or a resolved path longer than the host allows. Any other failure raises
+`ErrReadFailed`. `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Resolve a path to its real location. The file lives in a scratch directory
 under the temporary directory and is removed afterwards:
 
@@ -105,9 +100,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The path to canonicalize, as UTF-8 bytes; absolute or relative to the \
-                       current working directory. Every named component, including the last, must \
-                       exist. Must be non-empty and free of embedded NUL bytes.",
+                desc: "The path to canonicalize; absolute or relative to the current working directory. Every named component, including the last, must exist. Must be non-empty and contain no NUL character.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

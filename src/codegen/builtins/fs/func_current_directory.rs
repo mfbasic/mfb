@@ -32,10 +32,13 @@ const INTRO: &str = r#"Return the process's current working directory"#;
 const DESC: &str = r#"`fs::currentDirectory` returns the absolute current working directory of the
 running process as a UTF-8 `String`.
 
-The path is queried from the operating system with the host `getcwd` call on
-every invocation rather than cached, so the result reflects the process's
-working directory at the moment of the call. The returned path is absolute and
-is given in the host's native spelling.
+The directory is read from the operating system on every call, never cached, so
+the result reflects the working directory at that moment, including any change
+made by `fs::setCurrentDirectory`. The returned path is absolute, uses the
+host's native separators, and has every symbolic link resolved: a program
+started in `/tmp/work` on macOS sees `/private/tmp/work`, so the result may
+differ from the shell's `PWD`. Compare paths with `fs::canonicalPath` rather
+than by text.
 
 The working directory is the base against which any relative path passed to
 other `fs` functions is resolved, so this value names the directory used by
@@ -43,10 +46,12 @@ other `fs` functions is resolved, so this value names the directory used by
 when they are given a path that is not absolute. The current directory can be
 changed with `fs::setCurrentDirectory`.
 
-The function takes no arguments, reads process state only, and has no filesystem
-side effects: it does not create, open, or modify any file.
+The call has no filesystem side effects: it creates, opens, and modifies
+nothing.
 
-`ErrReadFailed` means the host could not report the working directory.
+`ErrReadFailed` is raised when the working directory can no longer be reported:
+it has been deleted since the process entered it, or its absolute
+path is 4096 bytes or longer. The call never returns a partial or empty path.
 `ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read and print the current working directory:
 
