@@ -57,7 +57,7 @@ pub(super) const VARIANTS: &[(&str, &str, &str)] = &[
     ("Windows874", "windows-874", "windows-874 -- Thai. Defines 120 of its 128 high bytes. Decoding one of those undefined bytes raises `ErrInvalidFormat`."),
     ("Windows1250", "windows-1250", "windows-1250 -- Central European."),
     ("Windows1251", "windows-1251", "windows-1251 -- Cyrillic."),
-    ("Windows1252", "windows-1252", "windows-1252 -- Western European. The most common legacy web encoding."),
+    ("Windows1252", "windows-1252", "windows-1252 -- Western European. The most common legacy web encoding; also what the labels ISO-8859-1, latin1 and US-ASCII mean in practice (the WHATWG Encoding Standard maps them here), so use this member for those labels too."),
     ("Windows1253", "windows-1253", "windows-1253 -- Greek. Leaves 3 high bytes undefined. Decoding one of those undefined bytes raises `ErrInvalidFormat`."),
     ("Windows1254", "windows-1254", "windows-1254 -- Turkish."),
     ("Windows1255", "windows-1255", "windows-1255 -- Hebrew. Defines 118 of its 128 high bytes. Decoding one of those undefined bytes raises `ErrInvalidFormat`."),

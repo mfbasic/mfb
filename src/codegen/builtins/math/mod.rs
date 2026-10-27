@@ -88,6 +88,14 @@ not spell — absolute value, min/max/clamp, the rounding family, square root, t
 transcendentals (exp/log/trig), power, and a per-thread random sequence —
 together with 14 constants.
 
+Power: `^` handles whole-number, non-negative exponents (and is the only power
+form for `Integer`); `math::pow` is the `Float`/`Fixed` form that also accepts
+fractional and negative exponents. `sqrt`, `pow`, `exp`, `log`/`log10` and the
+trigonometric functions take `Float` or `Fixed` only; convert an `Integer` first
+with `toFloat` or `toFixed`. To truncate toward zero rather than floor, ceil or
+round, use `toInt`. `math::rand` is fast and reproducible, not unpredictable: use
+`crypto::randomInt` for anything an adversary must not guess.
+
 Most members take a single number and give back the same type they were given:
 `abs`, `min`/`max`/`clamp`, `sqrt`, the transcendentals, `pow`, and `atan2`. Their
 list forms differ: `abs`, `min`/`max`/`clamp`, `sqrt`, `log`/`log10` and the
@@ -101,8 +109,8 @@ bounds; `seed` returns nothing.
 Every one comes in a `Float` form and a `Fixed` form, so you can stay in whichever
 type your program already uses: `math::pi` and `math::piFixed`, `math::pi2`
 (pi/2), `math::pi4` (pi/4), `math::twoOverPi` (2/pi), `math::e`, `math::ln2` and
-`math::ln10`, each with its `Fixed` twin. The Constants table below gives every
-value as written. A `Fixed` form holds the nearest value `Fixed` can represent,
+`math::ln10`, each with its `Fixed` twin. The Constants table below gives
+the `Float` value each pair is derived from. A `Fixed` form holds the nearest value `Fixed` can represent,
 which agrees with the written value to at least nine significant digits
 (`math::piFixed` is `3.141592653701081`).
 

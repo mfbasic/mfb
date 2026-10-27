@@ -40,9 +40,11 @@ exactly one Unicode scalar value, and it must occupy **at least one column**: a
 zero-width `padChar` — a combining mark, a zero-width joiner — can never reach
 the target however many copies are laid down, so it is rejected with
 `ErrInvalidArgument`. A negative `columns`, an empty `padChar`, and a `padChar`
-of more than one scalar are rejected with the same error. A `columns` so large
-that the padded result cannot be built fails with `ErrOutOfMemory` (`77010001`)
-rather than producing a wrong answer.
+of more than one scalar are rejected with the same error. A `columns` far too
+large to build a result for raises `ErrInvalidArgument` when the size of the
+result cannot even be represented, and `ErrOutOfMemory` when it can be represented
+but there is not enough memory for it — which of the two depends on the byte
+length of `padChar`.
 
 No argument is mutated.
 

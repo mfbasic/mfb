@@ -6,7 +6,7 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Natural exponential (e raised to the power) of a value or list."#;
 const DESC: &str = r#"`exp` returns `e ** value`, echoing the operand type (`Float` or `Fixed`), plus the
-`List OF Float` vectorized form. `exp(0.0)` is `1`, and a
+`List OF Float` list form. `exp(0.0)` is `1`, and a
 negative argument gives a fraction; a very negative `Float` argument gives `0`
 (`math::exp(-800.0)`). A result too large to hold raises `ErrFloatInf` for a `Float`
 or `List OF Float` (`math::exp(710.0)`) and `ErrOverflow` for a `Fixed`

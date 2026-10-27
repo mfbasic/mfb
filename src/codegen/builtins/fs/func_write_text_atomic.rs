@@ -79,7 +79,13 @@ error says why: `ErrPathNotFound` if the containing directory does not exist,
 cannot name a file — it names a directory, a name in it is too long, or a file
 is used as a directory. Any other refusal, and a failed write, flush to disk or
 close of the temporary file, raises `ErrWriteFailed`. `ErrOutOfMemory` means the
-program ran out of memory."#;
+program ran out of memory.
+
+Because the new file is renamed over `path`, a symbolic link at `path` is replaced
+by a regular file rather than followed — the link's target is untouched — and an
+existing file's permissions are not kept: the result always has mode `0600`
+(before the umask). Use `fs::writeText` / `fs::writeBytes` to write through a link
+or keep the mode."#;
 const EX: &str = r#"Atomically write text to a file in a scratch directory under the temporary
 directory, then clean up:
 

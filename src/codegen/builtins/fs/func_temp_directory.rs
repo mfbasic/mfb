@@ -48,6 +48,8 @@ The source of the path is platform specific:
 - On Linux the value of the `TMPDIR` environment variable is used when it is set,
   non-empty, and fits within the internal buffer; otherwise the path falls back
   to `/tmp`.
+- On Windows the user's temporary directory as the host reports it (the
+  `TMP`/`TEMP` environment setting).
 
 The function takes no arguments and has no filesystem side effects: it neither
 creates the directory nor verifies that it exists, it only reports the

@@ -20,10 +20,9 @@ well defined. Passing a 3D or 4D vector is a compile-time error, not a runtime
 one. For the higher-dimensional analogue use `vector::cross`, which takes the
 `N - 1` operands needed to pin down a unique orthogonal direction.
 
-The 2D unary form of `vector::cross` computes the same value. They are
-nevertheless two separate functions, and neither is a shorthand for the other:
-prefer `vector::perpendicular` when you mean a quarter turn, and
-`vector::cross` when you mean the generalized product.
+The 2D unary `vector::cross` and `vector::perpendicular` compute the same value
+with the same error behaviour; prefer `perpendicular` when you mean a quarter turn
+and `cross` when the surrounding code is doing cross products across dimensions.
 
 Because the operation is a swap and a single negation, it does no multiplication,
 division, or rounding, and is exact on every element type. It is not, however,

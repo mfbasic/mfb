@@ -6,7 +6,7 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Tangent of an angle in radians."#;
 const DESC: &str = r#"`tan` returns the tangent of `value` (an angle in radians), echoing the operand type
-(`Float` or `Fixed`), plus the `List OF Float` vectorized form. Near an odd multiple of
+(`Float` or `Fixed`), plus the `List OF Float` list form. Near an odd multiple of
 pi/2 the tangent grows without bound, and the two operand types answer differently
 there. A `Float` result is very large but finite (`math::tan(math::pi2)` is about
 1.6e16), because no `Float` lands exactly on pi/2. A `Fixed` result covers only

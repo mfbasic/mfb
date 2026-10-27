@@ -90,7 +90,15 @@ Each function is overloaded by the exact argument record type: a member takes a
 vector of one of the nine types and returns either that type or its scalar element
 type. Algebraic operations are correctly rounded on `Float`, use Q32.32 fixed-point
 on `Fixed`, and round half away from zero on `Integer`. `vector` is a built-in
-built-in package: `IMPORT vector` needs no manifest dependency."#;
+built-in package: `IMPORT vector` needs no manifest dependency.
+
+Build a vector with the record constructor, `vector::Float3[1.0, 2.0, 3.0]`, read
+components as `v.x`, `v.y`, `v.z`, `v.w`, compare whole vectors with `=`, and
+print one with `toString`, which gives `(1.00, 2.00, 3.00)`. Vector records have
+no arithmetic operators: `a + b`, `a - b`, `-a` and `a * 2.0` are compile-time type
+errors. Add, subtract or negate by building a new record from the components, as
+in `vector::Float2[a.x + b.x, a.y + b.y]`, and multiply by a scalar with
+`vector::scale`."#;
 
 // The nine value-record type names, grouped by dimension. VEC_TYPES fixes the
 // registration order (2D then 3D then 4D per element, matching the companion).

@@ -100,15 +100,19 @@ pub(crate) const CLOSE: &str = "fs.close";
 const MODULE_INTRO: &str = r#"Filesystem path, file, and directory operations"#;
 const MODULE_DESC: &str = r#"The `fs` package provides filesystem access: one-shot whole-file reads and
 writes, an open `File` handle for streaming I/O, purely syntactic path-string
-manipulation, directory creation and listing, and existence tests. `fs` is a
+manipulation, directory creation and listing, and existence tests. It has no
+rename, move, copy, or file-metadata call: to move a file, write it to the new
+path (`fs::writeBytesAtomic` for an all-or-nothing result) and `fs::deleteFile` the
+old one; to learn a file's length, open it and call `fs::size`. `fs` is a
 built-in package: `IMPORT fs` needs no manifest dependency.
 
 Paths are UTF-8 `String` values, so they may carry Unicode characters where the
 host accepts such names. A path may be absolute or relative to the process current working
-directory; relative paths resolve against `fs::currentDirectory()`. A path
-argument must be non-empty and contain no NUL character; otherwise the call
-raises `ErrInvalidArgument`. The three existence predicates are the exception for
-an empty path: they report `FALSE`. The path-syntax functions — `fs::pathJoin`,
+directory; relative paths resolve against `fs::currentDirectory()`. A path that
+names something on disk must be non-empty and contain no NUL character; otherwise
+the call raises `ErrInvalidArgument`. Two groups are exempt: the three existence
+predicates report `FALSE` for an empty path, and the five path-syntax functions
+accept any `String`, including an empty one. The path-syntax functions — `fs::pathJoin`,
 `fs::pathNormalize`, `fs::pathDirName`, `fs::pathBaseName`, and
 `fs::pathExtension` — are byte-oriented and never touch the filesystem, while
 `fs::canonicalPath` and `fs::isWithin` consult the disk to resolve `.`, `..`,

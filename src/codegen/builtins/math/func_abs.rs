@@ -7,7 +7,7 @@ use crate::types::ParameterType::{Fixed, Float, Integer, Money};
 const INTRO: &str = r#"Absolute value of a numeric value or list."#;
 const DESC: &str = r#"`abs` returns the magnitude of `value`: the value with its sign removed. It accepts
 `Integer`, `Float`, `Fixed`, and `Money` scalars (echoing the operand type) and the
-`List OF Integer`/`Float`/`Fixed` array forms, which return a new list of the same
+`List OF Integer`/`Float`/`Fixed` list forms, which return a new list of the same
 type holding each element's magnitude in the original order; the input list is
 unchanged. `abs(INT64_MIN)`-class inputs have no representable magnitude and
 raise `ErrOverflow`."#;

@@ -68,9 +68,12 @@ An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. When
 the file cannot be opened the error says why: `ErrPathNotFound` if a directory
 in `path` does not exist, `ErrAccessDenied` if permission is refused, and
 `ErrInvalidPath` if `path` cannot name a file — it names a directory, a name in
-it is too long, or a file is used as a directory. Any other refusal, and a
+it is too long, a file is used as a directory, or a symbolic link in it loops
+back on itself. Any other refusal, and a
 failed write, flush to disk or close, raises `ErrWriteFailed`. `ErrOutOfMemory`
-means the program ran out of memory."#;
+means the program ran out of memory.
+
+To write incrementally through an open handle, use `fs::writeAllBytes`."#;
 const EX: &str = r#"Write raw bytes to a file in a scratch directory under the temporary directory,
 then clean up:
 

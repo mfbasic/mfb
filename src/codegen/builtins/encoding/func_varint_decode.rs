@@ -74,7 +74,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "data",
-                desc: "The varint bytes to decode.",
+                desc: "The varint bytes to decode: a non-empty, terminated sequence. Bytes after the terminating byte are ignored.",
                 aliases: &[],
                 ty: ParameterType::list_of(ParameterType::Byte),
                 default: DefaultValue::None,

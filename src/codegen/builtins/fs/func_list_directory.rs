@@ -64,7 +64,10 @@ the directory cannot be opened the error says why: `ErrPathNotFound` if `path`
 does not exist, `ErrAccessDenied` if it may not be read, and `ErrInvalidPath` if
 `path` cannot name a directory — it names a file, a name in it is too long, a file
 is used as a directory, or a symlink in it loops back on itself. Any other refusal raises `ErrReadFailed`.
-`ErrOutOfMemory` means the program ran out of memory."#;
+`ErrOutOfMemory` means the program ran out of memory.
+
+Guard the call with `fs::directoryExists`, and build each entry's full path with
+`fs::pathJoin`."#;
 const EX: &str = r#"Print every entry in a directory in sorted order:
 
 ```

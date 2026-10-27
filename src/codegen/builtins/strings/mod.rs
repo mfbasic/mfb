@@ -202,6 +202,12 @@ one concatenates with nothing between the elements.
 
 `strings` is a built-in package: `IMPORT strings` needs no manifest dependency.
 
+A string's scalar length is `len(value)` (`mfb man general len`); what a `String`
+and a `Scalar` are, how to write them, and why every index here is a scalar index
+is covered in `mfb man types string` and `mfb man unicode`. Every classifier, case
+mapping, normalization, grapheme and line-break rule in this package follows
+Unicode 16.0.
+
 Many `strings::` functions also accept an `AttributedString` as their first
 argument, the text they work on; each function's own page documents that
 overload. No other argument takes one: a needle, a prefix, a delimiter or a pad

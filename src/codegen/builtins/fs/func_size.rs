@@ -38,7 +38,8 @@ a `File` that other code is reading, and it is what lets a program decide how mu
 of a file to read before reading any of it.
 
 Measuring the length requires a handle the host can reposition, so `fs::size` only
-works on a seekable handle — a regular file on disk. On a pipe, a socket, or
+works on a seekable handle — a regular file on disk, or a `File` from
+`fs::openData`. On a pipe, a socket, or
 another non-seekable handle the host cannot report a length, and the call raises
 `ErrReadFailed`; `fs::eof` behaves the same way on the same handles. Calling
 `fs::size` on a `File` that has already been closed raises `ErrResourceClosed`,

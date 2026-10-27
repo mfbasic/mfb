@@ -25,7 +25,7 @@ missing position is an error:
   Use `collections::append` or `collections::insert` to grow a list.
 
 - For a **map**, the key need not exist. When the key is present its value is
-  overwritten and that entry moves to the end of the map's order; when it is absent
+  overwritten; when it is absent
   a new entry is inserted at the end. The map overload has no
   failure path at all — it raises no domain error for any key.
 

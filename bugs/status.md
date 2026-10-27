@@ -267,6 +267,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 951    | LOW      | `/search` matches description text from the newest release of any state but shows the newest *active* release's description |
 | [ ]  | 953    | LOW      | `mfb repo transfer` tells the recipient to run a `transfer-accept` command that always fails |
 | [ ]  | 956    | LOW      | package-manager spec (01–04) drift and small protocol status/message defects (after 950) |
+| [ ]  | 1129   | LOW      | vector Fixed/Integer overloads don't declare `ErrOverflow`; math Constants table shows Float values for the `*Fixed` twins |
 
 ## Audit
 

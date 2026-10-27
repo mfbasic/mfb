@@ -37,7 +37,10 @@ default and must be supplied explicitly.
 `"read"` opens an existing file for reading only and creates nothing. `"write"`
 opens the file for writing, creating it when it does not exist and truncating it
 to empty when it does. `"readWrite"` opens the file for both reading and writing,
-creating it when it does not exist but preserving existing contents. `"append"`
+creating it when it does not exist and leaving existing contents in place.
+Reading and writing both start at the beginning of the file, so the first write
+overwrites what is there byte for byte rather than adding to it; use `"append"`
+to add at the end, or `fs::seek` to choose a position. `"append"`
 opens the file for writing with every write directed to the end of the file,
 even after `fs::seek`, creating it when it does not exist. The mode string is matched exactly, byte for
 byte, and is case sensitive; any other value is rejected before the file is

@@ -26,7 +26,12 @@ raises `ErrInvalidFormat` — then decoded.
 
 It is the inverse of `encoding::utf8Encode`: decoding the bytes (or integers)
 that `utf8Encode` produced reconstructs the original string, and any string
-round-trips losslessly through the two functions."#;
+round-trips losslessly through the two functions.
+
+The byte form does what `toString(bytes)` does, except that malformed UTF-8 raises
+`ErrInvalidFormat` here and `ErrEncoding` from `toString`; use `utf8Decode` when you
+also hold a `List OF Integer` or want the same error kind as the other decoders in
+this package."#;
 const EX: &str = r#"Decode raw UTF-8 bytes back to text:
 
 ```

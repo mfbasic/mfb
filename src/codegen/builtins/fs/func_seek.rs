@@ -46,7 +46,8 @@ zero bytes. On a `File` opened in `"append"` mode every write still goes to the
 end, wherever the position is.
 
 A negative `position` raises `ErrInvalidArgument` and leaves `file` untouched.
-Moving needs a handle the host can reposition: on a pipe or another non-seekable
+Moving needs a handle the host can reposition — a regular file on disk, or a
+`File` from `fs::openData`: on a pipe or another non-seekable
 handle the move fails with `ErrReadFailed`, as `fs::size` and `fs::eof` do on the
 same handles. If buffered output cannot be written, `ErrWriteFailed` is raised,
 the output stays buffered, and the position does not change. A closed `file`

@@ -6,7 +6,7 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Arcsine (inverse sine), returning radians."#;
 const DESC: &str = r#"`asin` returns the arcsine of `value` in radians, echoing the operand type (`Float`
-or `Fixed`), plus the `List OF Float` vectorized form. `value` must be in `[-1, 1]`;
+or `Fixed`), plus the `List OF Float` list form. `value` must be in `[-1, 1]`;
 outside that domain a `Float` or `List OF Float` argument raises `ErrFloatDomain`,
 and a `Fixed` argument raises `ErrInvalidArgument`."#;
 const EX: &str = r#"```

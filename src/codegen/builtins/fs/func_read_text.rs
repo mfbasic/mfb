@@ -59,7 +59,10 @@ exist, `ErrAccessDenied` if permission is refused, and `ErrInvalidPath` if
 file is used as a directory, or it is a loop of symbolic links. Any other
 refusal to open, and a failure while reading, raises `ErrReadFailed`. Contents
 that are not valid UTF-8 raise `ErrEncoding`. `ErrOutOfMemory` means the program
-ran out of memory."#;
+ran out of memory.
+
+To read line by line, or only part of a large file, open it and use
+`fs::readLine`, `fs::readAll` or `fs::readBytesAt` instead."#;
 const EX: &str = r#"Read a text file into a `String`. The file lives in a scratch directory under
 the temporary directory and is removed afterwards:
 

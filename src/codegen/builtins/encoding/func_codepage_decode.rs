@@ -9,7 +9,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-const INTRO: &str = r#"Decode a `List OF Byte` as text in a legacy single-byte codepage."#;
+const INTRO: &str = r#"Decode a `List OF Byte` as text in a legacy single-byte codepage or as UTF-8."#;
 const DESC: &str = r#"`encoding::codepageDecode` reads `bytes` as text in `codepage` and returns the
 `String` they spell. It is the decoder for content that is not UTF-8 — a
 `windows-1252` page body, a `KOI8-R` mail part, an `IBM866` DOS file — where
@@ -18,8 +18,11 @@ const DESC: &str = r#"`encoding::codepageDecode` reads `bytes` as text in `codep
 Each codepage is one of the `encoding::Codepage` members; `mfb man encoding types`
 lists them. For every single-byte codepage, bytes `0`–`127` are ASCII and decode to
 themselves, and bytes `128`–`255` are looked up in that codepage's table.
-`Codepage.Utf8` instead decodes the whole input as UTF-8, so a caller holding a
-charset label has one entry point for both cases.
+`Codepage.Utf8` instead decodes the whole input as UTF-8, so one call site can
+handle UTF-8 and the legacy codepages alike once you have mapped the charset label
+to a member; no label parser is provided. The labels ISO-8859-1, latin1 and
+US-ASCII map to `Codepage.Windows1252` in practice (the WHATWG Encoding Standard
+maps them there).
 
 Some codepages leave part of their high half undefined: `windows-874` defines 120
 of its 128 high bytes and `ISO-8859-6` only 83. A byte with no meaning in the
