@@ -17,11 +17,10 @@ shell as `mfb <command>`.
 ## Description
 
 The `mfb` executable bundles the compiler together with source and project
-tooling. This topic documents the developer-facing commands that read or rewrite
-source rather than produce a build artifact: `mfb fmt` and `mfb audit`. Each
-command is deterministic and
-operates on files or directories given on the command line, defaulting to the
-current directory when no path is supplied.
+tooling. This topic covers the two source-checking commands, `mfb fmt` and `mfb audit`;
+`mfb dbg` is covered by `mfb man debug`. Each command is deterministic and
+operates on a project directory or a single source file given on the command
+line, defaulting to the current directory when no path is supplied.
 
 The reimplementable transformation rules for each command live in the language
 spec under `mfb spec tooling`; this man topic is the quick command reference.

@@ -157,7 +157,7 @@ pub(crate) fn rows() -> &'static [Row] {
             level: 3,
             stage: "NIR",
             summary: "Converts a head-tested WHILE into the guarded \
-                      bottom-tested form (`IF c THEN DO .. UNTIL NOT c`), \
+                      bottom-tested form (`IF c THEN DO … LOOP UNTIL NOT c`), \
                       saving a branch per iteration; evaluation order and \
                       counts are preserved exactly.",
             counter: &stats::LOOPS_ROTATED,
