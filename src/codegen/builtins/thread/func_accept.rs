@@ -32,9 +32,7 @@ on it in advance.
 If no resource arrives before `timeoutMs` runs out, `accept` raises
 `ErrTimeout`. A negative `timeoutMs` raises `ErrInvalidArgument`.
 
-The same six built-in resources may arrive here that `thread::transfer` may
-send: `fs::File`, `tcp::Socket`, `tcp::Listener`, `udp::Socket`, `tls::Socket`
-and `tls::Listener`. The five that may not are `process::Process`, `audio::AudioInput`,
+What `thread::transfer` may send may arrive here: `fs::File`, `tcp::Socket`, `tcp::Listener`, `udp::Socket`, `tls::Socket`, `tls::Listener`, and a `Thread` itself — a coordinator may accept the threads it is to wait for. A `ThreadWorker` never arrives. The five that may not are `process::Process`, `audio::AudioInput`,
 `audio::AudioOutput`, `canvas::Image` and `canvas::Font`; `thread::transfer`'s
 page says why for each. A resource your own project
 declares may cross when it is declared `THREAD_SENDABLE`.

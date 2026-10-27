@@ -14,8 +14,7 @@ passing the `ThreadWorker` handle the entry point was given, and it answers
 This is the only thing that makes cancellation work. `thread::cancel` only
 raises a flag; running code does not stop until the worker asks about it and
 acts, so any long-running loop should check it and return early when it goes
-`TRUE`. A worker blocked in `thread::receive` or `thread::accept` is the
-exception: it wakes and fails with `ErrInterrupted`.
+`TRUE`. A worker blocked in a channel call — `thread::receive`, `thread::accept`, `thread::send` or `thread::transfer` while it waits for room — is the exception: it wakes and fails with `ErrInterrupted`.
 
 It returns immediately, never waits, and never raises. Once the answer is
 `TRUE` it stays `TRUE`.

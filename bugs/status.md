@@ -143,6 +143,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 872    | LOW      | an IPv6-literal URL parses but cannot be used (the connect half) |
 | [ ]  | 986    | LOW      | an http client HEAD request waits for the server to close when the response carries a non-zero Content-Length (owner decided: a `method` field on `http::PendingState`) |
 | [ ]  | 1003   | LOW      | the `http::pump` man example can hang forever: it fetches a live remote (example.com) with no deadline (flake) |
+| [ ]  | 1130   | LOW      | list-form `udp::poll`/`tcp::poll` report a socket handed to another thread as `ErrResourceClosed`, not `ErrResourceMoved` |
 
 ## File system, I/O and OS
 

@@ -96,9 +96,7 @@ one stopped.
 An explicit flush is rarely required even under buffering: the buffer is also
 drained when it fills, before every standard-input read, on
 `io::setBuffered(FALSE)`, and at program exit. Standard error is never buffered
-and is written immediately, so it has no corresponding flush. In app mode
-transcript writes are synchronous; while `term::` TUI mode is active, this call
-also asks for the current frame to be presented."#;
+and is written immediately, so it has no corresponding flush. In app mode transcript writes are synchronous, and in app mode only, while `term::` TUI mode is active, this call also asks for the current frame to be presented. In a console program the frame is presented only by `term::sync`."#;
 const EX: &str = r#"Make buffered output visible at a checkpoint:
 
 ```

@@ -25,3 +25,16 @@ man-pkg:math	0	303	62	clean	Claude Code v2.1.310/claude-fable-5-1
 man-pkg:vector	0	147	46	clean	Claude Code v2.1.310/claude-fable-5-1
 man-pkg:os	0	184	57	clean	Claude Code v2.1.310/claude-fable-5-1
 man-pkg:general	0	167	55	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:bits	0	371	53	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:io	0	377	48	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:audio	0	163	46	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:tcp	0	181	53	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:testing	0	138	35	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:udp	0	170	44	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:thread	0	310	57	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:csv	0	176	64	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:net	0	249	46	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:regex	FAILED	2	0	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:app	FAILED	2	0	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:money	FAILED	2	0	clean	Claude Code v2.1.310/claude-fable-5-1
+man-pkg:errorCode	FAILED	2	0	clean	Claude Code v2.1.310/claude-fable-5-1

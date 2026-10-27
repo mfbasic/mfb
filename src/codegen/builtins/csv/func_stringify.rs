@@ -29,21 +29,16 @@ The optional `delimiter`, `quote`, and `newline` arguments select a dialect:
 `delimiter` replaces the comma between fields, `quote` replaces the double quote
 used to wrap and escape, and `newline` replaces the LF written between rows. Each
 defaults to the RFC-4180 value (`,`, `"`, and LF) when omitted, so the
-one-argument form is unchanged. `delimiter` and `quote` must each be a non-empty
-single character; an empty `delimiter` or `quote` raises `ErrInvalidFormat`.
+one-argument form is unchanged. `delimiter` and `quote` must be non-empty (an empty one raises `ErrInvalidFormat`). Only the first Unicode scalar is meaningful to `csv::parse` and `csv::readRow`, which `stringify` does not enforce: it writes the whole text, so pass exactly one scalar if the output must be read back.
 
 An empty outer list stringifies to the empty String. An empty row stringifies to
 an empty line, so a two-element outer list containing two empty rows produces a
 lone LF. Cells are written verbatim with no type interpretation: the Strings
 `"42"` and `""` are emitted as the text `42` and an empty field.
 
-For any grid `x`, `csv::parse(csv::stringify(x))` yields a grid whose cells equal
-those of `x`, with one normalization: a trailing empty row produced only by
-separator placement is not reintroduced, and a CRLF separator in the original
-text is normalized to LF on output.
+For any grid `x`, with the default newline (or CRLF), `csv::parse(csv::stringify(x))` yields a grid whose cells equal those of `x`, except that a trailing empty row produced only by separator placement is not reintroduced. Going the other way, `csv::stringify(csv::parse(text))` reproduces `text` except that CRLF record separators come back as LF and a single trailing separator is dropped.
 
-The sole argument is named `value`, so it can be supplied positionally or as the
-keyword argument `value :=`. `csv::stringify` does not mutate `value` and has no
+The grid is the parameter `value` and may be passed positionally or as `value :=`; `delimiter`, `quote` and `newline` may likewise be passed by name. `csv::stringify` does not mutate `value` and has no
 side effects. `ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Serialize a grid, quoting only the cell that needs it:

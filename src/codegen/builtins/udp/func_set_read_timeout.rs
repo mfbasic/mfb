@@ -23,7 +23,7 @@ set a timeout and treat its expiry as loss.
 immediately.
 
 Use `udp::poll` instead when the question is "has anything arrived?" rather than
-"receive, but not forever": poll answers with a `Boolean` and raises nothing."#;
+"receive, but not forever": poll answers with a `Boolean`, and an expired deadline is `FALSE` rather than an error."#;
 
 const EX: &str = r#"Treat a missing reply as loss rather than waiting forever:
 

@@ -18,8 +18,7 @@ non-negative 32-bit quantity regardless of the high bits of `value`.
 
 `value` is treated as a raw two's-complement 64-bit `Integer` bit pattern;
 `bswap32` does not interpret sign. The operation is total — it is defined for
-every `Integer` and never raises; only the variable-shift ops (`sl`/`sr`/`sra`)
-can raise a `bits::` error — and has no side effects."#;
+every `Integer` and never raises — and has no side effects. Only the shifts `bits::sl`, `bits::sr` and `bits::sra` can raise."#;
 const EX: &str = r#"Swap the four low bytes of a 32-bit value:
 
 ```

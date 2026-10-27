@@ -32,8 +32,7 @@ output is being captured. It does not check what the terminal supports: whether
 ANSI colour, progress bars, or cursor control work is a separate question. The
 answer says nothing about `io::setBuffered`: buffering is an MFBASIC-level setting
 the program controls, not something inferred from whether standard output is a
-terminal. In app mode this call returns `TRUE`, because the application window is
-treated as an interactive console."#;
+terminal. In an `--app` build this call returns `TRUE` in every `app::Mode`, including `app::Mode.None`, where there is no window: it reports that input is interactive, not that a reader will succeed — the readers raise `ErrWrongMode` in `app::Mode.None`."#;
 const EX: &str = r#"Colour the output only when a terminal is attached:
 
 ```

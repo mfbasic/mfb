@@ -22,7 +22,7 @@ pub(crate) fn lower_write(
     lower_write_family(builder, ctx, false, false, "io.write")
 }
 
-const INTRO: &str = r#"Write a `String` to standard output with no trailing newline"#;
+const INTRO: &str = r#"Write text to standard output with no trailing newline"#;
 const DESC: &str = r#"`io::write` writes `value` to standard output and adds nothing. Outside `term::` TUI
 mode the text is treated as UTF-8 and emitted byte for byte, with no escaping and no
 newline translation; in TUI mode it is written into the terminal grid, where line

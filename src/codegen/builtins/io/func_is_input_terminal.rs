@@ -29,8 +29,7 @@ failing, so it never raises.
 The probe inspects state only. It does not modify the stream, read any input,
 or block waiting for data, so it is safe to call before deciding whether to
 prompt interactively, enable line editing, or read a piped stream straight
-through. In app mode this call returns `TRUE`, because the application window is
-treated as an interactive console."#;
+through. In an `--app` build this call returns `TRUE` in every `app::Mode`, including `app::Mode.None`, where there is no window: it reports that input is interactive, not that a reader will succeed — the readers raise `ErrWrongMode` in `app::Mode.None`."#;
 const EX: &str = r#"Prompt only when standard input is a terminal, otherwise read the piped stream:
 
 ```

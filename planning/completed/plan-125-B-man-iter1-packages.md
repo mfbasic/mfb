@@ -483,6 +483,17 @@ Commit: 29da2a4ef (C-6 prompt + artifact), 1bcd9d803 (findings applied)
 
 ## Corrections
 
+- **Recheck against current code, 2026-10-26 (owner request).** All 39 iteration-1 units and the
+  4 consistency dimensions were re-run with the same prompts (`planning/plan-125-findings/B-recheck/`,
+  `B-recheck-consistency/`). 35 units completed and were applied (`79afdf4ba`..this commit),
+  filing bug-1126..1130. **Not yet done:** `man-pkg:regex`, `man-pkg:app`, `man-pkg:money`,
+  `man-pkg:errorCode` and all four `man-consistency:*` units FAILED on the reviewer's usage
+  limit (429, resets 2026-10-26 20:10 HST) — re-run them from `planning/plan-125-units/B-all.txt` /
+  `B-phase4.txt` and apply. For bits, io, audio, tcp, testing, udp, thread, csv and net only the
+  wrong/inconsistent findings were applied; their "missing coverage" suggestions (e.g. audio MML
+  grammar, tcp/udp IPv4-only, io read-to-EOF example, csv BOM, net URL→connection) are left in the
+  findings files for letter G (iteration 3, the same package lens).
+
 <!-- Filled in DURING execution. -->
 
 ### C-1 — every count in §2 drifted, and Phase 1 is 10 units, not 11

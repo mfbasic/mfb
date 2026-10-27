@@ -51,8 +51,7 @@ read. A negative `timeoutMs` raises `ErrInvalidArgument` (the most negative `Int
 excepted; see the parameter). End of input raises
 `ErrEndOfFile`.
 
-The `io` readers share one queue of input, so they can be mixed without losing
-or reordering anything. A thread other than the main thread must subscribe with
+Within a thread, the `io` readers share one queue of input, so they can be mixed without losing or reordering anything; each thread has its own view (see the package overview and `thread::openStdIn`). A thread other than the main thread must subscribe with
 `thread::openStdIn` before reading, or the call raises `ErrInvalidContext`. In
 an `--app` build the program must be in `app::Mode.Console` or
 `app::Mode.Canvas`; in `app::Mode.None` there is no window to take keys from and

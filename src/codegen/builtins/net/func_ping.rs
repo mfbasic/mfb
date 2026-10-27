@@ -169,7 +169,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![
                     super::req(
                         "host",
-                        "The host name or textual IP address to ping. Passed to the host resolver as written; a value that does not resolve raises `ErrAddressInvalid`.",
+                        "The host name or textual IP address to ping. Passed to the host resolver as written; a value that does not resolve raises `ErrAddressInvalid` — not `ErrAddressNotFound` as `net::lookup` does; resolve with `net::lookup` first to tell an unknown name apart from a malformed one.",
                         &[],
                         ParameterType::String,
                     ),

@@ -16,8 +16,7 @@ participate: `bits::ctz(40)` is `3` whether the value is `40` (`0b101000`) or
 `0b1111_1000`, because both have their lowest set bit at index 3.
 
 `value` is treated as a raw two's-complement 64-bit `Integer` bit pattern; `ctz`
-does not interpret sign. Negative values are not special-cased the way they are
-for `bits::clz`: `bits::ctz(-1)` is `0` (every bit is set), while
+does not interpret sign. Negative values follow the same rule as any other bit pattern: `bits::ctz(-1)` is `0` (every bit is set), while
 `bits::ctz(-2)` is `1`. When bit 0 is set — that is, whenever `value` is odd —
 the result is `0`. When `value` is `0` there is no set bit at all, so all 64 bits
 count as trailing zeros and the result is `64`; this zero case is the boundary
@@ -46,11 +45,7 @@ anywhere in the word see `bits::popCount`. Note the identity
 `bits::ctz(value) = bits::popCount(bits::band(value, -value) - 1)`, which holds
 for every `value` including `0`.
 
-`ctz` gives the same answer on every platform, but it is the one function here
-whose cost varies noticeably between them: it is cheap on arm64 and x86-64 and
-markedly more expensive on RISC-V, which lacks the operations it is built from.
-On a hot RISC-V path where all you need is a yes/no alignment test, prefer
-`bits::band(value, -value)` and a comparison over calling `ctz`."#;
+`ctz` gives the same answer on every platform."#;
 const EX: &str = r#"Count the trailing zeros of `40` (`0b101000`) — its lowest set bit is at index 3:
 
 ```

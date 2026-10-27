@@ -46,7 +46,7 @@ read. A negative `timeoutMs` raises `ErrInvalidArgument` (the most negative `Int
 excepted; see the parameter).
 
 End of input raises `ErrEndOfFile`, never a sentinel byte, so all 256 byte values
-are data. The readers share one queue of input, so `io::readRaw` can be mixed
+are data. Within a thread, the readers share one queue of input (each thread has its own view), so `io::readRaw` can be mixed
 with the other `io` readers without losing or reordering a byte. A worker
 thread must subscribe with `thread::openStdIn` before reading, or the call
 raises `ErrInvalidContext`. In an `--app` build the program must be in

@@ -108,8 +108,7 @@ milliseconds, and a negative value raises `ErrInvalidArgument` — except the mo
 negative `Integer`, which is what an omitted argument passes and so also waits
 without bound. A wait that
 runs out raises `ErrTimeout` and loses nothing — a
-half-read line is still there for the next read. End of input is reported as an
-error, not as an empty or sentinel result, once no input is left: a final line
+half-read line is still there for the next read. End of input is reported as an error (`ErrEndOfFile`), not as an empty or sentinel result, once no input is left: a final line
 with no terminator is still returned, and only the next read reports end of
 input.
 
@@ -132,9 +131,7 @@ in it.
 The terminal predicates `io::isInputTerminal`, `io::isOutputTerminal`, and
 `io::isErrorTerminal` return a `Boolean` reporting whether the corresponding
 standard stream is connected to an interactive terminal; they never block,
-read input, or raise. Each call uses its own standard stream; in app mode all of
-them are routed to the application transcript window, which is treated as an
-interactive terminal.
+read input, or raise. Each call uses its own standard stream; in an `--app` build they return `TRUE` in every `app::Mode`, including `app::Mode.None`, where there is no window — they report that the stream is interactive, not that a reader will succeed.
 
 Each thread that reads standard input has its own view of it: reading in one
 thread does not take input away from another, and a thread sees the input that

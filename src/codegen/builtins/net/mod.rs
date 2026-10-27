@@ -245,17 +245,17 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: ADDRESS_TYPE,
         export: true,
-        description: "",
+        description: "The endpoint record shared by `tcp`, `udp` and `tls`. A program receives it from `net::lookup` (which stamps the port you pass), a received datagram, a socket's address reporters or `net::ping`, and hands it straight to the transports.",
         props: vec![
             RecordProp {
                 name: "host",
                 ty: ParameterType::String,
-                description: "The peer's textual IP address.",
+                description: "The textual IPv4 address of the endpoint — a resolved host, a datagram's sender, a socket's own or remote end, or a ping responder.",
             },
             RecordProp {
                 name: "port",
                 ty: ParameterType::Integer,
-                description: "The peer's port.",
+                description: "The endpoint's port; `0` when the source has none (`net::lookup` without a port, `net::ping`).",
             },
         ],
     });
