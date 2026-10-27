@@ -22,7 +22,9 @@ A missing alpha means **opaque**, not transparent, which is what a reader of
 24 bits.
 
 Anything else raises `ErrInvalidFormat` (`77050003`): an unsupported length, a
-non-hex character, an empty string, a second `#`. The parse is total in the other
+non-hex character, an empty string, a second `#`. Surrounding whitespace is not
+trimmed: a value read from a file with a trailing newline must be trimmed
+first. The parse is total in the other
 direction — every string is either one of the four forms or an error, and there is
 no partial or best-effort result. `ErrOutOfMemory` means the program ran out of
 memory.

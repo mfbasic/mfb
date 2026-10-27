@@ -102,8 +102,9 @@ pub(crate) const COLOR_TO_STRING: &str = "__color_toString";
 
 const MODULE_INTRO: &str = r#"One colour type for the whole language: an 8-bit-per-channel RGBA value with constructors, hex and packed forms, and the adjustments palettes are built from."#;
 
-const MODULE_DESC: &str = r#"The `color` package defines `color::Color`, the colour value every other package
-speaks. It is a built-in package: `IMPORT color` needs no manifest dependency.
+const MODULE_DESC: &str = r#"The `color` package defines `color::Color`, the one colour type in the language:
+every package that takes or returns a colour (`canvas`, `term`, `astrings`, …)
+uses it. It is a built-in package: `IMPORT color` needs no manifest dependency.
 
 A `color::Color` carries four `Byte` channels — `red`, `green`, `blue` and
 `alpha`. It is an ordinary value record, so you may build one with
@@ -117,8 +118,11 @@ instead, because those clamp.
 channel scaled by a fraction — and a value one past an end is a rounding artefact,
 not a mistake worth stopping the program for. Their component parameters are
 `Integer` rather than `Byte` precisely so an out-of-range value can reach that
-clamp. A `color::Color[...]` literal does not clamp: its fields are `Byte`, so an
-out-of-range value is rejected rather than pulled into range.
+clamp. A `color::Color[...]` literal does not clamp: its fields are `Byte`. An
+out-of-range literal, or an `Integer` passed where a `Byte` field is expected, is
+a build error; a value you convert yourself with `toByte` raises at run time if
+it is outside `0`..`255`. Use `color::rgb` or `color::rgba` when a component is
+computed.
 
 **Alpha is straight, not premultiplied.** `0` is fully transparent and `255`
 fully opaque, and a colour's `red`/`green`/`blue` are unaffected by it. The
@@ -129,7 +133,11 @@ all-zero colour is therefore fully transparent.
 a colour travels through an API that carries one number.
 
 Text forms use `color::fromHex` and `color::toHex`/`color::toHexAlpha`.
-`toString` on a colour renders the lossless `#rrggbbaa` form.
+`toString` on a colour renders the lossless `#rrggbbaa` form. `color::fromHex`
+raises `ErrInvalidFormat` for anything that is not a well-formed hex colour, and
+`color::fromName` and `color::nameOf` raise `ErrNotFound` for a name or colour
+that is not in the CSS table. Apart from `ErrOutOfMemory` on the calls that
+build text, nothing else in the package raises, and the constructors never do.
 
 **Beyond building and spelling colours, the package adjusts them in two
 spaces.** Hue-based adjustments — `color::hsl`, `color::hsla` and `color::toHsl`
@@ -181,12 +189,16 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: COLOR_TYPE,
         export: true,
-        description: "An 8-bit-per-channel RGBA colour — the colour value every \
-                      package speaks. Build one with `color::rgb` or `color::rgba` \
+        description: "An 8-bit-per-channel RGBA colour — the colour value `canvas`, \
+                      `term` and `astrings` take wherever they draw. Build one with `color::rgb` or `color::rgba` \
                       (which clamp), from a packed `Integer` with \
                       `color::fromPacked`, or from text with `color::fromHex`. \
-                      `alpha` is straight, not premultiplied, so the all-zero \
-                      colour is fully transparent.",
+                      `alpha` is straight, not premultiplied: a colour with \
+                      `alpha` `0` is invisible but still keeps its red, green and \
+                      blue, so `color::withAlpha` can make it visible again \
+                      unchanged. The all-zero colour is transparent black. \
+                      `toString` on a colour gives the eight-digit `#rrggbbaa` \
+                      form, the same text `color::toHexAlpha` returns.",
         props: vec![
             RecordProp {
                 name: "red",
@@ -221,7 +233,12 @@ pub(crate) fn register(r: &mut Registry) {
                       `color::Color`. `color::toHsl` returns one, and `color::hsl` \
                       builds a colour back from the same three values. It describes \
                       the sRGB colour, not linear light, so it matches what a design \
-                      tool shows for the same hex.",
+                      tool shows for the same hex. The field ranges below are what \
+                      `color::toHsl` reports; a record you build yourself may hold \
+                      any value, and `color::hsl` wraps `hue` by whole turns and \
+                      clamps `saturation` and `lightness` to `0.0`..`1.0`. \
+                      `toString` does not accept an `Hsl`; print its three fields \
+                      individually.",
         props: vec![
             RecordProp {
                 name: "hue",
