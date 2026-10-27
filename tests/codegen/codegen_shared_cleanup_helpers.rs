@@ -70,8 +70,12 @@ fn shared_scope_drops_free_and_null_their_slot() {
     let ncode = build_ncode(&project, "macos-aarch64", "codegen_shared_cleanup");
 
     for symbol in ["_mfb_rt_drop_owned_string", "_mfb_rt_drop_owned_collection"] {
-        let instructions =
-            function(&ncode, symbol).unwrap_or_else(|| panic!("`{symbol}` was not emitted"));
+        // plan-171-B: the entry guard `cbz slot, skip` reads as the
+        // `cmp_imm slot, 0; b.eq skip` it replaced.
+        let instructions = common::split_compare_branches(
+            function(&ncode, symbol).unwrap_or_else(|| panic!("`{symbol}` was not emitted")),
+        );
+        let instructions = &instructions;
         let opcodes = ops(instructions);
         let free = opcodes
             .iter()

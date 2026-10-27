@@ -86,12 +86,17 @@ fn app_ncode_functions(name: &str, target: &str) -> serde_json::Map<String, Valu
     map
 }
 
-fn body<'a>(functions: &'a serde_json::Map<String, Value>, symbol: &str) -> &'a [Value] {
-    functions
-        .get(symbol)
-        .unwrap_or_else(|| panic!("{symbol} is emitted by a term:: app build"))
-        .as_array()
-        .expect("instructions")
+/// A member's instructions, every compare-and-branch form (plan-171-B `cbz`,
+/// `tbz`, …) written back as the compare and `b.<cond>` it replaced, so a gate
+/// reads the same however the row spelled it.
+fn body(functions: &serde_json::Map<String, Value>, symbol: &str) -> Vec<Value> {
+    common::split_compare_branches(
+        functions
+            .get(symbol)
+            .unwrap_or_else(|| panic!("{symbol} is emitted by a term:: app build"))
+            .as_array()
+            .expect("instructions"),
+    )
 }
 
 /// The `(base, offset)` of the shared arena term-state `active` slot, read out of
@@ -168,7 +173,7 @@ fn windows_app_mode_term_bodies_gate_on_the_shared_active_slot() {
     for (member, call) in WINDOWS_GATED {
         let symbol = format!("_mfb_rt_term_term_{member}");
         let instructions = body(&functions, &symbol);
-        let gate = gate_position(instructions, &slot).unwrap_or_else(|| {
+        let gate = gate_position(&instructions, &slot).unwrap_or_else(|| {
             panic!(
                 "term::{member} must test the shared active slot ({}+{}) — gating on the \
                  live TUI_MEMDC handle is not the same gate, because `term::off` never \
@@ -199,7 +204,7 @@ fn windows_app_mode_term_bodies_gate_on_the_shared_active_slot() {
         let symbol = format!("_mfb_rt_term_term_{member}");
         let instructions = body(&functions, &symbol);
         assert!(
-            gate_position(instructions, &slot).is_some(),
+            gate_position(&instructions, &slot).is_some(),
             "term::{member} must test the shared active slot ({}+{}) before writing \
              term state — it had no gate of any kind (bug-541 GATE-02)",
             slot.0,
@@ -218,7 +223,7 @@ fn windows_app_mode_terminal_size_raises_while_tui_mode_is_off() {
     let functions = app_ncode_functions("win_app_term_size", "windows-x86_64");
     let slot = active_slot(&functions);
     let instructions = body(&functions, "_mfb_rt_term_term_terminalSize");
-    let gate = gate_position(instructions, &slot).expect(
+    let gate = gate_position(&instructions, &slot).expect(
         "term::terminalSize must test the shared active slot before answering (bug-541 GATE-01)",
     );
     let alloc = instructions
@@ -324,7 +329,7 @@ fn the_three_ungated_term_members_stay_ungated_on_every_app_backend() {
         // `term::on` is the gate: it must not test the flag it is about to set.
         let on = body(&functions, "_mfb_rt_term_term_on");
         assert!(
-            gate_position(on, &slot).is_none(),
+            gate_position(&on, &slot).is_none(),
             "{target}: term::on must not be gated on the active slot — it is the call \
              that sets it"
         );
@@ -345,7 +350,7 @@ fn the_three_ungated_term_members_stay_ungated_on_every_app_backend() {
         // `term::didResize` reads and clears its own flag, never the active flag.
         let did_resize = body(&functions, "_mfb_rt_term_term_didResize");
         assert!(
-            gate_position(did_resize, &slot).is_none(),
+            gate_position(&did_resize, &slot).is_none(),
             "{target}: term::didResize must answer either way — reading FALSE before any \
              term::on is the contract, not raising and not no-oping"
         );

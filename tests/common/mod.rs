@@ -999,3 +999,55 @@ pub fn split_pairs(instructions: &[serde_json::Value]) -> Vec<serde_json::Value>
     }
     out
 }
+
+/// plan-171-B: an `-ncode` stream with every compare-and-branch form written back
+/// as the compare and flag branch it replaced — `cbz`/`cbnz r, L` as `cmp_imm r, 0`
+/// + `b.eq`/`b.ne L`, `tbnz`/`tbz r, #63, L` as `cmp_imm r, 0` + `b.lt`/`b.ge L`,
+/// and any other `tbz`/`tbnz r, #k, L` as `mov_imm m, 2^k; and t, r, m; cmp_imm
+/// t, 0; b.eq/b.ne L` (`t` the riscv64 `scratch`, else the placeholder `%bit`; `m`
+/// the placeholder `%mask`). A test that reasons about a guard's compare and
+/// branch reads this, so it sees the same shape whether or not the row folded it.
+pub fn split_compare_branches(instructions: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    let mut out = Vec::with_capacity(instructions.len());
+    for instruction in instructions {
+        let op = instruction["op"].as_str().unwrap_or("");
+        if !matches!(op, "cbz" | "cbnz" | "tbz" | "tbnz") {
+            out.push(instruction.clone());
+            continue;
+        }
+        let register = instruction["register"]
+            .as_str()
+            .expect("register")
+            .to_string();
+        let target = instruction["target"].clone();
+        let bit: Option<u32> = instruction["bit"].as_str().map(|b| b.parse().expect("bit"));
+        let (tested, branch) = match (op, bit) {
+            ("cbz", _) => (register, "b.eq"),
+            ("cbnz", _) => (register, "b.ne"),
+            ("tbnz", Some(63)) => (register, "b.lt"),
+            ("tbz", Some(63)) => (register, "b.ge"),
+            (_, Some(k)) => {
+                let t = instruction["scratch"]
+                    .as_str()
+                    .unwrap_or("%bit")
+                    .to_string();
+                out.push(serde_json::json!({
+                    "op": "mov_imm", "dst": "%mask", "type": "Integer",
+                    "value": (1u64 << k).to_string(),
+                }));
+                out.push(serde_json::json!({
+                    "op": "and", "dst": t, "lhs": register, "rhs": "%mask",
+                }));
+                (t, if op == "tbz" { "b.eq" } else { "b.ne" })
+            }
+            _ => unreachable!("tbz/tbnz carry a bit"),
+        };
+        out.push(serde_json::json!({ "op": "cmp_imm", "lhs": tested, "rhs": "0" }));
+        let mut branch = serde_json::json!({ "op": branch, "target": target });
+        if let Some(reason) = instruction.get("reason") {
+            branch["reason"] = reason.clone();
+        }
+        out.push(branch);
+    }
+    out
+}

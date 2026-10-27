@@ -181,11 +181,16 @@ fn find_helper<'a>(functions: &'a [Value], target: &str, symbol: &str) -> &'a Va
         .unwrap_or_else(|| panic!("{target}: helper {symbol} not emitted"))
 }
 
-fn instructions(func: &Value) -> &[Value] {
-    func["instructions"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or(&[])
+/// The function's instructions, every compare-and-branch form (plan-171-B
+/// `cbz`, `tbz`, …) written back as the compare and `b.<cond>` it replaced, so a
+/// checked syscall result reads the same however the row spelled its branch.
+fn instructions(func: &Value) -> Vec<Value> {
+    common::split_compare_branches(
+        func["instructions"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[]),
+    )
 }
 
 fn assert_target(target: &str) {

@@ -105,7 +105,9 @@ fn helper_counts(plan: &Value, package: &str) -> BTreeMap<String, Counts> {
             (
                 calls("_mfb_arena_alloc"),
                 calls("_mfb_arena_free"),
-                guarded_scratch_releases(instructions),
+                // plan-171-B: a `cbz ptr, kept` guard reads as the
+                // `cmp_imm ptr, 0; b.eq kept` it replaced.
+                guarded_scratch_releases(&common::split_compare_branches(instructions)),
             ),
         );
     }
