@@ -482,7 +482,7 @@ Commit: d61948208 (row), 0a9173fa4 (goldens), b3975fb67 (the three pinned tests,
 Acceptance: every remaining candidate class is explained in Corrections.
   Check: `python3 tools/ncode-census/census.py --diff …` output pasted in Corrections (est. 15 min).
   Result (2026-10-26): Correction 11.
-Commit: this commit (the sweep found nothing to convert; its record is Correction 11)
+Commit: 7ce4ac47f (the sweep found nothing to convert; its record is Correction 11)
 
 ### Phase 6 — spec and docs
 
@@ -507,7 +507,7 @@ Acceptance: specs render cleanly.
   Result (2026-10-26): the landing tier's bin tests (`spec_citations_resolve`
   among them) passed after `b3975fb67`; `target/release/mfb spec architecture
   --all | grep -c '\[\['` → 0; `mfb man optimizations` renders the row.
-Commit: d61948208 (specs, `.ai`), this commit (`planning/optimizations.md`)
+Commit: d61948208 (specs, `.ai`), 7ce4ac47f (`planning/optimizations.md`)
 
 ## Validation Plan
 
@@ -518,6 +518,10 @@ Commit: d61948208 (specs, `.ai`), this commit (`planning/optimizations.md`)
 - Runtime proof: Phase 4's five-target runs.
 - Doc sync: Phase 6.
 - Final gate (once): `cargo test --no-fail-fast > /tmp/171b.log 2>&1; echo EXIT=$?` → 0, `grep -c '^failures:'` → 0 (est. 60–90 min).
+  Result: first run (`cargo test --workspace --no-fail-fast` at `7ce4ac47f`) →
+  `EXIT=101`, 5 binaries red, every one an `-ncode` reader that did not know the
+  new forms (Correction 15), fixed in `815a54e0b`; the run at this plan's final
+  commit is reported with the landing.
 
 ## Open Decisions
 
@@ -691,6 +695,15 @@ Commit: d61948208 (specs, `.ai`), this commit (`planning/optimizations.md`)
    somewhere this core runs it worse. The same holds by construction for
    `window`/`replace`, whose loops change only by folds. Kept, and recorded as a
    measured layout effect for the owner, like plan-171-A's Correction 13.
+15. **The full suite found five more `-ncode` readers** that only the full tier
+   runs: `cli_app_term_inactive_gate`, `codegen_helper_scratch_release`,
+   `codegen_net_write_payload_view`, `codegen_shared_cleanup_helpers`,
+   `rt_syscall_return_robustness` each locate a runtime guard by its `cmp_imm` +
+   `b.<cond>` spelling, and the row now spells those guards `cbz`/`tbz`. Every
+   guard is still present (the failures' own dumps show it). As plan-171-A did
+   with `split_pairs`, `tests/common/mod.rs:split_compare_branches` writes each
+   form back as the compare and branch it replaced, and the readers read
+   through it; no assertion changed (`815a54e0b`, four questions there).
 
 ## Summary
 
