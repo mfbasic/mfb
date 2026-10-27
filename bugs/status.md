@@ -119,6 +119,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 828    | LOW      | json::parse depth cap admits 257 nested containers when the innermost is empty |
 | [ ]  | 829    | LOW      | csv::stringify → csv::parse drops a trailing single-empty-cell row and turns a zero-cell row into a one-cell row |
 | [ ]  | 869    | LOW      | `encoding::base64Decode` accepts excess `=` padding (`"AAAA===="`, `"AA======"`) |
+| [ ]  | 1119   | MED      | `IF datetime::isLeapYear(year) THEN` fails to build at -O1 ("string literal 'builtins/datetime.mfb' has no data object") |
 
 ## Crypto and TLS
 
