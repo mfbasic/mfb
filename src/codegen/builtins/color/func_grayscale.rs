@@ -7,8 +7,10 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Convert a colour to the neutral grey of the same perceived brightness."#;
 
-const DESC: &str = r#"`grayscale` sets every colour channel to the colour's relative luminance, so the
-result is a neutral grey that looks as bright as the original did. The weights are
+const DESC: &str = r#"`grayscale` returns the grey whose relative luminance equals the colour's: the
+three channels are set to the sRGB byte whose linear-light value is that
+luminance, so the result looks as bright as the original did. It is not
+luminance × 255 — a byte encodes gamma-compressed sRGB, not linear light. The weights are
 the WCAG ones `color::luminance` uses — green counts for far more than blue —
 computed on the **linear-light** channels.
 

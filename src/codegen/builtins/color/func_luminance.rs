@@ -28,7 +28,9 @@ looking like depends on what is behind it.
 `color::contrastRatio` is built on this, and `color::isDark`/`color::isLight` are
 the two-way split of it."#;
 
-const EX: &str = r#"The endpoints are exact, and green far outweighs blue:
+const EX: &str = r#"The endpoints are exact, and green far outweighs blue. `toString` shows two
+decimals, so this prints `0.00`, `1.00`, `0.72` and `0.07`; the underlying values
+are exactly `0.0`, `1.0`, `0.7152` and `0.0722`:
 
 ```
 IMPORT color

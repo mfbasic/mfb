@@ -27,8 +27,8 @@ them, so `nameOf(fromName("grey"))` is `"gray"`, not `"grey"`. That rule gives
 `gray`, `darkgray`, `darkslategray`, `dimgray`, `lightgray`, `lightslategray`,
 `slategray`, `aqua` and `fuchsia`.
 Both spellings still resolve through `color::fromName`; only the reverse
-direction has to choose, and choosing by name rather than by table order means the
-answer cannot change if the table is ever reordered.
+direction has to choose, and the choice is fixed: the alphabetically first
+spelling, always.
 
 This is what makes a colour round-trip through a config file readable: store
 `nameOf` when it succeeds and `color::toHexAlpha` when it does not."#;

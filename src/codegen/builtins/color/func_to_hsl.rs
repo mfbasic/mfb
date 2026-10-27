@@ -8,7 +8,9 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Decompose a colour into its hue, saturation and lightness."#;
 
 const DESC: &str = r#"`toHsl` returns a `color::Hsl` describing `base`: `hue` in degrees from `0.0` up to
-but not including `360.0`, `saturation` and `lightness` in `0.0`..`1.0`.
+but not including `360.0`, `saturation` and `lightness` from `0.0` to `1.0`, both ends included
+(`0.0` lightness is black, `1.0` is white; `1.0` saturation is a fully vivid
+colour).
 `color::hsl` is the inverse.
 
 **HSL describes the sRGB colour, not linear light.** That is what CSS `hsl()` and

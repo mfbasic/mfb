@@ -7,8 +7,9 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Return the photographic negative of a colour, keeping its alpha."#;
 
-const DESC: &str = r#"`invert` replaces each of red, green and blue with `255 -` that channel and
-returns `base`'s `alpha` unchanged. Black inverts to white, red to cyan, and any
+const DESC: &str = r#"`invert` returns a new colour whose red, green and blue are each `255 -` the
+matching channel of `base`, with `base`'s `alpha` carried through unchanged;
+`base` itself is not changed. Black inverts to white, red to cyan, and any
 colour inverted twice is itself.
 
 `alpha` is deliberately **not** inverted. Inverting a colour is a statement about

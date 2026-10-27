@@ -33,7 +33,7 @@ IMPORT color
 IMPORT io
 
 FUNC main() AS Nothing
-  ' red 0x12, green 0x34, blue 0x56, alpha 0x78 -> 0x78123456
+  ' red 0x12, green 0x34, blue 0x56, alpha 0x78 -> 0x78123456, printed as 2014458966
   LET c AS color::Color = color::rgba(18, 52, 86, 120)
   io::print(toString(color::toPacked(c)))
 END FUNC
