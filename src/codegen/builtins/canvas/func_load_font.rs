@@ -18,7 +18,8 @@ const INTRO: &str = r#"Load a TrueType font file and hold it as a `Font` resourc
 const DESC: &str = r#"`loadFont` reads the file at `path` and returns a `Font`, bound with `RES`. It closes
 by itself when it leaves scope, and `canvas::destroyFont` closes it sooner.
 A `canvas::Text` item holds the font itself. You can still close a font while a scene
-that draws with it is on screen: the item then draws nothing rather than failing.
+that draws with it is on screen: text in a presented scene draws each character from the next open font in its list, and draws nothing when none is left, rather than failing. Unlike
+`canvas::loadImage`, `loadFont` does not require `app::Mode.Canvas`.
 
 **The file is kept whole, not decoded.** A TrueType file *is* the glyph database —
 its `loca` table indexes `glyf` by glyph id — so decoding up front would mean

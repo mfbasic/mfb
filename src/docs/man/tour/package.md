@@ -58,6 +58,15 @@ RES f = fs::openFile("data.csv")    ' a handle, closed when its scope ends
 
 More: `mfb man types`.
 
+## Operators and comments
+
+`'` starts a comment that runs to the end of the line. `&` joins two `String`s
+(there is no implicit conversion: call `toString` first). `=` and `<>` compare,
+and `=` also assigns to a `MUT`. `^` raises to a power and `MOD` is the
+remainder. `:=` sets a field by name in a constructor or a `WITH`.
+
+More: `mfb spec language operators`, `mfb man strings`, `mfb man unicode`.
+
 ## Data
 
 Scalars are `Integer`, `Float`, `Fixed`, `Money`, `Boolean`, `String`, `Byte`,

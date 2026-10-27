@@ -19,8 +19,7 @@ scope is long — a font file is measured in hundreds of kilobytes, so this is a
 useful call than its image twin.
 
 **It is safe at any time, including while a presented scene still draws text in the
-font.** Text in a presented scene that names a released font draws as nothing
-rather than faulting. Measuring a released font with `canvas::measureText` raises
+font.** Text in a presented scene draws each character from the next open font in its list, and draws nothing when none is left, rather than failing. Measuring a released font with `canvas::measureText` raises
 `ErrResourceClosed`.
 
 A closed font is never used again, exactly as with `fs::close`: naming the binding

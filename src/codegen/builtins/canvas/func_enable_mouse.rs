@@ -27,7 +27,8 @@ const INTRO: &str = r#"Turn mouse reporting on or off for the canvas surface."#;
 const DESC: &str = r#"`canvas::enableMouse(TRUE)` asks the window to report mouse activity — button
 presses and releases, motion, drags and wheel scrolling — so that
 `canvas::pollMouse` can hand those events back to the program.
-`canvas::enableMouse(FALSE)` stops the reporting again.
+`canvas::enableMouse(FALSE)` stops the reporting again. `canvas::AutoPaint` does
+not need this — it reacts to the mouse whether or not reporting is on.
 
 Mouse reporting is **opt-in**, and for a reason that matters more here than it
 does on a terminal: motion is continuous. A window that reported every movement
@@ -40,7 +41,7 @@ Turn reporting off when the program stops caring. A program that never turns it
 off is not broken — the events simply go unread — but a draw loop that has
 stopped polling should stop asking.
 
-Requires `Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
+Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 
 const EX: &str = r#"Ask for mouse events before the draw loop:
 

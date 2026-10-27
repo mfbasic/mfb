@@ -33,6 +33,9 @@ MFBASIC threads are isolated: no shared statics, no shared collections, no
 shared anything. A worker is a top-level `ISOLATED FUNC`, and
 the only way in or out is a bounded, typed message queue.
 
+The parent-side lines at the end of the next block belong inside a `FUNC`;
+they are shown bare for brevity.
+
 ```
 ' text_workers package
 IMPORT strings
@@ -77,6 +80,9 @@ and `source`. A failure transfers control to the enclosing `TRAP`, or fails
 the function to its caller. Propagation is automatic like unchecked
 exceptions, but it is ordinary value flow — no stack unwinding, nothing
 invisible to the reader or the audit tooling.
+
+The last lines of the next block belong inside a `FUNC`; they are shown bare
+for brevity.
 
 ```
 IMPORT errorCode

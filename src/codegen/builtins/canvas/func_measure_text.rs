@@ -69,8 +69,9 @@ the example below does.
 A font with no `head` table measures as all zeroes rather than failing; in a list, it
 adds nothing. A closed font is different: measuring it raises `ErrResourceClosed`, and so
 does a list with a closed font anywhere in it. Text already in a
-presented scene still draws (as nothing) after its font is closed; only
-measurement needs the font open.
+presented scene still draws after its font is closed — each character from the
+next open font in its list, or nothing when none is left; only measurement needs
+the font open.
 
 `ErrOutOfMemory` means the program ran out of memory."#;
 
