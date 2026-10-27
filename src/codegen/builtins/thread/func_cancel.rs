@@ -15,8 +15,7 @@ the thread keeps running normally until its own function chooses to stop. The
 worker sees the request by calling `thread::isCancelled` and decides what to do
 — usually return early. A worker that never calls `isCancelled` runs its
 code to completion, so a long loop with no check in it cannot be stopped this
-way — except that a worker blocked in `thread::receive` or `thread::accept` wakes
-and fails with `ErrInterrupted`.
+way — except that a worker blocked in a channel call — `thread::receive`, `thread::accept`, `thread::send` or `thread::transfer` while it waits for room — wakes and fails with `ErrInterrupted`.
 
 Because it is cooperative, cancellation is safe: a cancelled thread still closes
 its own resources and still produces an outcome on the way out, whatever it

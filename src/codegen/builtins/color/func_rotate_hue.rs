@@ -16,11 +16,13 @@ few tens of degrees either side.
 `rotateHue(c, 40.0)`, and a negative value turns the other way, so walking around
 the wheel needs no bookkeeping and no range check.
 
-Hue is an **HSL** property, so this works on the sRGB colour rather than in linear
-light. `alpha` is carried through unchanged.
+Hue is an **HSL** property (`color::toHsl` reports it, `color::hsl` builds from
+it), so this works on the sRGB colour rather than in linear light. `alpha` is
+carried through unchanged.
 
 A colour with no saturation — any grey — has no hue to turn, so `rotateHue`
-returns it unchanged whatever `degrees` says.
+returns it unchanged whatever `degrees` says, unlike `color::saturate`, which
+turns a grey red.
 
 Rotating by `360.0` returns the original colour. Rotating twice lands within a
 channel step of rotating once by the sum, not always exactly on it: each call

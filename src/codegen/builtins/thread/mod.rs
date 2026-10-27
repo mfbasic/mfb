@@ -76,19 +76,14 @@ its `Thread`, the worker side passes its `ThreadWorker`.
 
 Everything that crosses the boundary is copied, so no value is ever reachable
 from two threads at once. Values allowed to cross are called thread-sendable:
-numbers, `String`, records, unions and immutable containers are, as long as
-everything inside them is. Functions and lambdas are not.
+numbers, `String`, records, unions, and `List`, `Map` and `Set` are, as long as everything inside them is; each arrives as its own copy. Functions and lambdas are not.
 
 There are two separate channels, and one thread may use both at once. The
 **message channel** carries data — `thread::send`, `thread::receive` and
 `thread::poll`, typed by the `Msg` in `Thread OF Msg TO Out`. The **resource
 channel** carries open handles — `thread::transfer` and `thread::accept`, typed
 by the `Res` in `Thread OF Msg RES Res TO Out`. A resource may not travel on the
-message channel; declare it on the resource channel instead. Every built-in
-socket and listener may cross — `fs::File`, `tcp::Socket`, `udp::Socket`,
-`tcp::Listener`, `tls::Socket` and `tls::Listener` — so a server may accept on
-one thread and hand each connection to a worker, and so may a `Thread` (never a
-`ThreadWorker`). The five that may not are `process::Process`, `audio::AudioInput`,
+message channel; declare it on the resource channel instead. Seven built-in resources may cross — `fs::File`, `tcp::Socket`, `tcp::Listener`, `udp::Socket`, `tls::Socket`, `tls::Listener` and a `Thread` itself (never a `ThreadWorker`) — so a server may accept on one thread and hand each connection to a worker. `Thread` and `ThreadWorker` are built-in types, described under `mfb man types`; how a `RES` handle, an alias and scope-exit closing work is `mfb man variable`. The five that may not are `process::Process`, `audio::AudioInput`,
 `audio::AudioOutput`, `canvas::Image` and `canvas::Font`; `thread::transfer`'s
 page says why for each. A
 resource your own project declares may cross when it is declared
@@ -106,8 +101,8 @@ same error. Asking again gives the same outcome again.
 A `Thread` is a `RES` handle, like an open file: bind it with `RES t =
 thread::start(…)`, and it is closed when that variable goes out of scope — a
 thread still running then is asked to stop, exactly as `thread::cancel` asks, and
-left to finish on its own. Passing it to a function lends it, so the caller
-still holds it afterwards; it can also sit in a `List OF RES Thread …` (a pool of
+left to finish on its own. Passing it to a function gives the function an
+alias, so the caller can still use it afterwards; it can also sit in a `List OF RES Thread …` (a pool of
 workers) or in a record's `RES` field.
 
 The worker's `ThreadWorker` is a `RES` handle too: inside the worker, bind it with
@@ -124,7 +119,7 @@ The two are separate records: neither side ever sees the other's.
 `thread::cancel` asks a thread to stop. It is a request, not a kill: the worker
 notices by calling `thread::isCancelled` and decides what to do about it. A
 thread that never asks keeps running its own code to completion. The one
-exception is a worker blocked in `thread::receive` or `thread::accept`: it wakes
+exception is a worker blocked in a channel call — `thread::receive`, `thread::accept`, `thread::send` or `thread::transfer` while it waits for room: it wakes
 and fails with `ErrInterrupted`, which it may trap to shut down in order.
 
 `thread::openStdIn` and `thread::closeStdIn` let more than one thread read

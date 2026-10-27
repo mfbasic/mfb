@@ -34,25 +34,33 @@ does not run at any dial level.
 | --- | --- | --- |
 | 0 | always on | Mandatory rewrites the language requires; not gated by the dial. |
 | 1 | `-O1` (default) | Transparent local rewrites — same operations, less waste — and removal of code that can never run or provably does nothing. |
-| 2 | `-O2` | Tidying across a whole function — values tracked through every path, and provably useless code removed. |
-| 3 | `-O3` | Restructuring — dead control structure is removed too. |
+| 2 | `-O2` | Whole-function and whole-module tidying — values tracked through every path, private globals folded or dropped, data laid out without padding, smarter register and stack-slot reuse. |
+| 3 | `-O3` | Loop restructuring (hoisting, unswitching, fusion, rotation), removing redundant computations and stack traffic, and dropping overflow, division and index checks only where the operands' proven ranges make the check impossible to fail; dead control structure is removed too. |
 
 `-O0` turns every dial pass off (a correct but unoptimized build); `-O1` is the
-default. Higher levels are cumulative: `-O3` enables everything below it.
+default. Use `-O0` when you will step through the program in `mfb dbg`: at `-O1`
+and above, a small helper may be merged into its caller (Leaf function inlining),
+so it can no longer be stopped in by name, and locals may live in registers
+rather than their own stack slots. Higher levels are cumulative: `-O3` enables everything below it.
 
 With `-v`, `mfb build` and `mfb test` print one `<pass>: <count>` line per enabled
 pass once the build finishes, reporting how many times it actually fired.
 
 ## Passes
 
-Passes on the dial. *Stage* names the part of the build each pass works on. The
+Passes on the dial. *Stage* names the part of the build each pass works on:
+*NIR* is your program's statements, before storage is planned; *MIR* is the
+chosen instruction stream, before registers are assigned; *Plan1* is data
+layout; *regalloc* is register assignment; *machine* is the final instructions;
+*codegen* is the `String` lowering step. The `-v` phase lines group all of them
+under `codegen+link`. The
 rows are not in running order: every pass of an earlier stage runs before any
 pass of a later one, wherever its row sits.
 
 {{optimizer-catalog}}
 
 Dead code (reachable but useless) is distinct from *unreachable* code (code
-control flow can never arrive at); the two are separate future-and-present
+control flow can never arrive at); the two are separate
 passes because they need different proofs — removing dead code must show it
 cannot trap, while unreachable code can never trap because it never runs.
 
@@ -79,6 +87,7 @@ raises — that is the point.
 
 ## See also
 
+- `mfb man debug`
 - `mfb build --help` — the `-O` and `-v` flags
 - `mfb test --help` — the same flags for a test run
 - `mfb man errors` — the runtime error model the optimizer must preserve

@@ -18,15 +18,17 @@ Whitespace is recognized by Unicode scalar, not by byte, and the recognized set
 is exactly the Unicode `White_Space` property: `U+0009`–`U+000D`, `U+0020`,
 `U+0085`, `U+00A0`, `U+1680`, `U+2000`–`U+200A`, `U+2028`, `U+2029`, `U+202F`,
 `U+205F`, and `U+3000`. Multi-byte whitespace scalars are matched whole, so
-trimming never splits a scalar.
+trimming never splits a scalar. Trimming works on scalars, not graphemes: a
+leading space followed by a combining mark loses the space, and the combining
+mark stays at the front of the result.
 
 Removal stops at the first scalar that is not whitespace, so interior and
 trailing content, including embedded spaces and line breaks, is preserved byte
 for byte. A `value` that is entirely whitespace yields the empty string, and the
-empty string yields the empty string. `value` is not mutated; the result is a
-new `String`, even when nothing was trimmed.
+empty string yields the empty string. `value` is not mutated; the call returns
+the trimmed text and leaves `value` as it was.
 
-`value` may also be an `astrings::AttributedString`: it returns an
+`value` may also be an `AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
 

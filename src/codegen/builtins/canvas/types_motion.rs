@@ -375,6 +375,8 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         description: "A shape that changes its paint as the mouse moves over it, with no \
                       code of yours running: present it once and the window keeps it \
                       up to date, even while your program is waiting for a key. It \
+                      does not need `canvas::enableMouse`; the window tracks the mouse \
+                      for it on its own. It \
                       wraps one `canvas::Shape` and holds up to four other paints for \
                       it. The shape is drawn with its own `paint` until the mouse \
                       arrives. When several of the four apply at once the order is \

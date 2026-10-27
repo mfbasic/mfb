@@ -46,7 +46,8 @@ zero bytes. On a `File` opened in `"append"` mode every write still goes to the
 end, wherever the position is.
 
 A negative `position` raises `ErrInvalidArgument` and leaves `file` untouched.
-Moving needs a handle the host can reposition: on a pipe or another non-seekable
+Moving needs a handle the host can reposition — a regular file on disk, or a
+`File` from `fs::openData`: on a pipe or another non-seekable
 handle the move fails with `ErrReadFailed`, as `fs::size` and `fs::eof` do on the
 same handles. If buffered output cannot be written, `ErrWriteFailed` is raised,
 the output stays buffered, and the position does not change. A closed `file`
@@ -67,18 +68,25 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Re-read a file from a remembered offset:
+Re-read a file from a remembered offset. The file lives in a scratch directory
+under the temporary directory, and `fs::close` releases it before it is deleted:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("notes.txt", "header\nbody line\n")
-  RES f = fs::openFile("notes.txt")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-seek-2"])
+  fs::createDirectories(dir)
+  LET notes AS String = fs::pathJoin([dir, "notes.txt"])
+  fs::writeText(notes, "header\nbody line\n")
+  RES f = fs::openFile(notes)
   io::print(fs::readLine(f))
   fs::seek(f, 7)
   io::print(fs::readLine(f))
+  fs::close(f)
+  fs::deleteFile(notes)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

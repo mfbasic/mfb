@@ -26,7 +26,9 @@ use super::gen_unix::*;
 const INTRO: &str = r#"Block until a spawned child exits and return its exit code."#;
 const DESC: &str = r#"`process::waitFor` blocks until the child behind a `Process` handle has exited, then
 returns its exit code. A child that exited normally returns its exit status
-(`0 .. 255` on Unix); a child killed by a signal returns `-1`.
+(`0 .. 255` on Unix); a child killed by a signal returns `-1` on Unix; on Windows, where
+`process::signal` ends a child with exit code 128 + signal number, that code
+(`137`, `143` or `134`) is what comes back.
 
 `waitFor` is **idempotent**. The first call reaps the child (`waitpid` on Unix) and
 caches its exit code and raw wait status in the handle; every later call — and a

@@ -31,7 +31,7 @@ A program that lays out from scratch each frame does not need this at all — th
 surface size is already an input to that. It is for programs that cache a layout and
 want to know when the cache is stale.
 
-Requires `Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
+Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 
 const EX: &str = r#"A banner that always spans the window: laid out once, and again only when the
 surface changes size.

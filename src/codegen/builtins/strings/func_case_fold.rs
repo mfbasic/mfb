@@ -38,7 +38,7 @@ Turkish dotted capital `İ` (`U+0130`) folds to `i` followed by combining dot ab
 is `FALSE`. `value` is not mutated;
 the result is a new `String`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
+`value` may also be an `AttributedString`: it returns an
 `AttributedString` whose text is transformed as above, but **attributes are
 dropped** — the mapping changes the scalar count within a span, so the overlay
 cannot be remapped. `ErrOutOfMemory` means the program ran out of memory."#;

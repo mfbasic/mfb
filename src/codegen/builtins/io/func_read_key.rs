@@ -33,10 +33,12 @@ The fields:
   `Up`, `Down`, `Left`, `Right`, `Home`, `EndKey` (the End key — `END` is a
   keyword), `PageUp`, `PageDown`, `Insert`, `Delete`, `Backspace`, `Enter`,
   `Tab`, `Escape`, `F1` … `F12`.
-- `grapheme` is what `io::readGrapheme` would return for the keystroke: `"a"`,
-  `"A"` for Shift+A, `"\n"` for Enter, `"\t"` for Tab, U+007F for Backspace,
-  U+001B for Escape. It is `""` for a key with no Unicode value. For Ctrl+A it is
-  `"a"`, with `ctrl` set.
+- `grapheme` is the text the key types: `"a"`, `"A"` for Shift+A, `"\n"` for
+  Enter, `"\t"` for Tab, U+007F for Backspace, U+001B for Escape. It is `""` for a
+  key with no Unicode value. It is always the key's own character, even where
+  `io::readGrapheme` would return something else: for Ctrl+A it is `"a"`, with
+  `ctrl` set (`io::readGrapheme` returns U+0001), and a release still carries the
+  character (`io::readGrapheme` skips a release).
 - `event` is `Press`, `Repeat` (the key is held down and repeating) or `Release`
   — or `NotSupported` when the input cannot tell them apart.
 - `shift`, `ctrl`, `alt` and `meta` report the modifiers. `alt` is Option on
@@ -46,17 +48,20 @@ The fields:
 `Press`, `Repeat` and `Release`, with every modifier. So does a terminal that
 speaks the kitty keyboard protocol (the kitty terminal, for one) while
 `term::on` is active. Everywhere else — another terminal,
-a console outside `term::on`, a pipe, a file — every key arrives once, as it is
-typed, with `event` = `io::KeyEvent.NotSupported`, and no release ever arrives.
-There, the modifiers are the ones a plain terminal can express:
+a console outside `term::on`, a pipe, a file — a key arrives once, as it is
+typed, with `event` = `io::KeyEvent.NotSupported`. Press, Repeat and Release
+arrive there only when the input itself carries kitty-protocol key reports (a
+file of recorded kitty input does), so check `event` rather than assuming no
+release can arrive; the second example below does. Without those reports, the
+modifiers are the ones a plain terminal can express:
 
 | Keystroke | What a plain terminal reports |
 | --- | --- |
-| Ctrl+letter | the letter, with `ctrl` |
+| Ctrl+letter, Ctrl+Space, Ctrl+`\`, Ctrl+`]`, Ctrl+`^`, Ctrl+`_` | the character, with `ctrl` |
 | Alt+key | the key, with `alt` (the terminal sends Esc first) |
-| Shift, Ctrl or Alt with an arrow, Home, End, Page Up/Down, Insert, Delete, F-key | the key, with those modifiers |
+| Shift, Ctrl, Alt or Meta with an arrow, Home, End, Page Up/Down, Insert, Delete, F-key | the key, with those modifiers |
 | Shift+letter | the capital letter; `shift` is not set |
-| any key with Meta | the key; `meta` is never set |
+| Meta+letter | the letter; `meta` is not set |
 
 **Escape needs a moment.** From a keyboard, the Escape key and the start of an
 arrow key's sequence begin with the same byte, so a lone Escape is reported 25
@@ -78,7 +83,11 @@ On a terminal each key is read as it is pressed, with nothing echoed, and the
 previous mode is restored before the call returns. The `io` readers share one
 queue of input, so they can be mixed without losing or reordering anything. A
 thread other than the main thread must subscribe with `thread::openStdIn` before
-reading, or the call raises `ErrInvalidContext`."#;
+reading, or the call raises `ErrInvalidContext`. In an `--app` build the program
+must be in `app::Mode.Console` or `app::Mode.Canvas`; in `app::Mode.None` there
+is no window to take key events from and the call raises `ErrWrongMode`. A read
+of standard input that the operating system refuses raises `ErrInputFailed`, and
+`ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Report one key:
 
 ```

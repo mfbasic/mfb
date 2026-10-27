@@ -1,0 +1,5 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-consistency:overview-shape	FAILED	3	0	clean	Claude Code v2.1.310/claude-fable-5-1
+man-consistency:vocabulary	FAILED	3	0	clean	Claude Code v2.1.310/claude-fable-5-1
+man-consistency:guide-package	FAILED	3	0	clean	Claude Code v2.1.310/claude-fable-5-1
+man-consistency:handles	FAILED	2	0	clean	Claude Code v2.1.310/claude-fable-5-1

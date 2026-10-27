@@ -1,0 +1,29 @@
+### 1. The most-negative Integer does not raise ErrInvalidArgument; it waits without bound
+UNIT:      man-page:io/readRaw
+CLAIM:     "A negative `timeoutMs` raises `ErrInvalidArgument`." (and the parameter cell: "Must not be negative.")
+VERDICT:   wrong
+EVIDENCE:  `src/codegen/builtins/io/func_read_raw.rs:register` fills an omitted argument with `TIMEOUT_UNBOUNDED_SENTINEL` = `"9223372036854775808"` (`src/codegen/error/constants/error_constants.rs`), which as a signed Integer is -9223372036854775808. `lower_key_reader` compares the argument to the sentinel first and branches to `timeout_ok` before the `branch_lt(invalid_argument)` check (`gen_read_key_family.rs` lines 156-164). Probe `/tmp/plan-125-scratch/D-phase6-current/man-page-io-readRaw/sent.mfb` passes `LET t AS Integer = -9223372036854775807 - 1` to `io::readRaw(t)`; run as `(sleep 1; printf 'Q') | ./q_sent/build/q_sent.out` it printed `t=-9223372036854775808` then `got 81` after one second, i.e. an unbounded wait, not ErrInvalidArgument. Every other negative value raises as documented (`p_neg.mfb` with -1 printed `err 77050002`). This is a compiler-side hole in the shared reader body rather than a prose slip, and it affects all four keystroke readers; the main thread should decide whether to close it (check `< 0` before the sentinel test, or make the sentinel unreachable) rather than document it.
+SUGGESTED: Fix the lowering so any value below zero raises, and leave the sentence as is. If the behaviour is instead kept, the sentence must read: "A negative `timeoutMs` raises `ErrInvalidArgument`, except the most negative Integer, which waits without bound."
+
+### 2. The second example's "nothing waiting" handler does not cover exhausted input
+UNIT:      man-page:io/readRaw
+CLAIM:     "Take a byte only if one is already waiting:" (the example that traps only `ErrTimeout`)
+VERDICT:   incomplete
+EVIDENCE:  Built the example verbatim as `q_ex2`. `./q_ex2/build/q_ex2.out </dev/null` printed an untrapped `Error: 7-702-0003 Read operation reached end of file where a value was required.` and exited 255; `(sleep 1; printf 'Q') | ./q_ex2/build/q_ex2.out` (open pipe, nothing yet) printed `nothing waiting`; `printf 'Z' | ...` printed `got 90`. The page's own description says end of input is a distinct error, but the example framed as "only if one is already waiting" terminates the program when input is closed, which is the common case for a program run with redirected input. A reader copying this as a poll idiom gets a crash, not a "no".
+SUGGESTED: Either add `IF e.code = errorCode::ErrEndOfFile THEN io::print("input closed") : RETURN 0 END IF` alongside the timeout branch, or precede the example with: "`ErrTimeout` means nothing has arrived yet; closed input is `ErrEndOfFile` and must be handled separately."
+
+### 3. "per-thread broadcast log" is runtime vocabulary, not a developer fact
+UNIT:      man-page:io/readRaw
+CLAIM:     "Standard input is a per-thread broadcast log; a thread other than the main thread must subscribe with `thread::openStdIn` before reading, or the call raises `ErrInvalidContext`."
+VERDICT:   out-of-scope
+EVIDENCE:  `.ai/man-content.md` §3 bans wording that requires a compiler or runtime mental model. "Broadcast log" and "subscribe" name the runtime's stdin replication design (`src/codegen/io/stdin.rs`, the `stdinLogCap` project option); nothing on the page tells the developer what a "log" is or why it is "broadcast". The developer-visible contract is only the rule and the error, which I verified: `thr_nosub.mfb` (worker calls `io::readRaw()` without `thread::openStdIn`) printed `worker err 77050019`; `thr_sub.mfb` (main calls `thread::openStdIn(t)` first) printed `worker byte 65` for `printf 'A' | ...`.
+SUGGESTED: "A thread other than the main thread can read standard input only after `thread::openStdIn` has been called for it; otherwise the call raises `ErrInvalidContext`."
+
+### 4. ErrInputFailed and ErrWrongMode rows could not be provoked in the sandbox
+UNIT:      man-page:io/readRaw
+CLAIM:     Errors table rows "77020005 ErrInputFailed Standard input operation failed." and "77050020 ErrWrongMode …"
+VERDICT:   UNVERIFIED
+EVIDENCE:  `ErrInputFailed` is the `input_error` label of `lower_key_reader` (`gen_read_key_family.rs` lines 327-331), reached from the terminal-configure step and the engine's read failure; I found no way to make `tcgetattr`/`read` fail on a pipe, a pty, or `/dev/null` without a live hardware fault. `ErrWrongMode` is raised by the registry's app-mode gate (`src/codegen/registry/descriptors.rs:39`), not by this body, and needs an `--app` build in `app::Mode.None`, which requires a window the sandbox cannot open. The table row text matches the sibling readers' descriptors (`func_read_key.rs`, `func_read_scalar.rs`, `func_read_grapheme.rs` all declare the same seven errors), so the rows are consistent, but neither condition was exercised.
+SUGGESTED: No wording change; the main thread may wish to run `tests/app_mode_io.rs` or an `--app` probe to confirm the WrongMode row.
+
+Everything else on the page held under probe: `printf 'A' | q_ex1` printed `65`; `bytes(range(256))` piped through a loop reader produced 0..255 in order then `EOF` (ErrEndOfFile after 256 bytes, no sentinel); `printf 'Xhello\nY'` through readRaw/readLine/readRaw printed `88|hello|89` (shared queue, no loss or reorder); `io::readRaw(300)` with input arriving after one second raised `77050008`, and with input ready returned it; a pty run of the first example typed `a` with no Return and printed `97` with the `a` never echoed and `icanon`/`echo` identical before and after; an arrow key on the pty returned `27` immediately with no decoding delay. No banned memory vocabulary appears on the page (checked against the §4.2 list) and no sentence teaches a borrow or ownership model.

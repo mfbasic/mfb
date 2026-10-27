@@ -1,0 +1,15 @@
+### 1. "walks the UTF-8 once" is implementation mechanics, and not what the binary does
+UNIT:      man-page:strings/toScalars
+CLAIM:     "It walks the UTF-8 once, yielding one element per code point."
+VERDICT:   out-of-scope
+EVIDENCE:  `src/codegen/builtins/strings/gen_scalar_seam.rs:lower_to_scalars` — the native lowering does two walks: "Pass 1: count the scalars" (`strings_to_scalars_count_loop`), then one sized allocation, then a second decode-and-fill loop. The module header says the same: "walks the UTF-8 once to size its result ... and fills it in a second walk". How many passes the decoder makes is a compiler fact (§3, "codegen mechanics"); a developer cannot observe it and, as stated, it is also not accurate. The developer-visible fact is the second half of the sentence.
+SUGGESTED: "It yields one element per Unicode scalar value, in left-to-right order."
+
+### 2. Description says decoding "cannot fail" but never states when the one listed error is raised
+UNIT:      man-page:strings/toScalars
+CLAIM:     "The round trip is exact — fromScalars(toScalars(s)) equals s for every String s — because every String is well-formed UTF-8 by construction, so decoding cannot fail."
+VERDICT:   incomplete
+EVIDENCE:  Errors table on the rendered page lists `77010001 ErrOutOfMemory` (descriptor `errors: vec!["ErrOutOfMemory"]` in `src/codegen/builtins/strings/func_to_scalars.rs`), raised when the result list cannot be allocated (`strings_to_scalars_size_overflow` / arena failure path in `gen_scalar_seam.rs:lower_to_scalars`). §2 of `.ai/man-content.md` requires "every raisable error and the condition that raises it" in the prose; the description never mentions the error, and "decoding cannot fail" read next to a non-empty Errors table leaves the reader to guess what the row means. The round-trip claim itself is true: probe `edges.p` printed `roundtrip=TRUE` for `"é😀中z"` (e + U+0301), and `len(sc)=5`, `len(s)=5`, `byteLen(s)=11`, `graphemes(s)=4`, `empty len=0`, `ascii len=3`, `ascii byteLen=3`.
+SUGGESTED: Keep the sentence, then add: "The only error it can raise is `ErrOutOfMemory`, when the result list cannot be built; no input String raises anything else."
+
+Everything else on the page checked out against the binary. Both examples compiled and ran unchanged from the rendered page (`ex1.p` printed `3` then `TRUE`; `ex2.p` printed `a1b2c3`). The AttributedString claim holds: `attr.p` passed `astrings::fromString("hé")` to `strings::toScalars` and printed `2`, matching the Tier-A query list in `src/codegen/builtins/strings/mod.rs:is_tier_a_query`. Scalar-not-grapheme, combining-mark-is-two-elements, emoji-is-one, element count equals `len(value)`, never exceeds `byteLen`, equals it only for ASCII, order preserved, empty in gives empty out, and the input string unchanged afterwards (`s after=é😀中z`) were all confirmed by the `edges.p` probe output above. No banned memory vocabulary and no ownership-model sentence found; "`value` is not mutated; the returned list is its own value" uses only permitted words. Scratch projects are under `/tmp/plan-125-scratch/D-phase4-current/man-page-strings-toScalars/{ex1,ex2,edges,attr}.p`.

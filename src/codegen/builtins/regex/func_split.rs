@@ -87,7 +87,7 @@ piece is always returned.
 returned list and its elements are their own values. `ErrOutOfMemory` means the
 program ran out of memory.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
+`value` may also be an `AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
 errors)."#;
 

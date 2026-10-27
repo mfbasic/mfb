@@ -74,7 +74,8 @@ Comparable types (`=`, `<>`) are `Integer`, `Float`, `Fixed`, `Money`,
 
 Orderable types (`<`, `>`, `<=`, `>=`) are the narrower set `Integer`, `Float`,
 `Fixed`, `Money`, `Byte`, `String`, and `Scalar`. `Boolean`, `Nothing`, enums,
-unions, and records are comparable but not orderable. A `Money` compares and
+and records are comparable but not orderable. Unions are neither: compare a union
+by `MATCH`ing on the member first. A `Money` compares and
 orders only against another `Money`, and a `Scalar` only against another `Scalar`
 (by code-point value) — a `Scalar` is non-numeric and never orders against a
 `String` or a numeric type. `collections::sort` and `collections::sortBy` require

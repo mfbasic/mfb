@@ -59,15 +59,26 @@ exist, `ErrAccessDenied` if permission is refused, and `ErrInvalidPath` if
 file is used as a directory, or it is a loop of symbolic links. Any other
 refusal to open, and a failure while reading, raises `ErrReadFailed`. Contents
 that are not valid UTF-8 raise `ErrEncoding`. `ErrOutOfMemory` means the program
-ran out of memory."#;
-const EX: &str = r#"Read a text file into a `String`:
+ran out of memory.
+
+To read line by line, or only part of a large file, open it and use
+`fs::readLine`, `fs::readAll` or `fs::readBytesAt` instead."#;
+const EX: &str = r#"Read a text file into a `String`. The file lives in a scratch directory under
+the temporary directory and is removed afterwards:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  LET value AS String = fs::readText("data.txt")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readText-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  LET value AS String = fs::readText(data)
+  io::print(toString(len(value)) & " scalars read")
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -78,9 +89,13 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("greeting.txt", "hello")
-  LET text AS String = fs::readText("greeting.txt")
-  io::print(text)
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readText-2"])
+  fs::createDirectories(dir)
+  LET greeting AS String = fs::pathJoin([dir, "greeting.txt"])
+  fs::writeText(greeting, "hello")
+  io::print(fs::readText(greeting))
+  fs::deleteFile(greeting)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

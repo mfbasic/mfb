@@ -17,11 +17,9 @@ between them. Some editors and terminals render this pair as a single
 ligature glyph such as `▷`, but the source bytes are `|>` — the unicode
 character `▷` (U+25B7) is not a valid MFBASIC token.
 
-The pipeline operator `|>` rewrites `a |> f(_, x)` into `f(a, x)` at parse
-time. It is purely syntactic sugar: the parser substitutes the left-hand
-expression into the `_` placeholder on the right-hand side and emits the
-resulting call AST with no pipeline node remaining. There is no runtime
-cost and no distinct pipeline value in the type system.
+`a |> f(_, x)` means exactly `f(a, x)`. The pipeline is spelling, not a value or
+a type, so there is nothing to declare, nothing to import, and nothing it costs
+at run time.
 
 `|>` is the lowest-precedence operator and is left-associative, so
 `a |> f(_) |> g(_)` reads left-to-right and is equivalent to `g(f(a))`.

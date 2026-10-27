@@ -16,13 +16,25 @@ const INTRO: &str = r#"Measure text in terminal grid cells."#;
 const DESC: &str = r#"`term::measureText` returns the number of terminal grid cells that
 `term::drawText` advances for `value`. The empty string measures `0`; ordinary
 characters measure one cell; East Asian wide and fullwidth characters generally
-measure two; combining sequences and joined emoji are each one grapheme cluster.
-A cluster made entirely from zero-width scalars still measures one cell, matching
-the terminal drawing surface.
+measure two. Each grapheme cluster is counted once: a base character plus its
+combining marks measures as the base alone (`e` plus a combining acute is `1`),
+and an emoji sequence joined with zero-width joiners measures as its first emoji
+(a family emoji is `2`). A cluster made entirely from zero-width scalars still
+measures one cell, matching the terminal drawing surface.
 
-The call requires an active Console TUI. It raises `ErrUnsupported` before
-`term::on()` and after `term::off()`. In an app build it raises `ErrWrongMode`
-unless the current mode is `app::Mode.Console`."#;
+Control characters, including newline, tab and the escape that starts a colour
+sequence, are not stripped: each one measures one cell, exactly as
+`term::drawText` advances one column and draws nothing for it, so `"a\nb"`
+measures `3`. Strip them before measuring.
+
+When `astrings` is imported, `value` may also be an `AttributedString`; the
+answer is the width of its visible text, and its attributes never change it, so
+a styled label measures the same as `toString(value)`.
+
+The call requires an active Console TUI. In an app build the mode is checked
+first: outside `app::Mode.Console` it raises `ErrWrongMode` whether or not the
+terminal is on. In `app::Mode.Console`, and in every non-app build, it raises
+`ErrUnsupported` before `term::on()` and after `term::off()`."#;
 
 const EX: &str = r#"Measure text while the terminal surface is active:
 

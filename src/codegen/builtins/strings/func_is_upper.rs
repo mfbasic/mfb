@@ -22,7 +22,7 @@ property that other languages' uppercase tests usually implement: the roman
 numerals `Ⅰ`–`Ⅿ` and the circled letters `Ⓐ`–`Ⓩ` are uppercase by that property
 but not category `Lu`, so `isUpper` returns `FALSE` for them.
 
-Classification follows the Unicode general categories,
+Classification follows the Unicode 16.0 general categories,
 so it covers the whole code-point space rather than just ASCII, and is
 deterministic and locale-independent. The function is total: it returns a
 `Boolean` for every `Scalar` and never fails.

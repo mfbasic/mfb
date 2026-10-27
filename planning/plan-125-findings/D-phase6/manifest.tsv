@@ -1,0 +1,12 @@
+unit	exit	seconds	findings_lines	dirty	banner
+man-page:io/readByte	0	149	15	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:io/readChar	FAILED	4	0	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:io/input	0	242	34	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:io/readLine	FAILED	4	0	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:io/setBuffered	FAILED	4	0	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/overview	FAILED	4	0	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/types	FAILED	4	0	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/enableMouse	FAILED	3	0	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/pollMouse	FAILED	3	0	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:term/isOn	FAILED	3	0	clean	Claude Code v2.1.281/claude-fable-5-1
+man-page:io/pollInput	0	281	51	clean	Claude Code v2.1.281/claude-fable-5-1

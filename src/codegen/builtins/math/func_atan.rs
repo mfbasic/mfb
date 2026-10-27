@@ -6,7 +6,7 @@ use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Arctangent (inverse tangent), returning radians."#;
 const DESC: &str = r#"`atan` returns the arctangent of `value` in radians (in `[-pi/2, pi/2]`), echoing
-the operand type (`Float` or `Fixed`), plus the `List OF Float` vectorized form. For
+the operand type (`Float` or `Fixed`), plus the `List OF Float` list form. For
 the two-argument form that takes the quadrant into account, see `math::atan2`."#;
 const EX: &str = r#"```
 IMPORT math

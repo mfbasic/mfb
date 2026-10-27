@@ -9,8 +9,10 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Install a list of `canvas::DrawItem`s as the canvas's current content."#;
 
 const DESC: &str = r#"`present` **installs** a scene. It is not a per-frame draw call: the runtime draws
-the installed scene, and draws it again only when the window is resized or
-uncovered, until the next `present` replaces it. A static picture is therefore presented once and costs
+the installed scene, and draws it again, until the next `present` replaces it,
+only when something it shows changes without a `present`: the window is resized
+or uncovered, `canvas::setBytes` refills an image it draws, or the mouse moves
+over a `canvas::AutoPaint`. A static picture is therefore presented once and costs
 nothing thereafter, and a program that never changes its content never calls
 `present` again.
 
@@ -42,7 +44,10 @@ raises `ErrCanvasParticleLifetime`, wherever the system is — in the list itsel
 group it draws.
 
 A reading of the clock `present` times itself against whose nanosecond count does
-not fit an `Integer` raises `ErrOverflow`."#;
+not fit an `Integer` raises `ErrOverflow`.
+
+Groups nested more than 64 deep — which is also how a group that draws itself
+reports — raise `ErrDepthExceeded`."#;
 
 const EX: &str = r#"A yellow face with green eyes and a smile. Note that each item is bound first —
 a list literal does not span source lines:

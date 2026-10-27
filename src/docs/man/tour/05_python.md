@@ -35,6 +35,9 @@ MFBASIC keeps that architecture's honesty — workers share nothing, data moves
 through queues — but in one process, with typed messages and no pickle
 surprises:
 
+The parent-side lines at the end of the next block belong inside a `FUNC`;
+they are shown bare for brevity.
+
 ```
 ' text_workers package
 IMPORT strings
@@ -61,7 +64,9 @@ thread::send(t, "done")
 LET words = thread::waitFor(t)      ' 9 — the worker's result, or its Error
 ```
 
-`Thread OF String TO Integer` declares both directions of the contract:
+`ThreadWorker OF String TO Integer` on the worker side — and the matching
+`Thread OF String TO Integer` the parent gets back from `thread::start` —
+declares both directions of the contract:
 messages in are `String`, the result is `Integer`, checked at compile time
 rather than discovered as an `AttributeError` inside the worker. A sent value
 is *handed over* — the receiver has it, nothing is shared, and there is no
@@ -79,6 +84,9 @@ value (`code`, `message`, `source`); a failure routes to the function's
 `TRAP`, or fails the function to its caller. Propagation is automatic like
 exceptions, but there is no unwinding machinery — it is ordinary, auditable
 value flow.
+
+The last lines of the next block belong inside a `FUNC`; they are shown bare
+for brevity.
 
 ```
 IMPORT errorCode
@@ -248,4 +256,5 @@ Python doesn't need but 64-bit values do.
 - `mfb man tour` — the one-page language tour.
 - `mfb man errors`, `mfb man thread`, `mfb man collections` — the models above in full.
 - `mfb man variable` — values, copies and handles; `mfb spec language memory-semantics`
-- `mfb spec language type-inference` — how far inference goes without annotations.
+  has the exact contract.
+- `mfb spec language bindings-and-scope` — how far inference goes without annotations.

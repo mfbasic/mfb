@@ -26,7 +26,8 @@ their element types, so every concrete use — a `List OF Integer`, a
 User-defined `TYPE`, `UNION`, `ENUM`, and package-scope `RESOURCE … CLOSE BY`
 declarations (native `LINK` resources) create additional program types, but they
 are not built-in types. Callable signatures such as `FUNC(Integer) AS String`
-are first-class function type forms rather than named built-in data types.
+are first-class function type forms rather than named built-in data types
+(`mfb man lambda`).
 
 ## Primitives
 
@@ -130,7 +131,8 @@ fails with an `Error`; handle a failure with `TRAP` (see `mfb man errors`).
 - **`Map OF K TO V`** — a key/value mapping. `K` must be comparable. Map
   iteration order is implementation-defined but stable for a given unchanged map
   value during one program run. See `mfb man types map`.
-- **`Set OF T`** — an unordered, deduplicated collection: each distinct
+- **`Set OF T`** — a deduplicated collection that iterates in insertion
+  order: each distinct
   element appears at most once, and adding a present element is a no-op. `T`
   must be comparable, exactly as a `Map` key must be. See `mfb man types set`.
 - **`MapEntry OF K TO V`** — the built-in record produced by `FOR EACH`
@@ -272,6 +274,7 @@ No errors.
 
 ## See also
 
+- `mfb man lambda`
 - `mfb man types comparisons`
 - `mfb man types list`
 - `mfb man types logical`

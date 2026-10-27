@@ -1,0 +1,29 @@
+### 1. Symlink loop raises ErrInvalidPath but the error paragraph does not list it
+UNIT:      man-page:fs/listDirectory
+CLAIM:     "ErrInvalidPath if path cannot name a directory — it names a file, a name in it is too long, or a file is used as a directory. Any other refusal raises ErrReadFailed."
+VERDICT:   incomplete
+EVIDENCE:  Probe `/tmp/plan-125-scratch/D-phase5-current/man-page-fs-listDirectory/probe.mfb` with `ln -sfn "$R/loop" "$R/loop"` then `fs::listDirectory(loop)` printed `symlink loop: 77030002 Filesystem path string is invalid for the host platform.` Lowering: `src/codegen/builtins/fs/gen_shared.rs:emit_fs_host_error_mapping` maps `ELOOP` (62 on macOS, 40 on Linux) to `invalid_path` when `no_follow` is false. The sentence's enumeration is written as exhaustive ("Any other refusal raises ErrReadFailed"), so a reader expects a symlink cycle to be ErrReadFailed; it is not.
+SUGGESTED: "…and ErrInvalidPath if path cannot name a directory — it names a file, a name in it is too long, a file is used as a directory, or a symlink in it loops back on itself. Any other refusal raises ErrReadFailed."
+
+### 2. "ordinary lexicographic ordering" hides that uppercase sorts before lowercase
+UNIT:      man-page:fs/listDirectory
+CLAIM:     "The names are sorted in ascending byte-wise order, comparing their raw UTF-8 bytes (an ordinary lexicographic ordering for ASCII names), so the result is deterministic and stable across runs and across hosts."
+VERDICT:   misleading
+EVIDENCE:  Same probe, directory holding `B a Z é ~ .hidden sub …` printed, in order: `[.hidden] [B] [Z] [a] [denied] [flnk] [lnk] [loop] [sub] [~] [é]`. The sentence is true, but a developer reading "ordinary lexicographic ordering" expects alphabetical (`a` before `B`); byte order puts every uppercase name before every lowercase one, and every non-ASCII name after all of ASCII. The sort is `src/codegen/collection/sort/sort_string_list.rs:lower_sort_string_list_helper` ("ascending byte-wise (UTF-8"). This is the page's one ordering sharp edge and it is buried in a parenthesis that points the wrong way.
+SUGGESTED: "The names are sorted in ascending byte-wise order of their UTF-8 bytes, not alphabetically: the sort is case-sensitive, every uppercase ASCII name comes before every lowercase one (`B`, `Z`, `a`), and names with non-ASCII characters come after all ASCII names. The order is the same on every run and every host."
+
+### 3. The two-read sizing paragraph is an implementation account and teaches a buffer model
+UNIT:      man-page:fs/listDirectory
+CLAIM:     "The directory is read twice — once to size the result and once to fill it — so a directory that another program is writing to at the same moment can change between the two reads. If it grows, the extra entries are dropped rather than overrunning the result, which is sized by the first read."
+VERDICT:   out-of-scope
+EVIDENCE:  `src/codegen/builtins/fs/gen_directory/list.rs:lower_fs_list_directory_helper` (count pass, allocate, fill pass, bug-48 bounds). "Read twice", "size the result", "overrunning the result" describe how the lowering avoids a buffer overflow; none of that is something a developer can observe or act on. Without using a banned word the sentence hands the reader a fixed-size-buffer mental model (§4 subtle failure, §3 internals). The developer-visible fact is only: a concurrently changing directory may be listed incompletely and the call does not fail for it. The additional case the code handles (directory deleted between the passes → the open error is raised, bug-696 branch `second_open_error`) is not mentioned, so the paragraph is also not the whole truth about concurrent change. I could not provoke the race in a probe; the behavior is read from the lowering (UNVERIFIED by run).
+SUGGESTED: "If another program is changing the directory while it is being listed, the result is a snapshot that may miss entries added, or still include entries removed, during the call; the call does not fail because of that. If the directory itself is removed during the call, the error reported is the one for the missing path."
+
+### 4. Hidden (dot-prefixed) entries are included but the page never says so
+UNIT:      man-page:fs/listDirectory
+CLAIM:     "Every kind of entry is included regardless of type, so the result mixes regular files, subdirectories, symlinks, and any other filesystem objects, each represented by its name with no trailing slash or type marker."
+VERDICT:   incomplete
+EVIDENCE:  Same probe: `.hidden` was listed first (`[.hidden]`). The lowering filters only names exactly `.` and `..` (`list.rs` compares `namelen` 1 and 2 against byte 46). Most listing tools a developer knows (`ls`, Finder, Explorer) hide dot-files, and the page's filter sentence about "." and ".." invites the inference that other dot-names are treated specially too. One clause fixes it.
+SUGGESTED: Append to the sentence: "Names beginning with a dot (hidden files on Unix hosts) are included like any other; only `"."` and `".."` are left out."
+
+Everything else on the page checked out against the binary. Both examples compile under `mfb init` + `mfb build -q` and print `a.txt`, `b.txt` and `0` respectively. Probe results for the Errors table: a regular file, a file used as a directory, an over-long component, and a symlink to a file all raised ErrInvalidPath (77030002); a missing path and a missing parent raised ErrPathNotFound (77030001); a mode-000 directory raised ErrAccessDenied (77030003); an empty path raised ErrInvalidArgument (77050002); a trailing slash and a relative path (`.`) succeeded; a symlink to a directory listed the target's one entry; a name containing `é` round-tripped; the result holds bare names and does not descend into `sub`. Scratch files are under `/tmp/plan-125-scratch/D-phase5-current/man-page-fs-listDirectory` (`ex1.mfb`, `ex2.mfb`, `probe.mfb`, and the `proj-*` build projects). No repository file was modified.

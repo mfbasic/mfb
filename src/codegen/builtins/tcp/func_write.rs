@@ -27,7 +27,7 @@ argument here. With no write timeout set the call blocks until the OS accepts th
 data.
 
 An empty `bytes` list — or an empty `String` — is a no-op: nothing is sent and
-the call succeeds without touching the socket. `tls::write` behaves identically.
+the call succeeds without touching the socket.
 
 Writing to a socket whose peer has already gone away raises
 `ErrConnectionClosed` rather than silently discarding the data, so a `TRAP`

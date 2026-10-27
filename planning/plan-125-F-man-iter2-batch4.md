@@ -1,4 +1,4 @@
-# plan-125-F: man iteration 2, batch 4 — the resource family, the small packages, and the 31 guide pages (156 pages)
+# plan-125-F: man iteration 2, batch 4 — the resource family, the small packages, and the 32 guide pages (221 pages with Phase 3B; was 156)
 
 Last updated: 2026-09-04
 Effort: x-large (1d–3d)
@@ -65,7 +65,7 @@ session from ending and the probe never returns.
 
 ## 1. Goal
 
-- **All 156 pages** through my per-page pass, one Fable 5.1 review each, and apply.
+- **All 221 pages** through my per-page pass, one Fable 5.1 review each, and apply.
 - **The handle contract is stated identically across all seven resource
   packages** — verified by extracting the contract sentence from every one and
   diffing them, not by grepping for banned words.
@@ -78,7 +78,7 @@ session from ending and the probe never returns.
   run** — plan-125-A Phase 2 put them under the standard; this is the first
   time anyone checks them.
 - Every finding has a verdict; every rejection a disproving command.
-- `--reconcile` exits 0 over the 156-unit list; sweeps clean.
+- `--reconcile` exits 0 over every F unit list (221 units); sweeps clean.
 - "Belongs in spec" cuts appended.
 - **Iteration 2 is complete across the whole man surface**: 590 pages in
   C–F plus 31 in A's pilot = 621, reconciled against the census.
@@ -105,13 +105,13 @@ ban did its heaviest rewriting; `testing` and `general` are invisible to
 | `audio` / `tcp` / `testing` / `thread` / `tls` units | 13 each | 11+1+1, 11+1+1, 12+1, 12+1, 11+1+1 |
 | `udp` units | 10 | 8 + overview + types |
 | `net` units | 7 | 5 + overview + types |
-| `csv` / `json` units | 6 each | 4 + overview + types |
-| `money` / `regex` units | 5 each | 3+1+1, 4+1 |
-| `app` units | 4 | 2 + overview + types |
+| `csv` / `json` units | 4 (was 6) / 6 | csv 2 + overview + types; json 4 + overview + types |
+| `money` / `regex` units | 8 (was 5) / 10 (was 5) | measured 2026-10-26 |
+| `app` units | 8 (was 4) | measured 2026-10-26 |
 | `errorCode` units | 1 | overview only — it renders 0 function pages (constants, no functions) |
-| package subtotal | **125** | sum |
-| guide pages | **31** | 32 markdown files minus `variable` (A's pilot): tour 6, types 10, flow 8, tooling 2, errors/lambda/link/optimizations/unicode 1 each |
-| **batch total** | **156** | 125 + 31 |
+| package subtotal | **135** (was 125; 85 + 50) | sum of `F-phase1.txt` and `F-phase2.txt` |
+| guide pages | **32** (was 31; `tooling` is 3) | 32 markdown files minus `variable` (A's pilot): tour 6, types 10, flow 8, tooling 2, errors/lambda/link/optimizations/unicode 1 each |
+| **batch total** | **221** (was 156) | 135 + 32 + 54 (Phase 3B) |
 | parameter descriptions in batch | 208 | census sum over the 14 packages |
 | type descriptions in batch | 75 | census: net 19, audio 17, json 12, csv 8, process 7, app 3, udp 3, tcp 2, tls 2, money 2 |
 | `process` file-touches since plan-108 | 44 | `git log --since=2026-08-31 --name-only --format='' -- src/codegen/builtins/process \| wc -l` |
@@ -145,10 +145,11 @@ guide pages last, because by then the whole package surface is final and a
 guide page can be checked against it.
 
 1. `net` 7 → `tcp` 13 → `udp` 10 → `tls` 13 → `process` 16 → `audio` 13 →
-   `thread` 13 (75 units)
-2. `errorCode` 1 → `app` 4 → `money` 5 → `regex` 5 → `csv` 6 → `json` 6 →
-   `testing` 13 (40 units)
-3. the 31 guide pages
+   `thread` 13 (85 units)
+2. `errorCode` 1 → `app` 8 → `money` 8 → `regex` 10 → `csv` 4 → `json` 6 →
+   `testing` 13 (50 units)
+3. the 32 guide pages, then Phase 3B's 54 units (`big`, `compress`, `debug`,
+   `debug-external`)
 
 **Risk concentration:**
 - **Handle-contract divergence.** Seven packages, one contract. The check is
@@ -174,7 +175,7 @@ guide page can be checked against it.
 > commit as the work; `- [~]` for partial; `- [x] ~~text~~ — moot: <evidence>`
 > rather than deleting; fill `Commit:` on landing. **Unticked means NOT DONE.**
 
-### Phase 1 — the resource family (75 units)
+### Phase 1 — the resource family (85 units; was written 75)
 
 - [ ] `net` 7, `tcp` 13, `udp` 10, `tls` 13, `process` 16, `audio` 13,
       `thread` 13 — one review unit per page.
@@ -191,15 +192,15 @@ guide page can be checked against it.
 - [ ] All network probes run by the main thread; the ledger records which.
 - [ ] Every example compiled and run; ledgers recorded.
 
-Acceptance: 75 units `exit 0`; the contract table shows all seven packages
+Acceptance: 85 units `exit 0` (`F-phase1.txt`); the contract table shows all seven packages
 agreeing; `--memory-scope` 0 unclassified across all seven **and** a
 read-through confirming each still states its close contract; sweeps clean.
 Commit: —
 
-### Phase 2 — the small packages (40 units)
+### Phase 2 — the small packages (50 units; was 40)
 
-- [ ] `errorCode` 1, `app` 4, `money` 5, `regex` 5, `csv` 6, `json` 6,
-      `testing` 13.
+- [ ] `errorCode` 1, `app` 8, `money` 8, `regex` 10, `csv` 4, `json` 6,
+      `testing` 13 (`F-phase2.txt`).
 - [ ] Reconcile `json`'s 41 file-touches since plan-108 against its pages
       first.
 - [ ] Verify `errorCode`'s overview against
@@ -210,15 +211,15 @@ Commit: —
       (plan-108-E's recorded finding on this package).
 - [ ] Every example compiled and run; ledgers recorded.
 
-Acceptance: 40 units `exit 0`; sweeps clean; `errorCode`'s overview
+Acceptance: 50 units `exit 0`; sweeps clean; `errorCode`'s overview
 reconciled against the registry table with the result recorded either way.
 Commit: —
 
-### Phase 3 — the 31 guide pages
+### Phase 3 — the 32 guide pages (was 31)
 
-- [ ] `tour` 6, `types` 10, `flow` 8, `tooling` 2, and `errors`, `lambda`,
+- [ ] `tour` 6, `types` 10, `flow` 8, `tooling` 3, and `errors`, `lambda`,
       `link`, `optimizations`, `unicode` (1 each).
-- [ ] **Every code block in all 31 pages compiled and run**; the ledger
+- [ ] **Every code block in all 32 pages compiled and run**; the ledger
       accounts for each as ran or compile-only-with-reason.
 - [ ] Every language claim checked against the current compiler — these pages
       predate a great deal of language work and nothing has ever checked them.
@@ -228,22 +229,43 @@ Commit: —
       guide topic most likely to have drifted into internals.
 - [ ] Every cut appended to `planning/plan-125-belongs-in-spec.md`.
 
-Acceptance: 31 units `exit 0`; every code block on every guide page compiled
+Acceptance: 32 units `exit 0`; every code block on every guide page compiled
 and run with the result in the ledger, 0 unaccounted; `mfb man <topic>` and
 `mfb man <topic> <subtopic>` render for all of them; `--reconcile` exits 0
-over the whole 156-unit batch.
+over the whole batch (`F-phase1.txt` … `F-phase3b.txt`).
+Commit: —
+
+### Phase 3B — packages and guide topics added since authoring (54 units)
+
+Added 2026-10-26: `big` (31 pages), `compress` (8), and the guide topics `debug`
+(10) and `debug-external` (5) appeared on main after plan-125 was written, and no
+letter covered them (`grep -lE 'big|compress|debug-external' planning/plan-125-*.md`
+→ none; `mfb man` package and topic lists against `B-all.txt`). Units:
+`planning/plan-125-units/F-phase3b.txt`.
+
+- [ ] 54 units reviewed (Fable, `man-iter2-page.txt`) and applied; ledger recorded.
+- [ ] Every example and guide code block compiled and run; the debugger topics'
+      sessions run against a built program (`mfb dbg`), not read.
+- [ ] Every cut appended to `planning/plan-125-belongs-in-spec.md`.
+
+Acceptance: `--reconcile --letter F-phase3b` → 54 units, 0 unaccounted;
+`./scripts/man-run-examples.sh big --run` and `compress --run` clean; sweeps clean
+for `big` and `compress`.
 Commit: —
 
 ### Phase 4 — iteration 2 completeness
 
-- [ ] Reconcile the union of A's pilot (31), C (150), D (142), E (142) and F
-      (156) against the census: **621 units, 0 unaccounted**.
+- [ ] Reconcile the union of every iteration-2 unit list (A's pilot, C, D's
+      `*-current` lists, E, F including Phase 3B) against the complete manual:
+      **every page of `MFB=target/release/mfb ./scripts/man-manual.sh --count`
+      (714 PAGES at `d58b5397a`) is a unit, 0 unaccounted**. A unit reviewed
+      before the page last changed counts only if a later list re-reviewed it.
 - [ ] Reconcile the union of all four letters' example ledgers against the
       census function list plus the guide code blocks: 0 unaccounted.
 - [ ] Run the whole-surface sweeps: `--fill` 100%, `--memory-scope` 0
       unclassified, `--scope` 0.
 
-Acceptance: the reconciliation prints 621 and 0; the three sweeps are at
+Acceptance: the reconciliation prints the manual's page count and 0; the three sweeps are at
 target; this letter records the totals as the entry state for letter G.
 Commit: —
 
@@ -251,13 +273,13 @@ Commit: —
 
 - Tests: none (man prose); pinned-text tests updated in the same commit if
   touched.
-- Coverage check: `--reconcile` over the 156-unit list, then the Phase 4
-  cross-letter reconciliation to 621.
+- Coverage check: `--reconcile` over every F unit list (221 units), then the Phase 4
+  cross-letter reconciliation to the manual's page count.
 - Runtime proof: `scripts/man-run-examples.sh <pkg> --run` for all 14
   packages; every guide code block compiled and run; `mfb man <topic>` renders.
 - Doc sync: `planning/plan-125-belongs-in-spec.md` appended.
 - Acceptance: `--fill` 100%; `--memory-scope` 0 unclassified; `--scope` 0;
-  `--reconcile` 0; 621 units reconciled.
+  `--reconcile` 0; every manual page reconciled.
 
 ## Open Decisions
 
@@ -274,6 +296,17 @@ Commit: —
 
 <!-- Filled in DURING execution. -->
 
+- **2026-10-26: re-measured after the fast-forward to `d58b5397a`.** Per-package
+  units from `/tmp/p125-cmp/units.sh target/release/mfb <pkg>`, each equal to
+  `mfb man <pkg> --all | grep -c '^═'`: `app` 8 (was 4), `money` 8 (was 5), `regex`
+  10 (was 5), `csv` 4 (was 6); the others unchanged. `tooling` renders 3 pages (was
+  2), so the guide set is 32. `big`, `compress`, `debug` and `debug-external` are
+  new and no letter covered them: Phase 3B added. The complete manual is 714 pages
+  (`man-manual.sh --count`), not 628, so Phase 4 reconciles against the measured
+  count instead of a fixed 621. Phase 1's heading said 75 units, but its own
+  package list sums to 85 (7+13+10+13+16+13+13), as `F-phase1.txt` measures.
+- **2026-10-26 (owner): at most 2 agents at a time** — the fan-out runs with
+  `--jobs 2`.
 - **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
   unit now runs `claude -p --model claude-fable-5-1` through
   `scripts/doc-review-fanout.sh` (manifest banner `Claude Code v…/claude-fable-5-1`);

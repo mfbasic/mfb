@@ -8,14 +8,15 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Build an opaque `color::Color` from red, green and blue components."#;
 
 const DESC: &str = r#"`rgb` builds a `color::Color` from three components, each clamped to `0`..`255`,
-with `alpha` fixed at `255` — fully opaque. It is `color::rgba` with the fourth
-argument supplied, and it is the constructor most programs want: a colour with no
+with `alpha` fixed at `255` — fully opaque. It is `color::rgba` with alpha fixed
+at `255`, and it is the constructor most programs want: a colour with no
 transparency.
 
 Components are **clamped, not rejected**: a value below `0` becomes `0` and a
-value above `255` becomes `255`. The components are `Integer` rather than `Byte`
-precisely so that out-of-range arithmetic can reach the clamp instead of failing
-at the call site.
+value above `255` becomes `255`; `mfb man color` explains why the parameters are
+`Integer` rather than `Byte`. A colour's own `red`, `green`, `blue` and `alpha` fields are
+`Byte`, so to feed one back in, convert it first:
+`color::rgb(toInt(c.red) + 40, toInt(c.green), toInt(c.blue))`.
 
 To build a colour that is partly transparent, use `color::rgba`, or take an
 existing colour and change one channel with `color::withAlpha`."#;

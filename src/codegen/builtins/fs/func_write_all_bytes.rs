@@ -63,17 +63,22 @@ for reading — `ErrResourceClosed` that `file` has been closed, and
 `ErrResourceMoved` that it was handed to another thread with `thread::transfer`. With
 buffering enabled a failed write can surface later instead, from the
 `fs::writeAllBytes`, `fs::flush` or `fs::close` that drains the buffer."#;
-const EX: &str = r#"Write raw bytes to an open file:
+const EX: &str = r#"Write raw bytes to an open file in a scratch directory under the temporary
+directory. `fs::close` releases the file before it is deleted:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  RES f = fs::openFile("output/report.bin", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-writeAllBytes-1"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.bin"])
+  RES f = fs::openFile(report, "write")
   LET bytes AS List OF Byte = [72, 105]
   fs::writeAllBytes(f, bytes)
-  ' f closes itself when this scope ends
+  fs::close(f)
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -81,14 +86,23 @@ Copy the bytes of one open file into another:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.bin", "first line\nsecond line\n")
-  fs::writeText("copy.bin", "first line\nsecond line\n")
-  RES src = fs::openFile("data.bin")
-  RES dst = fs::openFile("copy.bin", "write")
-  LET bytes AS List OF Byte = fs::readAllBytes(src)
-  fs::writeAllBytes(dst, bytes)
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-writeAllBytes-2"])
+  fs::createDirectories(dir)
+  LET source AS String = fs::pathJoin([dir, "data.bin"])
+  LET copy AS String = fs::pathJoin([dir, "copy.bin"])
+  fs::writeText(source, "first line\nsecond line\n")
+  RES src = fs::openFile(source)
+  RES dst = fs::openFile(copy, "write")
+  fs::writeAllBytes(dst, fs::readAllBytes(src))
+  fs::close(src)
+  fs::close(dst)
+  io::print(fs::readText(copy))
+  fs::deleteFile(source)
+  fs::deleteFile(copy)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

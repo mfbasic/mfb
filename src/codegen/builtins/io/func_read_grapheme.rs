@@ -30,7 +30,11 @@ and the previous mode is restored before the call returns.
 
 **It returns text, and only text** — the same rules as `io::readScalar`. Enter
 arrives as `"\n"`, Tab as `"\t"`, Backspace as U+007F, Escape as U+001B and
-Ctrl+A through Ctrl+Z as U+0001 through U+001A; a key with no Unicode value (the
+the other Ctrl+letter keys as U+0001 through U+001A (Ctrl+H is Backspace and
+Ctrl+M is Enter, as listed). Escape arrives from a keyboard, where a lone Escape
+is decided after a short pause; in piped input an ESC byte followed by more
+input starts a key sequence (ESC and a letter is Alt+letter), so only an ESC
+that ends the input arrives as U+001B. A key with no Unicode value (the
 arrows, Home, End, Page Up, Page Down, Insert, Delete, the function keys) and a
 key release are read and skipped; bytes that are not valid UTF-8 are skipped.
 
@@ -40,18 +44,26 @@ that moment is 25 milliseconds: a combining mark typed later than that starts a
 new read. From a pipe or a file there is no timer — the call reads on until the
 cluster is complete or the input ends, so the same input always splits the same
 way — which also means a timed call on a pipe times out, with nothing read, while
-the last character to arrive may still gain a combining mark. A cluster longer
-than 128 bytes is split there.
+the last character to arrive may still gain a combining mark. A cluster is never
+longer than 128 bytes: a longer one is cut at the last scalar that fits, and the
+rest — which then begins with a combining mark — is what the next read returns.
 
-`timeoutMs` bounds the wait for the character to begin: omitted, the call waits
-for as long as it takes; `0` makes one immediate attempt; a positive value waits
-up to that many milliseconds. When the time runs out the call raises `ErrTimeout`
-and nothing is read. A negative `timeoutMs` raises `ErrInvalidArgument`. End of
-input raises `ErrEndOfFile`.
+`timeoutMs` bounds the whole call: omitted, the call waits for as long as it
+takes; `0` makes one immediate attempt; a positive value gives the call that
+many milliseconds to return a complete character. When the time runs out the
+call raises `ErrTimeout` and nothing is lost — a character that had already
+begun to arrive is kept for the next read, together with any combining mark that
+follows it. A negative `timeoutMs` raises `ErrInvalidArgument` (the most negative `Integer`
+excepted; see the parameter). End of input
+raises `ErrEndOfFile`.
 
-The `io` readers share one queue of input, so they can be mixed without losing
-or reordering anything. A thread other than the main thread must subscribe with
-`thread::openStdIn` before reading, or the call raises `ErrInvalidContext`."#;
+Within a thread, the `io` readers share one queue of input, so they can be mixed without losing or reordering anything; each thread has its own view (see the package overview and `thread::openStdIn`). A thread other than the main thread must subscribe with
+`thread::openStdIn` before reading, or the call raises `ErrInvalidContext`. In
+an `--app` build the program must be in `app::Mode.Console` or
+`app::Mode.Canvas`; in `app::Mode.None` there is no window to take keys from and
+the call raises `ErrWrongMode`. A read of standard input that the operating
+system refuses raises `ErrInputFailed`, and `ErrOutOfMemory` means the program
+ran out of memory."#;
 const EX: &str = r#"Read one character and echo it back:
 
 ```

@@ -30,8 +30,7 @@ pub(crate) fn lower_fs_delete_directory(
 }
 
 const INTRO: &str = r#"Remove an empty directory from the filesystem"#;
-const DESC: &str = r#"`fs::deleteDirectory` removes the empty directory named by `path` with a single
-host `rmdir` operation. On success the directory is gone and the function returns
+const DESC: &str = r#"`fs::deleteDirectory` removes the empty directory named by `path`. On success the directory is gone and the function returns
 `Nothing`.
 
 The final component of `path` must name an actual directory, and that directory
@@ -41,37 +40,50 @@ that still contains entries is left untouched and the call fails with
 `ErrResourceBusy`. Only the named directory is removed; parent directories are
 left in place.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
-absolute or relative to the current working directory, and may contain Unicode
-characters when the host filesystem accepts those names. It must be non-empty and must not contain an embedded NUL byte.
+`path` may be absolute or relative to the current working directory, and may
+contain Unicode characters when the host filesystem accepts those names. It must
+be non-empty and must not contain a NUL character.
 
 When the host refuses the removal the filesystem is left unchanged and the error
 says why: `ErrPathNotFound` if nothing exists at `path`, `ErrResourceBusy` if
 the directory is not empty, `ErrAccessDenied` if permission is refused, and
-`ErrInvalidPath` if `path` names a file or cannot name a directory — a name that
-is too long, a file used as a directory, or a loop of symbolic links. Any other
-refusal raises `ErrWriteFailed`. An empty `path`, or one containing a NUL byte,
+`ErrInvalidPath` if `path` names a file or a symbolic link, or cannot name a
+directory — a name that is too long, a file used as a directory, or a loop of
+symbolic links. Any other refusal raises `ErrWriteFailed`; the usual causes are
+asking to remove `.`, the current working directory, or a directory that is a
+mount point. An empty `path`, or one containing a NUL character,
 raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of
 memory."#;
 const EX: &str = r#"Remove an empty directory:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch/example")
-  fs::deleteDirectory("scratch/example")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-deleteDirectory-1"])
+  fs::createDirectory(dir)
+  fs::deleteDirectory(dir)
+  io::print(toString(fs::directoryExists(dir)))
 END FUNC
 ```
 
-Create a directory and then remove it:
+A directory must be emptied before it can be removed, and its parents are left
+in place:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch/cache")
-  fs::deleteDirectory("scratch/cache")
+  LET outer AS String = fs::pathJoin([fs::tempDirectory(), "mfb-deleteDirectory-2"])
+  LET inner AS String = fs::pathJoin([outer, "cache"])
+  fs::createDirectories(inner)
+  fs::writeText(fs::pathJoin([inner, "entry.txt"]), "x")
+  fs::deleteFile(fs::pathJoin([inner, "entry.txt"]))
+  fs::deleteDirectory(inner)
+  io::print(toString(fs::directoryExists(outer)))
+  fs::deleteDirectory(outer)
 END FUNC
 ```"#;
 
@@ -86,9 +98,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The filesystem path of the directory to remove, as UTF-8 bytes; absolute \
-                       or relative to the current working directory. Must be non-empty and free \
-                       of embedded NUL bytes. The final component must name an existing, empty \
+                desc: "The filesystem path of the directory to remove; absolute or \
+                       relative to the current working directory. Must be non-empty and contain \
+                       no NUL character. The final component must name an existing, empty \
                        directory rather than a file or symbolic link.",
                 aliases: &[],
                 ty: ParameterType::String,

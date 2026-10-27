@@ -11,27 +11,31 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Report the current size of the terminal surface as a `term::TermSize`"#;
 
-const DESC: &str = r#"`term::terminalSize` returns the size of the drawing surface as a
-`term::TermSize` record with two `Integer` fields: `columns`, the width in
+const DESC: &str = r#"`term::terminalSize` returns the size of the terminal — the size the drawing
+surface takes at the next `term::sync` — as a `term::TermSize` record with two `Integer` fields: `columns`, the width in
 character cells, and `rows`, the height. Both are counts of whole cells, never
 pixels. Valid cursor positions are rows `0` through `rows-1` and columns `0`
 through `columns-1`. It takes no arguments.
 
-**This is the one `term::` read that is not silently inert while TUI mode is
-off.** There is no meaningful default size to report, so calling it before
+**This is one of the two `term::` reads — with `term::measureText` — that are
+not silently inert while TUI mode is off.** There is no meaningful default size to report, so calling it before
 `term::on` or after `term::off` raises `ErrUnsupported` rather than returning
 something invented. Guard with `term::isOn` if the call site may run outside TUI
 mode.
 
 While TUI mode is on, the size is read live from the terminal, so it reflects
-the terminal as it is at the moment of the call. If the terminal cannot say —
+the terminal as it is at the moment of the call. In a terminal program, if the
+terminal cannot say —
 standard output is not a terminal, or the host does not answer — or if it
 reports zero rows or zero columns, the call raises
 `ErrUnsupported`.
 
 Because the query is live, the answer can change between calls when the user
 resizes the window. A program that lays out, centres, or bounds-checks against
-these dimensions should ask again rather than cache the first answer. The
+these dimensions should ask again rather than cache the first answer.
+`term::didResize` reports whether the size changed since its last call, so a
+program can poll it each frame and call `term::terminalSize` again only when it
+answers `TRUE`. The
 drawing surface itself is resized by `term::sync`, which re-reads the terminal
 on entry and, when the size changed, resizes the surface keeping the top-left
 overlap and repaints in full — so immediately after a resize and before the next

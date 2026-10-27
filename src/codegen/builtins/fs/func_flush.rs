@@ -26,7 +26,7 @@ pub(crate) fn lower_fs_flush(
 
 const INTRO: &str = r#"Drain an open `File`'s output buffer to the file itself"#;
 const DESC: &str = r#"`fs::flush` drains any output currently held in `file`'s per-handle buffer,
-issuing the pending bytes to the file at once, then returns
+writing the pending bytes to the file at once, then returns
 nothing. It matters only when the handle has buffering enabled with
 `fs::setBuffered(file, TRUE)`; on an unbuffered handle — the default — nothing is
 ever held back, so `fs::flush` is a no-op. It is also a no-op when a buffered
@@ -38,7 +38,9 @@ so a later `fs::flush` can retry them rather than losing them.
 
 Use `fs::flush` at a checkpoint where buffered data must reach the file before the
 program continues — for example before another process reads the file, or before a
-long pause. Closing the handle with `fs::close`, or letting its `RES` binding
+long pause. `fs::flush` hands the bytes to the operating system; it does not
+wait for them to reach storage — use `fs::writeTextAtomic` or
+`fs::writeBytesAtomic` when the data must survive a power loss. Closing the handle with `fs::close`, or letting its `RES` binding
 go out of scope, also drains the buffer, so an explicit flush is only needed
 mid-stream; the final bytes are never lost to a clean close.
 
@@ -46,22 +48,31 @@ Buffering and flushing are per handle: `fs::flush(file)` drains only `file`'s
 buffer and affects no other open `File`. Each `File` carries its own buffer and
 its own enabled flag.
 
-Flushing a `File` that has been closed raises `ErrResourceClosed`, and flushing
-one handed to another thread with `thread::transfer` raises `ErrResourceMoved`."#;
-const EX: &str = r#"Force buffered data to disk at a checkpoint, then keep writing:
+In the function that closed or transferred it, the compiler rejects naming the
+`File` again (build error `TYPE_USE_AFTER_MOVE`). A closed `File` reached another
+way — through a second copy of a record that holds it, or after a function it was
+passed to closed it — raises `ErrResourceClosed`; one that `thread::transfer` has
+handed to another thread raises `ErrResourceMoved`."#;
+const EX: &str = r#"Force buffered data out to the file at a checkpoint, then keep writing. The file lives
+in a scratch directory under the temporary directory and is removed afterwards:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("report.txt", "first line\nsecond line\n")
-  LET header AS String = "id,name\n"
-  LET body AS String = "1,alice\n"
-  RES out = fs::openFile("report.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-flush-1"])
+  fs::createDirectories(dir)
+  LET report AS String = fs::pathJoin([dir, "report.txt"])
+  RES out = fs::openFile(report, "write")
   fs::setBuffered(out, TRUE)
-  fs::writeAll(out, header)
-  fs::flush(out)             ' header reaches disk before the body is written
-  fs::writeAll(out, body)
+  fs::writeAll(out, "id,name\n")
+  fs::flush(out)             ' the header reaches the file before the body is written
+  io::print(fs::readText(report))
+  fs::writeAll(out, "1,alice\n")
+  fs::close(out)
+  fs::deleteFile(report)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

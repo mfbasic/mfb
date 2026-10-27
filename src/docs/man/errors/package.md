@@ -47,9 +47,12 @@ END TYPE
 `error(code AS Integer, message AS String) AS Error` is the only way to build an
 `Error` in source. The returned `Error.source` records the location of the
 `error(...)` call and is not rewritten as the error propagates, so it always
-points at the original failure site. See `mfb man general error`. There is no
+points at the original failure site. A built-in that fails records the location
+of the call in your program; `e.source.filename`, `e.source.line` and
+`e.source.char` name it. See `mfb man general error`. There is no
 built-in `Option`/`Maybe`; absence is represented by an error, conventionally
-with a semantic code such as `errorCode::ErrNotFound`. A failure is only ever an
+with a semantic code such as `errorCode::ErrNotFound` (see `mfb man errorCode`
+for the full list). A failure is only ever an
 `Error`; there is no result type to name, so `Result` and `Ok` are free for a
 program's own types.
 
@@ -96,7 +99,7 @@ RES f = fs::openFile(path) TRAP(e)
 END TRAP
 ```
 
-An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an
+An inline `TRAP` is legal only as the value of a `LET`, `MUT` or `RES` binding, an
 assignment, or a bare expression statement, and traps exactly one expression —
 every call and every raising operator inside it. In
 `LET d = divide(total, 1 / count) TRAP(e)` a division by zero runs the handler
@@ -179,9 +182,10 @@ one central policy over several calls.
 ## Program entry points
 
 An executable entry point may handle errors with `TRAP` like any other function.
-If an entry point returns an uncaught `Err`, the program writes `Error:` and the
-error code on one line of stderr, the message on the next, and exits with
-status 255.
+If an entry point fails with an uncaught `Error`, the program writes a four-line
+report to stderr — the thread, the error code in its dashed form
+(`Error:    7-705-0004` for `errorCode::ErrNotFound`), the message, and the
+source location — and exits with status 255.
 
 ## Errors
 
@@ -190,6 +194,7 @@ No errors.
 ## See also
 
 - `mfb man general error`
+- `mfb man errorCode`
 - `mfb man flow match`
 - `mfb man types`
 - `mfb spec diagnostics error-codes`

@@ -37,7 +37,7 @@ const DESC: &str = r#"`audio::play` is a small MML (Music Macro Language) sequen
 more tracks of MML text, synthesizes each track to mono `s16le` PCM at a fixed 48 kHz
 sample rate, mixes the tracks by summing (with clamping), and writes the result to
 `output` via `audio::write`. Because the sequencer renders at 48 kHz mono, `output`
-must be an `AudioOutput` opened with `sampleRate = 48000` and `channels = 1`. `play`
+must be an `AudioOutput` opened with `sampleRate = 48000` and `channels = 1`. `play` does not check this: on any other stream the PCM is written as-is and sounds at the wrong pitch and speed (and, on a stereo stream, with left and right swapping every sample). `play`
 parses and synthesizes the entire program before writing, so malformed MML raises an
 error and nothing is written. The `output` stream stays open — you still
 close it. A track is a string of space-separated

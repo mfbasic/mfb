@@ -7,9 +7,9 @@ const INTRO: &str = r#"The `datetime::Zone` representing Coordinated Universal T
 const DESC: &str = r#"`datetime::utc` returns the `datetime::Zone` that represents Coordinated Universal Time: a
 fixed zone whose offset from UTC is a constant zero seconds and whose label is
 the literal string `"UTC"`. The returned `datetime::Zone` carries a zone kind of
-`datetime::ZoneKind::Utc`, marking it as the
+`datetime::ZoneKind.Utc`, marking it as the
 canonical UTC zone rather than an arbitrary fixed offset built with
-`datetime::fixedOffset` (kind `datetime::ZoneKind::FixedOffset`).
+`datetime::fixedOffset` (kind `datetime::ZoneKind.FixedOffset`).
 
 
 A `datetime::Zone` is the bridge between the absolute UTC timeline (a `datetime::Instant`) and the

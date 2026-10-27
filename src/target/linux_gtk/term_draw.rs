@@ -1412,6 +1412,26 @@ pub(super) fn emit_term_write_helper(
         abi::LOCAL[2],
         abi::LOCAL[3],
     );
+    if draw_text {
+        // DEL (`7f`) and the C1 controls U+0080..U+009F (`c2 80`..`c2 9f`, packed
+        // little-endian as 0x80C2..0x9FC2) are control characters too: one column,
+        // the scalar's own bytes, no stamp — as on the console.
+        asm.push(abi::compare_immediate(abi::SCRATCH[1], "127"));
+        asm.push(abi::branch_eq("tw_control_scalar"));
+        asm.push(abi::move_immediate(abi::SCRATCH[6], "Integer", "255"));
+        asm.push(abi::and_registers(
+            abi::SCRATCH[7],
+            abi::SCRATCH[1],
+            abi::SCRATCH[6],
+        ));
+        asm.push(abi::compare_immediate(abi::SCRATCH[7], "194"));
+        asm.push(abi::branch_ne("tw_not_c1"));
+        asm.push(abi::compare_immediate(abi::SCRATCH[1], "32962"));
+        asm.push(abi::branch_lo("tw_not_c1"));
+        asm.push(abi::compare_immediate(abi::SCRATCH[1], "40898"));
+        asm.push(abi::branch_ls("tw_control_scalar"));
+        asm.push(abi::label("tw_not_c1"));
+    }
     // plan-70-E: display width (0/1/2 -> 1/1/2) of this scalar, in x15. Gated on
     // uses_term so a non-term GTK app never references the property table.
     if uses_term {
@@ -1629,6 +1649,8 @@ pub(super) fn emit_term_write_helper(
         // A control character occupies one column and one byte, stamping nothing.
         asm.push(abi::label("tw_control"));
         asm.push(abi::move_immediate(abi::LOCAL[0], "Integer", "1"));
+        // DEL or a C1 control: `LOCAL[0]` already holds its byte length.
+        asm.push(abi::label("tw_control_scalar"));
         asm.push(abi::add_immediate(abi::LOCAL[7], abi::LOCAL[7], 1));
         asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
         asm.push(abi::bitwise_not(abi::SCRATCH[0], abi::SCRATCH[0])); // -1
@@ -2305,6 +2327,12 @@ pub(super) fn emit_term_glyph_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(codepoint, abi::c_arg(2)));
     asm.push(abi::compare_immediate(codepoint, "32"));
     asm.push(abi::branch_lt("dg_ret"));
+    // DEL and the C1 controls (U+007F..U+009F) are skipped too, as on the console.
+    asm.push(abi::compare_immediate(codepoint, "127"));
+    asm.push(abi::branch_lt("dg_not_ctrl"));
+    asm.push(abi::compare_immediate(codepoint, "159"));
+    asm.push(abi::branch_le("dg_ret"));
+    asm.push(abi::label("dg_not_ctrl"));
     // bug-725: skip a non-scalar (above U+10FFFF, or a surrogate), as the console
     // and the other app backends do — the UTF-8 encoding below would be ill-formed.
     asm.push(abi::compare_immediate(codepoint, "1114111"));

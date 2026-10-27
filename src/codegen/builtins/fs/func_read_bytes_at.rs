@@ -49,7 +49,8 @@ past the end of the file returns an empty `List OF Byte` rather than raising. A
 negative `offset` or `count` raises `ErrInvalidArgument`.
 
 Reading at a position requires a handle the host can reposition, so this only
-works on a seekable handle — a regular file on disk. On a pipe, a socket, or
+works on a seekable handle — a regular file on disk, or a `File` from
+`fs::openData`. On a pipe, a socket, or
 another non-seekable handle the call raises `ErrReadFailed`. Calling it on a
 `File` that has already been closed raises `ErrResourceClosed`, and on one
 handed to another thread with `thread::transfer`, `ErrResourceMoved`. No decoding or
@@ -58,18 +59,25 @@ for binary data. To learn how many bytes a file holds before reading, use
 `fs::size`. To read a whole file by path in one call, use `fs::readBytes`.
 
 `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Read ten bytes from the middle of a file without reading the rest:
+const EX: &str = r#"Read five bytes from the middle of a file without reading the rest. The file
+lives in a scratch directory under the temporary directory, and `fs::close`
+releases it before it is deleted:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.bin", "abcdefghijklmnopqrstuvwxyz")
-  RES f = fs::openFile("data.bin")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readBytesAt-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.bin"])
+  fs::writeText(data, "abcdefghijklmnopqrstuvwxyz")
+  RES f = fs::openFile(data)
   LET chunk AS List OF Byte = fs::readBytesAt(f, 10, 5)
-  io::print(toString(len(chunk)))
-  ' f closes itself when this scope ends
+  io::print(toString(chunk))
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -81,12 +89,18 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.bin", "abcdefghijklmnopqrstuvwxyz")
-  RES f = fs::openFile("data.bin")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readBytesAt-2"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.bin"])
+  fs::writeText(data, "abcdefghijklmnopqrstuvwxyz")
+  RES f = fs::openFile(data)
   LET total AS Integer = fs::size(f)
   ' Asks for 100 bytes but only 6 remain, so 6 come back.
   LET tail AS List OF Byte = fs::readBytesAt(f, total - 6, 100)
   io::print(toString(len(tail)))
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

@@ -23,8 +23,9 @@ padded with `=` characters until its length is a multiple of eight, so the
 result length is always a multiple of eight. An empty list yields the empty
 string.
 
-The function is **total**: every `List OF Byte`, including the empty list,
-encodes successfully, and it never raises a runtime error. Decode Base32 text
+Every `List OF Byte`, including the empty list, encodes: no input is
+rejected, and the only error it can raise is `ErrOutOfMemory`, when the program
+runs out of memory. Decode Base32 text
 with `encoding::base32Decode`. Decoding accepts more than this function writes —
 lowercase letters and non-canonical final symbols — so decoding then re-encoding
 gives the canonical uppercase form (`my======` comes back as `MY======`)."#;
@@ -76,7 +77,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_base32Encode"),
         }],
     });

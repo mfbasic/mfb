@@ -24,17 +24,20 @@ than its input. Never assume `len` is preserved across a case mapping.
 
 The mapping is deterministic and locale-independent: it always uses the default
 Unicode case conventions and applies no language-specific tailoring, so no
-Turkish dotted/dotless-i tailoring is performed. `lower` does not normalize, so
-combining sequences stay decomposed; apply `strings::normalizeNfc` first when
-that matters.
+Turkish dotted/dotless-i tailoring is performed. Nor is Unicode's final-sigma
+context rule applied: Greek capital sigma always lowercases to `σ`, never to
+word-final `ς`, so `strings::lower("ΟΔΟΣ")` is `"οδοσ"`. `lower` does not
+normalize, so combining sequences stay decomposed; apply `strings::normalizeNfc`
+first when that matters.
 
 For caseless *comparison*, prefer `strings::caseFold` over lowercasing both
 operands. `value` is not mutated; the result is a new `String`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
-`AttributedString` whose text is transformed as above, but **attributes are
-dropped** — the mapping changes the scalar count within a span, so the overlay
-cannot be remapped. `ErrOutOfMemory` means the program ran out of memory."#;
+`value` may also be an `AttributedString`: it returns an
+`AttributedString` whose text is transformed as above, but **all attributes are
+dropped**, even when the text length is unchanged — because a case mapping can
+change the scalar count within a span, the overlay is never carried over.
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"Lowercase a word; uncased scalars pass through:
 

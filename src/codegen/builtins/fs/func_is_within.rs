@@ -28,8 +28,8 @@ pub(crate) fn lower_fs_is_within(
 }
 
 const INTRO: &str = r#"Test whether one path is contained within another"#;
-const DESC: &str = r#"`fs::isWithin` canonicalizes both `base` and `child` with the host `realpath`
-resolution, then reports whether `child` names the same location as `base` or a
+const DESC: &str = r#"`fs::isWithin` canonicalizes both `base` and `child` the way `fs::canonicalPath`
+does, then reports whether `child` names the same location as `base` or a
 location nested below it. It returns `TRUE` when the canonical `child` path
 equals the canonical `base` path, or when it begins with the canonical `base`
 path followed by a path separator; it returns `FALSE` otherwise.
@@ -49,12 +49,10 @@ canonical text shares the `base` prefix. When the canonical `base` is the
 filesystem root (`/`), every canonical `child` is within it.
 
 Because canonicalization walks the real directory tree, every component of both
-`base` and `child`, including the final one, must exist on the filesystem. Each
-argument is interpreted as raw UTF-8 bytes and passed to the host; an argument
-may contain Unicode characters when the host accepts such names, but it must not
-be empty and must not contain an embedded NUL byte. The function reads
-filesystem metadata only; it does not open, create, or modify any file and has
-no other side effects.
+`base` and `child`, including the final one, must exist on the filesystem. An
+argument may contain Unicode characters when the host accepts such names, but it
+must not be empty and must not contain a NUL character. The function never
+creates or modifies anything; it only looks the paths up.
 
 This check is inherently subject to a time-of-check/time-of-use race: a
 component of either path can be swapped for a symbolic link after `isWithin`
@@ -62,26 +60,32 @@ returns but before a later `fs::open` acts on the result. When the goal is to
 open a caller-supplied name that cannot escape a trusted root, use
 `fs::openWithin`, which enforces containment atomically at open time.
 
-An empty `base` or `child`, or one containing a NUL byte, raises
+An empty `base` or `child`, or one containing a NUL character, raises
 `ErrInvalidArgument`. When either path cannot be resolved the call raises the
 error `fs::canonicalPath` would: `ErrPathNotFound` if a component does not
 exist, `ErrAccessDenied` if a directory on the way may not be searched,
 `ErrInvalidPath` if the path cannot name an entry, and `ErrReadFailed` for any
 other failure. `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Guard against escaping a root directory:
+const EX: &str = r#"Guard against escaping a root directory. The files live in a scratch directory
+under the temporary directory and are removed afterwards:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("uploads")
-  fs::writeText("uploads/report.txt", "hi")
-  LET root AS String = fs::canonicalPath("uploads")
-  LET candidate AS String = fs::canonicalPath("uploads/report.txt")
-  IF fs::isWithin(root, candidate) THEN
+  LET root AS String = fs::pathJoin([fs::tempDirectory(), "mfb-isWithin-1"])
+  fs::createDirectories(root)
+  LET report AS String = fs::pathJoin([root, "report.txt"])
+  fs::writeText(report, "hi")
+  IF fs::isWithin(root, report) THEN
     io::print("inside")
   END IF
+  IF NOT fs::isWithin(root, root & "/..") THEN
+    io::print("its parent is outside")
+  END IF
+  fs::deleteFile(report)
+  fs::deleteDirectory(root)
 END FUNC
 ```
 
@@ -89,11 +93,18 @@ A nested file is within its base directory:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("base/nested")
-  fs::writeText("base/nested/file.txt", "hi")
-  LET inside AS Boolean = fs::isWithin("base", "base/nested/file.txt")
+  LET base AS String = fs::pathJoin([fs::tempDirectory(), "mfb-isWithin-2"])
+  LET nested AS String = fs::pathJoin([base, "nested"])
+  fs::createDirectories(nested)
+  LET file AS String = fs::pathJoin([nested, "file.txt"])
+  fs::writeText(file, "hi")
+  io::print(toString(fs::isWithin(base, file)))
+  fs::deleteFile(file)
+  fs::deleteDirectory(nested)
+  fs::deleteDirectory(base)
 END FUNC
 ```
 
@@ -101,12 +112,17 @@ A path is within itself, but a sibling is not:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("base")
-  fs::createDirectories("base2")
-  LET same AS Boolean = fs::isWithin("base", "base")
-  LET sibling AS Boolean = fs::isWithin("base", "base2")
+  LET base AS String = fs::pathJoin([fs::tempDirectory(), "mfb-isWithin-3"])
+  LET sibling AS String = base & "2"
+  fs::createDirectories(base)
+  fs::createDirectories(sibling)
+  io::print(toString(fs::isWithin(base, base)))
+  io::print(toString(fs::isWithin(base, sibling)))
+  fs::deleteDirectory(base)
+  fs::deleteDirectory(sibling)
 END FUNC
 ```"#;
 
@@ -122,20 +138,19 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "base",
-                    desc: "The containing path (also accepted as `path`). Interpreted as UTF-8 \
-                           bytes; may be absolute or relative to the current working directory. \
+                    desc: "The containing path (also accepted as `path`). May be absolute or relative to the current working directory. \
                            Every named component, including the last, must exist. Must be \
-                           non-empty and free of embedded NUL bytes.",
+                           non-empty and contain no NUL character.",
                     aliases: &["path"],
                     ty: ParameterType::String,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "child",
-                    desc: "The path tested for containment (also accepted as `parent`). \
-                           Interpreted as UTF-8 bytes; may be absolute or relative to the current \
+                    desc: "The path tested for containment (also accepted as `parent`, which names \
+                           this tested path, not the container). May be absolute or relative to the current \
                            working directory. Every named component, including the last, must \
-                           exist. Must be non-empty and free of embedded NUL bytes.",
+                           exist. Must be non-empty and contain no NUL character.",
                     aliases: &["parent"],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

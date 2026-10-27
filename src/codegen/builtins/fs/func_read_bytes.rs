@@ -56,14 +56,24 @@ exist, `ErrAccessDenied` if permission is refused, and `ErrInvalidPath` if
 file is used as a directory, or it is a loop of symbolic links. Any other
 refusal to open, and a failure while reading, raises `ErrReadFailed`.
 `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Read a binary file into a byte list:
+const EX: &str = r#"Read a binary file into a byte list. The file lives in a scratch directory
+under the temporary directory and is removed afterwards:
 
 ```
+IMPORT collections
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.bin", "first line\nsecond line\n")
-  LET bytes AS List OF Byte = fs::readBytes("data.bin")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readBytes-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.bin"])
+  LET written AS List OF Byte = [0, 1, 2, 255]
+  fs::writeBytes(data, written)
+  LET bytes AS List OF Byte = fs::readBytes(data)
+  io::print(toString(len(bytes)) & " bytes, last " & toString(toInt(collections::get(bytes, 3))))
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -74,9 +84,14 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("image.png", "first line\nsecond line\n")
-  LET bytes AS List OF Byte = fs::readBytes("image.png")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readBytes-2"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "notes.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  LET bytes AS List OF Byte = fs::readBytes(data)
   io::print("size: " & toString(len(bytes)))
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

@@ -7,14 +7,16 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Fade a colour towards grey by reducing its HSL saturation."#;
 
-const DESC: &str = r#"`desaturate` moves the colour's saturation a fraction of the way towards zero,
-keeping its hue and lightness. `amount` `0.0` returns the colour unchanged and
-`1.0` returns a neutral grey.
+const DESC: &str = r#"`desaturate` moves the colour's saturation a fraction of the way towards zero
+while keeping its hue and lightness. Because the result is rounded back to 8-bit
+channels, the hue of a nearly-grey colour can shift by several degrees and the
+lightness by up to one channel step. `amount` `0.0` always returns the colour
+exactly unchanged and `1.0` returns a neutral grey. The result is a new colour
+value; `base` is not changed.
 
 `amount` is **clamped** to `0.0`..`1.0`. `alpha` is carried through unchanged.
 
-Saturation is an **HSL** property, so this works on the sRGB colour rather than in
-linear light.
+Saturation is an HSL property, so this works on the sRGB colour, not in linear light (`mfb man color` explains the two spaces).
 
 **Fully desaturating is not the same as grayscale:** `desaturate(c, 1.0)` is
 not `color::grayscale(c)`. They are two different

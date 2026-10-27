@@ -7,9 +7,11 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Unpack a `0xAARRGGBB` integer into a colour."#;
 
-const DESC: &str = r#"`fromPacked` is the exact inverse of `color::toPacked`: it reads alpha from the
-highest of the low four bytes, then red, then green, then blue —
-`0xAARRGGBB` — and returns the colour they describe.
+const DESC: &str = r#"`fromPacked` undoes `color::toPacked`: it reads alpha from the highest of the low
+four bytes, then red, then green, then blue — `0xAARRGGBB` — and returns the
+colour they describe, so `fromPacked(toPacked(c))` is always `c`. Going the other
+way, `toPacked(fromPacked(v))` equals `v` only when `v` is in
+`0x00000000`..`0xFFFFFFFF`; see the next paragraph.
 
 Only the low 32 bits of `value` are read. Anything above them is ignored, so a
 value that arrived with high bits set, or a negative one, still yields a colour
@@ -18,7 +20,7 @@ rather than failing.
 A 24-bit `0xRRGGBB` value — the form a CSS-style hex colour packs into — has a
 zero top byte, and therefore unpacks to a **fully transparent** colour. That is
 almost never what the caller meant. Add the alpha before unpacking
-(`color::fromPacked(bits::bor(rgb24, 4278190080))`), or use `color::fromHex`,
+(`color::fromPacked(bits::bor(rgb24, 0xFF000000))`), or use `color::fromHex`,
 which treats a missing alpha as opaque."#;
 
 const EX: &str = r#"Unpack an opaque colour:
@@ -28,8 +30,7 @@ IMPORT color
 IMPORT io
 
 FUNC main() AS Nothing
-  ' 0xFF3366CC -> red 0x33, green 0x66, blue 0xCC, alpha 0xFF
-  LET c AS color::Color = color::fromPacked(4281558732)
+  LET c AS color::Color = color::fromPacked(0xFF3366CC)   ' red 0x33, green 0x66, blue 0xCC, alpha 0xFF
   io::print(toString(c.red) & " " & toString(c.green) & " " & toString(c.blue) & " " & toString(c.alpha))
 END FUNC
 ```
@@ -43,9 +44,9 @@ IMPORT color
 IMPORT io
 
 FUNC main() AS Nothing
-  LET rgb24 AS Integer = 3368652        ' 0x3366CC
+  LET rgb24 AS Integer = 0x3366CC
   LET bare AS color::Color = color::fromPacked(rgb24)
-  LET opaque AS color::Color = color::fromPacked(bits::bor(rgb24, 4278190080))
+  LET opaque AS color::Color = color::fromPacked(bits::bor(rgb24, 0xFF000000))
   io::print(toString(bare.alpha) & " vs " & toString(opaque.alpha))
 END FUNC
 ```"#;

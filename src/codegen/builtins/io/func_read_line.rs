@@ -42,7 +42,9 @@ byte.
 
 Either way the text must be valid UTF-8: an ill-formed sequence raises
 `ErrEncoding` rather than being dropped or replaced, because a line with a byte
-silently missing would look complete. (The keystroke readers — `io::readKey`,
+silently missing would look complete. The whole offending line is read through
+its line feed before the error is raised, so none of it is returned and the next
+call starts at the following line. (The keystroke readers — `io::readKey`,
 `io::readScalar`, `io::readGrapheme` — skip such bytes instead.)
 
 `timeoutMs` bounds the wait: omitted, the call waits for as long as it takes;
@@ -61,7 +63,11 @@ but only when it arrives before any character of the line. Input that ends
 mid-line is not lost: those characters come back as the final, unterminated
 line, with a trailing CR still removed, and the *next* call raises
 `ErrEndOfFile`. A worker thread must subscribe with `thread::openStdIn` before
-reading, or the call raises `ErrInvalidContext`."#;
+reading, or the call raises `ErrInvalidContext`. In an `--app` build the program
+must be in `app::Mode.Console` or `app::Mode.Canvas`; in `app::Mode.None` there
+is no window to type into and the call raises `ErrWrongMode`. A read of standard
+input that the operating system refuses raises `ErrInputFailed`, and
+`ErrOutOfMemory` means the program ran out of memory."#;
 const EX: &str = r#"Read a line and echo it back:
 
 ```

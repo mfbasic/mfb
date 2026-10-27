@@ -60,8 +60,10 @@ LET codes = [ "AED",
 
 Running `mfb fmt` again changes nothing.
 
-With no `path`, `mfb fmt` formats the current directory. A directory argument is
-walked recursively for MFBASIC source files.
+With no `path`, `mfb fmt` formats the project in the current directory. A
+directory argument must be a project root (it must contain `project.json`); the
+files the project selects are formatted. A single `.mfb` file may be given
+instead.
 
 Nesting is capped: a file that opens more than 1024 blocks without closing them
 is refused with the `MFB_PARSE_BLOCK_TOO_DEEP` diagnostic at the line that
@@ -75,7 +77,7 @@ and then renamed over it, so an interrupted run never leaves a file truncated.
 | Option | Description |
 | --- | --- |
 | `--check` | Report whether files are already formatted without writing changes; exit non-zero if any file would change. |
-| `--indent <N>` | Number of spaces per indentation level, from `0` through `256` (default: `2`). `0` removes computed indentation. |
+| `--indent <N>` | Number of spaces per indentation level, from `0` through `256` (default: `2`). `0` removes computed indentation. `--indent=N` also works. |
 
 ## Parameters
 
@@ -85,8 +87,14 @@ and then renamed over it, so an interrupted run never leaves a file truncated.
 
 ## Errors
 
-No errors. `mfb fmt` reports problems on standard error and exits non-zero; it
-does not raise MFBASIC runtime errors. A source nested past the 1024-block cap
+No errors. `mfb fmt` reports problems on standard error; it does not raise
+MFBASIC runtime errors.
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | All files are formatted (or were rewritten). |
+| `1` | `--check` found unformatted files, or a file or project could not be read or formatted. |
+| `2` | Bad command line: an unknown flag, a bad or missing `--indent` value, or a second path. | A source nested past the 1024-block cap
 is reported with `MFB_PARSE_BLOCK_TOO_DEEP` and not rewritten.
 
 ## Examples
@@ -100,7 +108,7 @@ mfb fmt
 Check formatting in CI without rewriting, using a four-space indent:
 
 ```
-mfb fmt --check --indent 4 src
+mfb fmt --check --indent 4
 ```
 
 ## See also

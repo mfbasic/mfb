@@ -1,6 +1,6 @@
 # variable
 
-What a variable holds, when it can change, and the one thing that is shared
+What a variable holds, when it can change, and the one kind of value two names can share
 
 ## Synopsis
 
@@ -54,7 +54,14 @@ hello 2
 ```
 
 `LET` is the default and the one to reach for. Use `MUT` when a name genuinely
-has to take a new value over time.
+has to take a new value over time. Assigning to a `LET` is refused
+(`TYPE_ASSIGN_REQUIRES_MUT`).
+
+The `AS Type` is optional when the value makes the type obvious: `LET x = 5`. A
+`LET` must be given its value on the line that declares it; a `MUT` may be
+declared bare (`MUT total AS Integer`) and starts at the type's default — `0`,
+the empty `String`, and so on. An empty list or map still needs its type
+spelled.
 
 A name declared inside a function cannot reuse the name of a top-level `LET` or
 `MUT` that its file can see: one in the same file, or a `PUBLIC` one from another
@@ -72,6 +79,11 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
+Within one function a name is declared once, whatever block it sits in: a second
+`LET` or `MUT` of the same name inside an `IF`, `FOR` or `WHILE` body is rejected
+(`SYMBOL_DUPLICATE_LOCAL`), not a new inner variable. A `MUT` declared outside a
+block may be assigned from inside it.
+
 Give the inner name its own spelling instead:
 
 ```basic
@@ -88,6 +100,14 @@ END FUNC
 ```
 10
 ```
+
+## Top-level bindings
+
+A `LET` or `MUT` outside any `FUNC` is visible to every function in its file, and
+a `PUBLIC` one to other files too. A top-level `MUT` is one variable that every
+function in the program reads and assigns: two functions that each add one to it
+leave it two higher. A thread started with `thread::start` gets its own copy of
+the top-level state instead (see `mfb man thread`).
 
 ## Every value is independent
 
@@ -109,7 +129,9 @@ a = 1, b = 42
 ```
 
 Passing to a call copies too, so a call cannot reach back and change your
-variable:
+variable. A parameter is a `LET`: it cannot be assigned inside the function
+(`TYPE_ASSIGN_REQUIRES_MUT`), so copy it into a `MUT` when you need to change it,
+as `bump` does:
 
 ```basic
 IMPORT io
@@ -162,8 +184,10 @@ xs len = 3, ys len = 4
 after growList, xs len = 3
 ```
 
-`xs` is untouched by both. There is no way to write a function in MFBASIC that
-changes a `List` its caller can see.
+`xs` is untouched by both. No function can change a `List` through its
+parameters: what it receives is its own copy. The one route to an outer `MUT`
+list is a lambda handed straight to `collections::forEach`, which
+`mfb man lambda` describes.
 
 ## Changing a record: WITH
 
@@ -242,6 +266,8 @@ handle away.
 Binding a handle to a new `RES` name is different: `RES g = f` hands the handle
 to `g`, and `f` cannot be used again — the compiler rejects any later use of `f`
 (`TYPE_USE_AFTER_MOVE`). There is still one open thing; it now has one name.
+`RETURN f` does the same hand-over: the function's name ends, the caller's `RES`
+binding takes the one open thing, and it closes when that binding's scope ends.
 
 The flip side of one open thing is that closing through **either** name closes
 it. After `fs::close(a)`, `a` cannot be used again — and neither can any other
@@ -251,7 +277,9 @@ the compiler can see it, and reported as `ErrResourceClosed` where it cannot.
 ## Handles close themselves
 
 You usually do not call `close` at all. A handle closes when its binding's
-scope ends — on every way out, including a `RETURN` and a failure:
+scope ends — on every way out that does not `RETURN` the handle itself: a normal
+end of scope, `RETURN`, `FAIL`, a failure that propagates, `EXIT` or `CONTINUE`
+out of a loop body, and `os::exit`:
 
 ```basic
 IMPORT io
@@ -396,6 +424,10 @@ about is a `RES` handle you want closed early, which is what `close` is for.
 ## Where to look next
 
 - `mfb man types` — the types a variable can hold.
-- `mfb man flow` — scopes, and the ways out of one.
+- `mfb man flow` — the block forms a `LET` or `MUT` can be declared inside.
+- `mfb man lambda` — what a lambda copies, what it aliases, and the
+  `collections::forEach` exception.
+- `mfb man thread` — each thread's own copy of top-level state, and handing a
+  handle across.
 - `mfb spec memory` — the internal memory model, for anyone working on the
   compiler itself. Nothing on this page depends on it.

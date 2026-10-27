@@ -35,7 +35,9 @@ element with no delimiter at all.
 result of `split(value, delimiter)` with the same delimiter reproduces `value`.
 
 Neither argument is mutated; the result is a new `String`. `parts` is also
-accepted under the name `values`, and `delimiter` under the name `separator`."#;
+accepted under the name `values`, and `delimiter` under the name `separator`.
+The only error `join` can raise is `ErrOutOfMemory`, when the combined length of
+all the elements and delimiters is larger than the program can hold."#;
 
 const EX: &str = r#"Join words with a separator, and with none:
 

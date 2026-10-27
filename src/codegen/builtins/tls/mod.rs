@@ -143,10 +143,17 @@ is available, so a result is frequently shorter than `maxBytes` and never empty
 on success; end of stream is reported as an error rather than an empty result,
 so read in a loop until the connection is closed. Each write transmits the
 entire buffer, looping internally to resend any portion a single TLS write did
-not accept. TLS is
-implemented on Linux by driving the system OpenSSL library (`libssl.so.3`,
-falling back to `libssl.so.1.1`) so a single binary spans OpenSSL 1.1.1 and 3.x;
-the macOS backend drives Network.framework through a synchronous bridge."#;
+not accept.
+
+`tls::poll` waits for readability over one socket or a list;
+`tls::setReadTimeout` and `tls::setWriteTimeout` put a deadline on a socket's reads
+and writes (a read or write that reaches it raises `ErrTimeout`);
+`tls::localAddress` and `tls::remoteAddress` report `net::Address` values, so a
+file that reads their fields must also `IMPORT net`.
+
+TLS is provided by the operating system's own TLS library on every platform
+(OpenSSL on Linux, Schannel on Windows, Network.framework on macOS); if that
+library cannot be loaded, `tls::connect` and `tls::listen` raise `ErrTlsFailed`."#;
 
 /// Register the `tls` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {

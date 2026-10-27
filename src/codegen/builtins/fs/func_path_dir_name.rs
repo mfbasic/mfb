@@ -15,20 +15,20 @@ resolves `.` or `..` segments, follows symbolic links, or checks whether any pat
 exists.
 
 Trailing `/` separators are trimmed before the final component is located, so
-`"target/output/"` and `"target/output"` both yield `"target"`. Trimming stops
-once a single character remains, so it never takes the whole string. After
-trimming, the remaining bytes are scanned backward for the last `/` separator;
-the separator that joins the directory to the final component is dropped, so the
-result carries no trailing separator unless it is the root itself.
+`"target/output/"` and `"target/output"` both yield `"target"`. Only the single
+separator that joins the directory to the final component is dropped. Repeated
+separators before the final component are kept, so `"a//b"` yields `"a/"`; the
+result ends in `/` in that case and when it is the root `"/"`.
 
-When `path` contains no separator, `"."` is returned. When the last separator
-found is at position `0` — the only separator is a leading `/` — or `path` is
-`"/"` itself, `"/"` is returned. An empty `path` returns `"."`.
+When `path` contains no separator, `"."` is returned; so does a single name with
+a trailing separator, such as `"a/"`. When the directory part is nothing but
+leading `/` separators (`"/a"`, `"//a"`, `"/"`, `"///"`), `"/"` is returned. An
+empty `path` returns `"."`.
 
-The scan is byte-oriented (the separator is the single byte `47`), so UTF-8 file
-names are preserved unchanged and any embedded bytes are treated literally. When
-the result is `"."` or `"/"` a shared string constant is returned; otherwise a
-new `String` holding the directory part is built. The function reads no external state and has no side effects.
+Only `/` is a separator; a backslash is an ordinary character even on Windows,
+so `"C:\x\y"` has no directory part and yields `"."`. UTF-8 file names are
+preserved unchanged. The result is a new value and `path` itself is never
+changed; the function reads no external state and has no side effects.
 
 The only error is `ErrOutOfMemory`, raised when the program runs out of memory."#;
 const EX: &str = r#"A directory and a file name yield the directory:
@@ -86,8 +86,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The path whose directory portion is wanted, interpreted as raw UTF-8 \
-                       bytes. Trailing `/` separators are ignored. May be empty.",
+                desc: "The path whose directory portion is wanted. Trailing `/` separators are ignored. May be empty.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

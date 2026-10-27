@@ -139,7 +139,10 @@ codepage leaves undefined, or a character it has no byte for, is rejected rather
 than replaced, so a conversion either covers the whole input or fails.
 
 Decoders reject malformed input with `ErrInvalidFormat` (`77050003`): an
-invalid character, a bad length, or a misplaced pad. One thing they do **not**
+invalid character, a bad length, or a misplaced pad. Two decoders also raise
+`ErrEncoding` (`77020004`): `encoding::htmlUnescape` and `encoding::punycodeDecode`,
+when a reference or payload resolves to a surrogate code point (U+D800–U+DFFF).
+The UTF-8/16/32 decoders report the same condition as `ErrInvalidFormat`. One thing they do **not**
 reject is a non-canonical final group — `encoding::base64Decode("AB==")` and
 `encoding::base32Decode("AB======")` each return a single `0` byte rather than
 raising, because the unused trailing bits are ignored rather than required to be

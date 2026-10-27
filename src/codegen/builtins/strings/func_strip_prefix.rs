@@ -28,16 +28,21 @@ remove them all. An empty `prefix` matches at the start and removes nothing —
 longer than `value` cannot match, and a non-matching `prefix` leaves `value`
 alone; all three return an equal string.
 
-The function is total and never fails. Neither operand is modified, and you
-always get a new `String` back, even on the unchanged path.
+No input is rejected: an empty `value`, an empty `prefix`, a `prefix` longer
+than `value` and a non-matching `prefix` all succeed. The only error is
+`ErrOutOfMemory`, raised when the program runs out of memory. Neither argument
+is changed. The result is a value of its own; when there is nothing to strip it
+is equal to `value`.
 
 To test for the prefix without removing it, use `strings::startsWith`. To remove
 a *set* of leading scalars rather than a fixed substring, use
 `strings::trimChars`.
 
-`value` may also be an `astrings::AttributedString`: it returns an
-`AttributedString` whose text is transformed exactly as the `String` overload's
-and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
+`value` may also be an `AttributedString`: it returns an `AttributedString`
+whose text is stripped exactly as for a `String`. Attribute spans that lie
+entirely on the removed prefix are dropped, a span that straddles the cut keeps
+only its part on the remaining text, and every other span shifts left by the
+number of scalars removed."#;
 
 const EX: &str = r#"Remove a leading scheme; a non-matching prefix changes nothing:
 

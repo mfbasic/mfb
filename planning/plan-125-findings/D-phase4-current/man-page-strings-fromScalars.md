@@ -1,0 +1,15 @@
+### 1. The one listed error has no stated condition
+UNIT:      man-page:strings/fromScalars
+CLAIM:     "Encoding always succeeds because a `Scalar` is by construction a valid, non-surrogate Unicode code point, so there is no ill-formed input to reject."
+VERDICT:   incomplete
+EVIDENCE:  The Errors table lists `ErrOutOfMemory`, and the description never says when it is raised, so the page's only error row has no condition sentence (`.ai/man-content.md` §2: "Every raisable error and the condition that raises it"). The lowering raises it on two paths: `src/codegen/builtins/strings/gen_scalar_seam.rs:lower_from_scalars` calls `raise_error_bare("ErrOutOfMemory")` after `emit_arena_alloc_call` fails and again at the `size_overflow` label from `emit_checked_size_add_immediate`. Read side by side with "always succeeds", the row looks like a contradiction to a developer who cannot see the source. The premise of the sentence itself is true: `mfb spec language types` §4.1 says `toScalar(Integer)` traps `ErrInvalidArgument` on a surrogate or out-of-range value, so no `Scalar` can hold an invalid code point.
+SUGGESTED: Append one sentence to that paragraph: "The only error it can raise is `ErrOutOfMemory`, when the result string cannot be created; no input value is ever rejected."
+
+### 2. Scalar count versus user-perceived characters is left to the reader
+UNIT:      man-page:strings/fromScalars
+CLAIM:     "`len` of the result equals the element count exactly."
+VERDICT:   incomplete
+EVIDENCE:  True as stated. Probe built with `mfb build` and run from `/tmp/plan-125-scratch/D-phase4-current/man-page-strings-fromScalars/p_probe`: the list `[`e`, `\u{0301}`, `\u{1F1FA}`, `\u{1F1F8}`]` printed `é🇺🇸`, then `len(comb)` = 4, `len(c)` = 4, `strings::graphemesCount(c)` = 2. The sibling `toScalars` page states the scalar-versus-grapheme sharp edge explicitly and points at `strings::graphemes`; this page does not, and a developer assembling a combining sequence or a flag pair from scalars gets a `len` that is larger than the characters they see. `.ai/man-content.md` §2 names "Unicode scalar vs. grapheme" as a sharp edge that must be stated.
+SUGGESTED: After that sentence add: "That count is scalars, not user-perceived characters: a base letter plus a combining mark, or a two-scalar flag, is one grapheme but two elements. Use `strings::graphemesCount` when the visible character count matters." Add `strings::graphemesCount` to See also.
+
+Everything else on the page checked out against the binary. Both examples compiled and ran: the first printed `hi!`, the second printed `TRUE`. The probe confirmed the empty list yields a string with `len` 0 and `byteLen` 0 equal to `""`; `[`a`, `é`, `中`, `😀`]` printed `aé中😀` with `len` 4 and `byteLen` 10 (one to four bytes per element, matching the 128/2048/65536 thresholds in `emit_utf8_encoded_width`); and a `MUT` source list still had 2 elements after the call, so the input is not modified. No banned memory vocabulary appears on the rendered page, and the only memory-adjacent words are the permitted "value".

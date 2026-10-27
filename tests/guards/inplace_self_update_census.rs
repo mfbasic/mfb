@@ -256,7 +256,7 @@ fn self_update_shaped(sig: &str) -> bool {
 /// `AttributedString` and returns one (typed by the compiler, not rendered as an
 /// overload — plan-143 findings Correction 1).
 const TIER_B_SENTENCE: &str =
-    "value may also be an astrings::AttributedString: it returns an AttributedString";
+    "value may also be an AttributedString: it returns an AttributedString";
 
 /// plan-146-A: the `AttributedString` forms of a Tier-B transform's `String`
 /// self-update signatures — each `value AS String … AS String` with both types

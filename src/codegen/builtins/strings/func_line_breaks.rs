@@ -36,8 +36,9 @@ Unicode Line Breaking Algorithm (Unicode Standard Annex #14, for Unicode 16.0). 
 `strings::LineBreak` has an `index` — a position in Unicode scalars, the unit
 `strings::mid`, `strings::left` and `strings::find` count in, so `strings::left(text,
 b.index)` is the text before the break — and `mandatory`, which is `TRUE` where the line
-**must** break: after a line feed, a carriage return (but not between a CR and the LF
-that follows it), a form feed, or a line or paragraph separator.
+**must** break: after a line feed, a vertical tab, a form feed, a carriage return (but
+not between a CR and the LF that follows it), a next-line character (`U+0085`), or a line
+or paragraph separator.
 
 The positions are in order. Position 0 is never reported, because a line cannot be
 empty at the start. The end of the text is always reported, as `mandatory`, so a
@@ -47,9 +48,10 @@ at all and returns an empty list.
 This is the rule set that gets text in many writing systems right where splitting on
 spaces does not: a break may fall between two Chinese or Japanese characters with no
 space between them; never before a closing bracket, `!` or `.`, or after an opening one;
-after a hyphen but not before it; never inside a number like `$(12.35)` or `1,000.00`;
-never inside an emoji sequence, a flag, or a letter with its accents; and a no-break space
-or word joiner keeps its neighbours together.
+after a hyphen between two words (`ab-cd`), but never before one, and not when the
+hyphen starts a word (`-ing`) or a signed number (`-5`); never inside a number like
+`$(12.35)` or `1,000.00`; never inside an emoji sequence, a flag, or a letter with its
+accents; and a no-break space or word joiner keeps its neighbours together.
 
 What it does not do. There is no tailoring for a language or a style: Korean is broken
 between syllables, and the CSS `word-break` and `line-break` options are not offered.
@@ -60,6 +62,11 @@ hyphen is a place a line may break, nothing more.
 Wrapping is your loop: walk the breaks, measure the text from the line's start to each
 one, and break at the last one that still fits — with `canvas::measureText` for drawn
 text, or with a character count for a terminal, as the example does.
+
+A break comes after any spaces that precede it, so the spaces belong to the line
+before the break and are part of what `strings::mid(text, start, b.index - start)`
+returns. Measure a line with its trailing spaces removed (`strings::trimEnd`), as the
+example does, or a line that fits exactly will wrap one word early.
 
 `ErrOutOfMemory` means the program ran out of memory."#;
 
@@ -75,7 +82,7 @@ FUNC wrap(text AS String, width AS Integer) AS List OF String
   MUT start AS Integer = 0
   MUT last AS Integer = 0
   FOR EACH b IN strings::lineBreaks(text)
-    IF b.index - start > width AND last > start THEN
+    IF len(strings::trimEnd(strings::mid(text, start, b.index - start))) > width AND last > start THEN
       lines = collections::append(lines, strings::trimEnd(strings::mid(text, start, last - start)))
       start = last
     END IF
@@ -548,14 +555,19 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 name: "index",
                 ty: ParameterType::Integer,
                 description: "Where the new line would start, in Unicode scalars from \
-                              the start of the text, as `strings::mid` counts. Never 0.",
+                              the start of the text, as `strings::mid` counts. \
+                              `strings::lineBreaks` never reports 0, and its last \
+                              entry's index is the length of the text.",
             },
             RecordProp {
                 name: "mandatory",
                 ty: ParameterType::Boolean,
-                description: "`TRUE` where the line must break — after a hard line \
-                              break, and at the end of the text — and `FALSE` where it \
-                              only may.",
+                description: "`TRUE` where the line must break — after a line feed, \
+                              carriage return, vertical tab, form feed, next line, or \
+                              line or paragraph separator (a CR LF pair breaks once, \
+                              after the LF), and at the end of the text, where `index` \
+                              equals the text's length — and `FALSE` where it only \
+                              may. See `strings::lineBreaks` for the full rule set.",
             },
         ],
     });

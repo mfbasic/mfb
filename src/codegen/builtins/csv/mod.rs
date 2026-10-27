@@ -63,10 +63,8 @@ row in the middle. Empty input parses to zero rows.
 
 `csv::stringify` renders deterministically: rows are joined with a single LF
 with no trailing newline, fields within a row are joined with a comma, and a
-field is quoted only when it contains a comma, a double quote, a CR, or an LF.
-For any grid `x`, `csv::parse(csv::stringify(x))` yields a grid whose cells
-equal those of `x`, except that a trailing empty row produced only by separator
-placement is not reintroduced and a CRLF separator is normalized to LF."#;
+field is quoted only when it contains the delimiter, the quote character, a CR, or an LF.
+For any grid `x`, with the default newline (or CRLF), `csv::parse(csv::stringify(x))` yields a grid whose cells equal those of `x`, except that a trailing empty row produced only by separator placement is not reintroduced. Going the other way, `csv::stringify(csv::parse(text))` reproduces `text` except that CRLF record separators come back as LF and a single trailing separator is dropped."#;
 
 /// Register the `csv` package on the registry.
 pub(crate) fn register(r: &mut Registry) {

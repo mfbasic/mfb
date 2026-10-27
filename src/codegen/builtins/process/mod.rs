@@ -88,7 +88,7 @@ pub(crate) const SIGNAL_TYPE: &str = "Signal";
 pub(crate) const DROP: &str = "process.__drop";
 
 const MODULE_INTRO: &str =
-    r#"Spawn and manage child processes: run a program, stream its standard I/O,"#;
+    r#"Spawn and manage child processes: run a program, stream its standard I/O, wait for it, and signal or detach it."#;
 const MODULE_DESC: &str = r#"The `process` package runs and controls child processes. Its one resource,
 `Process`, is an opaque handle to a spawned child. Like every resource handle it
 is not copied — a second name for one is an alias — and it may be a field of a

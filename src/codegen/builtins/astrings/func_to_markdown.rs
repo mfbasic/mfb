@@ -11,12 +11,16 @@ use crate::types::ParameterType;
 
 const INTRO: &str = r#"Render an `AttributedString`'s flags, font, and size into a bespoke markdown-flavored format; colors are left out."#;
 
-const DESC: &str = r#"`toMarkdown` flattens the resolved attribute state — per member, the covering span with the
-higher start, or the later-added one where starts are equal — across the scalars into maximal runs and renders each run into a bespoke marker
-vocabulary. It is a read-only projection — `value` is not modified.
+const DESC: &str = r#"`toMarkdown` walks the text scalar by scalar, groups neighbouring scalars that carry the
+same styling into one run, and writes each run with markers. A scalar is bold, italic, underlined,
+struck or overlined when any covering span says so; its font and size come from the winning span as
+`astrings::addAttribute` defines it. Foreground and background colours are ignored. `value` is not
+modified. Runs are cut at Unicode scalar boundaries, the same unit `astrings::addAttribute` ranges
+use, so a marker can land between a base letter and its combining mark.
 
-**This is not CommonMark.** The format is read by the `astrings` toolchain, not a
-standard markdown engine; do not treat `__`/`^^`/`::…::` as CommonMark.
+**This is not CommonMark** and nothing in MFBASIC reads it back; it is a
+debugging and display rendering only. Do not feed `__`/`^^`/`::…::` to a markdown
+engine.
 
 - **Flags** wrap each run as nested pairs in this order — `**bold**`, `*italic*`,
   `__underline__`, `~~strike~~`, `^^overline^^` — and close in the reverse order, so
@@ -24,9 +28,16 @@ standard markdown engine; do not treat `__`/`^^`/`::…::` as CommonMark.
 - **Font/size** switch forward via a minimal-delta `::font;size::` marker emitted
   at run boundaries where the state changes: a value sets, `-` resets to default,
   and an omitted slot leaves it unchanged (`::font::` font-only, `::;size::`
-  size-only, `::-::` font reset).
+  size-only, `::-::` font reset, `::;-::` size reset; a negative size such as
+  `::;-5::` is a value, not a reset). Flags always close at the end of their
+  run, but font and size are never reset at the end of the text; the last marker
+  stays in force. A font set to the empty name is written with an empty slot
+  (`::::`, or `::;12::` together with a size), which reads the same as no
+  change; avoid empty font names if the output must be read back.
 - **Delimiter characters** (`\ * _ ~ ^ :`) in the visible text are backslash-
-  escaped; font names additionally escape `;` (and a literal `-`).
+  escaped; `;` and `-` in the text are not. In a font name `;` is escaped as
+  well, and a font whose whole name is `-` is written `\-` so it is not read as
+  a reset; a `-` inside a longer name is left as is.
 
 Building the rendered text can raise `ErrOutOfMemory`, meaning the program ran
 out of memory."#;

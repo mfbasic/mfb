@@ -33,36 +33,38 @@ as if `"read"` had been supplied. This is the only difference from `fs::open`,
 which requires `mode` to be given explicitly; otherwise the two functions behave
 identically.
 
-`mode` selects how the file is opened. The portable mode names are `"read"` or
-`"r"`, `"write"` or `"w"`, `"readWrite"` or `"rw"`, and `"append"` or `"a"`.
+`mode` selects how the file is opened. The mode names are `"read"` or
+`"r"`, `"write"` or `"w"`, `"readWrite"` or `"rw"`, and `"append"` or `"a"`; there are no others.
 `"read"` opens an existing file for reading only and creates nothing. `"write"`
 opens the file for writing, creating it when it does not exist and truncating it
 to empty when it does. `"readWrite"` opens the file for both reading and writing,
-creating it when it does not exist but preserving existing contents. `"append"`
+creating it when it does not exist and leaving existing contents in place.
+Reading and writing both start at the beginning of the file, so the first write
+overwrites what is there byte for byte rather than adding to it; use `"append"`
+to add at the end, or `fs::seek` to choose a position. `"append"`
 opens the file for writing with every write directed to the end of the file,
-creating it when it does not exist. The mode string is matched exactly, byte for
+even after `fs::seek`, creating it when it does not exist. The mode string is matched exactly, byte for
 byte, and is case sensitive; any other value is rejected before the file is
-touched.
+touched. A `"write"` or `"append"` handle cannot be read; use `"readWrite"`
+when you need both.
 
 Files created by a `write`, `readWrite`, or `append` open are created with
 user-only `0600` permission bits (subject to the process umask), not
 world-readable `0666`, matching `fs::createTempFile` and the atomic writers.
 
-The final path component is followed when it is a symlink, so opening through a
-symlink opens its target. To refuse a symlinked final component, use
+Symbolic links anywhere in `path` are followed, so opening through a symlink
+opens its target. To refuse a path that passes through any symbolic link, use
 `fs::openFileNoFollow` instead.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
-absolute or relative to the current working directory and may contain Unicode
-characters when the host filesystem accepts those names. The string must not be
-empty and must not contain an embedded NUL byte, because the host `open` call
-requires a NUL-terminated path.
+`path` may be absolute or relative to the current working directory and may
+contain Unicode characters when the host filesystem accepts those names. It must
+not be empty and must not contain a NUL character.
 
 The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`. The function reads or writes no
 file contents itself; it only opens the file and gives you the `File`
 resource.
 
-An empty `path`, one containing a NUL byte, or a `mode` that is not one of the
+An empty `path`, one containing a NUL character, or a `mode` that is not one of the
 names above raises `ErrInvalidArgument`. When the file cannot be opened the
 error says why: `ErrPathNotFound` if it does not exist — or, for a mode that
 creates the file, if a directory above it does not — `ErrAccessDenied` if
@@ -71,15 +73,21 @@ names a directory, in any mode, a name in it is too long, a file is used as a
 directory, or it is a loop of symbolic links. Any other refusal raises
 `ErrReadFailed` for `"r"` and `ErrWriteFailed` for a mode that writes.
 `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Open a file for reading using the default mode:
+const EX: &str = r#"Open a file for reading using the default mode. Each example works in a scratch
+directory under the temporary directory and removes it afterwards:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f AS fs::File = fs::openFile("data.txt")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-openFile-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f AS fs::File = fs::openFile(data)
   fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -87,12 +95,19 @@ Open a file for writing, truncating any previous contents:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("out.txt", "first line\nsecond line\n")
-  RES w AS fs::File = fs::openFile("out.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-openFile-2"])
+  fs::createDirectories(dir)
+  LET out AS String = fs::pathJoin([dir, "out.txt"])
+  fs::writeText(out, "first line\nsecond line\n")
+  RES w AS fs::File = fs::openFile(out, "write")
   fs::writeAll(w, "hello")
   fs::close(w)
+  io::print(fs::readText(out))
+  fs::deleteFile(out)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -100,12 +115,19 @@ Open a file for appending so each write lands at the end:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("app.log", "first line\nsecond line\n")
-  RES log AS fs::File = fs::openFile("app.log", "a")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-openFile-3"])
+  fs::createDirectories(dir)
+  LET path AS String = fs::pathJoin([dir, "app.log"])
+  fs::writeText(path, "first line\n")
+  RES log AS fs::File = fs::openFile(path, "a")
   fs::writeAll(log, "started\n")
   fs::close(log)
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 
@@ -121,9 +143,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "path",
-                    desc: "The filesystem path of the file to open, as UTF-8 bytes; absolute or \
-                           relative to the current working directory. Must be non-empty and free \
-                           of embedded NUL bytes.",
+                    desc: "The filesystem path of the file to open; absolute or relative to \
+                           the current working directory. Must be non-empty and contain no NUL \
+                           character.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

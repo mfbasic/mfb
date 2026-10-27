@@ -25,8 +25,9 @@ up to a multiple of four. This is the difference from `encoding::base64Encode`,
 which pads with `=`. An empty list yields the empty
 string.
 
-The function is **total**: every `List OF Byte`, including the empty list,
-encodes successfully, and it never raises a runtime error. The inverse
+Every `List OF Byte`, including the empty list, encodes: no input is
+rejected, and the only error it can raise is `ErrOutOfMemory`, when the program
+runs out of memory. The inverse
 operation is `encoding::base64UrlDecode`, which parses a URL-safe Base64 string
 back into a `List OF Byte`."#;
 #[rustfmt::skip]
@@ -77,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_base64UrlEncode"),
         }],
     });

@@ -8,7 +8,8 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Convert a linear-light value, `0`..`65535`, back to an sRGB channel."#;
 
 const DESC: &str = r#"`fromLinear` is the inverse of `color::toLinear`: it returns the sRGB channel
-byte whose linear value is nearest to `value`. Together they are what the
+byte whose linear value is nearest to `value`; when two channels are equally
+near, the darker one is returned. Together they are what the
 linear-light operations — `color::brighten`, `color::darken`, `color::mix`,
 `color::grayscale` and `color::luminance` — are built on.
 
@@ -34,7 +35,8 @@ FUNC main() AS Nothing
 END FUNC
 ```
 
-Average two colours correctly — in linear light, not in encoded bytes:
+Average two channel values correctly — in linear light, not in encoded bytes
+(`color::mix` does this for whole colours):
 
 ```
 IMPORT color

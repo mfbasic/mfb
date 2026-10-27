@@ -1,0 +1,21 @@
+### 1. "module" is not the language's word for `term`
+UNIT:      man-page:term/getForeground
+CLAIM:     "The value is the module's current foreground colour." and "Unlike most of the module, this call does not simply do nothing while TUI mode is off"
+VERDICT:   misleading
+EVIDENCE:  The page's own header says `Package term`, the declaration is `term::getForeground()`, and `.ai/man-content.md` §1 addresses the developer who writes `IMPORT term`. "Module" appears nowhere else on this page and only once in `mfb man term` (`mfb man term | grep -ic module` → 1), so the reader meets a second name for the same thing with no definition. The descriptor text is `src/codegen/builtins/term/func_get_foreground.rs:DESC`.
+SUGGESTED: "The value is the term package's current foreground colour." and "Unlike most term:: calls, this one does not simply do nothing while TUI mode is off"
+
+### 2. Page does not say the result is a value of its own, independent of later setForeground calls
+UNIT:      man-page:term/getForeground
+CLAIM:     "The value is the module's current foreground colour. Immediately after term::on … until the next term::setForeground or the next term::on."
+VERDICT:   incomplete
+EVIDENCE:  Read literally, "the value is the current foreground colour … until the next term::setForeground" can be taken to mean a Color already read changes when the foreground changes. It does not. Probe `/tmp/plan-125-scratch/D-phase6-current/man-page-term-getForeground/probe/src/main.mfb` (built with `mfb build -q probe`, run `./probe/build/probe.out`): after `LET c = term::getForeground()` returned 0 128 255 and a further `term::setForeground(color::rgb(9, 9, 9))`, it printed `saved copy after second set: 0 128 255 a=255` and `current: 9 9 9 a=255`. The implementation builds a fresh record per call (`src/codegen/term/core/term/attributes.rs:emit_get_color` unpacks the state slot into a new 4-field record). The second example relies on this (restoring `saved` after an intervening set) but the prose never states it.
+SUGGESTED: Add after the first sentence of that paragraph: "Each call returns a value of its own: a later term::setForeground changes what the next call returns, not a Color the program already holds."
+
+Verification record for everything else, so the absence of further findings is auditable:
+
+- **Both examples compile and run** at HEAD: `mfb build -q ex1` and `mfb build -q ex2` under `/tmp/plan-125-scratch/D-phase6-current/man-page-term-getForeground/`, each ran to exit 0. The second example's captured output shows `warning` emitted with `ESC[38;2;255;0;0m` and the frame afterwards back on `255;255;255`, so the save-and-restore does what the caption says.
+- **Value claims** all match the probe output: before `on` → `255 255 255 a=255`; `setForeground` while off is ignored (still white); after `on` → white (`src/codegen/term/core/term/screen_mode.rs:emit_on` writes `DEFAULT_FOREGROUND_PACKED` = 16777215 to the FG slot); after `setForeground(rgba(10,20,30,7))` → `10 20 30 a=255`, confirming alpha is always 255 and the set colour's alpha is not reported (`emit_get_color` stores the alpha field as the immediate 255; `emit_set_color` never reads alpha); after `off` → white again (`emit_off` does not write the FG slot; the inactive gate in `emit_get_color` supplies the inert default); after a second `on` → white.
+- **Errors table**: `ErrOutOfMemory` is the only error raised by the body itself, on the record-creation failure branch of `emit_get_color`; `ErrWrongMode` comes from `prepend_wrong_mode_gate` in `src/codegen/builtins/term/gen_shared.rs` with `ModeRequirement::Console`, applied only when the program can leave Console, matching the page's "--app build … unless app::Mode.Console". Not probed at runtime (an `--app` build needs a window), so that row is verified by reading the gate, not by execution.
+- **Banned vocabulary**: `grep -i -w -E "$(scripts/man-census.sh --banned-list | tail -1)"` over the rendered page hits only the Errors-table message `Allocation failed.`, which is the registry-wide `ErrOutOfMemory` message shared by every page, not this descriptor's prose. No borrow/ownership mental model is taught without a banned word either; "The saved value goes straight back in" uses only permitted vocabulary.
+- **Scope**: no codegen, registry, or Rust names appear on the page.

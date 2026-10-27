@@ -22,10 +22,8 @@ proportional to light: `128` is not half as much light as `255`, it is about 22%
 Blending, brightening or averaging the encoded bytes directly produces the
 familiar too-dark midpoint. Convert to linear, do the arithmetic, convert back.
 
-The mapping is a fixed 256-entry table rather than a computed power function.
-That is deliberate: the software rasteriser is the oracle the GPU backends are
-compared against, so it must produce identical bytes on every target, and a libm
-transcendental does not. The table's endpoints are exact — `toLinear(0)` is `0`
+The result is the same on every platform and every target — the mapping is
+fixed, not computed from a floating-point power. The endpoints are exact — `toLinear(0)` is `0`
 and `toLinear(255)` is `65535` — which is what makes an opaque blend land on its
 source exactly rather than a step below.
 

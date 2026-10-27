@@ -196,7 +196,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             RecordProp {
                 name: "radius",
                 ty: ParameterType::Float,
-                description: "The radius in pixels.",
+                description: "The radius in pixels. `0.0` or less draws nothing.",
             },
             paint_prop(),
             transform_prop(),

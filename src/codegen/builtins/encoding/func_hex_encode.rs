@@ -20,8 +20,9 @@ The result length is always exactly twice the number of input bytes. An empty
 list yields the empty string. Use `strings::upper` on the result if uppercase hex
 is required.
 
-The function is **total**: every `List OF Byte`, including the empty list,
-encodes successfully, and it never raises a runtime error. The inverse operation
+Every `List OF Byte`, including the empty list, encodes: no input is
+rejected, and the only error it can raise is `ErrOutOfMemory`, when the program
+runs out of memory. The inverse operation
 is `encoding::hexDecode`, which parses a hex string (accepting upper- or
 lowercase digits) back into a `List OF Byte`."#;
 #[rustfmt::skip]
@@ -79,7 +80,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_hexEncode"),
         }],
     });

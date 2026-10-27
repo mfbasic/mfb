@@ -14,7 +14,7 @@ const INTRO: &str = r#"Report whether the bold attribute is currently set"#;
 const DESC: &str = r#"`term::getBold` returns `TRUE` when subsequently drawn text will be bold and
 `FALSE` when it will not. It takes no arguments.
 
-The value is the module's current bold attribute read directly. Immediately after
+The value is the `term` package's current bold attribute. Immediately after
 `term::on` — which resets bold to off — it is `FALSE`; afterwards it is whatever
 the most recent `term::setBold` passed, until the next `term::setBold` or the
 next `term::on`.
@@ -23,13 +23,13 @@ This is the *current attribute*, not a property of anything on screen. Each cell
 of the grid carries the attributes that were current when its glyph was written,
 so this call describes what the next drawing will use.
 
-Unlike most of the module, `term::getBold` does not simply do nothing while TUI
+Unlike most `term::` calls, `term::getBold` does not simply do nothing while TUI
 mode is off: it returns the **inert default**, `FALSE`. A program cannot
 distinguish "off" from "on with bold disabled" by this call alone — use
 `term::isOn` for that.
 
-The call reads state only. It changes no `term::` state, draws
-nothing, and cannot fail. In an `mfb build --app` program, `term::getBold` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
+The call reads state only. It changes no `term::` state and draws nothing. In a
+terminal program it cannot fail; in an `mfb build --app` program, `term::getBold` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Set bold and read it back:
 

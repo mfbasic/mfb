@@ -38,7 +38,8 @@ a `File` that other code is reading, and it is what lets a program decide how mu
 of a file to read before reading any of it.
 
 Measuring the length requires a handle the host can reposition, so `fs::size` only
-works on a seekable handle — a regular file on disk. On a pipe, a socket, or
+works on a seekable handle — a regular file on disk, or a `File` from
+`fs::openData`. On a pipe, a socket, or
 another non-seekable handle the host cannot report a length, and the call raises
 `ErrReadFailed`; `fs::eof` behaves the same way on the same handles. Calling
 `fs::size` on a `File` that has already been closed raises `ErrResourceClosed`,
@@ -49,17 +50,23 @@ written through `file` but still held in its write buffer are not counted until
 they reach the disk, so call `fs::flush` first when an accurate length is needed
 straight after writing. To read bytes at a chosen position rather than measure the
 file, use `fs::readBytesAt`."#;
-const EX: &str = r#"Measure an open file before reading it:
+const EX: &str = r#"Measure an open file before reading it. The file lives in a scratch directory
+under the temporary directory, and `fs::close` releases it before it is deleted:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.bin", "Hello")
-  RES f = fs::openFile("data.bin")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-size-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.bin"])
+  fs::writeText(data, "Hello")
+  RES f = fs::openFile(data)
   io::print(toString(fs::size(f)))
-  ' f closes itself when this scope ends
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -71,10 +78,16 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.bin", "first line\nsecond line\n")
-  RES f = fs::openFile("data.bin")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-size-2"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.bin"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f = fs::openFile(data)
   LET total AS Integer = fs::size(f)
-  io::print(fs::readLine(f))
+  io::print(toString(total) & " bytes, starting with: " & fs::readLine(f))
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

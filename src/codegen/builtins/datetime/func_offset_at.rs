@@ -15,9 +15,9 @@ UTC at that instant. This is the exact quantity `datetime::inZone` adds to an
 
 
 How the offset is determined depends on the zone's kind. For a UTC zone
-(`datetime::ZoneKind::Utc`) and a fixed-offset zone (`datetime::ZoneKind::FixedOffset`, built with
+(`datetime::ZoneKind.Utc`) and a fixed-offset zone (`datetime::ZoneKind.FixedOffset`, built with
 `datetime::fixedOffset`) the result is constant and does not depend on `at`: zero
-for UTC, and the configured offset for a fixed-offset zone. For a local zone (`datetime::ZoneKind::Local`, built
+for UTC, and the configured offset for a fixed-offset zone. For a local zone (`datetime::ZoneKind.Local`, built
 with `datetime::local`) the offset is resolved
 against the host's configured time zone for the specific instant `at`: it reads
 the host zone table and is therefore DST-correct, returning the standard-time

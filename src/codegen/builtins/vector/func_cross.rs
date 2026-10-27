@@ -34,10 +34,9 @@ functions, which all round on `Integer`. `cross` never raises
 `ErrInvalidArgument` (nor do `length`, `dot`, `distance`, or `scale`): it has no
 degenerate input to reject, and the cross product of parallel operands is simply the zero vector.
 
-The unary 2D form gives the same result as `vector::perpendicular`. Use whichever
-name reads better where you are: `cross` when the surrounding code is doing
-cross products across dimensions, `perpendicular` when the point is the quarter
-turn itself.
+The 2D unary `vector::cross` and `vector::perpendicular` compute the same value
+with the same error behaviour; prefer `perpendicular` when you mean a quarter turn
+and `cross` when the surrounding code is doing cross products across dimensions.
 
 `vector::cross` is generic over the nine built-in vector record types, and is the
 only member of this package whose accepted arity varies: `1` for a 2D type, `2`

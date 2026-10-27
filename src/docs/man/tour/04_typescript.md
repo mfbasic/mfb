@@ -34,6 +34,9 @@ An MFBASIC worker is a top-level `ISOLATED FUNC`. It shares
 nothing with its parent, and both directions of the conversation are typed in
 the thread handle itself.
 
+The parent-side lines at the end of the next block belong inside a `FUNC`;
+they are shown bare for brevity.
+
 ```
 ' text_workers package
 IMPORT strings
@@ -60,7 +63,9 @@ thread::send(t, "done")
 LET words = thread::waitFor(t)      ' 9 — the worker's result, or its Error
 ```
 
-`Thread OF String TO Integer` is the `postMessage` contract you wish
+`ThreadWorker OF String TO Integer` on the worker side — and the matching
+`Thread OF String TO Integer` the parent gets back from `thread::start` — is the
+`postMessage` contract you wish
 `Worker` had: messages in are `String`, the result out is `Integer`, and the
 compiler holds both sides to it. Sending hands over the value (the structured clone without the cloning cost or the "is a `Date` cloneable?" rules), and
 these are real OS threads doing parallel work — not slices of one event loop.
@@ -76,6 +81,9 @@ thread it through every call. MFBASIC builds exactly that shape into the
 language and then hides the threading: a call evaluates to its success value,
 and on failure the typed `Error` (`code`, `message`, `source`) automatically
 routes to the enclosing `TRAP` or fails the function to its caller.
+
+The last lines of the next block belong inside a `FUNC`; they are shown bare
+for brevity.
 
 ```
 IMPORT errorCode
@@ -237,4 +245,5 @@ never a partial parse.
 - `mfb man tour` — the one-page language tour.
 - `mfb man errors`, `mfb man thread`, `mfb man types` — the models above in full.
 - `mfb man variable` — values, copies and handles; `mfb spec language memory-semantics`
-- `mfb spec language type-inference` — how far inference goes without annotations.
+  has the exact contract.
+- `mfb spec language bindings-and-scope` — how far inference goes without annotations.

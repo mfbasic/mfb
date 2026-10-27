@@ -62,7 +62,10 @@ The body is exactly the framed bytes: truncated to `Content-Length`, or
 de-chunked. A `multipart/form-data` body is split into `http::Request.parts`
 keyed by each part's `name`. `http::Request.body` holds the raw body bytes.
 
-**Matching.** Routes are tested in list order and the **first** match wins. Path
+**Matching.** Routes are tested in list order and the **first** match wins. A
+route matches on path only; the method is not part of the pattern. A handler
+that must distinguish `GET` from `POST` reads `req.method` (always uppercased)
+and answers, for example, `http::status(405, "Method Not Allowed")` itself. Path
 matching is segment-based on the decoded path with a single trailing `/` ignored;
 `:name` binds one required segment, `:name?` binds an optional trailing segment,
 and `*` binds all remaining segments joined by `/`. Bound captures are placed in

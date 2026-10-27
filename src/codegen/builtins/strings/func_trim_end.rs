@@ -23,10 +23,10 @@ trimming never splits a scalar.
 Removal stops at the last scalar that is not whitespace, so leading and interior
 content, including embedded spaces and line breaks, is preserved byte for byte. A
 `value` that is entirely whitespace yields the empty string, and the empty string
-yields the empty string. `value` is not mutated; the result is a new `String`,
-even when nothing was trimmed.
+yields the empty string. `value` is not mutated; the call returns the trimmed
+text and leaves `value` as it was.
 
-`value` may also be an `astrings::AttributedString`: it returns an
+`value` may also be an `AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit. `ErrOutOfMemory` means the program ran out of memory."#;
 

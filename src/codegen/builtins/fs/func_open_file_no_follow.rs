@@ -33,12 +33,11 @@ symbolic link at *any* component of `path`, not just the terminal name: if any
 component — an intermediate directory or the final name — is a symbolic link,
 the open is refused rather than resolving through the link.
 
-The whole-path guarantee is enforced by the host in a single operation. On Linux
-the path is resolved with `openat2` carrying `RESOLVE_NO_SYMLINKS`; on macOS the
-open uses `O_NOFOLLOW_ANY`, which fails if a symlink is encountered at any
-component. On a Linux kernel too old for `openat2` (`ENOSYS`,
-pre-5.6, or a restrictive seccomp filter) it falls back to a plain `open` with
-`O_NOFOLLOW`, which refuses only a symlinked *final* component.
+The refusal covers every component of the path on macOS, on Windows (where a
+junction counts as a link), and on Linux 5.6 or newer. On an older Linux kernel,
+or under a security filter that blocks the newer open call, only a symbolic link
+at the final name is refused; a link at an intermediate directory is followed
+silently there.
 
 This is useful for safely opening a file whose path you control without being
 silently redirected through a symlink that may have been swapped in along the
@@ -47,49 +46,61 @@ path.
 The `mode` argument is optional: when it is omitted the file is opened for
 reading, exactly as if `"read"` had been supplied.
 
-`mode` selects how the file is opened. The portable mode names are `"read"` or
-`"r"`, `"write"` or `"w"`, `"readWrite"` or `"rw"`, and `"append"` or `"a"`.
+`mode` selects how the file is opened. The mode names are `"read"` or
+`"r"`, `"write"` or `"w"`, `"readWrite"` or `"rw"`, and `"append"` or `"a"`; there are no others.
 `"read"` opens an existing file for reading only and creates nothing. `"write"`
 opens the file for writing, creating it when it does not exist and truncating it
 to empty when it does. `"readWrite"` opens the file for both reading and writing,
-creating it when it does not exist but preserving existing contents. `"append"`
+creating it when it does not exist and leaving existing contents in place.
+Reading and writing both start at the beginning of the file, so the first write
+overwrites what is there byte for byte rather than adding to it; use `"append"`
+to add at the end, or `fs::seek` to choose a position. `"append"`
 opens the file for writing with every write directed to the end of the file,
-creating it when it does not exist. The mode string is matched exactly, byte for
+even after `fs::seek`, creating it when it does not exist. The mode string is matched exactly, byte for
 byte, and is case sensitive; any other value is rejected before the file is
-touched.
+touched. A `"write"` or `"append"` handle cannot be read; use `"readWrite"`
+when you need both.
 
 Files created by a `write`, `readWrite`, or `append` open are created with
 user-only `0600` permission bits (subject to the process umask), not
 world-readable `0666`, matching `fs::createTempFile` and the atomic writers.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
-absolute or relative to the current working directory and may contain Unicode
-characters when the host filesystem accepts those names. The string must not be
-empty and must not contain an embedded NUL byte, because the host `open` call
-requires a NUL-terminated path.
+`path` may be absolute or relative to the current working directory and may
+contain Unicode characters when the host filesystem accepts those names. It must
+not be empty and must not contain a NUL character.
 
 The returned `File` is closed when the binding that holds it goes out of scope, or explicitly with `fs::close`. The function reads or writes no
 file contents itself; it only opens the file and gives you the `File`
 resource.
 
-An empty `path`, one containing a NUL byte, or a `mode` that is not one of the
+An empty `path`, one containing a NUL character, or a `mode` that is not one of the
 names above raises `ErrInvalidArgument`. When the file cannot be opened the
 error says why: `ErrAccessDenied` if a component of `path` is a symbolic link or
-permission is refused, `ErrPathNotFound` if the file does not exist — or, for a
+permission is refused (a symbolic link is refused before its target is looked
+at, so a link pointing at a missing file raises `ErrAccessDenied`, not
+`ErrPathNotFound`), `ErrPathNotFound` if the file does not exist — or, for a
 mode that creates the file, if a directory above it does not — and
 `ErrInvalidPath` if `path` cannot name a file: it names a directory, in any
 mode, a name in it is too long, or a file is used as a directory. Any other
 refusal raises `ErrReadFailed` for `"r"` and `ErrWriteFailed` for a mode that
 writes. `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Open a file for reading using the default mode, refusing a symlinked path:
+const EX: &str = r#"Open a file for reading using the default mode, refusing a symlinked path. The
+temporary directory is passed through `fs::canonicalPath` first, because on some
+hosts (macOS) its usual spelling runs through a symbolic link, which this call
+would refuse:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f AS fs::File = fs::openFileNoFollow("data.txt")
+  LET dir AS String = fs::pathJoin([fs::canonicalPath(fs::tempDirectory()), "mfb-openFileNoFollow-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f AS fs::File = fs::openFileNoFollow(data)
   fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -97,12 +108,19 @@ Open a file for writing; the open fails if any component of the path is a symlin
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("out.txt", "first line\nsecond line\n")
-  RES w AS fs::File = fs::openFileNoFollow("out.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::canonicalPath(fs::tempDirectory()), "mfb-openFileNoFollow-2"])
+  fs::createDirectories(dir)
+  LET out AS String = fs::pathJoin([dir, "out.txt"])
+  fs::writeText(out, "first line\nsecond line\n")
+  RES w AS fs::File = fs::openFileNoFollow(out, "write")
   fs::writeAll(w, "hello")
   fs::close(w)
+  io::print(fs::readText(out))
+  fs::deleteFile(out)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -110,12 +128,19 @@ Open a file for appending so each write lands at the end:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("app.log", "first line\nsecond line\n")
-  RES log AS fs::File = fs::openFileNoFollow("app.log", "a")
+  LET dir AS String = fs::pathJoin([fs::canonicalPath(fs::tempDirectory()), "mfb-openFileNoFollow-3"])
+  fs::createDirectories(dir)
+  LET path AS String = fs::pathJoin([dir, "app.log"])
+  fs::writeText(path, "first line\n")
+  RES log AS fs::File = fs::openFileNoFollow(path, "a")
   fs::writeAll(log, "started\n")
   fs::close(log)
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 
@@ -131,9 +156,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "path",
-                    desc: "The filesystem path of the file to open, as UTF-8 bytes; absolute or \
-                           relative to the current working directory. Must be non-empty and free \
-                           of embedded NUL bytes. No component of the path may be a symbolic link.",
+                    desc: "The filesystem path of the file to open; absolute or relative to \
+                           the current working directory. Must be non-empty and contain no NUL \
+                           character. No component of the path may be a symbolic link.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

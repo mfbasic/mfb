@@ -10,7 +10,7 @@ and the point `(x, y)`, using the signs of both arguments to select the correct
 quadrant. On the axes: `atan2(0.0, 0.0)` is `0`; with `x` zero the result is `pi/2`
 or `-pi/2` by the sign of `y`; and on the negative x-axis the sign of `y` still
 counts, so `atan2(0.0, -1.0)` is `pi` and a `y` of `-0.0` gives `-pi`. Both arguments must be the same type (`Float` or `Fixed`), echoing that
-type; the `List OF Float` array form takes two equal-length lists and returns a new
+type; the `List OF Float` list form takes two equal-length lists and returns a new
 list of angles, leaving both inputs unchanged (mismatched lengths raise
 `ErrInvalidArgument`)."#;
 const EX: &str = r#"```

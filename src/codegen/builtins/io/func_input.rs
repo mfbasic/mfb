@@ -26,8 +26,9 @@ const INTRO: &str =
 const DESC: &str = r#"`io::input` optionally writes a prompt to standard output, then reads one line
 from standard input and returns it as a `String` without its terminator. It
 reads exactly as `io::readLine` does — what was typed, from a terminal or an
-`--app` window; the bytes up to the next LF, from a pipe or a file — with one
-difference:
+`--app` window; the bytes up to the next LF, from a pipe or a file (a CR
+immediately before that LF is dropped too, so a CRLF line comes back without
+either) — with one difference:
 
 **`io::input` reads an ordinary echoed line**: typed characters are echoed by the
 terminal and the line is submitted with Return. If single-key terminal mode is
@@ -46,19 +47,25 @@ exactly `io::input("")`. A genuine failure while writing the prompt raises
 `timeoutMs` bounds the wait for the line, with the same rules and the same
 guarantee as `io::readLine`: omitted waits for as long as it takes, `0` makes
 one immediate attempt, a positive value waits that many milliseconds, a
-negative one raises `ErrInvalidArgument`, and a wait that runs out raises
-`ErrTimeout` with no part of the line lost. The timeout comes after the prompt,
-so a timed read with no prompt is `io::input("", 5000)` — or simply
-`io::readLine(5000)`, which is the same read without the echo.
+negative one raises `ErrInvalidArgument` before anything is written, and a wait
+that runs out raises `ErrTimeout` with no part of the line lost. `timeoutMs` is
+the second argument, after the prompt, so a timed read with no prompt is
+`io::input("", 5000)` — or simply `io::readLine(5000)`, which is the same read
+without the echo.
 
-The text must be valid UTF-8; an ill-formed sequence raises `ErrEncoding` rather
-than yielding a replacement character. End of input is an error rather than an
+The text must be valid UTF-8. An ill-formed sequence raises `ErrEncoding` rather
+than yielding a replacement character; the whole offending line, through its LF,
+is discarded, so the next call reads the line after it. End of input is an error rather than an
 empty result, but only when it arrives before any character of the line: if
 input ends after part of a line, that part is returned as the final unterminated
 line and the following call raises `ErrEndOfFile`. A worker thread must
 subscribe with `thread::openStdIn` before reading, or the call raises
 `ErrInvalidContext`. In app mode the prompt and the entered line are handled by
-the application window."#;
+the application window, so the program must be in `app::Mode.Console` or
+`app::Mode.Canvas`; in `app::Mode.None` there is no window to type into and the
+call raises `ErrWrongMode`. A read of standard input that the operating system
+refuses raises `ErrInputFailed`, and `ErrOutOfMemory` means the program ran out
+of memory."#;
 const EX: &str = r#"Prompt on the same line and greet the user:
 
 ```

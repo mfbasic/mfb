@@ -18,9 +18,17 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Turn mouse reporting on or off for the terminal surface"#;
 
 const DESC: &str = r#"`term::enableMouse(TRUE)` asks the terminal to report mouse activity — button
-presses and releases, motion, drags and wheel scrolling — so that
-`term::pollMouse` can hand those events back to the program.
-`term::enableMouse(FALSE)` stops the reporting again.
+presses and releases, drags (motion while a button is held) and wheel
+scrolling — so that `term::pollMouse` can hand those events back to the
+program. Motion with no button held is not requested from a terminal, so
+`term::MouseKind.Move` never arrives there; a program that follows the mouse
+sees it move only during a drag. `term::enableMouse(FALSE)` stops the reporting
+again and discards any events that were reported but not yet taken by
+`term::pollMouse`; drain them first if you want them.
+
+Unlike the drawing calls, this one does not need `term::on`: it takes effect
+whenever it is called, so a line-mode program can turn reporting on, poll with
+`term::pollMouse`, and turn it off again without ever entering TUI mode.
 
 Mouse reporting is **opt-in**. A program that never calls this sees exactly the
 terminal behaviour it has always seen: no reporting is requested, the mouse
@@ -28,8 +36,9 @@ belongs to the terminal, and text selection and scrolling work as the user
 expects. That is deliberate — taking the mouse away from the user is
 disruptive, so a program has to ask.
 
-The call is **best effort** and reports no error. Not every terminal supports
-mouse reporting, and in that case `term::pollMouse` simply keeps reporting
+The call is **best effort** about the terminal: it reports no error when the
+terminal does not support mouse reporting. Not every terminal does, and in that
+case `term::pollMouse` simply keeps reporting
 `term::MouseKind.None` — which is the same thing it reports when the user is
 not using the mouse, so a program that polls needs no separate check.
 
@@ -49,9 +58,12 @@ nothing does, `io::readKey` returns `io::KeyName.Escape`. Keys that send a
 longer sequence, such as the arrow keys, arrive whole and in order, as they
 always have.
 
-Turn reporting off before the program finishes so the mouse goes back to the
-user. `term::off` does that for you when it leaves TUI mode, so a program that
-pairs `term::on` with `term::off` is already tidy. In an `mfb build --app` program, `term::enableMouse` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
+Reporting is withdrawn for you when the program ends — on return from `main`,
+an unhandled error, Ctrl-C or `SIGTERM` — because the runtime calls `term::off`
+then, and `term::off` turns mouse reporting off whether or not TUI mode was on.
+Call `term::enableMouse(FALSE)` yourself when you want the mouse back while the
+program is still running, for example before printing ordinary output. A
+`kill -9` leaves the terminal reporting; `reset` at the shell recovers it. In an `mfb build --app` program, `term::enableMouse` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Ask for mouse events, then read one:
 

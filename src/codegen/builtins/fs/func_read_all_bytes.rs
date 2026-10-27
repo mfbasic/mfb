@@ -60,16 +60,25 @@ another handle that cannot be repositioned, or a file that shrinks while it is
 read — `ErrResourceClosed` that `file` has been closed, and `ErrResourceMoved`
 that it was handed to another thread with `thread::transfer`. `ErrOutOfMemory`
 means the program ran out of memory."#;
-const EX: &str = r#"Read all remaining bytes from an open file:
+const EX: &str = r#"Read all remaining bytes from an open file. The file lives in a scratch
+directory under the temporary directory, and `fs::close` releases it before it
+is deleted:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.bin", "first line\nsecond line\n")
-  RES f = fs::openFile("data.bin")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readAllBytes-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.bin"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f = fs::openFile(data)
   LET bytes AS List OF Byte = fs::readAllBytes(f)
-  ' f closes itself when this scope ends
+  io::print(toString(len(bytes)) & " bytes")
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -77,12 +86,20 @@ Skip the first line, then read the remaining bytes of the file:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.bin", "first line\nsecond line\n")
-  RES f = fs::openFile("data.bin")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-readAllBytes-2"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.bin"])
+  fs::writeText(data, "header\nfirst line\nsecond line\n")
+  RES f = fs::openFile(data)
   LET header AS String = fs::readLine(f)
   LET body AS List OF Byte = fs::readAllBytes(f)
+  io::print(toString(len(body)) & " bytes after the header")
+  fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 

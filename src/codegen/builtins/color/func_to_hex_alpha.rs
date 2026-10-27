@@ -10,6 +10,8 @@ const INTRO: &str = r#"Render a colour as `#rrggbbaa`, keeping its alpha channel
 const DESC: &str = r#"`toHexAlpha` returns the eight-digit form — a leading `#` and two lowercase hex
 digits each for red, green, blue and alpha. The width is fixed at nine characters
 whatever the channels are, so a channel below `16` keeps its leading zero.
+The only error is `ErrOutOfMemory`, raised when the program runs out of memory
+while building the string; no colour value can make `toHexAlpha` fail.
 
 This is the **lossless** text form: every colour has exactly one `toHexAlpha`
 spelling and `color::fromHex` reads it back exactly, so
@@ -69,7 +71,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__color_toHexAlpha"),
         }],
     });

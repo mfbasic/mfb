@@ -37,11 +37,15 @@ never stranded; the drain is a no-op on an unbuffered handle, which is the defau
 **The `File` is marked closed even when the close itself fails.** That is
 deliberate: on some hosts a failed close has still let the file go, and a handle
 left usable could send a later write to whatever the host has since opened in
-its place. So any later `fs::` call on the same `File` is refused, and a second
-`fs::close` raises rather than closing something else.
+its place. So a closed `File` is never used again. In the function that closes
+it, the compiler enforces that: naming `f` again after `fs::close(f)` is the
+build error `TYPE_USE_AFTER_MOVE`. A closed `File` can still be reached another
+way — through a second copy of a record that holds it, after a function it was
+passed to closed it — and there every later `fs::` call, including a second
+`fs::close`, raises `ErrResourceClosed` instead of touching the host.
 
 Closing is otherwise automatic. Every `File` returned by `fs::open`, `fs::openFile`,
-`fs::openFileNoFollow`, `fs::openWithin`, or `fs::createTempFile` is closed by
+`fs::openFileNoFollow`, `fs::openWithin`, `fs::openData`, or `fs::createTempFile` is closed by
 itself when the `RES` binding that holds it goes out of scope, and that drains
 the buffer the same way. Call `fs::close` only when the file must be closed
 earlier than that — to reopen the same path, to let another process see the
@@ -50,23 +54,28 @@ once. Closing a `File` and then letting its binding go out of scope is safe: the
 second close does nothing.
 
 Beyond the pre-close flush, `fs::close` reads and writes no file contents of its own.
-Closing a `File` that is already closed — by a previous `fs::close` on the same
-value, or by its binding having gone out of scope — raises `ErrResourceClosed`.
 Closing a handle that `thread::transfer` has moved to another thread raises
-`ErrResourceMoved` instead: such a handle is not closed but no longer belongs to
+`ErrResourceMoved`: such a handle is not closed but no longer belongs to
 this thread. A failed host close raises `ErrCloseFailed`, and a failed drain of
 the buffer raises `ErrWriteFailed`; when both fail only `ErrCloseFailed` is
 reported, although the buffered bytes were not written either."#;
-const EX: &str = r#"Open a file and release its handle explicitly:
+const EX: &str = r#"Open a file and release it explicitly, so it can be deleted. The file lives in
+a scratch directory under the temporary directory:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::writeText("data.txt", "first line\nsecond line\n")
-  RES f = fs::openFile("data.txt")
-  LET line AS String = fs::readLine(f)
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-close-1"])
+  fs::createDirectories(dir)
+  LET data AS String = fs::pathJoin([dir, "data.txt"])
+  fs::writeText(data, "first line\nsecond line\n")
+  RES f = fs::openFile(data)
+  io::print(fs::readLine(f))
   fs::close(f)
+  fs::deleteFile(data)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -77,12 +86,17 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  RES w = fs::open("out.txt", "write")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-close-2"])
+  fs::createDirectories(dir)
+  LET out AS String = fs::pathJoin([dir, "out.txt"])
+  RES w = fs::open(out, "write")
   fs::writeAll(w, "hello")
   fs::close(w)
-  RES r = fs::open("out.txt", "read")
+  RES r = fs::open(out, "read")
   io::print(fs::readAll(r))
   fs::close(r)
+  fs::deleteFile(out)
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 
@@ -98,7 +112,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![Parameter {
                 name: "file",
                 desc: "The open `File` resource to close, as returned by `fs::open`, \
-                       `fs::openFile`, `fs::openFileNoFollow`, `fs::openWithin`, or \
+                       `fs::openFile`, `fs::openFileNoFollow`, `fs::openWithin`, `fs::openData`, or \
                        `fs::createTempFile`. Must not already be closed or moved.",
                 aliases: &[],
                 ty: ParameterType::named(super::FILE_TYPE_ID),

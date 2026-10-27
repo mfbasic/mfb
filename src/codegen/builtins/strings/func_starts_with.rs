@@ -10,19 +10,20 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Test whether a string begins with a given prefix."#;
 
 const DESC: &str = r#"`strings::startsWith` returns `TRUE` when `value` begins with `prefix` and
-`FALSE` otherwise. The test is an exact byte comparison of the leading bytes of
-`value` against every byte of `prefix`, in order; it succeeds only when all of
-them match.
+`FALSE` otherwise. The test compares the start of `value` with `prefix` scalar
+by scalar, exactly; it succeeds only when every scalar of `prefix` matches.
 
 No normalization, case folding, or other transformation is applied to either
 operand, so `startsWith("Hello", "hello")` is `FALSE`. Matching is by Unicode
 scalar: a match always covers whole scalars, but not necessarily whole
-characters: it can begin or end inside a combining sequence, an emoji sequence or
-a flag, so `startsWith("e\u{0301}", "e")` is `TRUE`. Apply
+characters. Because the match starts at the beginning of `value`, it can only
+*end* inside a combining sequence, an emoji sequence or a flag, so
+`startsWith("e\u{0301}", "e")` is `TRUE` and
+`startsWith("\u{1F1FA}\u{1F1F8}x", "\u{1F1FA}")` is `TRUE`. Apply
 `strings::normalizeNfc` to both operands first if composed and decomposed
 spellings must compare equal.
 
-The boundary cases follow from the byte comparison. A `prefix` longer than
+The boundary cases follow from this comparison. A `prefix` longer than
 `value` cannot match and returns `FALSE`. The empty `prefix` matches every
 `value`, including the empty string, and returns `TRUE`. A non-empty `prefix`
 against an empty `value` returns `FALSE`. Neither operand is modified and the
@@ -32,9 +33,10 @@ To test the end of the string use `strings::endsWith`; to test several candidate
 prefixes at once use `strings::startsWithAny`; to remove the prefix rather than
 test for it use `strings::stripPrefix`.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
-text and returns exactly what the `String` overload returns (same value, type, and
-errors)."#;
+`value` may also be an `AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns: the same value and
+type, and like it, it never fails. `prefix` must be a plain `String`; pass
+`toString(p)` to test against an `AttributedString`'s visible text."#;
 
 const EX: &str = r#"Test for a leading prefix, including a multi-byte one:
 
@@ -94,7 +96,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
-                    desc: "The string whose leading bytes are examined. May be empty.",
+                    desc: "The string whose start is examined. May be empty.",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

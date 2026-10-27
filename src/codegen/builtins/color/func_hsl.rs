@@ -22,11 +22,7 @@ Landmarks worth knowing: `lightness` `0.0` is black and `1.0` is white **at ever
 hue and saturation**, and `0.5` is where a fully saturated hue is most vivid.
 `saturation` `0.0` is a neutral grey whose level is `lightness`.
 
-**HSL describes the sRGB colour, not linear light.** That is what CSS `hsl()` and
-every design tool mean, so a colour built here matches the hex a designer would
-write. It is a deliberate asymmetry with `color::brighten` and `color::darken`,
-which work in linear light — bumping `lightness` here and brightening there give
-different colours, and neither is wrong."#;
+Hue, saturation and lightness are HSL properties, so this works on the sRGB colour, not in linear light (`mfb man color` explains the two spaces)."#;
 
 const EX: &str = r#"The three primaries are 120 degrees apart:
 

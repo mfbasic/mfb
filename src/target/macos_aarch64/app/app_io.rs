@@ -1376,9 +1376,16 @@ fn emit_app_draw_glyph(
     asm.push(abi::move_register(&v_x, abi::mfb_arg(1))); // column
     asm.push(abi::move_register(&v_cp, abi::mfb_arg(2))); // codepoint
     emit_term_active_gate(&mut asm, term_state_offset, &done);
-    // Skip control code points.
+    // Skip control code points: C0 (below U+0020), DEL and C1 (U+007F..U+009F),
+    // as the console `emit_draw_glyph` does.
+    let not_ctrl = format!("{symbol}_not_ctrl");
     asm.push(abi::compare_immediate(&v_cp, "32"));
     asm.push(abi::branch_lt(&done));
+    asm.push(abi::compare_immediate(&v_cp, "127"));
+    asm.push(abi::branch_lt(&not_ctrl));
+    asm.push(abi::compare_immediate(&v_cp, "159"));
+    asm.push(abi::branch_le(&done));
+    asm.push(abi::label(&not_ctrl));
     // bug-725: skip a non-scalar too (above U+10FFFF, or a surrogate), as the
     // console `emit_draw_glyph` does.
     let scalar_ok = format!("{symbol}_scalar_ok");

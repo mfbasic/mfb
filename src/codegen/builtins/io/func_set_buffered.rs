@@ -86,10 +86,10 @@ const INTRO: &str = r#"Enable or disable opt-in standard-output buffering for th
 const DESC: &str = r#"`io::setBuffered` turns standard-output buffering on or off for the calling
 thread and returns nothing. Buffering is **off by default**, so without this call
 every `io::write` and `io::print` reaches the operating system immediately.
+`io::isBuffered` reports the current setting for the calling thread.
 
-Passing `TRUE` only sets the enabled flag; the 4 KiB buffer itself is set up
-lazily on the first buffered write. From then on output is accumulated and issued
-in blocks, collapsing a write-heavy loop from one host write per call to roughly
+Passing `TRUE` turns buffering on; nothing is written until output arrives. From
+then on output is accumulated in a 4 KiB buffer and issued in blocks, collapsing a write-heavy loop from one host write per call to roughly
 one per full buffer. A chunk larger than the whole buffer is written directly
 after the buffer is drained, so ordering is never disturbed, and if the buffer
 cannot be set up the write falls back to going out directly — buffering is an
@@ -104,7 +104,10 @@ stopped.
 While buffering is on, held output is also drained when the buffer fills, on
 `io::flush`, before any standard-input read — so a buffered prompt always appears
 before the program blocks — and when the thread that wrote it finishes (for the
-main thread, at program exit). The setting is per thread: each
+main thread, at program exit). That final drain is best-effort: if the write
+fails, the held output is lost and no error is raised — the program still exits
+normally. Call `io::flush` before returning when you need a write failure
+reported. The setting is per thread: each
 thread has its own buffer and its own enabled flag, and one thread's choice is
 invisible to another. Standard error is never buffered, so this call affects
 standard output only. In app mode the buffer is inert and this call does nothing.
@@ -136,7 +139,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "enabled",
-                desc: "`TRUE` to enable standard-output buffering for this thread; `FALSE` to drain any pending output and disable it.",
+                desc: "`TRUE` to enable standard-output buffering for this thread (a repeat `TRUE` changes nothing and keeps any pending output); `FALSE` to drain any pending output and disable it (a repeat `FALSE` has nothing to drain and cannot fail).",
                 aliases: &[],
                 ty: ParameterType::Boolean,
                 default: DefaultValue::None,

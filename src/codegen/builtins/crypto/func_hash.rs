@@ -91,8 +91,8 @@ not text — stringify it with `encoding::hexEncode` or `encoding::base64Encode`
 display or store it, and compare a received digest with `crypto::constantTimeEqual`.
 
 `hash` is a general-purpose digest and message-integrity primitive; it is **not** a
-password hash. Stretch a low-entropy password into key material with the deliberately
-slow, salted `crypto::pbkdf2`, and authenticate a message under a shared secret key
+password hash. Store a password with `crypto::argon2id`, or stretch a passphrase into a key
+with `crypto::pbkdf2`, and authenticate a message under a shared secret key
 with `crypto::hmac` — a bare hash provides no authentication. In particular, do
 **not** build a MAC as `hash(type, key ‖ message)`: `SHA1`, `SHA2_256`, and
 `SHA2_512` are vulnerable to length-extension (the truncated `SHA2_224`/`SHA2_384`

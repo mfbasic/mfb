@@ -17,8 +17,8 @@ call: it routes to your `TRAP`, or propagates to your caller.
 
 **`waitFor` can be called again.** The handle stays open, and every later
 `waitFor` on it returns straight away with the same outcome: a fresh copy of
-the same result, or the same error. Passing `t` to a function lends it, so a
-helper may wait for the thread and the caller can still ask afterwards.
+the same result, or the same error. Passing `t` to a function gives the function an
+alias, so a helper may wait for the thread and the caller can still ask afterwards.
 
 `waitFor` does not cancel anything. On a thread you no longer want, call
 `thread::cancel` first and then `waitFor` to collect it. The handle closes when

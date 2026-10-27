@@ -79,8 +79,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![
                 super::req("url", "The target URL. `url.scheme` selects transport (`https` → TLS on default port 443, otherwise plaintext on default port 80); `url.host`, `url.port`, `url.path`, and `url.query` form the connection and request target.", &[], ParameterType::named(crate::codegen::builtins::net::URL_TYPE_ID)),
-                super::fill("headers", "Optional request headers. Names matching `Host`/`User-Agent`/`Accept` override the defaults case-insensitively; others are appended. No name or value may contain a control byte. Defaults to an empty map.", super::header_map(), "{}"),
-                super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space. Defaults to `GET`.", ParameterType::String, "GET"),
+                super::fill("headers", "Optional request headers. The automatic headers are `Host` (from the URL), `User-Agent: mfb-http/1`, and `Accept: */*`; a caller entry with one of those names (case-insensitive) replaces it, and others are appended. No name or value may contain a control byte. Defaults to an empty map.", super::header_map(), "{}"),
+                super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space or control byte. Defaults to `GET`.", ParameterType::String, "GET"),
             ],
             return_type: super::stream_state(),
             errors: vec!["ErrAddressInvalid", "ErrAddressNotFound", "ErrConnectionClosed", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],

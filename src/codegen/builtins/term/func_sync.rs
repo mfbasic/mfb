@@ -21,9 +21,11 @@ one and only operation that presents a frame while the program runs. **A program
 that draws without calling `term::sync` shows nothing** — this is the single most common mistake when
 writing against this surface.
 
-**Only what changed is sent to the terminal.** `term::sync` compares the frame
-you have composed against the one already on screen and updates just the cells
-that differ, so redrawing the whole surface every frame costs work proportional
+**Only the cells that changed are sent to the terminal**, plus a short fixed tail
+each frame that resets the colours and places and shows or hides the cursor.
+`term::sync` compares the frame you have composed against the one already on
+screen and re-sends just the cells that differ (a cell holding a character with
+combining marks is always re-sent), so redrawing the whole surface every frame costs work proportional
 to what actually moved, and does not flicker. You are meant to call it once per
 frame; there is no cheaper way to present, and no reason to avoid it.
 
@@ -35,8 +37,8 @@ this frame in full. `term::didResize` reports the change afterwards, and
 resized, the old surface is kept and the frame is presented into it unchanged.
 
 Each frame ends with the terminal's cursor at the surface's current position —
-where `term::moveTo` put it, or wherever the last `io::print`/`io::write` left it —
-and shown or hidden according to `term::showCursor`/`term::hideCursor`. The first
+where `term::moveTo` put it, or wherever the last `io::print` (the start of the
+following line) or `io::write` (just after the text) left it — and shown or hidden according to `term::showCursor`/`term::hideCursor`. The first
 frame after `term::on`, and the first after a resize, is always drawn in full.
 
 `term::sync` is gated: while TUI mode is off it is a clean no-op, so calling it

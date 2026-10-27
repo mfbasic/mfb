@@ -163,9 +163,19 @@ pub(super) fn emit_draw_glyph(
         &inactive,
         instructions,
     );
-    // Skip control code points (would corrupt the presented escape stream).
-    instructions.push(abi::compare_immediate(cp, "32"));
-    instructions.push(abi::branch_lt(&inactive));
+    // Skip control code points (would corrupt the presented escape stream): the
+    // C0 range below U+0020, DEL (U+007F) and the C1 range U+0080..U+009F — a C1
+    // control such as U+009B (CSI) can open an escape sequence on its own.
+    let not_ctrl = format!("{symbol}_dg_not_ctrl");
+    instructions.extend([
+        abi::compare_immediate(cp, "32"),
+        abi::branch_lt(&inactive),
+        abi::compare_immediate(cp, "127"),
+        abi::branch_lt(&not_ctrl),
+        abi::compare_immediate(cp, "159"),
+        abi::branch_le(&inactive),
+        abi::label(&not_ctrl),
+    ]);
     // bug-725: skip anything that is not a Unicode scalar too — above U+10FFFF
     // (1114111) or in the surrogate band U+D800..U+DFFF (55296..57343). The UTF-8
     // encoder below would otherwise write an ill-formed sequence to the terminal.
@@ -326,6 +336,8 @@ pub(super) fn emit_draw_text(
     let loop_top = format!("{symbol}_dt_loop");
     let advance = format!("{symbol}_dt_adv");
     let skip_ctrl = format!("{symbol}_dt_ctrl");
+    let skip_ctrl_scalar = format!("{symbol}_dt_ctrl_scalar");
+    let not_ctrl = format!("{symbol}_dt_not_ctrl");
     let l2 = format!("{symbol}_dt_l2");
     let l3 = format!("{symbol}_dt_l3");
     let clamp = format!("{symbol}_dt_clamp");
@@ -435,6 +447,15 @@ pub(super) fn emit_draw_text(
         sb,
         instructions,
     );
+    // DEL (U+007F) and the C1 controls (U+0080..U+009F) are skipped like the C0
+    // ones above: no stamp, one column, and the scalar's `len` bytes consumed.
+    instructions.extend([
+        abi::compare_immediate(cp, "127"),
+        abi::branch_lo(&not_ctrl),
+        abi::compare_immediate(cp, "159"),
+        abi::branch_ls(&skip_ctrl_scalar),
+        abi::label(&not_ctrl),
+    ]);
     crate::codegen::string::unicode_props::emit_unicode_property_ptr_free(
         symbol,
         &format!("{symbol}_dtb"),
@@ -631,6 +652,12 @@ pub(super) fn emit_draw_text(
         abi::add_immediate(col, col, 1),
         abi::add_immediate(ptr, ptr, 1),
         abi::subtract_immediate(rem, rem, 1),
+        abi::branch(&loop_top),
+        // DEL or a C1 control: the same, but consume its `len` bytes.
+        abi::label(&skip_ctrl_scalar),
+        abi::add_immediate(col, col, 1),
+        abi::add_registers(ptr, ptr, len),
+        abi::subtract_registers(rem, rem, len),
         abi::branch(&loop_top),
     ]);
     instructions.push(abi::label(&inactive));

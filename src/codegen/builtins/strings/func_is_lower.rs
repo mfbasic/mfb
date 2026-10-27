@@ -23,7 +23,7 @@ property that other languages' lowercase tests usually implement: `ª` (U+00AA),
 the small roman numerals `ⅰ`–`ⅿ` and the circled letters `ⓐ`–`ⓩ` are lowercase by
 that property but not category `Ll`, so `isLower` returns `FALSE` for them.
 
-Classification follows the Unicode general categories,
+Classification follows the Unicode 16.0 general categories,
 so it covers the whole code-point space rather than just ASCII, and is
 deterministic and locale-independent. The function is total: it returns a
 `Boolean` for every `Scalar` and never fails.

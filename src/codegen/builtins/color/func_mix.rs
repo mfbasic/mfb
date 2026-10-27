@@ -13,8 +13,8 @@ in **linear light**, so the midpoint of black and white is the one that *looks*
 halfway rather than the one that is halfway between the encoded bytes.
 
 That distinction is the whole reason this function exists. Averaging sRGB bytes
-gives `#808080` for black-and-white, which reads as noticeably dark; the linear
-midpoint is around `#bcbcbc`. A gradient built by averaging bytes spends half its
+gives `#7f7f7f` or `#808080` for black-and-white, depending on rounding, and
+either reads as noticeably dark; the linear midpoint is `#bcbcbc`. A gradient built by averaging bytes spends half its
 length below 22% of the light, which is why such ramps look dark-heavy.
 
 `amount` is **clamped** to `0.0`..`1.0`, so `mix` interpolates and never

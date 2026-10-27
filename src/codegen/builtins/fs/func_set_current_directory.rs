@@ -65,29 +65,40 @@ cannot name a directory — a name that is too long, a file used as a directory,
 or a loop of symbolic links. Any other refusal raises `ErrReadFailed`. An empty
 `path`, or one containing a NUL byte, raises `ErrInvalidArgument`.
 `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Move into a subdirectory and back up to the parent:
+const EX: &str = r#"Move into a scratch directory under the temporary directory and back to where
+the program started:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch")
-  fs::setCurrentDirectory("scratch")
-  fs::setCurrentDirectory("..")
+  LET start AS String = fs::currentDirectory()
+  LET scratch AS String = fs::pathJoin([fs::tempDirectory(), "mfb-setCurrentDirectory-1"])
+  fs::createDirectories(scratch)
+  fs::setCurrentDirectory(scratch)
+  fs::setCurrentDirectory(start)
+  fs::deleteDirectory(scratch)
 END FUNC
 ```
 
-Confirm the move by reading the working directory back:
+Confirm the move by reading the working directory back. Relative paths now
+resolve inside the new directory:
 
 ```
 IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("output")
-  fs::setCurrentDirectory("output")
-  LET here AS String = fs::currentDirectory()
-  io::print(here)
+  LET start AS String = fs::currentDirectory()
+  LET scratch AS String = fs::pathJoin([fs::tempDirectory(), "mfb-setCurrentDirectory-2"])
+  fs::createDirectories(scratch)
+  fs::setCurrentDirectory(scratch)
+  io::print(toString(fs::currentDirectory() = fs::canonicalPath(scratch)))
+  fs::writeText("note.txt", "here")
+  io::print(toString(fs::fileExists(fs::pathJoin([scratch, "note.txt"]))))
+  fs::deleteFile("note.txt")
+  fs::setCurrentDirectory(start)
+  fs::deleteDirectory(scratch)
 END FUNC
 ```"#;
 

@@ -29,9 +29,10 @@ happen.
 
 Each call takes **one** event, so a loop that calls it until it reports
 `MouseKind.None` has drained everything pending and can then present a frame.
-Events are delivered **freshest-first-wins**: an event the program does not
-collect within a tenth of a second is dropped rather than queued up, and a burst
-longer than the queue keeps its newest events rather than its oldest. Both rules
+Events come back in the order they happened, oldest first, but only recent ones
+are kept: an event the program does not collect within a tenth of a second is
+dropped rather than held, and a burst of more than 64 events keeps the newest 64
+rather than the oldest. Both rules
 say the same thing — a program that stops polling for a moment resumes with what
 the user is doing now, not a replay of what they did while it was busy.
 
@@ -44,16 +45,21 @@ events; the keystrokes are held, up to the buffer's 4096 bytes, and a full buffe
 stops the decoding until a read takes some.
 
 Events are **per-thread**. Each thread that reads standard input decodes what it
-reads, so a thread that has not called `thread::openStdIn` receives none; and two
-threads that have both subscribed each get their own copy of the same events
-rather than taking them from one another.
+reads, so a thread that has not called `thread::openStdIn` receives none. A
+thread also needs its own `term::enableMouse(TRUE)` call before it receives
+any: the parent's call turns reporting on for the parent only. Two threads that
+have both done so each get their own copy of the same events rather than taking
+them from one another.
 
 `row` and `column` are zero-based cells measured from the top-left corner of the
 surface, the same coordinates `term::moveTo` and `term::drawText` take, so an
 event position can be handed straight to a drawing call. `shift`, `ctrl` and
 `alt` report which modifier keys were held. `button` says which button the event
-is about, and is `term::MouseButton.None` for motion and wheel events, which
-belong to no button.
+is about. It is `term::MouseButton.None` for `Move` and the two wheel kinds,
+which belong to no button; a `Drag` reports the button being held.
+
+The only error the call raises on its own is `ErrOutOfMemory`, when the program
+has run out of memory for the returned record.
 
 In a `mfb build --app` window the same events come from the window rather than
 from a terminal, and report the same cell coordinates. In an `mfb build --app` program, `term::pollMouse` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;

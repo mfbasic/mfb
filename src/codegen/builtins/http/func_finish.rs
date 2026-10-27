@@ -102,7 +102,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("Stream STATE PendingState"),
         internal_only: false,
         implementations: vec![Implementation {
-            params: vec![super::req("stream", "The completed stream from `http::startRead` (after `http::done` is `TRUE`). The stream stays open — `finish` reads it and leaves it to you to close.", &[], ParameterType::named("Stream"))],
+            params: vec![super::req("stream", "The completed stream from `http::startRead` (after `http::done` is `TRUE`). `finish` reads it. The stream stays open; it is closed when its binding leaves scope.", &[], ParameterType::named("Stream"))],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec!["ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNetworkFailed", "ErrNotFound", "ErrOutOfMemory", "ErrOverflow", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
             body: Body::mfb(BODY, "__http_finish"),

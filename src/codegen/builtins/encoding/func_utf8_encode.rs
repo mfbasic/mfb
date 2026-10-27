@@ -15,9 +15,9 @@ per byte. Because MFBASIC strings
 are always UTF-8 text, the result is the string's raw octets in order, with each
 element in the range `0..255`.
 
-The function is **total**: every string, including the empty string (which yields
-an empty list), encodes successfully, and it never raises a runtime error. The
-byte form is exactly `strings::toBytes(value)`; the integer form contains the
+Every string, including the empty string (which yields an empty list), encodes:
+no input is rejected, and the only error it can raise is `ErrOutOfMemory`, when
+the program runs out of memory. The byte form is exactly `strings::toBytes(value)`; the integer form contains the
 identical numeric values widened to `Integer`.
 
 Both forms are listed above, and the note beside them says how one is chosen: the
@@ -87,13 +87,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![value()],
                 return_type: ParameterType::list_of(ParameterType::Byte),
-                errors: vec![],
+                errors: vec!["ErrOutOfMemory"],
                 body: Body::Intrinsic,
             },
             Implementation {
                 params: vec![value()],
                 return_type: ParameterType::list_of(ParameterType::Integer),
-                errors: vec![],
+                errors: vec!["ErrOutOfMemory"],
                 body: Body::Intrinsic,
             },
         ],

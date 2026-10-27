@@ -1,0 +1,29 @@
+### 1. A failed drain at thread end or program exit is silent, and the page does not say so
+UNIT:      man-page:io/setBuffered
+CLAIM:     "While buffering is on, held output is also drained when the buffer fills, on io::flush, before any standard-input read — so a buffered prompt always appears before the program blocks — and when the thread that wrote it finishes (for the main thread, at program exit)."
+VERDICT:   incomplete
+EVIDENCE:  Probe `p_exitdrain.mfb` (setBuffered(TRUE), write "held until exit", printError, return without flush). Run normally: stderr "main returning", stdout "held until exit", exit 0. Run with stdout read-only (`prog 1</dev/null`, so every write to fd 1 fails with EBADF): stderr "main returning", stdout empty, **exit=0** — the held bytes are lost and nothing is raised or reported. The same program with an explicit `io::flush()` (probe `p_flush_fail.mfb`, same redirection) raises ErrWriteFailed 77020002 into the TRAP. Code: `src/codegen/os/process/process_lifecycle.rs` calls `STDOUT_DRAIN_SYMBOL` in `_mfb_shutdown` and ignores its return; `src/codegen/runtime/thread/runtime_helpers_thread/handle.rs` ("Best-effort, like every drain: a write failure has no one left to report to"). The page's only statement on lost output is "A hard crash can lose output", which does not cover a clean exit whose final write fails.
+SUGGESTED: Append to that paragraph: "The drain at thread end and at program exit is best-effort: if that final write fails, the held output is lost and no error is raised — the program still exits normally. Call io::flush before returning when you need a write failure reported."
+
+### 2. The sibling a developer reaches for is missing
+UNIT:      man-page:io/setBuffered
+CLAIM:     "io::setBuffered turns standard-output buffering on or off for the calling thread and returns nothing."
+VERDICT:   incomplete
+EVIDENCE:  `src/codegen/builtins/io/func_is_buffered.rs` registers `io::isBuffered`, the query for the flag this call sets. Neither the Description nor the derived See also (io::flush, io::print, io::write) names it; See also is derived from names in the desc (`man.rs:see_also_row`), so the omission in prose drops it from the table. Probe `p_idem.mfb` confirms `io::isBuffered()` reflects this call's state ("abc FALSE" after a final setBuffered(FALSE); `p_thread.mfb` printed "worker buffered=FALSE" / "main buffered=TRUE").
+SUGGESTED: Add after the first sentence: "`io::isBuffered` reports the current setting for the calling thread." (This also puts io::isBuffered into See also.)
+
+### 3. Lazy buffer setup is not a developer-visible fact
+UNIT:      man-page:io/setBuffered
+CLAIM:     "Passing TRUE only sets the enabled flag; the 4 KiB buffer itself is set up lazily on the first buffered write."
+VERDICT:   out-of-scope
+EVIDENCE:  `src/codegen/io/stdout/io_stdout.rs:emit_append_to_buffer` ("Lazily allocate the buffer on first buffered write") — true, but there is no program-observable difference between setting the buffer up at the call and at the first write; the only reader to whom "only sets the flag" and "lazily" matter is one reading the lowering (`.ai/man-content.md` §1 test). The developer-visible facts in the sentence are the capacity (4 KiB, `OUT_BUFFER_CAPACITY = 4096` in `src/codegen/error/constants/error_constants.rs`) and that enabling is cheap.
+SUGGESTED: "Passing TRUE turns buffering on; nothing is written until output arrives. Output is then accumulated in a 4 KiB buffer and issued in blocks, collapsing a write-heavy loop from one host write per call to roughly one per full buffer."
+
+### 4. Repeat calls are harmless, and the page does not say what they do
+UNIT:      man-page:io/setBuffered
+CLAIM:     "TRUE to enable standard-output buffering for this thread; FALSE to drain any pending output and disable it."
+VERDICT:   incomplete
+EVIDENCE:  Probe `p_idem.mfb`: setBuffered(FALSE) while already off, TRUE twice with a write between, FALSE twice — prints "abc FALSE", exit 0; pending "a" survived the second TRUE and was emitted in order. Code: the TRUE path only stores the flag (`lower_set_buffered`, `store_u64(1, ARENA_OUT_ENABLED_OFFSET)`), and the FALSE path's drain is a no-op when the flag is already clear (`lower_stdout_drain`, `enabled == 0 → ok`). The parameter description does not say whether a repeat TRUE discards pending output or a repeat FALSE can fail.
+SUGGESTED: Parameter desc: "TRUE to enable standard-output buffering for this thread (a repeat TRUE changes nothing and keeps any pending output); FALSE to drain any pending output and disable it (a repeat FALSE has nothing to drain and cannot fail)."
+
+Verified true, for the audit trail: the example compiled (`mfb init` project, `mfb build`) and printed 100000 lines, 0 through 99999, exit 0. Ordering with a 5000-byte chunk between one-byte writes came out "ABC" (`p_order.mfb`). A failed disable-drain (`p_disable_fail.mfb`, stdout read-only) trapped ErrWriteFailed 77020002 with `isBuffered()` still TRUE, as the page says. Both `io::readScalar` and `io::readLine` drained a buffered "PROMPT" before blocking on stdin (observed in the stdout file 0.7 s in, with stdin fed at 1.5 s). The thread probe showed a worker starting with buffering off while main had it on, and the worker's held bytes appearing when it finished. Unhandled FAIL and `os::exit(3)` both drained the held output before the process ended. Standard error reached the terminal while standard output was still held. The banned-word grep over the rendered page matched nothing. Not run-verified, read from code only: the app-mode no-op (`ctx.build_mode.is_app()` branch in `lower_set_buffered`), the direct-write fallback when the buffer cannot be set up, and "tries again from where this one stopped" after a partial write (`lower_stdout_drain` slide-back; /dev/full is not permitted in this sandbox) — UNVERIFIED by probe.

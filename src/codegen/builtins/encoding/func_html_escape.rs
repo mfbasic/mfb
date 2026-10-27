@@ -30,9 +30,9 @@ single, correct level of escaping.
 
 Every other character — including whitespace, digits, letters, and non-ASCII
 code points — passes through unchanged; only the five characters above are
-rewritten. The function is **total**: every `String`, including the empty
-string (which yields the empty string), escapes successfully, and it never
-raises a runtime error.
+rewritten. Every `String`, including the empty
+string (which yields the empty string), escapes: no input is rejected, and the
+only error it can raise is `ErrOutOfMemory`, when the program runs out of memory.
 
 The inverse operation is `encoding::htmlUnescape`, which parses named and
 numeric character references back into text."#;
@@ -114,7 +114,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::mfb(BODY, "__encoding_htmlEscape"),
         }],
     });

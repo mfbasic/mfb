@@ -3005,6 +3005,14 @@ fn emit_win_term_cluster_walk(
         // `emit_draw_text`'s skip.
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "32"));
         ins.push(abi::branch_lt(&ctrl));
+        // DEL and the C1 controls (U+007F..U+009F) are one UTF-16 unit each and
+        // are skipped the same way.
+        let not_ctrl = format!("{tag}_not_ctrl");
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "127"));
+        ins.push(abi::branch_lt(&not_ctrl));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "159"));
+        ins.push(abi::branch_le(&ctrl));
+        ins.push(abi::label(&not_ctrl));
     } else {
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "10"));
         ins.push(abi::branch_eq(&nl));
@@ -3888,6 +3896,12 @@ fn emit_term_draw_glyph_at(
     // point draws nothing either.
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "32"));
     ins.push(abi::branch_lt("dg_done"));
+    // DEL and the C1 controls (U+007F..U+009F) are skipped the same way.
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "127"));
+    ins.push(abi::branch_lt("dg_not_ctrl"));
+    ins.push(abi::compare_immediate(abi::mfb_arg(2), "159"));
+    ins.push(abi::branch_le("dg_done"));
+    ins.push(abi::label("dg_not_ctrl"));
     // bug-725: a non-scalar (above U+10FFFF, or a surrogate) is skipped too, as on
     // the console and macOS — its UTF-16 units would be ill-formed.
     ins.push(abi::compare_immediate(abi::mfb_arg(2), "1114111"));

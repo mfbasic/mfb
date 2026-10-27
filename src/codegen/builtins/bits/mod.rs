@@ -99,13 +99,13 @@ String, or a collection.
 These are primitive operations, like `math::abs`: they have no side effects and
 give the same answer on every platform.
 
-Shifts (`sl`, `sr`, `sra`) validate their `count` argument. Rotates come in four
+Shifts (`sl`, `sr`, `sra`) require a `count` from `0` to `63` inclusive and raise `ErrInvalidArgument` for anything else — a count is never clamped or reduced. Rotates come in four
 named width variants — `rl32`/`rr32` rotate the low 32 bits (for word-oriented
 algorithms such as ChaCha20) and `rl64`/`rr64` rotate all 64 bits. Rotate counts
 are reduced modulo the rotate width, so any count is defined and the rotates do
 not raise. `clz`/`ctz`/`popCount` count leading zeros, trailing zeros, and set
 bits; `bswap16`/`bswap32`/`bswap64` reverse the bytes of the low 16/32 or all 64
-bits. All functions are total except the three shifts.
+bits. All functions are total except the three shifts. An `Integer` literal must fit in a signed 64-bit value, so a mask with bit 63 set cannot be written as `0x8000000000000000`; write it as `bits::sl(1, 63)`, as `bits::bnot` of the complementary mask, or as a negative decimal literal. `toString` renders an `Integer` as signed decimal, so a result with bit 63 set prints as a negative number.
 
 `bits` is a built-in package: `IMPORT bits` needs no manifest dependency."#;
 

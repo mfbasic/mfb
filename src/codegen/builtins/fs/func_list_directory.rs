@@ -39,46 +39,51 @@ Only the immediate children of the directory are listed; `fs::listDirectory`
 does not descend into subdirectories. Every kind of entry is included regardless
 of type, so the result mixes regular files, subdirectories, symlinks, and any
 other filesystem objects, each represented by its name with no trailing slash or
-type marker.
+type marker. Names beginning with a dot (hidden files on Unix hosts) are
+included like any other; only `"."` and `".."` are left out.
 
-The names are sorted in ascending byte-wise order, comparing their raw UTF-8
-bytes (an ordinary lexicographic ordering for ASCII names), so the result is
-deterministic and stable across runs and across hosts. An empty directory, or a
+The names are sorted in ascending byte-wise order of their UTF-8 bytes, not
+alphabetically: the sort is case-sensitive, every uppercase ASCII name comes
+before every lowercase one (`B`, `Z`, `a`), and names with non-ASCII characters
+come after all ASCII names. The order is the same on every run and every host. An empty directory, or a
 directory that contains only `"."` and `".."`, yields an empty `List`.
 
-The directory is read twice — once to size the result and once to fill it — so a
-directory that another program is writing to at the same moment can change
-between the two reads. If it grows, the extra entries are dropped rather than
-overrunning the result, which is sized by the first read. The final path component is followed when it is a symlink, so
+If another program is changing the directory while it is being listed, the
+result is a snapshot that may miss entries added during the call; the call does
+not fail because of that. A symlink in the final position is followed, so
 listing through a symlink that points at a directory lists the target
 directory's entries.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may
-be absolute or relative to the current working directory and may contain Unicode
-characters, including emoji, when the host filesystem accepts those names. The
-string must not be empty and must not contain an embedded NUL byte, because the
-host call cannot carry one. Apart from opening and closing the directory,
-the call only reads the filesystem and has no side effects.
+`path` may be absolute or relative to the current working directory and may
+contain Unicode characters, including emoji, when the host filesystem accepts
+those names. It must not be empty and must not contain a NUL character. The call
+only reads the filesystem and has no side effects.
 
-An empty `path`, or one containing a NUL byte, raises `ErrInvalidArgument`. When
+An empty `path`, or one containing a NUL character, raises `ErrInvalidArgument`. When
 the directory cannot be opened the error says why: `ErrPathNotFound` if `path`
 does not exist, `ErrAccessDenied` if it may not be read, and `ErrInvalidPath` if
-`path` cannot name a directory — it names a file, a name in it is too long, or a
-file is used as a directory. Any other refusal raises `ErrReadFailed`.
-`ErrOutOfMemory` means the program ran out of memory."#;
+`path` cannot name a directory — it names a file, a name in it is too long, a file
+is used as a directory, or a symlink in it loops back on itself. Any other refusal raises `ErrReadFailed`.
+`ErrOutOfMemory` means the program ran out of memory.
+
+Guard the call with `fs::directoryExists`, and build each entry's full path with
+`fs::pathJoin`."#;
 const EX: &str = r#"Print every entry in a directory in sorted order:
 
 ```
 IMPORT fs
 IMPORT io
-IMPORT collections
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch")
-  LET names AS List OF String = fs::listDirectory("scratch")
-  FOR i = 0 TO len(names) - 1
-    io::print(collections::get(names, i))
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-listDirectory-1"])
+  fs::createDirectories(dir)
+  fs::writeText(fs::pathJoin([dir, "b.txt"]), "b")
+  fs::writeText(fs::pathJoin([dir, "a.txt"]), "a")
+  FOR EACH name IN fs::listDirectory(dir)
+    io::print(name)
+    fs::deleteFile(fs::pathJoin([dir, name]))
   NEXT
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
@@ -89,9 +94,11 @@ IMPORT fs
 IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch/empty")
-  LET names AS List OF String = fs::listDirectory("scratch/empty")
+  LET empty AS String = fs::pathJoin([fs::tempDirectory(), "mfb-listDirectory-2"])
+  fs::createDirectories(empty)
+  LET names AS List OF String = fs::listDirectory(empty)
   io::print(toString(len(names)))
+  fs::deleteDirectory(empty)
 END FUNC
 ```"#;
 
@@ -106,9 +113,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The filesystem path of the directory to list, as UTF-8 bytes; absolute or \
-                       relative to the current working directory. Must be non-empty and free of \
-                       embedded NUL bytes, and must name an existing, readable directory.",
+                desc: "The filesystem path of the directory to list; absolute or relative to \
+                       the current working directory. Must be non-empty and contain no NUL \
+                       character, and must name an existing, readable directory.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

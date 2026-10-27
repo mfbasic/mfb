@@ -147,11 +147,24 @@ const MODULE_INTRO: &str =
     r#"2D drawing for `app::Mode.Canvas` — a retained scene of `canvas::DrawItem`s"#;
 const MODULE_DESC: &str = r#"The `canvas` package draws 2D graphics on the surface `app::setMode(app::Mode.Canvas)`
 presents. Import it with `IMPORT canvas`; like `app`, it is importable **only** in
-`--app` builds, and every call
-that touches the surface requires `app::Mode.Canvas` — outside it they raise the
-trappable `ErrWrongMode`. The `canvas::Paint` constructors `canvas::fill`,
-`canvas::stroke` and `canvas::fillStroke` are exempt: they build a value and touch
-no surface.
+`--app` builds. Ten calls need `app::Mode.Canvas` and raise the trappable
+`ErrWrongMode` elsewhere: `canvas::present`, `canvas::presentLayers`,
+`canvas::setGroup`, `canvas::removeGroup`, `canvas::createImage`,
+`canvas::loadImage`, `canvas::waitFrame`, `canvas::didResize`,
+`canvas::enableMouse` and `canvas::pollMouse`. Everything else — the `canvas::Paint`
+constructors, the font calls, measuring, image reads and writes, closing,
+`canvas::getFrameStats` and the curve helpers — works in any mode.
+
+Where to start: shapes and their fields are in `mfb man canvas types`; colour
+goes through `canvas::fill`, `canvas::stroke` and `canvas::fillStroke`; text uses
+`canvas::loadFont` or `canvas::loadSystemFont` (`canvas::listSystemFonts` to pick
+one), `canvas::Text`, `canvas::measureText` and `canvas::caretStops`; images use
+`canvas::loadImage` or `canvas::createImage`, `canvas::Picture` and
+`canvas::setBytes`; the mouse uses `canvas::enableMouse`, `canvas::pollMouse` and
+`canvas::AutoPaint`; the keyboard is read with the `io` readers, which work in
+`app::Mode.Canvas`; animation uses `canvas::waitFrame`, `canvas::getFrameStats`
+and `canvas::ParticleSystem`; large or repeated content goes in a group with
+`canvas::setGroup`, or in layers with `canvas::presentLayers`.
 
 Colour is not a canvas concept at all. Those three take a `color::Color`, built with
 `color::rgb`, `color::fromHex` or any other `color` member — and `color` is gated by
@@ -159,8 +172,10 @@ nothing, in any build. So a program still computes its palette before it ever
 presents anything; it just does so through `IMPORT color`.
 
 `canvas` is **retained**, not immediate. A program builds a `List OF canvas::DrawItem` and
-installs it with `canvas::present`; the runtime draws that scene, and draws it again
-only when the window is resized or uncovered, until the next `present`. `present` is therefore not a
+installs it with `canvas::present`; the runtime draws that scene, and draws it again,
+until the next `present`, only when something it shows changes without a
+`present`: the window is resized or uncovered, `canvas::setBytes` refills an image
+it draws, or the mouse moves over a `canvas::AutoPaint`. `present` is therefore not a
 per-frame call — a static picture is presented once and costs nothing thereafter,
 and re-presenting an unchanged scene publishes nothing, renders nothing and holds
 no memory. (It does still copy the scene once to compare it, so it is not free —
@@ -241,7 +256,9 @@ An image closes itself when its binding goes out of scope, or earlier with
 `canvas::destroyImage`; destroying one that a presented scene still draws is
 safe. Calling `canvas::destroyImage` again on an image it already closed raises
 `ErrResourceClosed`, as does any other use of a closed image. An image
-stays on the drawing surface's thread."#;
+stays on the drawing surface's thread. One call takes an image or font instead of
+aliasing it: one inside the items given to `canvas::setGroup` becomes the group's,
+and the binding cannot be named again."#;
 
 /// Register the `canvas` package on the clean-room registry.
 ///
@@ -318,7 +335,10 @@ pub(crate) fn register(r: &mut Registry) {
         description: "An opaque handle to an image the drawing backend holds, closed \
                       automatically when its binding goes out of scope. A \
                       `canvas::Picture` holds one directly, and destroying an image a \
-                      scene still draws is safe — that item draws nothing.",
+                      scene still draws is safe — that item draws nothing. One call takes \
+                      the handle instead of aliasing it: an image inside the items given \
+                      to `canvas::setGroup` becomes the group's, and the binding cannot \
+                      be named again.",
         close_function: DESTROY_IMAGE,
         // An image belongs to the drawing surface's thread; it does not cross a
         // thread boundary in v1.
@@ -341,8 +361,11 @@ pub(crate) fn register(r: &mut Registry) {
         export: true,
         description: "An opaque handle to a loaded font, closed automatically when it \
                       leaves scope. A `canvas::Text` holds one directly, and closing a \
-                      font whose text a scene still draws is safe — that text simply \
-                      draws as empty.",
+                      font whose text a scene still draws is safe — that text draws \
+                      each character from the next open font in its list, and draws \
+                      nothing when none is left. One call takes the handle instead of \
+                      aliasing it: a font inside the items given to `canvas::setGroup` \
+                      becomes the group's, and the binding cannot be named again.",
         close_function: DESTROY_FONT,
         // A font belongs to the drawing surface's thread, like an image; it does not
         // cross a thread boundary in v1.

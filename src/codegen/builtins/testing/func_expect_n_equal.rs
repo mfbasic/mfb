@@ -15,7 +15,7 @@ comparable with it, and `Integer` and `Float` compare numerically —
 `expectNEqual(1, 1.0)` **fails**, because those are equal. Use `expectNInteger`
 or `expectNFloat` when the operand's type matters too.
 
-Both operands must be printable — a number, `Boolean`, `String`, `Byte`, `Scalar`, or `List OF Byte`
+Both operands must be comparable with `=` and printable — a number, `Boolean`, `String`, `Byte`, or `Scalar`, not a `List`, record, or `Map`
 — because a failure has to show them.
 
 Prefer asserting what a value *is* over what it is not, where you can:

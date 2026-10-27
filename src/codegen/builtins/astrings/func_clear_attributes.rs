@@ -17,27 +17,40 @@ const INTRO: &str = r#"Clear all attributes, everywhere or over an inclusive sca
 const DESC: &str = r#"`clearAttributes` returns a new `AttributedString` with attributes removed. The one-argument form
 empties the entire attribute overlay. The three-argument form clears every attribute over the
 inclusive range `[start, endIndex]`, **splitting** any span that straddles the range so its flanks
-outside the range survive (regardless of member — unlike `removeAttribute`, no structural match is
-required).
+outside the range survive (whichever attributes they are — unlike `removeAttribute`, which clears
+only the one attribute you name).
 
 **An invalid range raises.** `start` must be zero or more and no greater than
 `endIndex`, or the call raises `ErrInvalidArgument` (`invalid attribute range`);
 and both ends must fall inside the visible text, or it raises
 `ErrIndexOutOfRange` (`attribute range out of bounds`). Because the range is
 inclusive, **empty text has no valid range at all** — even `0, 0` is out of
-bounds on an empty `AttributedString`, so guard construction from text that
-might be empty. The three-argument form can also raise `ErrOutOfMemory`,
-meaning the program ran out of memory; the one-argument form never fails."#;
+bounds on an empty `AttributedString`, so check that the text is non-empty
+before calling the three-argument form. Either form can raise `ErrOutOfMemory`,
+meaning the program ran out of memory while building the result; the
+one-argument form raises nothing else."#;
 
 const EX: &str = r#"```
 IMPORT astrings
+IMPORT io
 
 FUNC main() AS Nothing
   LET a AS AttributedString = astrings::fromString("hello world")
-  MUT b AS AttributedString = astrings::addAttribute(a, 0, 10, astrings::bold())
+  LET b AS AttributedString = astrings::addAttribute(a, 0, 10, astrings::bold())
   LET ranged AS AttributedString = astrings::clearAttributes(b, 2, 7)
   LET whole AS AttributedString = astrings::clearAttributes(b)
+  io::print(astrings::toMarkdown(b))
+  io::print(astrings::toMarkdown(ranged))
+  io::print(astrings::toMarkdown(whole))
 END FUNC
+```
+
+prints:
+
+```
+**hello world**
+**he**llo wo**rld**
+hello world
 ```"#;
 
 #[rustfmt::skip]
@@ -91,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             Implementation {
                 params: vec![value_param()],
                 return_type: ParameterType::named("AttributedString"),
-                errors: vec![],
+                errors: vec!["ErrOutOfMemory"],
                 body: Body::mfb(BODY_WHOLE, "__astrings_clearAttributes"),
             },
             Implementation {

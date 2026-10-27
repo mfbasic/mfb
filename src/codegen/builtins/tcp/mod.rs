@@ -138,7 +138,7 @@ Imports are not transitive and a package cannot re-export another's types (see
 file that imports the package declaring it. Passing the whole value on still
 works without it — `tcp::connect(bound)` compiles — but `bound.host` and
 `bound.port` are refused there. Only reading an address's fields needs it:
-passing an address to `tcp::connect` or `tcp::listen`, and calling `tcp::read` or
+passing an address to `tcp::connect`, and calling `tcp::read` or
 `tcp::write`, need nothing but `IMPORT tcp`.
 
 `Socket` and `Listener` are opaque handles that close themselves when their

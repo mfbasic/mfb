@@ -50,12 +50,12 @@ session from ending and the probe never returns.
 | Must be true | Command | Status |
 |---|---|---|
 | plan-125-C complete | `grep -c '^- \[ \]' planning/completed/plan-125-C-man-iter2-batch1.md` → `0` | MET 2026-09-16: `0` open; all four Commit lines filled (closed `c420fec6c`) |
-| plan-125-A gate: release `mfb` at HEAD | `cargo build --release` after the last source edit | MET 2026-09-16: rebuilt after `c420fec6c` (the last source change); later commits touch only `planning/` |
+| plan-125-A gate: release `mfb` at HEAD | `cargo build --release` after the last source edit | MET 2026-10-26: rebuilt after the fast-forward to `d58b5397a` (`target/release/mfb` `Oct 26 06:43`) |
 | ~~plan-125-A gate: `codex` CLI~~ (superseded 2026-09-25) | `~/local/bin/codex --version` | MET 2026-09-16: `codex-cli 0.153.0` — Phases 1, 2 and 14 of Phase 3's 26 units ran on it |
-| reviewer gate: Claude Code CLI | `claude --version` | MET 2026-09-25: `2.1.281 (Claude Code)` |
-| reviewer gate: account can spend a request | the Fable PONG probe above, from `/tmp` | MET 2026-09-25: `PONG`, exit 0; re-run before every batch |
-| plan-125-A gate: no peer mid-flight in D's packages | recent commits on all refs touching `src/codegen/builtins/{io,astrings,term,strings,fs}`, then a content diff of the newest peer checkpoint against `main` on those paths | MET 2026-09-16: the only recent commits are a peer session's t3 checkpoints (whole-tree snapshots, newest `b9681abc8`); its content diff against `main` in these five packages is empty, so no prose edit is in flight |
-| this branch's pages are current | content diff `HEAD...main` on the same five package paths | MET 2026-09-16: 8 lines in `astrings/gen_astrings.rs` (lowering code, no page prose) |
+| reviewer gate: Claude Code CLI | `claude --version` | MET 2026-10-26: `2.1.310 (Claude Code)` |
+| reviewer gate: account can spend a request | the Fable PONG probe above, from `/tmp` | MET 2026-10-26: `PONG`, exit 0 (before the `D-phase4-current` batch); re-run before every batch |
+| plan-125-A gate: no peer mid-flight in D's packages | recent commits on all refs touching `src/codegen/builtins/{io,astrings,term,strings,fs}`, then a content diff of the newest peer checkpoint against `main` on those paths | MET 2026-09-16: the only recent commits are a peer session's t3 checkpoints (whole-tree snapshots, newest `b9681abc8`); its content diff against `main` in these five packages is empty, so no prose edit is in flight. Re-checked 2026-10-26: `git status --porcelain` on these paths is empty in every live worktree; the only unmerged commits touching them are t3 checkpoint snapshots, and the newest (`d1c6d393c`, 2026-10-17) is OLDER content than main (diffing main against it removes main's `strings::lineBreaks`), so it is not an edit in flight |
+| this branch's pages are current | content diff `HEAD...main` on the same five package paths | MET 2026-10-26: `git diff HEAD...main -- src/codegen/builtins/{io,astrings,term,strings,fs} \| wc -l` → `0` after the fast-forward |
 
 ## 1. Goal
 
@@ -461,25 +461,126 @@ Acceptance: 26 units `exit 0`; sweeps clean; every `term` example leaves the
 terminal restored (verified by running it).
 Commit: f58c14267 (Codex half, 14 of 26), 3be554816 (closed)
 
-### Phase 4 — strings (42 units)
+### Phase 4 — strings (43 units; was 42 — see Corrections 2026-10-26)
 
-- [ ] 41 pages + overview.
-- [ ] Every Unicode claim probe-verified; every performance hint checked
+- [x] 41 pages + overview + types (`D-phase4-current.txt`).
+      `--reconcile --letter D-phase4-current --units planning/plan-125-units/D-phase4-current.txt`
+      → `units=43 unaccounted=0 orphans=0` (Fable, `--jobs 2`).
+- [x] Every Unicode claim probe-verified; every performance hint checked
       against memory `string-concat-beats-list-join-in-mfb` before it is left
-      standing.
-- [ ] Every example compiled and run; ledger recorded.
+      standing. The reviewers probed each page's claims (their probes are in each
+      findings file). Every claim the edits added was re-probed on the release
+      binary (`/tmp/p125-ex/strprobe`): `upper("ŉ")` → `ʼN` (2 → 3 bytes), `upper("ﬁ")`
+      → `FI` (3 → 2), `lower("ΟΔΟΣ")` → `οδοσ`, NFC `U+212B` → `Å` (1 scalar, 3 → 2
+      bytes), `U+212A` → `K`, `U+0958` → 2 scalars, `U+F900` → `豈`, jamo → `가`;
+      `lineBreaks` breaks after VT, NEL and FF (all `mandatory`), after `ab-` but not
+      inside `-ing` or `-5`; `isDigit` is `TRUE` on `٣` and `३`, while `toInt("٣")` and
+      `toFloat("३")` raise `77050003`; `split` on `U+0301` and `trim`/`trimChars`
+      leave the mark as stated. `padRight("日本", 4, "-")` measures 6 columns with
+      `term::measureText` on a pty. The Unicode 16.0 version is what
+      `src/codegen/string/unicode/*_ranges.txt` pin. No strings page gives
+      accumulation advice: `grep -n -i 'faster|slower|accumulat|in a loop|quadratic'`
+      over `src/codegen/builtins/strings/*.rs` finds only the `stripPrefix`/`stripSuffix`
+      "call it in a loop" for repeated prefixes, which is a correctness hint, not a
+      performance one.
+- [x] Every example compiled and run; ledger recorded.
+      `MFB=$PWD/target/release/mfb ./scripts/man-run-examples.sh strings --run` →
+      `examples: 88 built: 88 ran: 88 failed: 0`; `--memory-scope strings` and
+      `--scope strings` → `unclassified … 0`, `internals-vocabulary hits: 0`.
 
-Acceptance: 42 units `exit 0`; sweeps clean; no page advises an accumulation
+#### Phase 4 ledger — Fable iteration 2 (`planning/plan-125-findings/D-phase4-current/`)
+
+79 findings on 38 pages (`grep -c '^VERDICT:'` over the findings files); 5 pages
+had none (`caseFold`, `contains`, `endsWith`, `isLetter`, `isWhitespace`). Verdicts:
+40 incomplete, 26 misleading, 9 out-of-scope, 2 wrong, 1 example-broken,
+1 UNVERIFIED. 78 applied. The UNVERIFIED one (`padRight` 5, six columns) needed no
+edit and was then measured on a pty. The 9 out-of-scope sentences, plus the same
+sentences on their siblings, were cut and logged as belongs-in-spec rows 85-92.
+
+| Page | Findings | Disposition |
+|---|---|---|
+| byteLen | 1 out-of-scope | "does not walk the text" cut → row 85 |
+| count | 1 | "matched literally, not as a pattern" |
+| endsWithAny | 2 | `AttributedString` spelling; "like it, it never fails". The `startsWithAny` order cut and the `startsWith` scalar wording were mirrored here and on `endsWith` (not flagged there, same defect) |
+| find | 3 | upper bound "greater than the scalar length"; caption matches the `TRAP` example; type spelling |
+| fromScalars | 2 | the only error is `ErrOutOfMemory`; scalars vs graphemes, pointing at `graphemesCount` |
+| graphemeAt, graphemes | 1 + 3 | type spelling; points at `graphemesCount`/`graphemeAt`; example now uses a decomposed `é` and says it prints five lines |
+| graphemesCount | 1 | fallibility difference from `graphemes` stated |
+| isDigit, isLower, isUpper | 2 + 1 + 1 | Unicode 16.0; `isDigit` vs `toInt`/`toFloat` (probed) |
+| join | 1 | the `ErrOutOfMemory` condition |
+| left, right | 1 + 1 | `count` zero/negative outcomes |
+| lineBreaks | 4 | VT and NEL added; hyphen rule conditioned; trailing spaces belong to the line before, the example measures `trimEnd`; types `index`/`mandatory` descriptions |
+| lower, upper | 3 + 3 | final sigma; type spelling; unconditional attribute drop; `ŉ`/`ﬁ` byte examples; the OOM sentence moved out of the AttributedString paragraph |
+| mid | 1 → code | descriptor declares `ErrOutOfMemory`; the new `intrinsic_declared_errors` guard (56c0406c5) found and fixed `strings::replace`, `collections::mid` and both `utf8` codecs the same way |
+| normalizeNfc | 4 + 1 out-of-scope | singletons and exclusions; length can grow; the OOM condition; Unicode 16.0; Hangul mechanism cut → row 86 |
+| overview | 3 | negative-argument errors split between `ErrInvalidArgument` and `mid`'s `ErrIndexOutOfRange`; `mid` negative case; `lineBreaks` returns `LineBreak` records |
+| padLeft, padRight | 4 + 1 out-of-scope, 4 + 1 UNVERIFIED | huge-width OOM vs `ErrInvalidArgument`; one scalar is not one character; "No argument"; the pair named; unstyled padding; identity sentence cut → row 90 |
+| padLeftToWidth, padRightToWidth | 1 + 1 | control characters count as one column |
+| repeat | 3 | both size errors; every copy carries the styling |
+| replace | 2 | inserted text unstyled; empty `value` |
+| split | 3 | grapheme split by a combining-mark delimiter; the OOM condition; alias shown as call syntax |
+| startsWith | 3 | can only *end* inside a character; one scalar-by-scalar wording; `prefix` is a plain `String` |
+| startsWithAny | 1 out-of-scope | short-circuit cut → row 87 |
+| stripPrefix, stripSuffix | 3 + 1, 1 out-of-scope each | "never fails" replaced with the OOM-only statement; span handling at the cut; identity sentence cut → row 91 |
+| toBytes, toScalars | 1 out-of-scope + 1 + 1 out-of-scope | storage/walk wording cut → rows 88-89; the OOM condition |
+| trim, trimStart, trimEnd, trimChars | 1 + 1 + 1 out-of-scope + 1 | `AttributedString` in the parameter row; scalars not graphemes; identity sentence cut → row 92 |
+| types | 2 | "never 0" moved onto `lineBreaks`; the last entry's index is the text length |
+
+Fallout fixed alongside: the `AttributedString` rewording broke `inplace_self_update_census`'s Tier-B sentence on `padLeft`/`padRight`, so those pages keep the census sentence ("it returns an `AttributedString`"). The census is green.
+
+Acceptance: 43 units `exit 0` (`--reconcile --letter D-phase4-current`); sweeps clean; no page advises an accumulation
 pattern the measurement contradicts.
-Commit: —
+Commit: e5d476252 (pages), 56c0406c5 (declared errors)
 
 ### Phase 5 — fs (43 units)
 
 - [ ] 41 pages + overview + types page.
-- [ ] **Every example rewritten to temp paths and run**; the ledger records
+- [x] **Every example rewritten to temp paths and run**; the ledger records
       the temp path per example and confirms nothing is left behind.
-- [ ] Handle contract wording verified by reading, not grepping
-      (`--memory-scope fs` is necessary and not sufficient).
+      Done before the review batch, so the reviewers read the final examples.
+      - **Paths:** every example that touches the filesystem works under
+        `fs::pathJoin([fs::tempDirectory(), "mfb-<member>-<n>"])`, where `<n>` is
+        the example's number on its page. It is a directory, or a single file
+        for `deleteFile` 2, `exists` 1 and `fileExists` 1, and the example
+        deletes everything it created.
+      - **`openFileNoFollow`** uses `fs::canonicalPath(fs::tempDirectory())`:
+        on macOS the plain spelling runs through the `/var` symlink and is
+        refused (`77030003`, probe `/tmp/p125-ex/nf`).
+      - **`createTempFile`** examples pass their own scratch directory and find
+        the file with `fs::listDirectory`. The call never reports the name it
+        chose, so the zero-argument form cannot be cleaned up; the page now
+        says so.
+      - **Touch no file:** `currentDirectory` 1-2, `tempDirectory` 1,
+        `openData` 1-3, `seek` 1 (in-memory) and the `path*` pages (string
+        operations only).
+      - **Verified:** `/tmp/p125-fsex/run.py` builds and runs each block in a
+        fresh project, then diffs `$TMPDIR` and the project tree. Result:
+        103 examples, `bad 0`, nothing new in either.
+        `MFB=… ./scripts/man-run-examples.sh fs --run` → `103 built, 103 ran,
+        0 failed`. That count needed the runner fix in `d37e122ce`: before
+        it, 14 of these examples were silently skipped.
+      - **Literal scan:** a scan of every block that calls a path-taking `fs::`
+        member without `tempDirectory`/`openData` finds none.
+- [x] Handle contract wording verified by reading, not grepping
+      (`--memory-scope fs` is necessary and not sufficient). I read every
+      lifecycle sentence on the 47 fs pages (close-at-scope-end, explicit close,
+      use after close, buffer drain on close) and probed the two that make a
+      checkable claim.
+      - **Close and use after close.** `fs::close(f)` moves `f`, so naming `f`
+        again in the same function is the build error `TYPE_USE_AFTER_MOVE`.
+        `ErrResourceClosed` at run time happens only through another copy of
+        a record holding the File, after a callee closed it (probe
+        `/tmp/p125-ex/nf`: `read through the other copy: TRUE`,
+        `second close: TRUE`).
+      - **What was fixed.** The `close` page said a second `fs::close` raises,
+        and the overview said so in a sentence of its own. Both now give the
+        compile-time/run-time split.
+      - **canvas.** `canvas::destroyFont`/`destroyImage` repeated the claim
+        ("exactly as a second `fs::close` does"). They are fixed the same way;
+        the double `destroyFont` is a build error, and the record-copy
+        `destroyImage` raises `ErrResourceClosed` in a headless `--app` run.
+      - **Explicit close, then scope exit.** Safe: all 103 fs examples do it
+        and exit 0.
 - [ ] Ledger recorded.
 
 Acceptance: 43 units `exit 0`; `--reconcile` exits 0 over the whole 144-unit
@@ -489,7 +590,7 @@ batch; the example ledger accounts for every example, 0 unaccounted; no
 examples confirming it).
 Commit: —
 
-### Phase 6 — pages main changed after they were reviewed (11 units)
+### Phase 6 — pages main changed after they were reviewed (39 units; was 11 — see below)
 
 Added 2026-09-25. `main` was merged into this branch mid-letter (`a24a3894b`, 812
 commits); it had changed the lowering or prose under pages Phases 1-3 had already
@@ -498,12 +599,92 @@ closed, and added two `term` members. Units:
 `readChar`, `readLine`, `setBuffered` (mouse-aware reads, plan-94-B, bug-669);
 `term` `overview`, `types`, `isOn`, and the new `enableMouse` and `pollMouse`.
 
-- [ ] 11 units reviewed and applied; ledger recorded.
-- [ ] Every example on the 11 pages compiled and run (`term` and mouse ones on a
-      pty), terminal restored.
-- [ ] `--memory-scope` and `--scope` clean for `io` and `term`.
+Re-derived 2026-10-26 after the fast-forward to `d58b5397a`. Baseline: the release
+`mfb` built at Phase 3's close `3be554816` (no main merge falls between Phases 1-3's
+closes: `git log --merges --first-parent 6f6c05547..3be554816` is empty), against
+the release `mfb` at HEAD. Each page of `mfb man <pkg> --all` was diffed after
+normalizing the language-wide mechanical changes (`SUB` → `FUNC … AS Nothing`,
+dropped `RES` parameter keywords, the `AttributedString` spelling) and dropping the
+derived signature lines and error tables; a page counts when any authored line
+differs (scripts: `/tmp/p125-cmp/split.py`). Units:
+`planning/plan-125-units/D-phase6-current.txt` — `io` 9 (overview, input, readLine,
+setBuffered; new readGrapheme, readKey, readRaw, readScalar, types — pollInput,
+readByte and readChar no longer exist), `astrings` 6 (overview, addAttribute,
+clearAttributes, getAttributes, removeAttribute, toMarkdown), `term` 24 (21 changed
+plus the new enableMouse, measureText, pollMouse). The first list's 11 units are all
+in it or gone from the package.
 
-Acceptance: `--reconcile --letter D-phase6` → 11 units, 0 unaccounted; sweeps
+- [x] 39 units reviewed and applied; ledger recorded.
+      `--reconcile --letter D-phase6-current --units planning/plan-125-units/D-phase6-current.txt`
+      → `units=39 unaccounted=0 orphans=0`. 29 of the 39 first hit the usage
+      limit (429). They were re-run with `--jobs 2` after a fresh PONG; re-run
+      rows append, so reconcile reads each unit's last row. That batch's own
+      exit 1 is its reconcile against the 29-unit retry list, which counted
+      the 10 earlier rows as orphans.
+- [x] Every example on the 11 pages compiled and run (`term` and mouse ones on a
+      pty), terminal restored. All 39 pages, not just the 11:
+      - **io:** `/tmp/p125-fsex/ptyex.py` builds each block and runs it under a
+        pty, typing `hello⏎`, `q`, then EOF. 29/29 exit 0.
+      - **term:** `/tmp/p125-ex/d6-term/runall.py` (pty; `sync` 2 is an
+        interactive loop, so `q` is typed). 49/49 exit 0, each with TUI entered
+        and then left.
+      - **astrings:** `man-run-examples.sh astrings --run` → 17/17.
+- [x] `--memory-scope` and `--scope` clean for `io` and `term`.
+      `man-census.sh --memory-scope io term astrings` → `unclassified … 0`;
+      `--scope io term astrings` → `internals-vocabulary hits: 0`. `cli::man`
+      55 ok; `declared_errors` 31 ok.
+
+#### Phase 6 ledger — Fable iteration 2 (`planning/plan-125-findings/D-phase6-current/`)
+
+**Totals.** 131 findings: io 42, astrings 21, term 68 (`grep -c '^### '`).
+Applied by two helper agents, Sonnet for io+astrings and Opus for term, under
+the two-agent limit. Every finding was re-verified against the release binary
+before it was applied. The probes are in `/tmp/p125-ex/d6-io/` and
+`/tmp/p125-ex/d6-term/`. "App probe" means an `--app` build run with
+`MFB_HEADLESS=1`.
+
+**Dispositions.**
+- 4 out-of-scope sentences were cut → belongs-in-spec rows 93-96.
+- 11 findings turned out to be code bugs. They are listed below, and the page
+  keeps the intended contract until each is fixed.
+- 3 term pages had no findings (`drawBox`, `hideCursor`, `showCursor`).
+- Every other finding was applied, or confirmed true and left unchanged:
+  `io types` 5, `term types` 4, `drawGlyph` 5, `drawHLine` 3 and `pollMouse` 6
+  are UNVERIFIED claims that were then measured or kept with their evidence.
+
+| Page group | Findings | Main changes |
+|---|---|---|
+| io overview | 7 | piped escape sequences decode as keys; keystroke readers skip ill-formed UTF-8 while line readers raise `ErrEncoding` and resume at the next line; `readScalar` returns a `Scalar`; CR before LF stripped; ErrWriteFailed/SIGPIPE/ErrInputFailed/OOM conditions; negative timeout; app `Mode.None` → `ErrWrongMode` (measured) |
+| io input, readLine | 5 + 4 | CRLF; bad-UTF-8 line consumed whole; negative timeout raises before the prompt; error conditions; shared `TIMEOUT_DESC` |
+| io readGrapheme, readKey, readScalar, readRaw | 4 + 4 + 5 + 4 | pipe timeout rule; 128-byte cluster cap is a ceiling (201 → 127 + 74); meta reported from `\e[1;9B`; pipes can carry Release/Repeat; Ctrl with non-letters; Ctrl+H/Ctrl+M arrive as U+007F/U+000A; ESC+byte in a pipe; `readScalar` example printed `U+65` for 'A' → now "code point 65"; `readRaw` example handles `ErrEndOfFile` |
+| io setBuffered, types | 4 + 5 | the drain at exit is silent on failure (documented, `process_lifecycle.rs`); `io::isBuffered`; repeat calls harmless; `Key.grapheme`, `KeyEvent`, `shift`/`meta` qualified |
+| astrings overview, add/get/removeAttribute, clearAttributes, toMarkdown | 3 + 3 + 2 + 3 + 4 + 6 | all 14 reader overloads listed; scalar ranges vs graphemes; "check the text is non-empty"; colour attributes resolve too; non-matching remove is not an error; `clearAttributes` 1-arg declares `ErrOutOfMemory` (body calls `writeSpans`) and its example prints its output; toMarkdown escaping, empty font, unclosed final span, `::;-::` reset |
+| term overview, isOn, on, off | 5 + 4 + 5 + 5 | which calls work with TUI off, counted from the source: `on`, `isOn`, `didResize`, `enableMouse`, `pollMouse`. `measureText`/`terminalSize` raise `ErrUnsupported`. Five-step `on` list; Ctrl+C under kitty only at the next read; line readers also start the key handshake; `on` clears a pending resize; `off` while off withdraws mouse reporting; examples leave TUI mode |
+| term getters (4), clear, didResize, sync, terminalSize, types | 6 + 2 + 2 + 3 + 2 + 4 | "module" → "package"; getBackground's first sentence; getters return a value of their own; off-mode setters do not change the live state; Windows `--app` clear; resize reported after `sync`; present sends a fixed tail; `terminalSize` reads live; `MouseEvent` buildable/WITH-able |
+| term draw* (5), fillRect, measureText, enableMouse, pollMouse | 12 + 2 + 5 + 5 + 6 | half-wide-glyph clearing; empty `drawText`; colour alpha dropped; zero-width scalar takes a cell; fillRect example paints the background; control characters measure one cell; motion only while a button is held (no mode 1003); reset at exit/error/Ctrl-C; queue of 64, oldest first; `button` set during drag; each worker thread enables its own reporting |
+
+**Bugs found (11).** Six are fixed, one is documented, and five are filed.
+- **Fixed:**
+  - **A** — `isOn` and the four getters never raised `ErrWrongMode` in
+    `--app` builds. Fixed in `e9aba9ac2`.
+  - **B** — `drawText`/`drawGlyph` emitted DEL and C1 controls raw.
+  - **E** — a failed resize still reported `didResize`.
+  - **F** — a constant-false `IF` around the only `io::` call failed the
+    build.
+  - **io-5** — the `clearAttributes` descriptor (`28d7fdcd1`).
+  - B, E and F are in the commit after `a145e8b36`.
+- **Documented, not changed:** **io-2**. The most negative timeout is the
+  omitted-argument value, so it also waits without bound; the readers' pages
+  now say so.
+- **Filed as bug docs:**
+  - **io-1** → bug-1114 (`readLine` Backspace after non-ASCII).
+  - **io-3** → bug-1115 (`AttributedString` field access).
+  - **io-4** → bug-1116 (`#astrings_concat` in a diagnostic).
+  - **C** → bug-1117 (flag emoji width).
+  - **D** → bug-1118 (macOS `--app` wide glyph at the edge).
+- Each page keeps the intended contract.
+
+Acceptance: `--reconcile --letter D-phase6-current` → 39 units, 0 unaccounted; sweeps
 clean; examples run.
 Commit: —
 
@@ -531,6 +712,12 @@ Commit: —
 ## Corrections
 
 <!-- Filled in DURING execution. -->
+
+- **2026-10-26 (owner): merge each letter into `main` as soon as it is
+  complete,** so the branch never drifts from `main` again. D is the first
+  letter this applies to: when D's last box is ticked, merge `main` in, run the
+  landing tier, and merge into `main` before starting E. The same applies
+  after every later letter.
 
 - **2026-09-25 (owner): the reviewer is Claude Fable 5.1, not Codex.** Every review
   unit now runs `claude -p --model claude-fable-5-1` through
@@ -582,6 +769,31 @@ Commit: —
   in no worktree, and in no `completed/` directory, so they did not collide. New
   plan-125 bugs must check all refs and every worktree's `bugs/`, not just `main`.
   The historical 721 references above describe the first renumbering.
+
+- **2026-10-26: the branch was 2589 commits behind main; fast-forwarded to
+  `d58b5397a`.** `git rev-list --count HEAD..main` → 2589, `main..HEAD` → 0 (every
+  plan-125 commit was already on main), so `git merge --ff-only main` was clean.
+  Consequences, all measured with the release `mfb` at HEAD:
+  - The `D-phase4-postmerge`, `D-phase5` and `D-phase6` runs never reviewed most of
+    their units: 17 of 22, 39 of 43 and 8 of 11 rows are `FAILED` after 2-5 s, and
+    the logs say `api_error_status":429 … "You've hit your session limit"`
+    (`planning/plan-125-findings/D-phase4/man-page-strings-right.log`). The
+    findings directories for those three runs were never committed.
+  - `strings` is now **43 units**, not 42: `displayWidth` was removed
+    (`4e2ed201f refactor(strings): remove display width API`), `lineBreaks` was
+    added (`c4a3bf5c4 plan-162-E`), and a `types` page renders
+    (`mfb man strings --all`, page titles before each `═` rule). 22 non-plan-125
+    commits changed `src/codegen/builtins/strings` since `c420fec6c`
+    (`git log --no-merges c420fec6c..HEAD -- src/codegen/builtins/strings | grep -vc plan-125`).
+    Phase 4 is therefore re-run whole on the current tree as
+    `planning/plan-125-units/D-phase4-current.txt` (43 units); the older
+    `D-phase4` findings stay as the record of the first pass.
+  - `fs` is now **47 units** (45 functions + overview + types), not 43; Phase 5
+    runs `planning/plan-125-units/D-phase5-current.txt`, cross-checked against the
+    rendered page titles of `mfb man fs --all`.
+  - Phases 1-3 (`io`, `astrings`, `term`) were closed before 2589 more commits of
+    main landed; Phase 6's 11-unit list was derived from the first merge only and
+    is re-derived from a fresh diff (see Phase 6).
 
 ## Summary
 

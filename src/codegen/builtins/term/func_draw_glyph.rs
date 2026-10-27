@@ -16,7 +16,9 @@ const INTRO: &str = r#"Stamp a single glyph at a position by code point"#;
 const DESC: &str = r#"`term::drawGlyph` stamps the scalar named by `codepoint` into the cell at
 `row`/`column`, using the colours and attributes currently in effect. A scalar the
 terminal draws **double-width** also occupies the following column; at the right
-edge only its first cell is on the surface.
+edge only its first cell is on the surface. A combining mark or other zero-width
+scalar is placed in the cell by itself, one column wide; it does not combine
+with a neighbouring glyph.
 Coordinates are **zero-based** from the top-left and, like every other `term::`
 position, are written **row first, then column**. It does not move the cursor.
 This is the low-level counterpart to `term::drawText`: use it to place one
@@ -25,8 +27,9 @@ arbitrary character (a marker, a cursor, a sprite cell) at a known position.
 The cell is **bounds-checked, not clamped**: if `(row, column)` is off the surface
 the call draws nothing and raises no error. It does not fall back to the nearest
 edge cell, so an off-by-one in your coordinates loses the glyph silently rather
-than putting it somewhere visible. Code points below U+0020, including negative ones, are **skipped**
-— they would corrupt the presented frame — and so is any value that is not a
+than putting it somewhere visible. Control code points are **skipped** — those
+below U+0020 (including negative values), DEL (U+007F) and the C1 controls
+U+0080–U+009F, which would corrupt the presented frame — and so is any value that is not a
 Unicode scalar: one above `U+10FFFF` or inside the surrogate range
 `U+D800`–`U+DFFF`. A skipped value draws nothing and raises no error. Pass a real
 scalar, for example `9731` for `☃` or `65` for `A`. The glyph is shown on the
@@ -35,8 +38,8 @@ next `term::sync`.
 The call is gated: while TUI mode is off it does nothing and reports no
 error.
 
-A Linux terminal and all three app backends — macOS, Linux and Windows — draw
-this call. In an `mfb build --app` program, `term::drawGlyph` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
+A terminal on every platform and all three app backends — macOS, Linux and
+Windows — draw this call. In an `mfb build --app` program, `term::drawGlyph` — like every other `term::` call — raises `ErrWrongMode` unless the program is in `app::Mode.Console`; see `mfb man app`."#;
 
 const EX: &str = r#"Place a marker character at the centre of the surface:
 
@@ -105,7 +108,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "codepoint",
-                    desc: "The code point to stamp, as an Integer. Values below U+0020 (including negative ones), above U+10FFFF, and in the surrogate range U+D800–U+DFFF are skipped.",
+                    desc: "The code point to stamp, as an Integer. Values below U+0020 (including negative ones), DEL and the C1 controls (U+007F–U+009F), values above U+10FFFF, and the surrogate range U+D800–U+DFFF are skipped.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

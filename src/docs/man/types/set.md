@@ -1,6 +1,6 @@
 # set
 
-Unordered Set values
+Deduplicated Set values
 
 ## Synopsis
 
@@ -10,7 +10,7 @@ Set OF T
 
 ## Description
 
-`Set OF T` is an unordered, deduplicated collection of elements of a
+`Set OF T` is a deduplicated collection, iterated in insertion order, of elements of a
 single type `T`. Each distinct element appears at most once: adding an element
 that is already present is a no-op, so a set never holds two equal elements. The
 element type `T` must be comparable, exactly as a `Map` key must be. A set value holds its elements: binding a set
@@ -39,8 +39,8 @@ A set element must be comparable: `Integer`, `Float`, `Fixed`, `Money`,
 fields are all comparable. `List`, `Map`, `Set`, unions, functions, lambdas,
 threads, and resource handles are not comparable and cannot be set elements.
 Element equality is a bitwise comparison, so `Float` elements distinguish `+0.0`
-from `-0.0` and treat `NaN` as equal to `NaN` — distinct from the IEEE rule used
-by the `=` operator on `Float` values.
+from `-0.0` (the `=` operator treats them as equal). A `NaN` can never reach an
+element: see `mfb man types numeric`.
 
 ## Membership
 
@@ -68,7 +68,8 @@ generics `union`, `intersection`, `difference`, `symmetricDifference`,
 
 ## Iteration
 
-`FOR EACH` over a set yields each element `T` once, in insertion order:
+`FOR EACH` over a set yields each element `T` once, in insertion order;
+removing an element and adding it again moves it to the end:
 
 ```
 FOR EACH n IN primes

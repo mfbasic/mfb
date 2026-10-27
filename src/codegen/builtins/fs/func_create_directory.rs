@@ -30,56 +30,68 @@ pub(crate) fn lower_fs_create_directory(
 }
 
 const INTRO: &str = r#"Create a single directory whose parent already exists"#;
-const DESC: &str = r#"`fs::createDirectory` creates the single directory named by `path` with one host
-`mkdir` operation. On success the directory exists and the function returns
-`Nothing`.
+const DESC: &str = r#"`fs::createDirectory` creates the single directory named by `path`. On success
+the directory exists and the function returns `Nothing`.
 
 Only the final component is created; every parent component must already exist.
 `fs::createDirectory` does not create intermediate directories, so a `path` whose
 parent is missing fails rather than building the chain. Use `fs::createDirectories`
 to create a directory together with any missing parents, like `mkdir -p`.
 
-The new directory is requested with permission bits `0755` (`rwxr-xr-x`), which the
-host masks with the process umask in the usual way, so the directory's actual mode
-is `0755` with the umask bits cleared.
+On macOS and Linux the new directory is requested with permission bits `0755`
+(`rwxr-xr-x`), which the host masks with the process umask in the usual way, so
+its actual mode is `0755` with the umask bits cleared. On Windows the directory
+inherits its parent's security attributes; there are no permission bits to
+request.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
-absolute or relative to the current working directory, and may contain Unicode
-characters when the host filesystem accepts those names. It must be non-empty and must not contain an embedded NUL byte.
+`path` may be absolute or relative to the current working directory, and may
+contain Unicode characters when the host filesystem accepts those names. It must
+be non-empty and must not contain a NUL character.
 
 `fs::createDirectory` never overwrites or reuses an existing entry: if anything
-already exists at `path`, including an existing directory, the call fails with
-`ErrAlreadyExists` rather than succeeding quietly. When the host refuses the
-operation the filesystem is left unchanged and the error says why:
-`ErrPathNotFound` if a parent directory does not exist, `ErrAccessDenied` if the
-parent may not be written, and `ErrInvalidPath` if the path cannot name a
-directory — a name that is too long, a file used as a directory, or a loop of
-symbolic links. Any other refusal raises `ErrWriteFailed`. An empty `path`, or
-one containing a NUL byte, raises `ErrInvalidArgument`. `ErrOutOfMemory` means
-the program ran out of memory."#;
-const EX: &str = r#"Create a single output directory whose parent already exists:
+already exists at `path` — a directory, a file, or a symbolic link, even one
+whose target is missing — the call fails with `ErrAlreadyExists` rather than
+succeeding quietly. A guard with `fs::directoryExists` does not cover the last
+case: it reports `FALSE` for a link with no target, and `fs::createDirectory`
+still refuses the name. When the host refuses the operation the filesystem is
+left unchanged and the error says why: `ErrPathNotFound` if a parent directory
+does not exist, `ErrAccessDenied` if the parent may not be written, and
+`ErrInvalidPath` if the path cannot name a directory — a component that is too
+long, a file used as a directory, a loop of symbolic links, or, on Windows, a
+name containing a character the host forbids. Any other refusal raises
+`ErrWriteFailed`. An empty `path`, or one containing a NUL character, raises
+`ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory."#;
+const EX: &str = r#"Create a single directory whose parent already exists — here, a directory
+directly under the temporary directory — and remove it again:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch")
-  IF NOT fs::directoryExists("scratch/example") THEN
-    fs::createDirectory("scratch/example")
-  END IF
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createDirectory-1"])
+  fs::createDirectory(dir)
+  fs::deleteDirectory(dir)
 END FUNC
 ```
 
-Guard against re-creating a directory that already exists:
+Guard against re-creating a directory that already exists. The guard runs
+twice to show the second pass is a no-op — the directory is already there, so
+`fs::createDirectory` is not called again. This prints `TRUE`:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("scratch")
-  IF NOT fs::directoryExists("scratch/cache") THEN
-    fs::createDirectory("scratch/cache")
+  LET cache AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createDirectory-2"])
+  IF NOT fs::directoryExists(cache) THEN
+    fs::createDirectory(cache)
   END IF
+  IF NOT fs::directoryExists(cache) THEN
+    fs::createDirectory(cache)
+  END IF
+  io::print(toString(fs::directoryExists(cache)))
+  fs::deleteDirectory(cache)
 END FUNC
 ```"#;
 
@@ -94,10 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The filesystem path of the directory to create, as UTF-8 bytes; absolute \
-                       or relative to the current working directory. Must be non-empty and free \
-                       of embedded NUL bytes. Only the final component is created; every parent \
-                       component must already exist as a directory.",
+                desc: "The filesystem path of the directory to create; absolute or relative to the current working directory. Must be non-empty and contain no NUL character. Only the final component is created; every parent component must already exist as a directory.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

@@ -19,8 +19,7 @@ because a map holds at most one entry per key.
 
 **Ordering.** The map keeps its entries in insertion order and `keys` walks
 them in that order; how a key is looked up is separate
-and does not reorder it. Assigning an existing key with `collections::set` does
-change it: the returned map has that key last. `collections::keys` and `collections::values` walk the
+and does not reorder it. `collections::keys` and `collections::values` walk the
 same entries in the same order and differ only in which half of each entry they
 copy, so the two results are
 index-aligned: item `i` of `collections::keys(m)` is the key of the entry whose

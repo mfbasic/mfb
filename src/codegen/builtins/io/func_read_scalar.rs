@@ -30,8 +30,12 @@ call returns.
 **It returns text, and only text.** A key that types something returns it,
 whatever platform or terminal it came from. The keys that have a control
 character arrive as that scalar: Enter as U+000A (`\n`), Tab as U+0009,
-Backspace as U+007F, Escape as U+001B, and Ctrl+A through Ctrl+Z as U+0001
-through U+001A. A key with no Unicode value — the arrows, Home, End, Page Up,
+Backspace as U+007F, Escape as U+001B, and the other Ctrl+letter keys as
+U+0001 through U+001A (Ctrl+H is Backspace and Ctrl+M is Enter, as listed).
+Escape arrives from a keyboard, where a lone Escape is decided after a short
+pause; in piped input an ESC byte followed by more input starts a key sequence
+(ESC and a letter is Alt+letter, and only the letter is returned), so only an
+ESC that ends the input arrives as U+001B. A key with no Unicode value — the arrows, Home, End, Page Up,
 Page Down, Insert, Delete, the function keys — is read and skipped, as is a key
 release; use `io::readKey` to see those. Bytes that are not valid UTF-8 are
 skipped too, never reported.
@@ -43,20 +47,25 @@ read it whole.
 `timeoutMs` bounds the wait: omitted, the call waits for as long as it takes;
 `0` makes one immediate attempt; a positive value waits up to that many
 milliseconds. When the time runs out the call raises `ErrTimeout` and nothing is
-read. A negative `timeoutMs` raises `ErrInvalidArgument`. End of input raises
+read. A negative `timeoutMs` raises `ErrInvalidArgument` (the most negative `Integer`
+excepted; see the parameter). End of input raises
 `ErrEndOfFile`.
 
-The `io` readers share one queue of input, so they can be mixed without losing
-or reordering anything. A thread other than the main thread must subscribe with
-`thread::openStdIn` before reading, or the call raises `ErrInvalidContext`. `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Read one character and show its code point:
+Within a thread, the `io` readers share one queue of input, so they can be mixed without losing or reordering anything; each thread has its own view (see the package overview and `thread::openStdIn`). A thread other than the main thread must subscribe with
+`thread::openStdIn` before reading, or the call raises `ErrInvalidContext`. In
+an `--app` build the program must be in `app::Mode.Console` or
+`app::Mode.Canvas`; in `app::Mode.None` there is no window to take keys from and
+the call raises `ErrWrongMode`. A read of standard input that the operating
+system refuses raises `ErrInputFailed`, and `ErrOutOfMemory` means the program
+ran out of memory."#;
+const EX: &str = r#"Read one character and show its code point as a number:
 
 ```
 IMPORT io
 
 FUNC main AS Integer
   LET c AS Scalar = io::readScalar()
-  io::print(toString(c) & " is U+" & toString(toInt(c)))
+  io::print(toString(c) & " is code point " & toString(toInt(c)))
   RETURN 0
 END FUNC
 ```

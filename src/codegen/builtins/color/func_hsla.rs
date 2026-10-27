@@ -17,8 +17,8 @@ rather than linear light.
 one spelling for one concept is worth more than matching CSS's mixed units. It is
 clamped like the rest.
 
-`alpha` is straight, not premultiplied, so it does not affect the colour the hue,
-saturation and lightness describe."#;
+`alpha` is `0`..`255`, `0` fully transparent to `255` fully opaque, and never
+changes the colour channels (`mfb man color types`)."#;
 
 const EX: &str = r#"A half-transparent vivid red:
 

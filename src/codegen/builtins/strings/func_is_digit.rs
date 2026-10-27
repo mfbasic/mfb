@@ -21,14 +21,17 @@ example Roman numerals) or `No` (other number, for example superscripts and
 fractions). A scalar that "looks numeric" is not necessarily a digit by this
 definition.
 
-Classification follows the Unicode general categories,
+Classification follows the Unicode 16.0 general categories,
 and is deterministic and locale-independent. The function is total: it returns a
 `Boolean` for every `Scalar` and never fails.
 
 `isDigit` classifies a *single* scalar. To ask a question about a whole string,
 walk it with `strings::toScalars` and fold the results yourself; that decision is
 deliberately left to the caller. Note also that a digit test is not a number
-parser — use `toInt` or `toFloat` to convert text to a number."#;
+parser, and the two do not agree on what a digit is: `toInt` and `toFloat` read
+only the ASCII digits `0`–`9`, so a string of Arabic-Indic or Devanagari digits
+passes `isDigit` on every scalar and still fails to convert. Use `toInt` or
+`toFloat` to turn text into a number; use `isDigit` only to classify."#;
 
 const EX: &str = r#"Classify individual scalars:
 

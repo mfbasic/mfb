@@ -12,16 +12,11 @@ It is the general form of `color::rgb`, which is the same call with `alpha` fixe
 at `255`.
 
 Components are **clamped, not rejected**: a value below `0` becomes `0` and a
-value above `255` becomes `255`. Colours are routinely computed — a base plus a
-delta, a channel scaled by a fraction, an interpolation between two colours — and
-a result that lands one past an end is a rounding artefact rather than a mistake
-worth stopping the program for. The components are `Integer` rather than `Byte`
-precisely so that out-of-range arithmetic can reach the clamp instead of failing
-at the call site.
+value above `255` becomes `255`; `mfb man color` explains why the parameters are
+`Integer` rather than `Byte`.
 
-`alpha` is straight (not premultiplied): `0` is fully transparent and `255` fully
-opaque, and the colour's red, green and blue are unaffected by it. The all-zero
-`color::Color` is therefore fully transparent."#;
+`alpha` is `0`..`255`, `0` fully transparent to `255` fully opaque, and never
+changes the colour channels (`mfb man color types`)."#;
 
 const EX: &str = r#"A half-transparent red:
 

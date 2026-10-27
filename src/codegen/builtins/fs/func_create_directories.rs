@@ -37,42 +37,54 @@ before the final component is created. A leading `/` is skipped so the filesyste
 root is not treated as a component to create. On Windows `\` separates
 components too, and a leading drive (`C:`) or network share (`\\server\share`)
 is skipped the same way, so `fs::createDirectories("C:\data\logs\2024")` and
-`fs::createDirectories(fs::tempDirectory() & "/app/cache")` both work. Each prefix, and the final
-component, is created in turn; one that already exists is accepted and the walk
-continues. As a result, existing intermediate directories and a final `path` that already exists
-as a directory all succeed quietly rather than being treated as errors, which
-makes `fs::createDirectories` idempotent: re-running it on a path that is already
-present succeeds without changing anything. A final `path` that exists but is
-not a directory — a regular file — raises `ErrAlreadyExists`, as
-`fs::createDirectory` does.
+`fs::createDirectories(fs::tempDirectory() & "/app/cache")` both work. A prefix,
+or the final component, that already exists is accepted and the walk continues.
+As a result, existing intermediate directories and a final `path` that already
+exists as a directory all succeed quietly rather than being treated as errors,
+which makes `fs::createDirectories` idempotent: re-running it on a path that is
+already present succeeds without changing anything.
+
+Symbolic links are followed: a final `path`, or a prefix, that is a link to a
+directory counts as that directory. A final `path` that exists but is not a
+directory — a regular file, or a link that leads nowhere — raises
+`ErrAlreadyExists`, as `fs::createDirectory` does.
 
 Unlike `fs::createDirectory`, which creates only the final component and fails
 when a parent is missing, `fs::createDirectories` builds the entire chain of
-missing parents. Each directory is requested with permission bits `0755`
-(`rwxr-xr-x`), which the host masks with the process umask in the usual way, so
-each directory's actual mode is `0755` with the umask bits cleared.
+missing parents. On macOS and Linux each directory is requested with permission
+bits `0755` (`rwxr-xr-x`), which the host masks with the process umask in the
+usual way, so each directory's actual mode is `0755` with the umask bits
+cleared. On Windows each directory inherits its parent's security attributes.
 
-`path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
-absolute or relative to the current working directory, and may contain Unicode
-characters when the host filesystem accepts those names. Each prefix is created in turn, so `path` must be non-empty and must not contain an embedded NUL byte.
+`path` may be absolute or relative to the current working directory, and may
+contain Unicode characters when the host filesystem accepts those names. It
+must be non-empty and must not contain a NUL character.
 
 When the host refuses to create a prefix or the final component for any reason
 other than "it already exists", the walk stops there and raises the matching
 error below — leaving the directories it had already created. `ErrAccessDenied`
 means permission was refused, and `ErrInvalidPath` that `path` cannot name a
-directory: a prefix of it is a file, or a name in it is too long.
-`ErrPathNotFound` means a directory could not be created because its parent is
-missing — which, since the walk creates every parent, happens only when
-something removes one while the call runs. Every other refusal raises
-`ErrWriteFailed`. An empty `path`, or one containing a NUL byte, raises
-`ErrInvalidArgument`. `ErrOutOfMemory` means the program ran out of memory."#;
-const EX: &str = r#"Create a nested directory together with its missing parents:
+directory: a prefix of it exists but is not a directory, a link in it loops
+back on itself, or a name in it is too long. `ErrPathNotFound` means a
+directory could not be created because its parent is missing: a prefix of
+`path` is a symbolic link that points at nothing, or something removed a
+directory the walk had just created while the call was running. Every other
+refusal raises `ErrWriteFailed`. An empty `path`, or one containing a NUL
+character, raises `ErrInvalidArgument`. `ErrOutOfMemory` means the program ran
+out of memory."#;
+const EX: &str = r#"Create a nested directory together with its missing parents under the temporary
+directory, then remove it level by level:
 
 ```
 IMPORT fs
 
 FUNC main() AS Nothing
-  fs::createDirectories("target/example/nested")
+  LET top AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createDirectories-1"])
+  LET nested AS String = fs::pathJoin([top, "example", "nested"])
+  fs::createDirectories(nested)
+  fs::deleteDirectory(nested)
+  fs::deleteDirectory(fs::pathJoin([top, "example"]))
+  fs::deleteDirectory(top)
 END FUNC
 ```
 
@@ -80,10 +92,14 @@ Re-running is safe because existing directories are accepted:
 
 ```
 IMPORT fs
+IMPORT io
 
 FUNC main() AS Nothing
-  fs::createDirectories("target/example/nested")
-  fs::createDirectories("target/example/nested")
+  LET dir AS String = fs::pathJoin([fs::tempDirectory(), "mfb-createDirectories-2"])
+  fs::createDirectories(dir)
+  fs::createDirectories(dir)
+  io::print(toString(fs::directoryExists(dir)))
+  fs::deleteDirectory(dir)
 END FUNC
 ```"#;
 
@@ -98,11 +114,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "path",
-                desc: "The filesystem path of the directory to create, including any parents that \
-                       must be created first, as UTF-8 bytes; absolute or relative to the current \
-                       working directory. Must be non-empty and free of embedded NUL bytes. Every \
-                       `/`-separated component is created in order, and components that already \
-                       exist as directories are accepted.",
+                desc: "The filesystem path of the directory to create, including any parents that must be created first; absolute or relative to the current working directory. Must be non-empty and contain no NUL character. Components that already exist as directories are accepted.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

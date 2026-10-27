@@ -13,7 +13,9 @@ surrounding whitespace is trimmed, so a value read straight out of a config file
 or a form field resolves without cleaning up first.
 
 Anything not in the table raises `ErrNotFound` (`77050004`) — there is no
-best-effort or nearest-colour behaviour. `color::nameOf` is the reverse lookup.
+best-effort or nearest-colour behaviour. A hex string such as `#ff0000` is not a
+name and raises `ErrNotFound` too; parse those with `color::fromHex`.
+`color::nameOf` is the reverse lookup.
 `ErrOutOfMemory` means the program ran out of memory.
 
 **The CSS green is not the green you expect.** The CSS keyword `green` is `#008000`, a
@@ -100,8 +102,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "name",
-                desc: "The CSS colour name. Case-insensitive; surrounding whitespace \
-                       is ignored.",
+                desc: "The CSS colour name. Case-insensitive; leading and trailing \
+                       whitespace is ignored, but whitespace inside the name is not \
+                       (`\"rebecca purple\"` is unknown). An empty or all-whitespace \
+                       name raises `ErrNotFound`.",
                 aliases: &[],
                 ty: ParameterType::String,
                 default: DefaultValue::None,

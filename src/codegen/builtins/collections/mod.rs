@@ -92,8 +92,8 @@ const INTRO: &str = "List, Map, and Set helper functions";
 /// Package-overview description, from `src/docs/man/builtins/collections/package.md`
 /// (its Description section, citation markers stripped).
 const COLLECTIONS_DESC: &str = r#"The `collections` package provides package-qualified helpers for `List`, `Map`,
-and `Set` values: element access and updates (`get`, `set`, `append`, `prepend`, `insert`,
-`removeAt`, `removeKey`, `repeat`), higher-order transforms (`transform`, `filter`,
+and `Set` values: element access and updates (`get`, `getOr`, `set`, `replace`, `append`, `prepend`,
+`insert`, `removeAt`, `removeKey`, `repeat`), slicing (`take`, `drop`, `mid`), higher-order transforms (`transform`, `filter`,
 `reduce`, `reduceRight`, `forEach`, `mapValues`), queries (`find`, `findIndex`,
 `findLastIndex`, `contains`, `any`, `all`, `hasKey`, `keys`, `values`), reshaping
 (`sort`, `sortBy`, `distinct`, `flatten`, `zip`, `chunks`, `window`, `partition`,
@@ -103,8 +103,17 @@ and `Set` values: element access and updates (`get`, `set`, `append`, `prepend`,
 package: `IMPORT collections` needs no manifest dependency.
 
 These helpers do not mutate their arguments. A function that changes a collection
-returns a new value and leaves the original unchanged. List indexes are
-zero-based.
+returns a new value and leaves the original unchanged. Writing the result back to
+the same `MUT` variable — `xs = collections::append(xs, x)` — lets the compiler
+update that variable in place; the result is identical, only the cost differs.
+List indexes are zero-based. There is no bracket indexing in the language:
+`collections::get` and `collections::set` are the only way to read or replace an
+element. See `mfb man types list`, `mfb man types map` and `mfb man types set` for
+the containers themselves, including how `FOR EACH` walks each one.
+
+A lambda passed to any of these helpers cannot use a `MUT` declared in the
+surrounding function; see `mfb man lambda`. `collections::forEach` is the one
+helper where it can.
 
 Element and key types follow the comparable/orderable rules: `sort` and `sortBy`
 require an orderable element or key type, and `distinct` requires a comparable

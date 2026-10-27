@@ -121,7 +121,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Arg(0),
-            errors: vec!["ErrIndexOutOfRange"],
+            errors: vec!["ErrIndexOutOfRange", "ErrOutOfMemory"],
             body: Body::Intrinsic,
         }],
     });

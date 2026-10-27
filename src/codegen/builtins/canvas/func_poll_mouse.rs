@@ -98,7 +98,7 @@ each further one about 9 microseconds and about 170. A scene that changes every
 frame while the mouse moves pays the first figure every frame, and one that is
 presented only when something changed pays it only then.
 
-Requires `Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
+Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`."#;
 
 const EX: &str = r#"Poll for an event and ignore the idle answer:
 

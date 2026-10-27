@@ -33,7 +33,7 @@ shared console, so every terminating bucket maps to the same best-effort
 `TerminateProcess`, with a POSIX-flavored exit code (`128 + signo`, so `137`/`143`/
 `134` for `Kill`/`Terminate`/`Error`) that a later `process::waitFor` can read back;
 there is no per-signal fidelity. The full platform mapping is tabulated on
-`mfb man process types`.
+the `mfb man process` overview page.
 
 Delivery does not wait for or reap the child; call `process::waitFor` afterward to
 collect the exit status, or `process::didSignal` to read back which bucket a
@@ -48,7 +48,8 @@ IMPORT io
 FUNC main AS Integer
   RES child = process::spawn(["sleep", "30"])
   process::signal(child, process::Signal.Terminate)
-  ' A signalled child has no exit status of its own, so waitFor gives -1.
+  ' On Unix a signalled child has no exit status of its own, so waitFor gives -1;
+  ' on Windows it returns 143.
   IF process::waitFor(child) = -1 THEN
     io::print("stopped by a signal")
   END IF

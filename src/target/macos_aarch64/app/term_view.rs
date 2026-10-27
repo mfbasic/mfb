@@ -2785,6 +2785,12 @@ pub(super) fn emit_term_draw_text_helper(uses_term: bool) -> CodeFunction {
     // sets width = 1 and joins the stamp path's own column advance.
     asm.push(abi::compare_immediate(cp, "32"));
     asm.push(abi::branch_lt("dt_control"));
+    // DEL and the C1 controls (U+007F..U+009F) are control characters too.
+    asm.push(abi::compare_immediate(cp, "127"));
+    asm.push(abi::branch_lt("dt_not_ctrl"));
+    asm.push(abi::compare_immediate(cp, "159"));
+    asm.push(abi::branch_le("dt_control"));
+    asm.push(abi::label("dt_not_ctrl"));
     // Display width from the base scalar (gated); spilled across the pool msgSend.
     if uses_term {
         app_emit_charwidth(

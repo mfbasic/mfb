@@ -31,21 +31,22 @@ disturbing cursor-relative output.
 The text is drawn on a **single row**: it does not wrap and does not scroll.
 Characters that fall past the right edge are **clipped**, and columns before 0
 (when `column` is negative) are skipped, so only the on-screen part is drawn. If
-`row` is outside `0 .. rows-1` the call draws nothing. Control characters (below
-U+0020, including newline and tab) are **skipped** — they advance one column but
-stamp nothing — so a stray control character can never corrupt the presented
-frame; use `io::write` for flowing text with newline handling. The run is shown on
+`row` is outside `0 .. rows-1` the call draws nothing. Control characters —
+those below U+0020 (including newline and tab), DEL (U+007F) and the C1 controls
+U+0080–U+009F — are **skipped**: each advances one column but stamps nothing, so a
+stray control character can never corrupt the presented frame; use `io::write` for flowing text with newline handling. The run is shown on
 the next `term::sync`.
 
 The call is gated: while TUI mode is off it does nothing and reports no
 error.
 
-An overload accepts an `astrings::AttributedString` in the `text` position. It
+An overload accepts an `AttributedString` in the `text` position. It
 stamps the same visible text as the `String` overload but honours the per-scalar
 styling the value carries: the attributes the terminal surface can represent —
 **bold**, **underline**, **foreground colour** and **background colour** — are
 applied per run, and every other attribute (italic, strikethrough, overline, font,
-font size) is silently ignored. Grapheme-cluster and wide-glyph handling matches the
+font size) is silently ignored. A colour is applied without its alpha: a
+half-transparent colour draws exactly as the opaque one does. Grapheme-cluster and wide-glyph handling matches the
 `String` overload exactly: a cluster is always drawn whole in its own cells, and it
 takes the style of its **first** scalar — a style that changes inside a cluster (bold
 on a combining mark, say) is not shown. Your own current bold, underline, foreground
@@ -138,7 +139,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "text",
-                    desc: "The text to stamp, one grid position per grapheme cluster (a double-width cluster takes two columns). Characters below U+0020 are skipped: each advances one column and stamps nothing. An `AttributedString` additionally applies its per-scalar bold, underline, foreground and background (other attributes ignored).",
+                    desc: "The text to stamp, one grid position per grapheme cluster (a double-width cluster takes two columns). Characters below U+0020 are skipped: each advances one column and stamps nothing. An empty string draws nothing and is not an error. An `AttributedString` additionally applies its per-scalar bold, underline, foreground and background (other attributes ignored).",
                     aliases: &[],
                     ty: ParameterType::String,
                     default: DefaultValue::None,

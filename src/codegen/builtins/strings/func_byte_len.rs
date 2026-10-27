@@ -13,8 +13,8 @@ const INTRO: &str = r#"Return the UTF-8 byte length of a string."#;
 
 const DESC: &str = r#"`strings::byteLen` returns the number of bytes `value` occupies in its UTF-8
 encoding. It counts bytes, not characters: every byte of the encoding is counted
-exactly once. The answer is immediate however long the string is — `byteLen`
-does not walk the text.
+exactly once. The answer takes the same, constant time however long the string
+is.
 
 Because UTF-8 uses a variable number of bytes per Unicode scalar value, the
 result can exceed `len(value)`, which counts Unicode scalar values. ASCII scalars
@@ -29,9 +29,9 @@ To count Unicode scalar values use the bare `len` builtin; to count
 user-perceived characters use `strings::graphemesCount`; to obtain the individual
 bytes use `strings::toBytes`.
 
-`value` may also be an `astrings::AttributedString`: the query runs on its visible
-text and returns exactly what the `String` overload returns (same value, type, and
-errors)."#;
+`value` may also be an `AttributedString`: the query runs on its visible
+text and returns exactly what the `String` overload returns: the same value and
+type, and like it, it never fails."#;
 
 const EX: &str = r#"An ASCII string has one byte per scalar, a non-ASCII one does not:
 

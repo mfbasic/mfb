@@ -65,6 +65,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 960    | LOW      | `mfb build --app` bundles fail `codesign --verify` ("code has no resources but signature indicates they must be present") |
 | [ ]  | 972    | LOW      | closing an `--app` window (or Cmd-Q) ends a running program with exit status 0 and no teardown — buffered file output is lost, no `--debug` report (owner decided: new `app::shouldClose`) |
 | [ ]  | 997    | LOW      | Windows `--app` windows open at 400×300 (a 384×261 client) while macOS and Linux open at 900×640 |
+| [ ]  | 1118   | LOW      | macOS `--app` `term::drawGlyph` drops a wide glyph in the last column instead of drawing its first cell |
 
 ## Terminal and input
 
@@ -73,6 +74,9 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 969    | LOW      | `term::getForeground` / `getBackground` (all app backends) and `term::isOn` (macOS) do not raise `ErrWrongMode` outside `Mode.Console`, though they declare it (after 966) |
 | [ ]  | 971    | LOW      | the SGR mouse decoder and the key decoder accept malformed/overflowing numeric parameters |
 | [ ]  | 973    | LOW      | in an `--app` window, `io::readKey` right after `io::readLine`/`io::input` (or a canvas `readLine`) first returns the Return key's `Release`, a release whose press was never reported |
+| [ ]  | 1114   | MEDIUM   | `io::readLine` on a terminal raises `ErrEncoding` when Backspace follows a non-ASCII character |
+| [ ]  | 1117   | LOW      | a flag emoji measures and draws as one terminal cell; terminals show it as two |
+| [ ]  | 1128   | LOW      | Linux `--app` `term::clear`/`hideCursor`/`showCursor` present a frame without `term::sync` |
 
 ## Collections
 
@@ -111,6 +115,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
+| [ ]  | 1119   | MED      | `IF datetime::isLeapYear(year) THEN` fails to build at -O1 ("string literal 'builtins/datetime.mfb' has no data object") |
 | [ ]  | 828    | LOW      | json::parse depth cap admits 257 nested containers when the innermost is empty |
 | [ ]  | 829    | LOW      | csv::stringify → csv::parse drops a trailing single-empty-cell row and turns a zero-cell row into a one-cell row |
 | [ ]  | 869    | LOW      | `encoding::base64Decode` accepts excess `=` padding (`"AAAA===="`, `"AA======"`) |
@@ -136,19 +141,28 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 872    | LOW      | an IPv6-literal URL parses but cannot be used (the connect half) |
 | [ ]  | 986    | LOW      | an http client HEAD request waits for the server to close when the response carries a non-zero Content-Length (owner decided: a `method` field on `http::PendingState`) |
 | [ ]  | 1003   | LOW      | the `http::pump` man example can hang forever: it fetches a live remote (example.com) with no deadline (flake) |
+| [ ]  | 1130   | LOW      | list-form `udp::poll`/`tcp::poll` report a socket handed to another thread as `ErrResourceClosed`, not `ErrResourceMoved` |
 
 ## File system, I/O and OS
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
+| [ ]  | 1120   | MED      | `fs::deleteDirectory` goes through a directory symbolic link: `link/` removes the target dir; Windows removes the link |
+| [ ]  | 1121   | MED      | `thread::transfer` of a buffered `fs::File` drops the bytes still in its buffer |
+| [ ]  | 1124   | MED      | Windows `fs::openWithin` follows a symbolic link that stays inside `root` (other hosts refuse any link) |
 | [ ]  | 892    | LOW      | fs::readAll / fs::readAllBytes raise ErrReadFailed after fs::seek past end of file |
 | [ ]  | 893    | LOW      | fs::canonicalPath / fs::isWithin accept "file/" and "file/.." on macOS but raise ErrInvalidPath on Linux |
+| [ ]  | 1122   | LOW      | `fs::isWithin`'s `child` parameter is aliased `parent`, the opposite of what it names |
+| [ ]  | 1123   | LOW      | `fs::readAll`/`fs::readAllBytes` on a write-only `File` return empty instead of raising `ErrReadFailed` |
+| [ ]  | 1127   | LOW      | Windows `process::poll` with a negative timeout returns at once instead of waiting with no deadline |
 
 ## Types, records and unions
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 855    | LOW      | walking a recursive union with `MUT cur = c.rest` deep-copies the remaining tail every step — O(n²) time and allocations |
+| [ ]  | 1115   | MEDIUM   | field access on an `AttributedString` is not type-checked — `a.text` compiles and `a.foo` crashes the lowering |
+| [ ]  | 1126   | LOW      | `Point[]` (all-defaults record constructor, documented by bug-1021) is rejected with `TYPE_CONSTRUCTOR_ARITY_MISMATCH` |
 
 ## Templates and overloads
 
@@ -210,6 +224,8 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1041   | LOW      | a no-match call on a file's `PRIVATE`+`PUBLIC` overload set prints `#<hash>$r`, and `PRIVATE_SHADOWS_PUBLIC` fires on that legal overload (item 2 NEEDS AN OWNER DECISION; with 836 and 881) |
 | [ ]  | 1058   | LOW      | `wantsCur(1)` (an Integer to an `fs::File STATE Cur` parameter) reports a second, misleading `TYPE_STATE_MISMATCH` after the argument mismatch |
 | [ ]  | 1062   | LOW      | `TYPE_STATE_MISMATCH` for a bare file given to an imported FUNC value (`LET j = pkg::bump`) has no file and line |
+| [ ]  | 1116   | LOW      | `AttributedString & String` reports a mismatch against the internal `#astrings_concat`, with no location |
+| [ ]  | 1125   | LOW      | `LET xs = []` with no type is accepted, then fails later with an internal `List OF Unknown` lowering error |
 
 ## Codegen internals
 
@@ -246,6 +262,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 951    | LOW      | `/search` matches description text from the newest release of any state but shows the newest *active* release's description |
 | [ ]  | 953    | LOW      | `mfb repo transfer` tells the recipient to run a `transfer-accept` command that always fails |
 | [ ]  | 956    | LOW      | package-manager spec (01–04) drift and small protocol status/message defects (after 950) |
+| [ ]  | 1129   | LOW      | vector Fixed/Integer overloads don't declare `ErrOverflow`; math Constants table shows Float values for the `*Fixed` twins |
 
 ## Audit
 
