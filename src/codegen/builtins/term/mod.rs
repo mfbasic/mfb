@@ -230,8 +230,9 @@ corners). `term::fillRect` fills a rectangular region with a block or shade glyp
 chosen by the `term::FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Checker`,
 `CheckerAlt`) — the region-filling counterpart to `clear`. `term::drawText` stamps
 a string at an absolute position (without moving the cursor), and
-`term::drawGlyph` stamps one glyph from an Integer code point; a value below
-`U+0020` is skipped.
+`term::drawGlyph` stamps one glyph from an Integer code point; control code
+points (below `U+0020`, DEL and `U+0080`–`U+009F`) and values that are not Unicode
+scalars are skipped silently — see `term::drawGlyph`.
 
 The mouse is available too, and it is **opt-in**: `term::enableMouse(TRUE)`
 asks the terminal to report mouse activity and `term::pollMouse` takes the

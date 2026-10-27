@@ -47,12 +47,18 @@ key-agreement form.
 There are two password-based KDFs, and they are not interchangeable: use
 `crypto::argon2id` (memory-hard Argon2id, RFC 9106) to store a password, and
 `crypto::pbkdf2` for RFC 8018 / WPA2 compatibility or to stretch a passphrase into a
-key.
+key. For input that is already high-entropy — a `crypto::exchange` secret, a
+master key — use `crypto::hkdf`, which is fast and is the wrong tool for a
+password.
 
 The cryptographic operations take and return `List OF Byte`; `crypto::hash`,
-`crypto::hmac`, and `crypto::seal` also accept `String` data, which they encode
-as UTF-8. The identifier helpers (`uuid4`, `uuid7`, `ulid`) return a `String`,
-and `randomInt` returns an `Integer`. A digest, ciphertext, or key
+`crypto::hmac`, `crypto::shake256`, `crypto::seal`, and `crypto::encrypt` also
+accept `String` data, which they encode as UTF-8; every other member, including
+the password KDFs, takes bytes (`strings::toBytes`). Every member is one call over
+the whole message — there is no incremental or streaming form — so hash a file by
+reading it fully into a `List OF Byte` first (`fs::readBytes`). The identifier helpers (`uuid4`, `uuid7`, `ulid`) return a `String`,
+and `randomInt` returns an `Integer` (or a `big::Int` when given `big::Int`
+bounds; see `mfb man crypto randomInt`). A digest, ciphertext, or key
 is raw binary — stringify it for display or storage with the `encoding` package
 (`encoding::hexEncode`, `encoding::base64Encode`). The package defines two record
 types, `crypto::Sealed` and `crypto::KeyPair`; see `mfb man crypto types`.

@@ -77,6 +77,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 973    | LOW      | in an `--app` window, `io::readKey` right after `io::readLine`/`io::input` (or a canvas `readLine`) first returns the Return key's `Release`, a release whose press was never reported |
 | [ ]  | 1114   | MEDIUM   | `io::readLine` on a terminal raises `ErrEncoding` when Backspace follows a non-ASCII character |
 | [ ]  | 1117   | LOW      | a flag emoji measures and draws as one terminal cell; terminals show it as two |
+| [ ]  | 1128   | LOW      | Linux `--app` `term::clear`/`hideCursor`/`showCursor` present a frame without `term::sync` |
 
 ## Collections
 

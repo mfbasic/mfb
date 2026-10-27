@@ -18,8 +18,9 @@ struck or overlined when any covering span says so; its font and size come from 
 modified. Runs are cut at Unicode scalar boundaries, the same unit `astrings::addAttribute` ranges
 use, so a marker can land between a base letter and its combining mark.
 
-**This is not CommonMark.** The format is read by the `astrings` toolchain, not a
-standard markdown engine; do not treat `__`/`^^`/`::…::` as CommonMark.
+**This is not CommonMark** and nothing in MFBASIC reads it back; it is a
+debugging and display rendering only. Do not feed `__`/`^^`/`::…::` to a markdown
+engine.
 
 - **Flags** wrap each run as nested pairs in this order — `**bold**`, `*italic*`,
   `__underline__`, `~~strike~~`, `^^overline^^` — and close in the reverse order, so

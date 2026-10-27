@@ -115,8 +115,8 @@ grows with the message count, so rotate the key well before roughly **2³²** me
 given `(key, nonce, data, aad)`.
 
 **Key quality.** The 32-byte `key` must be uniformly random — draw it from
-`crypto::randomBytes(32)`, a key-agreement result, or a KDF (`crypto::hkdf` /
-`crypto::pbkdf2`). Never seal directly under a password, passphrase, or other
+`crypto::randomBytes(32)`, a key-agreement result, or a KDF (`crypto::hkdf`, or for a passphrase `crypto::pbkdf2`;
+store a password with `crypto::argon2id`). Never seal directly under a password, passphrase, or other
 low-entropy value.
 
 **Implementation.** Both ciphers are pure MFBASIC software cores computed over the

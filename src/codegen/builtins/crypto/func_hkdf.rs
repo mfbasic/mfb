@@ -37,8 +37,8 @@ than `255 * L` raises `ErrInvalidArgument`. `ikm`, `salt`, and `info` may each b
 length, including empty.
 
 HKDF is a key-derivation function for **already-high-entropy** input (a shared
-secret, a Diffie-Hellman result); it is **not** a password hash — stretch a
-low-entropy password with `crypto::pbkdf2` instead. Derived key material is raw
+secret, a Diffie-Hellman result); it is **not** a password hash —
+store a password with `crypto::argon2id`, or stretch a passphrase into a key with `crypto::pbkdf2` instead. Derived key material is raw
 binary, not text — stringify it with `encoding::hexEncode` or
 `encoding::base64Encode` to display or store it.
 

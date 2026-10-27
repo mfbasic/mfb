@@ -16,7 +16,9 @@ const DESC: &str = r#"`removeAttribute` returns a new `AttributedString` with `a
 `[start, endIndex]`. A stored span is affected only when its attribute **structurally matches** `attr`:
 the same member and, for the attributes that carry a value — font, font size, foreground and
 background — the same value. Every matching span is affected, not just the first, and a range that no
-matching span touches is not an error: the result carries the same attributes as `value`. A matching
+matching span touches is not an error: the result carries the same attributes as `value`. To drop
+every attribute over a range regardless of which it is, use `astrings::clearAttributes`; to add one
+back, `astrings::addAttribute`. A matching
 span that straddles the range is **split**: the part before `start` and/or the part after
 `endIndex` survives, and the overlap is dropped. Because a higher start wins where spans overlap, removing a covering
 winner can reveal a lower-start loser at read time.

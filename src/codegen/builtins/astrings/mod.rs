@@ -120,6 +120,12 @@ be built with a record literal (`AttributedString[...]`), and cannot be
 never a `Map` key or `Set` element.
 
 Reach the visible text with `toString(a)`; `io::print`/`io::write` emit it. The
+styling is drawn by `term::drawText` (see `mfb man term drawText`); `io::print` and
+`astrings::toMarkdown` do not draw colour. `regex::count`, `regex::split` and
+`term::measureText` also accept an `AttributedString` at the text position.
+Ranges and indices count Unicode scalars, not graphemes: the last valid index is
+`len(strings::toScalars(a)) - 1`; `len(a)` is not accepted, and
+`strings::graphemesCount` counts graphemes, a different unit. The
 text is never reached by an implicit coercion — only through `toString` or an
 explicit overload.
 
