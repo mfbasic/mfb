@@ -142,6 +142,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 986    | LOW      | an http client HEAD request waits for the server to close when the response carries a non-zero Content-Length (owner decided: a `method` field on `http::PendingState`) |
 | [ ]  | 1003   | LOW      | the `http::pump` man example can hang forever: it fetches a live remote (example.com) with no deadline (flake) |
 | [ ]  | 1130   | LOW      | list-form `udp::poll`/`tcp::poll` report a socket handed to another thread as `ErrResourceClosed`, not `ErrResourceMoved` |
+| [ ]  | 1131   | MED      | a dropped `RES Thread` handle can still count against `maxThreads`: start-drop-start in a loop fails `7-705-0029` under load (flaky `rt_scope_drop_leaks` b695_thread_pool) |
 
 ## File system, I/O and OS
 
