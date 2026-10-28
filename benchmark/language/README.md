@@ -29,7 +29,7 @@ for each package lives on its own (the same split in all three):
 | `dispatch*.*`       | `dispatch`        | control-flow dispatch: union + `MATCH` tag-dispatch expression eval, and inline-`TRAP` error recovery |
 | `crypto*.*`         | `crypto`          | `crypto::` hashes (SHA-256/512), HMAC-SHA-256, PBKDF2, constant-time compare, a fresh-message hash churn, and deterministic Ed25519 sign+verify — the portable software core over `bits`, cross-checked against `hashlib`/`hmac`/pyca |
 | `serialize*.*`      | `serialize`       | `json::stringify` / `csv::stringify` — the encode direction (recursive tree walk + escape + number/field rendering) complementary to the `parse` group |
-| `setops*.*`         | `set (Fixed/Dynamic)`, `set (Record-Fixed/Dynamic)`, `set (State-Fixed/Dynamic)` | the `Set OF T` collection type (plan-63), each op split one-per-function (`add`/`remove`/`contains`/`toList`/`toSet`/`union`/`intersection`/`difference`/`symmetricDifference`/`isSubset`/`isSuperset`/`isDisjoint`) and replicated across the same 6-way matrix as `list` (bug-430) — Integer/String element × plain/record/`STATE` container. Set-producing rows run at a reduced size (arena-churn caveat below). The plain `Fixed`/`Dynamic` groups have C/Python peers (`setmatrix.c` / `setmatrix.py`, checksums matched bit-for-bit); the Record/State groups are mfb-only |
+| `setops*.*`         | `set (Fixed/Dynamic)`, `set (Record-Fixed/Dynamic)`, `set (State-Fixed/Dynamic)` | the `Set OF T` collection type (plan-63), each op split one-per-function (`add`/`remove`/`contains`/`toList`/`toSet`/`union`/`intersection`/`difference`/`symmetricDifference`/`isSubset`/`isSuperset`/`isDisjoint`) and replicated across the same 6-way matrix as `list` (bug-430) — Integer/String element × plain/record/`STATE` container. Set-producing rows run at a reduced size (allocation-scaling guidance below). The plain `Fixed`/`Dynamic` groups have C/Python peers (`setmatrix.c` / `setmatrix.py`, checksums matched bit-for-bit); the Record/State groups are mfb-only |
 
 In addition to that per-member surface, a second set of **pattern-throughput**
 groups (plan-40) exercises the hot paths real programs hit — sustained churn,
@@ -42,10 +42,10 @@ chained pipelines, compile-once/run-many — rather than one call per member:
 | `float matmul` + `mathpipe` | dense N×N `Float` matmul; a naive DFT (sin/cos interleaved with float ops); mean/variance/stddev reduction; a bottom-up coin-change `memo` DP over a `List` memo table; and two mfb-only `Money` rows — `finance` (running balance) and `money` (per-line tax/tip pipeline) |
 | `strbuild`          | `&`-concat vs `strings::join` string building, `split`/`join` round-trip, and a `replace`/`trimChars`/`stripPrefix`/`padLeft` cleaning chain |
 | `regexbench`        | compile-once/match-many, capture-group rewrite, `\|`-alternation find-all, and pattern-driven replace |
-| `arena`             | mixed-size transient-churn / long-lived+short-lived / grow-shrink — the **regression gate for the arena free list** (see below) |
+| `arena`             | mixed-size transient-churn / long-lived+short-lived / grow-shrink — the allocator regression gate (see below) |
 | `scalarbench`       | the `Scalar` primitive (plan-41): string↔`List OF Scalar` round-trip, `is*` classification sweep, `toInt`/`toScalar` transform pipeline, and the 4-byte `List OF Scalar` payload width |
-| `width`             | `term::measureText` (plan-178) — the benchmark of terminal display width (UAX #29 grapheme segmentation + a per-cluster utf8proc column-width lookup): `ascii` (all-narrow EGC fast path over a fixed ~4 KB buffer), `mixed` (the wide-CJK / zero-width-combining / ZWJ-emoji slow path over a curated corpus, plus a companion `graphemesCount`), and `churn` (per-row segmentation of fresh String temporaries — arena-gated, tiny) |
-| `pipeline`          | chained collection HOF pipelines (plan-87) — the shape the per-member matrix never chains, stressing the intermediate lists materialized between stages: `int` (`filter`→`transform`→`reduce` over a `List OF Integer`), `groupagg` (`groupBy`→`mapValues(reduce)`→`values`→`reduce` map-of-list ETL fold), and `str` (the same chain over a `List OF String` with `strings::upper` — arena-gated, small) |
+| `width`             | `term::measureText` (plan-178) — the benchmark of terminal display width (UAX #29 grapheme segmentation + a per-cluster utf8proc column-width lookup): `ascii` (all-narrow EGC fast path over a fixed ~4 KB buffer), `mixed` (the wide-CJK / zero-width-combining / ZWJ-emoji slow path over a curated corpus, plus a companion `graphemesCount`), and `churn` (per-row segmentation of fresh String temporaries — allocation-heavy, deliberately small) |
+| `pipeline`          | chained collection HOF pipelines (plan-87) — the shape the per-member matrix never chains, stressing the intermediate lists materialized between stages: `int` (`filter`→`transform`→`reduce` over a `List OF Integer`), `groupagg` (`groupBy`→`mapValues(reduce)`→`values`→`reduce` map-of-list ETL fold), and `str` (the same chain over a `List OF String` with `strings::upper` — allocation-heavy, deliberately small) |
 | `convert`           | in-memory number-conversion throughput (plan-87), isolating `toString`/`toInt`/`toFloat` from the file-IO-bound `io format`/`readnum` rows: `int` (`toString`/`toInt` round-trip) and `float` (`toString(_,6)`/`toFloat` round-trip over exact dyadic values) |
 | `record wide`/`nested` + `float nbody_rec`/`nbody_vec` (`recordbench.*`) | record-shaped code the way users write it (P1 coverage): `wide` (1M `WITH`-updates of a 10-field mixed Integer/Float/String record passed into and returned from a FUNC), `nested` (the same update on that record inside a record inside a `List` — `get`, nested `WITH`, `collections::set` write-back); `nbody_rec` / `nbody_vec` are the **same simulation as `float nbody`** (same bodies, 100000 steps, same pair and float op order) over a `List OF Body` of records updated with `WITH` + `collections::set`, and over `vector::Float3` position/velocity fields with `vector::dot`/`vector::distance`. C peers use structs by value (a 3-double struct for `vec`), Python `dataclasses.replace` (records) and `__slots__` objects / tuples (n-body). Record-row Float ops are adds or power-of-two multiplies (exact), and the n-body rows fold `round(energy × 1e9)` — the nine decimals `float nbody` prints — so all checksums match bit-for-bit (`wide=10005154`, `nested=3543353`, `nbody_rec`=`nbody_vec`=`-169079859`) |
 | `bigint`            | the `big::Int` arbitrary-precision integer (P1): `pidigits` (Benchmarks Game spigot, 400 digits — add/multiply/divide/compare on growing state), `factorial` (`big::factorial(2000)` + `big::toString`), `modpow` (RSA-2048 public-key shape: 16 bases ^ 65537 mod a 2048-bit modulus), and `gcd` (200 Fibonacci pairs — Euclid's worst case — `big::parse`d, `big::gcd`'d and rendered back). Python peer is native `int`; no C peer (`--`) |
@@ -123,17 +123,16 @@ Each row folds set sizes into an integer checksum that matches across all three
 containers (the matrix's correctness proof); the plain `Fixed`/`Dynamic` rows are
 peered by `setmatrix.c` / `setmatrix.py`, the Record/State rows are mfb-internal
 with no C/Python peer, and the set-producing algebra rows run at a reduced size
-(arena-churn caveat below). The old bundled `set` group (`build`/`ops`) that this
+(allocation-scaling guidance below). The old bundled `set` group (`build`/`ops`) that this
 matrix replaced is gone from all three languages.
 
 Only two crypto rows measure at realistic sizes today — `sha256` and `cte`, whose
-transients stay in the arena quick bins and whose per-call cost is flat across the
-run loop. The rest (`sha512`, `hmac`, `pbkdf2`, `churn`, `ed25519`) and the whole
-`serialize` group are arena-gated (see below): mfb's crypto/serialize cores
-allocate transient `List OF Byte`/`String` values per operation, so at realistic
-sizes they hit the runtime arena's quadratic free-list path and climb cumulatively.
-They are authored tiny with a `TODO(plan-64-A)` marker, to be bumped to realistic
-sizes in the commit that lands the arena fix. Ed25519 has no in-suite C peer
+transients stay in the arena's small-page path and whose per-call cost is flat across
+the run loop. The rest (`sha512`, `hmac`, `pbkdf2`, `churn`, `ed25519`) and the whole
+`serialize` group allocate transient `List OF Byte`/`String` values per operation and
+therefore remain intentionally smaller to keep the unified cross-language suite
+practical. Their sizes are workload choices, not a workaround for an unbounded arena
+free-list scan. Ed25519 has no in-suite C peer
 (deterministic RFC-8032 signing has no libc entry point the suite hand-rolls), so
 its C column prints `--`; mfb and Python agree because the seed is fixed.
 
@@ -317,7 +316,7 @@ Python `record(group, name, None)` does.
   copy references — each language's idiomatic copy of an immutable string. The
   map peers are a hand-rolled open-addressing table (C) and `dict` (Python). The
   record rows run at a modest 1000 elements (the record carries a `String`
-  field — arena-churn caveat below); none degrades across the run loop at that
+  field — allocation-scaling guidance below); none degrades across the run loop at that
   size.
 - **`closure` (P1)** — C has no closures, so a function value is a
   `{function pointer, env pointer}` pair (`bench_opaque` hides the target so -O2
@@ -328,75 +327,33 @@ Python `record(group, name, None)` does.
   Checksums match (`hof_param=2499997500000`, `closure_ret=34546050000`,
   `capture_mut=1996501500`).
 
-### Arena-churn caveat + regression gate (plan-39-A)
+### Arena-churn coverage + regression gate
 
-Several rows use **deliberately tiny** iteration counts because MFBASIC's runtime
-arena free list degrades quadratically under mixed-size **transient** churn — the
-short-lived `List`/`String` temporaries that
-`strings::graphemes`/`graphemeAt`/`graphemesCount`/`toBytes`/`normalizeNfc`/`toScalars`
-allocate, and the String copies that `collections::sort`/`window` make. The
-degradation is process-global and cumulative across the `run` loop (a fresh row
-starts fast, each repeat gets dramatically slower): a few hundred such allocations
-stay linear; tens of thousands hang the suite for minutes.
+The arena no longer has an unbounded mixed-size free-list path. Small allocations
+use per-size-class pages; medium allocations use 64 size classes and bounded scans;
+huge allocations use a bounded best-fit scan. Medium and huge frees coalesce
+immediately, and long-idle memory is decommitted. See `mfb spec memory arenas` for
+the runtime contract.
 
-The pre-existing `string unicode` row is a small coverage smoke-test for this
-reason (the former `liststr reshape` smoke-test is superseded by the reduced-size
-rows in the collection-container matrix documented below). The plan-40 rows carrying a `TODO(plan-39-A)` marker
-— `string unibig`, `io binary`, the whole `arena` group, and `scalarbench
-roundtrip`/`transform`/`listchurn` — are authored tiny **on purpose**: they are
-the regression gate for the arena fix (plan-39-A). When that lands, each is bumped
-from tiny to realistic size in the same commit and must stay **linear** — that
-jump is the fix's acceptance criterion. (This is a runtime arena regression, not a
-property of the benchmarked code; the C/Python mirrors keep the same tiny counts
-only so the table lines up.)
+The `arena` group remains the direct regression gate: its transient, mixed, and
+grow-shrink rows must have stable per-run timings as `--run` increases. The
+`string unibig`, `io binary`, `scalarbench roundtrip`/`transform`/`listchurn`,
+`encoding base64`, `datetime iso`, and `map intchurn` rows also exercise allocation
+churn. Their deliberately modest sizes keep a full six-target benchmark run useful
+in local development; increase them only with a recorded baseline and a scaling
+check, rather than assuming an allocator limitation.
 
-The plan-45 rows carrying a `TODO(plan-44-J)` marker — `encoding base64`,
-`datetime iso`, and `map intchurn` — are the same kind of gate for the current
-arena sub-plan (plan-44-J, successor to plan-39-A): each allocates a fresh
-`List`/`String`/`Map` per call and is authored tiny on purpose, to be bumped to a
-realistic `BUF`/`reps`/`W`/`steps` in the commit that lands plan-44-J and must
-stay linear. (`encoding hex`/`percent`, `datetime civil`, `map intkey`/`listagg`,
-`mathpipe memo`, and the `list sort_*` rows are Phase 1 — not arena-sensitive at
-their authored sizes — and run at realistic counts today.)
-
-The plan-65 rows carrying a `TODO(plan-64-A)` marker are the same kind of gate for
-the current arena sub-plan (plan-64-A, successor to plan-44-J): the `crypto`
-`sha512` (`reps`), `hmac` (`reps`), `pbkdf2` (`iterations`), `churn` (`msgs`), and
-`ed25519` (`reps`) rows, plus the whole `serialize` group (`json`/`roundtrip`/`csv`
-`reps`). mfb's software crypto/serialize cores allocate transient `List OF
-Byte`/`String` values per operation, so at realistic sizes they cross the arena
-quick-bin threshold (SHA-512's >2 KB working set) or fill the quick bins by sheer
-volume (PBKDF2's thousands of HMAC passes), hitting the O(n²) free-list path and
-climbing cumulatively. At their realistic target sizes they explode in-suite —
-`sha512` reps=64 → 1.6 s (26 ms in a clean process), `pbkdf2` iters=4096 → ~8 s
-(224 ms clean), `hmac` reps=64 climbing 180 ms → 1300 ms across `--run 10` — so
-each is authored tiny on purpose, to be bumped to a realistic `reps`/`iterations`
-in the commit that lands plan-64-A and must stay linear. (Only `crypto sha256` and
-`crypto cte` are Phase 1 — their transients stay in the quick bins and their
-per-call cost is flat across the run loop — and run at realistic counts today.)
-
-The plan-87 rows carrying arena markers are two: `width churn` (`TODO(arena
-grapheme-churn)`) segments many *fresh* short String temporaries per iteration, so
-it hits the residual grapheme-transient-churn quadratic that
-`strings::graphemes`/`graphemesCount`/`term::measureText`-over-fresh-strings still
-degrade on — authored tiny (8 rows × 5 passes), to be bumped and kept linear when
-that residual lands; and `pipeline str` (`TODO(plan-86-A)`) reshapes a `List OF
-String` through `filter`/`transform`(`upper`)/`reduce`, allocating fresh String
-temporaries, so it is authored small (50 elems × 20 reps) until plan-86 sub-plan A
-(String native lowering) lands. Their same-buffer / Integer siblings — `width
-ascii`, `width mixed` (`measureText` alone streams with no retained temporary and
-stays flat; the degrading `graphemesCount` companion is called once, not per rep),
-`pipeline int`, `pipeline groupagg`, and both `convert` rows — are Phase 1 and run
-at realistic sizes today.
+The `width churn` row segments fresh short Strings, while `pipeline str` reshapes
+Strings through `filter`/`transform`/`reduce`; both remain smaller than their
+same-buffer or Integer siblings because they measure substantially more string work,
+not because the allocator degrades cumulatively.
 
 The bug-430 **collection-container matrix** (`list.mfb`, `setops.mfb` — each
 collection op replicated across a `Fixed`/`Dynamic` × plain/`Record`/`State` grid)
-is arena-churn-sensitive on its **collection-producing** rows, which allocate a
-fresh `Set`/`List` per iteration. These are authored at deliberately small sizes
-as coverage smoke-tests (a `union` of two 1000-element `Set`s at 200 reps takes
-~12 s in-suite from cumulative free-list degradation, but ~0.1 s at the reduced
-size). When the arena fix lands (successor to plan-64-A), the reduced rows below
-bump to full size and must stay **linear**. Affected items:
+is allocation-sensitive on its **collection-producing** rows, which allocate a
+fresh `Set`/`List` per iteration. These are authored at deliberately modest sizes
+so the full six-target suite remains practical; they are coverage and scaling
+sentinels, not a workaround for an allocator pathology. Affected items:
 
 - **`set (*)` set-producing ops — every group** (`Fixed`, `Dynamic`, `Record-Fixed`,
   `Record-Dynamic`, `State-Fixed`, `State-Dynamic`): `toSet`, `union`,
